@@ -32,7 +32,7 @@
 
 import { Container, Text, type TextStyleOptions } from "pixi.js";
 
-export interface TextStyleSpec {
+interface TextStyleSpec {
 	fontFamily: string;
 	fontSize: number;
 	fill: number | string;

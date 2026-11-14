@@ -96,7 +96,7 @@ export function makeLiveAppender(opts: {
  * Connection reports stop at `dispose`. The error callback is the application
  * sink and remains attached while pending setup and retirement finish, so their
  * failures outlive the view that initiated them. */
-export type FeedDial = {
+type FeedDial = {
 	/** The complete OCapN sturdyref announced by the trace endpoint. */
 	sturdyref: string;
 	/** Test seam for the browser peer. Production uses the wasm-backed peer. */

@@ -93,7 +93,7 @@ export interface Mycelium {
 	stop(): void;
 }
 
-export interface MyceliumOptions {
+interface MyceliumOptions {
 	/** Treat this load as an arrival, whatever the tab has seen. A page that
 	 * is opened rather than navigated to, as Rooms is, says so. */
 	arriving?: boolean;

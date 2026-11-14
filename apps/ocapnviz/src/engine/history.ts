@@ -63,7 +63,7 @@ export type DocSnapshot = {
 /** History stack entry. `label` is the forward-direction action
  * name ("Add peer", "Move peer"). The UI prefixes it with "Undo "
  * / "Redo " for tooltips. */
-export type HistoryEntry = {
+type HistoryEntry = {
 	snapshot: DocSnapshot;
 	label: string;
 };

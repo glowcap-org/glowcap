@@ -37,13 +37,13 @@ export function isInSelection(
 	return set?.has(`${ref.kind}:${ref.id}` as EntityRefKey) ?? false;
 }
 
-export type PeerInfo = {
+type PeerInfo = {
 	label: string;
 	profile: PeerProfile;
 	lifecycle: LifecycleStatus;
 };
 
-export type SessionInfo = {
+type SessionInfo = {
 	a: string;
 	b: string;
 	codec: Codec;
@@ -110,7 +110,7 @@ export function sessionInfo(
 	};
 }
 
-export type MessageInfo = {
+type MessageInfo = {
 	fromId: string;
 	toId: string;
 	sessionId: string;

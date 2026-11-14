@@ -76,8 +76,8 @@ export const MESSAGE_LABEL_GAP_PX = 6;
  * overlap, because `LayoutConfig.nodeSpacing` adds several times that much
  * room on top of the estimate.
  */
-export const SANS_ADVANCE = 0.5;
-export const MONO_ADVANCE = 0.6;
+const SANS_ADVANCE = 0.5;
+const MONO_ADVANCE = 0.6;
 
 /** How tall one line of text stands as a share of its font size. An estimate
  *  of the line box Pixi computes from the font's own metrics, for the same

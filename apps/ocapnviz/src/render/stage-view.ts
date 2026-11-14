@@ -53,7 +53,7 @@ export const MIN_STAGE_SCALE = 0.01;
 export const MAX_STAGE_SCALE = 99.99;
 
 /** How much one zoom step multiplies or divides the scale. */
-export const STAGE_ZOOM_STEP = 1.2;
+const STAGE_ZOOM_STEP = 1.2;
 
 export type StageView = {
 	/** Scale, where 1 is one world unit per screen pixel. */
@@ -125,7 +125,7 @@ export function canStepIn(zoom: number): boolean {
 }
 
 /** A rectangle in world units, what the stage has drawn. */
-export type ContentBounds = {
+type ContentBounds = {
 	x: number;
 	y: number;
 	width: number;

@@ -20,7 +20,6 @@ import {
 	deletePeer,
 	removePeerUpdate,
 	setPeerDuration,
-	setPeerEnd,
 	setPeerStart,
 	setPeerUpdate,
 	updatePeer,
@@ -32,21 +31,13 @@ import {
 	deleteSession,
 	removeSessionKeyframe,
 	setSessionDuration,
-	setSessionEnd,
 	setSessionInitialState,
 	setSessionKeyframe,
 	setSessionStart,
 	updateSession,
 	updateSessionEndpoint,
 } from "./session.ts";
-import {
-	clearMessageStart,
-	deleteMessage,
-	setMessageDuration,
-	setMessageEnd,
-	setMessageStart,
-	updateMessage,
-} from "./message.ts";
+import { clearMessageStart, deleteMessage, setMessageDuration, setMessageStart, updateMessage } from "./message.ts";
 import { spawnMessage, spawnPeer, spawnSession } from "./spawn.ts";
 
 /**
@@ -111,9 +102,6 @@ export function applyBuilderIntent(
 		case "move-entity-span":
 			moveEntitySpan(ctx, intent.move);
 			return undefined;
-		case "set-peer-end":
-			setPeerEnd(ctx, intent.peerId, intent.t);
-			return undefined;
 		case "set-peer-duration":
 			setPeerDuration(ctx, intent.peerId, intent.duration);
 			return undefined;
@@ -150,14 +138,8 @@ export function applyBuilderIntent(
 		case "clear-message-start":
 			clearMessageStart(ctx, intent.messageId);
 			return undefined;
-		case "set-message-end":
-			setMessageEnd(ctx, intent.messageId, intent.t);
-			return undefined;
 		case "set-message-duration":
 			setMessageDuration(ctx, intent.messageId, intent.duration);
-			return undefined;
-		case "set-session-end":
-			setSessionEnd(ctx, intent.sessionId, intent.t);
 			return undefined;
 		case "set-session-duration":
 			setSessionDuration(ctx, intent.sessionId, intent.duration);

@@ -25,13 +25,13 @@ import type { PeerSprite, StartNodeDrag } from "./sprites/types.ts";
 
 /** World cursor the wire preview reads. Node-drag writes it while
  *  pointer-capture suppresses the viewport's own pointermove. */
-export type StageNodeDragCursor = {
+type StageNodeDragCursor = {
 	x: number;
 	y: number;
 	hasValue: boolean;
 };
 
-export type StageNodeDragHost = {
+type StageNodeDragHost = {
 	app: Application;
 	engine: Engine;
 	viewport: Viewport;
@@ -66,7 +66,7 @@ export type StageNodeDragHost = {
 	cleanups: Array<() => void>;
 };
 
-export type StageNodeDrag = {
+type StageNodeDrag = {
 	startNodeDrag: StartNodeDrag;
 	/** Close an in-flight translate without selecting. Region resize
 	 *  and scene teardown use this so an open engine transaction ends. */

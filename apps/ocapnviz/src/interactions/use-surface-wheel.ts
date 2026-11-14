@@ -11,15 +11,9 @@ import { useEffect, useRef } from "react";
 import type { SurfaceId } from "./surface-hit.ts";
 import { type WheelEffect, type WheelPolicy, wheelToEffect } from "./wheel-helpers.ts";
 
-export {
-	WHEEL_FAST_FACTOR,
-	WHEEL_ZOOM_RATE,
-	type WheelEffect,
-	type WheelPolicy,
-	wheelToEffect,
-} from "./wheel-helpers.ts";
+export type { WheelEffect } from "./wheel-helpers.ts";
 
-export type SurfaceWheelHandlers = {
+type SurfaceWheelHandlers = {
 	onEffect: (effect: WheelEffect) => void;
 };
 

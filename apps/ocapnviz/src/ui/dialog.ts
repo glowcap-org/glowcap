@@ -20,7 +20,7 @@
  *  layer decides", which leaves the browser's own behavior in place, a
  *  focused button already activates on Enter, and Tab already moves through
  *  the controls everywhere except the two ends. */
-export type DialogKeyIntent =
+type DialogKeyIntent =
 	| { kind: "primary" }
 	| { kind: "dismiss" }
 	/** Tab ran off an end of the dialog. Put focus back at the other end. */

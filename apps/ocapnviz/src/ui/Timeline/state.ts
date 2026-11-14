@@ -58,7 +58,7 @@ export const GUTTER_MAX_PX = 320;
  *  Row backgrounds (zebra, header tint, drag overlays) paint
  *  THROUGH both pads. The bands are content-clamp, not visual-
  *  hide. */
-export const PLOT_LEFT_PAD_PX = 4;
+const PLOT_LEFT_PAD_PX = 4;
 export const PLOT_RIGHT_PAD_PX = 4;
 
 /** Per-view effective gutter width. The override on the view or
@@ -175,7 +175,7 @@ export function applyWheel(
 }
 
 /** Default lanes opened when the timeline first mounts. */
-export const DEFAULT_EXPANDED: ReadonlySet<LaneKind> = new Set([
+const DEFAULT_EXPANDED: ReadonlySet<LaneKind> = new Set([
 	"ruler",
 	"peers",
 	"sessions",
@@ -298,7 +298,7 @@ export function fitAll(v: TimelineView, duration: number): TimelineView {
  * Convert a pixel offset within the scrubber's rendered width into a
  * sim-time `t`. Inverse of [`tToPx`].
  */
-export function pxToT(
+function pxToT(
 	px: number,
 	scrubberWidth: number,
 	v: TimelineView,
@@ -314,7 +314,7 @@ export function pxToT(
  * `t` is outside the visible window, callers cull off-screen
  * glyphs themselves.
  */
-export function tToPx(
+function tToPx(
 	t: number,
 	scrubberWidth: number,
 	v: TimelineView,

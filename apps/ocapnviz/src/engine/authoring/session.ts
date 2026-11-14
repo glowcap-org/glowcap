@@ -215,29 +215,6 @@ export function setSessionDuration(
 	commitEntityAuthoring(ctx, sessionEffective(ctx.doc, sessionId).end);
 }
 
-/** End-flavored wrapper. Translates absolute `t` to a duration off the
- *  session's effective start, then defers to `setSessionDuration`. */
-export function setSessionEnd(
-	ctx: AuthoringContext,
-	sessionId: string,
-	t: number,
-): void {
-	const def = ownEntry(ctx.doc.entities?.sessions, sessionId);
-	if (!def) {
-		ctx.emitError(notFoundError("session", sessionId));
-		return;
-	}
-	const start = sessionEffective(ctx.doc, sessionId).start;
-	if (t < start) {
-		ctx.emitError(validationError(
-			`Session end (${t}) is before its start (${start}).`,
-			"Move the end after the start, or clear the start first.",
-		));
-		return;
-	}
-	setSessionDuration(ctx, sessionId, t - start);
-}
-
 /** Restore implicit (stays-open) end. */
 export function clearSessionEnd(
 	ctx: AuthoringContext,

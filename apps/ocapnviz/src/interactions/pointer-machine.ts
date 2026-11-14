@@ -20,7 +20,7 @@ import type { Hit, SurfaceId } from "./surface-hit.ts";
 
 // ─────────────────────── State, events, effects (§ 2.6, § 5) ───────────
 
-export type FsmForeground =
+type FsmForeground =
 	| { kind: "idle" }
 	| {
 		kind: "pressed";
@@ -111,7 +111,7 @@ export type Effect =
 
 /** Manhattan-distance threshold for click-vs-drag. 4 px is the
  *  Figma / Adobe default. */
-export const DRAG_THRESHOLD_PX = 4;
+const DRAG_THRESHOLD_PX = 4;
 
 // ─────────────────────── Reducer entrypoint ──────────────────────────
 

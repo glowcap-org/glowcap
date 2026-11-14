@@ -46,7 +46,7 @@ import type { ModifierSet } from "../interactions/pointer-input.ts";
 import { dispatchShortcut, type KeyboardShortcutBindings, type KeyEventFacts } from "./keyboard-shortcuts.ts";
 
 /** Every gesture whose meaning is "while this key is held". */
-export type HeldGestureId = "space-pan" | "shift" | "alt";
+type HeldGestureId = "space-pan" | "shift" | "alt";
 
 /** App facts a claim guard may read. Sampled at the press and not
  *  consulted again for the life of that hold. */
@@ -56,7 +56,7 @@ export type HeldGestureContext = {
 	overStage: boolean;
 };
 
-export type HeldGestureRow = {
+type HeldGestureRow = {
 	readonly id: HeldGestureId;
 	/** Lowercased `KeyboardEvent.key` spellings that press this
 	 *  gesture. Older browsers still send "Spacebar" for space. */
@@ -185,7 +185,7 @@ function heldGestureFor(key: string): HeldGestureRow | null {
 }
 
 /** What a press turned out to mean. */
-export type KeyPress =
+type KeyPress =
 	/** A held gesture took this press and holds until its release. */
 	| { kind: "claim"; id: HeldGestureId }
 	/** The key is already held. A repeat is not a second press, and
@@ -196,7 +196,7 @@ export type KeyPress =
 	/** No gesture wanted it and no shortcut bindings are attached. */
 	| { kind: "none" };
 
-export type KeyDownResult = {
+type KeyDownResult = {
 	/** The held set after this press. The same instance when the
 	 *  press changed nothing, so a React caller can skip a render. */
 	held: HeldGestures;

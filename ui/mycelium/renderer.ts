@@ -7,12 +7,10 @@
 
 /// <reference lib="dom" />
 
+import type { Rgba } from "../gpu/color.ts";
 import { gatherPipeline, LitThreads } from "./lit_threads.ts";
 import { firstBorn, type Network } from "./network.ts";
 import { RUN_SLOTS, RUN_THREADS, SHADER, WAVE_SLOTS } from "./shader.ts";
-
-/** A straight (not premultiplied) color, each channel from 0 to 1. */
-export type Rgba = readonly [number, number, number, number];
 
 /** A canvas the mycelium draws on: its context, its size in CSS pixels, and
  * how far it reaches past the window's edges. */

@@ -184,7 +184,7 @@ function isOnStage(live: OnStage, key: EntityRefKey): boolean {
 	return sessionId !== undefined && live.sessions.has(sessionId);
 }
 
-export type SelectionFacts = {
+type SelectionFacts = {
 	readonly total: number;
 	readonly tallies: readonly KindTally[];
 	/** Earliest start and latest end across every selected entity the
@@ -263,7 +263,7 @@ export function selectionFacts(
  *  The counts are what the panel warns with, so each names exactly
  *  the set it counted rather than a reason that happens to fit most
  *  of it. */
-export type ShiftPlan = {
+type ShiftPlan = {
 	/** The genesis observations to translate, with the time each held
 	 *  when the plan was made. A shift is relative to that, so the
 	 *  plan is captured once per selection and not re-read mid-drag. */

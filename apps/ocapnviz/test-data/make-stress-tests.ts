@@ -71,7 +71,7 @@ function rng(seed: number): () => number {
   };
 }
 
-export function stressTest(source: Doc, factor: number, seed = SEED): Doc {
+function stressTest(source: Doc, factor: number, seed = SEED): Doc {
   const rand = rng(seed);
   const pick = <T>(xs: readonly T[]): T =>
     xs[Math.floor(rand() * xs.length)] as T;

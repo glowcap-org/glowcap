@@ -12,7 +12,7 @@ import { TimelineDocument } from "../engine/timeline.ts";
  *  things on without scrolling, and the panel's own length row is how it grows.
  *  `authoring/events.ts` grows it anyway for an edit that lands past the end, so
  *  this is a starting point rather than a limit. */
-export const NEW_DOCUMENT_DURATION_MS = 10_000;
+const NEW_DOCUMENT_DURATION_MS = 10_000;
 
 /**
  * An empty document to start from.

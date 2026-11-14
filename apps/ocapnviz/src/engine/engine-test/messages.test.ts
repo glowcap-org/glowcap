@@ -50,7 +50,7 @@ const messageDoc = (openT: number) =>
 		],
 	});
 
-engineTest("set-message-end lands the arrival at the painted time", () => {
+engineTest("set-message-duration lands the arrival at the painted start plus the flight", () => {
 	const e = new Engine(messageDoc(1_000));
 	// Implicit start inherits the session's painted start; move the
 	// session so the retained stored start (1000) and the painted
@@ -58,7 +58,7 @@ engineTest("set-message-end lands the arrival at the painted time", () => {
 	e.dispatch({ kind: "clear-message-start", messageId: "m1" });
 	e.dispatch({ kind: "set-session-start", sessionId: "s1", t: 2_000 });
 	assertEquals(e.effectiveStart("messages", "m1"), 2_000);
-	e.dispatch({ kind: "set-message-end", messageId: "m1", t: 2_600 });
+	e.dispatch({ kind: "set-message-duration", messageId: "m1", duration: 600 });
 	assertEquals(
 		e.effectiveEnd("messages", "m1"),
 		2_600,
@@ -146,7 +146,7 @@ engineTest("undo restores a duration the edit extended", () => {
 		profile: "glowcap",
 		position: { x: 0, y: 0 },
 	})!;
-	e.dispatch({ kind: "set-peer-end", peerId, t: 90_000 });
+	e.dispatch({ kind: "set-peer-duration", peerId, duration: 90_000 });
 	assertEquals(e.doc.duration, 90_000, "the edit grew the doc");
 	assertEquals(e.clock.duration, 90_000, "the clock bound followed");
 	e.undo();

@@ -351,7 +351,7 @@ export const linkRowMeta = {
 // the height into its width. Reads the one control height rather than
 // restating it: this row is not "22 tall", it is "as tall as every other
 // control", and a second spelling of that is how they drift apart.
-export const ROW_H = CONTROL.height;
+const ROW_H = CONTROL.height;
 
 // A time and the controls docked beside it. No height of its own: the
 // field's line owns the row's rhythm, so a time row stands as tall as every

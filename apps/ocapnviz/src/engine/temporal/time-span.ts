@@ -125,27 +125,6 @@ export function clearDuration(v: TimeSpan): TimeSpan {
 	};
 }
 
-/** Sugar, set end by computing duration from the entity's
- *  resolved intrinsic start. Caller MUST pass that
- *  resolved start (this module can't ask context). */
-export function setEnd(
-	v: TimeSpan,
-	endValue: number,
-	intrinsicStart: number,
-): TimeSpan {
-	return setDuration(v, endValue - intrinsicStart);
-}
-
-/** Rigid move, change start, leave duration untouched. Caller
- *  passes the resolved start to compute the new start absolutely. */
-export function moveBy(
-	v: TimeSpan,
-	delta: number,
-	intrinsicStart: number,
-): TimeSpan {
-	return setStart(v, intrinsicStart + delta);
-}
-
 /* ------------------------------------------------------------------ *
  * Gesture-shaped span rewrites, used by move-event to translate the
  * user's drag intent into an entity.timing patch. These take the

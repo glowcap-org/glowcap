@@ -14,7 +14,7 @@ import type { CodecLineStyle } from "./palette.ts";
 import { DASH_PATTERN, DOT_PATTERN } from "./palette.ts";
 import { strokeCurve, strokeDashedCurve } from "./edge-stroke.ts";
 
-export type EdgeStrokeSpec = {
+type EdgeStrokeSpec = {
 	curve: SessionCurve;
 	color: number;
 	width: number;

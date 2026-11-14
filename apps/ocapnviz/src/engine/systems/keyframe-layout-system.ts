@@ -58,7 +58,7 @@ import {
  * that is derived rather than chosen (`docs/era-collapse.md`).
  */
 
-export { DEFAULT_LAYOUT_CONFIG, type LayoutConfig, type LayoutMode } from "./layout-eras.ts";
+export { DEFAULT_LAYOUT_CONFIG, type LayoutConfig } from "./layout-eras.ts";
 
 export class KeyframeLayoutSystem {
 	readonly config: LayoutConfig;

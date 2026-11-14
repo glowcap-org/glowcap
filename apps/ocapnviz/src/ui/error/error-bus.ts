@@ -22,7 +22,7 @@
 
 import type { EngineError } from "../../engine/errors.ts";
 
-export type ErrorSource =
+type ErrorSource =
 	| "engine"
 	| "window"
 	| "unhandled-rejection"

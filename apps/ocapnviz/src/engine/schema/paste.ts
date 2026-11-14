@@ -50,7 +50,7 @@ export type IdRemap = {
 	readonly message: ReadonlyMap<string, string>;
 };
 
-export type CascadePasteResult = {
+type CascadePasteResult = {
 	readonly doc: TimelineDocument;
 	readonly remap: IdRemap;
 };

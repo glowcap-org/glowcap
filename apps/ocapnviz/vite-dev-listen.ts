@@ -13,7 +13,7 @@
  * face of that same decision. Loopback keeps Vite's default allowlist.
  */
 
-export type DevListen = {
+type DevListen = {
 	host: string;
 	allowedHosts?: true;
 };

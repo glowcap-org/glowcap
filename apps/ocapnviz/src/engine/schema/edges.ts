@@ -45,7 +45,7 @@ type RequiredKeys<T> = {
 
 /** A single ref site on an event variant: which field, pointing at
  * which entity kind. */
-export type EventEdgeSpec<K extends TimelineEvent["kind"]> = {
+type EventEdgeSpec<K extends TimelineEvent["kind"]> = {
 	readonly field: RequiredKeys<Extract<TimelineEvent, { kind: K }>>;
 	readonly target: EntityKind;
 	/** Where inside the field the id sits, when the field is a structure
@@ -59,7 +59,7 @@ export type EventEdgeSpec<K extends TimelineEvent["kind"]> = {
 
 /** Per-kind ref declarations. Mapped over every variant so omissions
  * are compile errors. Empty arrays are valid (no refs to declare). */
-export type EventEdges = {
+type EventEdges = {
 	readonly [K in TimelineEvent["kind"]]: ReadonlyArray<EventEdgeSpec<K>>;
 };
 
@@ -118,7 +118,7 @@ type EntityDefByKind = {
 };
 
 /** A single ref site on an entity definition. */
-export type EntityEdgeSpec<K extends EntityKind> = {
+type EntityEdgeSpec<K extends EntityKind> = {
 	readonly field: RequiredKeys<EntityDefByKind[K]>;
 	readonly target: EntityKind;
 	/** See `EventEdgeSpec.nested`: where inside the field the id sits, when
@@ -128,7 +128,7 @@ export type EntityEdgeSpec<K extends EntityKind> = {
 
 /** Per-entity-kind ref declarations. Same exhaustiveness contract as
  * `EventEdges`. */
-export type EntityEdges = {
+type EntityEdges = {
 	readonly [K in EntityKind]: ReadonlyArray<EntityEdgeSpec<K>>;
 };
 
@@ -172,7 +172,7 @@ function readField(value: object, field: PropertyKey): unknown {
  *  field's structure carries. An endpoint keeps its claim and what
  *  attributed it when the peer it names is rewritten. Throws when the
  *  container refuses the write (frozen or sealed). */
-export function writeEdgeRef(
+function writeEdgeRef(
 	container: object,
 	edge: { readonly field: PropertyKey; readonly nested?: string },
 	id: unknown,

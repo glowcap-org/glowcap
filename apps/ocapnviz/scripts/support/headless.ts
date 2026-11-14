@@ -36,7 +36,7 @@ export async function openFreshPage(
 
 /** A page at the Build stage with the first peer the stage draws selected,
  *  which puts the peer panel in the Inspector. */
-export interface BuildStage {
+interface BuildStage {
 	browser: Browser;
 	page: Page;
 	/** Page errors seen so far; a probe appends its own findings. */

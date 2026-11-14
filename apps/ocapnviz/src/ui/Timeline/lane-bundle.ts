@@ -73,7 +73,7 @@ export type LaneSpan = {
 	segments?: readonly LaneSegment[];
 };
 
-export type LaneSegment = {
+type LaneSegment = {
 	t0: number;
 	t1: number;
 	color: string;
@@ -110,7 +110,7 @@ export type LaneGlyph = {
  * breakdown, same data, indexed by
  * entity id, used by the expanded per-row render. Both are built
  * in one pass. The bundle cache holds them together. */
-export type LaneCategoryBundle = {
+type LaneCategoryBundle = {
 	spans: LaneSpan[];
 	glyphs: LaneGlyph[];
 	byEntity: Map<string, { spans: LaneSpan[]; glyphs: LaneGlyph[] }>;
@@ -124,7 +124,7 @@ export type LaneBundle = {
 
 /** Hex-string colors baked into spans + glyphs at bundle build
  * time (cached, so the colors are pre-resolved per theme). */
-export type LaneBundleColors = {
+type LaneBundleColors = {
 	message: string;
 	sessionMuted: string;
 	/** Rename glyphs whose peer is undeclared, so there is no pill

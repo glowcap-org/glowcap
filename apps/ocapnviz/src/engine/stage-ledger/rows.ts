@@ -35,7 +35,7 @@ export type LivePeer = {
 
 /** One producer's view of a wire: which side it occupies, so a
  * message's `outbound` flag reads against the right end. */
-export type Observer = {
+type Observer = {
 	selfStage: string;
 	/** The node the far end sits at, or undefined while it is loose. */
 	otherStage: string | undefined;

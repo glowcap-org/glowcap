@@ -14,7 +14,7 @@ import type { ClipboardPayload } from "../engine/schema/clipboard.ts";
 import type { IdRemap } from "../engine/schema/paste.ts";
 import { type EntityRefKey, parseEntityKey } from "../interactions/entity-ref.ts";
 
-export type SelectionClipboard = {
+type SelectionClipboard = {
 	handleCopySelection: () => void;
 	handlePasteClipboard: () => void;
 	handleDuplicateSelection: () => void;

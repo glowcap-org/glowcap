@@ -74,7 +74,7 @@ type ReferenceSection = {
 const SUBTITLE = "What every word this app attaches to a peer or a session means.";
 
 /** The sections, in the order they are offered. */
-export const REFERENCE_SECTIONS: readonly ReferenceSection[] = [
+const REFERENCE_SECTIONS: readonly ReferenceSection[] = [
 	{
 		id: "attribution",
 		tab: "Attribution",

@@ -28,7 +28,7 @@ import { sessionsTouchingPeer } from "./inspector/entity-info.ts";
 
 export type { EditorBindings };
 
-export type SidebarBodyProps = {
+type SidebarBodyProps = {
 	engine: Engine;
 	/** The "Inspector follow" entity, what the panel populates its
 	 *  per-kind fields and Connections section against. Always also

@@ -40,7 +40,7 @@ import type { StageVisibility } from "./stage-visibility.ts";
  * itself lives in `use-stage-scene.ts`. Each frame is `stage-tick.ts`.
  */
 
-export type StageProps = {
+type StageProps = {
 	engine: Engine;
 	/** Click on a Stage entity (or `null` for empty stage). `opts.mode`
 	 * carries the modifier-derived intent (see {@link SelectMode}).

@@ -14,9 +14,9 @@ import { assertNever } from "./assert-never.ts";
 import type { BuilderTool } from "./builder-tool.ts";
 
 /** One of Pixi's `EventMode` values that we actually use. */
-export type EventMode = "static" | "none";
+type EventMode = "static" | "none";
 
-export type LayerEventModes = {
+type LayerEventModes = {
 	peers: EventMode;
 	edges: EventMode;
 	messages: EventMode;

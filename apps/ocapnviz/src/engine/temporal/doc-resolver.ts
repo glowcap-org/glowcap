@@ -64,7 +64,7 @@ import type { TimeSpan } from "./time-span.ts";
 import { WORLD_EFFECTIVE, WORLD_INTRINSIC } from "./world.ts";
 import { hasEntry, ownEntry } from "../schema/entity-maps.ts";
 
-export type EntityKind = "peers" | "sessions" | "messages";
+type EntityKind = "peers" | "sessions" | "messages";
 
 const FALLBACK_SPAN: TimeSpan = {
 	start: { value: 0, explicit: false },
@@ -84,7 +84,7 @@ function messageSpan(doc: TimelineDocument, id: string): TimeSpan {
 }
 
 /** Intrinsic range for a peer, parent is world. */
-export function peerIntrinsic(
+function peerIntrinsic(
 	doc: TimelineDocument,
 	id: string,
 ): EffectiveRange {
@@ -186,7 +186,7 @@ function sideContext(
 
 /** Context for a session: the intersection of the ranges over which
  *  its two ends were occupied. May be empty when they don't overlap. */
-export function sessionContext(
+function sessionContext(
 	doc: TimelineDocument,
 	id: string,
 ): EffectiveRange {
@@ -205,7 +205,7 @@ function sessionIntrinsicWithin(
 	return intrinsicOf(sessionSpan(doc, id), ctx);
 }
 
-export function sessionIntrinsic(
+function sessionIntrinsic(
 	doc: TimelineDocument,
 	id: string,
 ): EffectiveRange {
@@ -229,7 +229,7 @@ export function sessionEffective(
 }
 
 /** Context for a message: its session's effective range. */
-export function messageContext(
+function messageContext(
 	doc: TimelineDocument,
 	id: string,
 ): EffectiveRange {
@@ -249,7 +249,7 @@ function messageIntrinsicWithin(
 	return intrinsicOf(messageSpan(doc, id), sessionRange);
 }
 
-export function messageIntrinsic(
+function messageIntrinsic(
 	doc: TimelineDocument,
 	id: string,
 ): EffectiveRange {
@@ -304,7 +304,7 @@ export function sessionPropertyValueAt(
  * that needs what backed the attachment asks `sessionPropertyValueAt` or
  * `sessionEndpointAt`. It is a second name for one resolution rather than a
  * second resolution, so the two cannot answer about different moments. */
-export function sessionValueAt(
+function sessionValueAt(
 	doc: TimelineDocument,
 	sessionId: string,
 	property: SessionProperty,
@@ -409,7 +409,7 @@ export function sessionEndpointPlaceAt(
  * the latest keyframe at or before `t`, else what the peer arrived
  * with. Undefined when the peer never carried one. Which properties
  * exist is `trajectory.ts`'s business, not this module's. */
-export function peerValueAt(
+function peerValueAt(
 	doc: TimelineDocument,
 	peerId: string,
 	property: PeerProperty,

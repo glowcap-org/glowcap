@@ -175,24 +175,9 @@ export type BuilderIntent =
 		move: MoveIntent;
 	}
 	| {
-		/** Opt-in end time for a peer, pins `timing.duration` so the
-		 * peer's painted end lands at `t` (duration measured off the
-		 * effective start). Use `clear-peer-end` to remove. Validated
-		 * against ordering: `t` must be at or after the peer's painted
-		 * start. Sessions whose containment requires the peer alive
-		 * past `t` will clamp on the session-side, not here. */
-		kind: "set-peer-end";
-		peerId: string;
-		t: number;
-	}
-	| {
-		/** Storage-shaped counterpart to `set-peer-end`. Sets
-		 *  `entity.timing.duration` directly to `duration` (must be
-		 *  >= 0). Equivalent to `set-peer-end` at
-		 *  `peerEffective(doc, peerId).start + duration` but
-		 *  without the start lookup. Inspector dispatches this from
-		 *  the duration row, `set-peer-end` stays for absolute-time
-		 *  drag gestures. */
+		/** Sets `entity.timing.duration` directly to `duration` (must
+		 *  be >= 0). The Inspector dispatches this from the duration
+		 *  row. Use `clear-peer-end` to remove it. */
 		kind: "set-peer-duration";
 		peerId: string;
 		duration: number;
@@ -220,20 +205,8 @@ export type BuilderIntent =
 		t: number;
 	}
 	| {
-		/** Opt-in end time for a session, pins `timing.duration` so
-		 * the session's painted end lands at `t` (duration measured
-		 * off the effective start). Use `clear-session-end` to remove.
-		 * Validated against ordering: `t` must be at or after the
-		 * session's painted start. Endpoint peers leaving earlier
-		 * clamp the painted end without rewriting the stored intent. */
-		kind: "set-session-end";
-		sessionId: string;
-		t: number;
-	}
-	| {
-		/** Storage-shaped counterpart to `set-session-end`. Sets
-		 *  duration directly. The inspector duration row dispatches
-		 *  this. */
+		/** Sets the session's duration directly. The inspector
+		 *  duration row dispatches this. */
 		kind: "set-session-duration";
 		sessionId: string;
 		duration: number;
@@ -332,17 +305,8 @@ export type BuilderIntent =
 	}
 	| { kind: "clear-message-start"; messageId: string }
 	| {
-		/** Set the message's arrival time. Mutates entity.timing.duration
-		 *  so the message lands at `t`. Validated against the message's
-		 *  own start and the carrying session's effective end. */
-		kind: "set-message-end";
-		messageId: string;
-		t: number;
-	}
-	| {
-		/** Storage-shaped counterpart to `set-message-end`. Sets
-		 *  flight duration directly. The inspector duration row
-		 *  dispatches this. */
+		/** Sets the message's flight duration directly. The inspector
+		 *  duration row dispatches this. */
 		kind: "set-message-duration";
 		messageId: string;
 		duration: number;

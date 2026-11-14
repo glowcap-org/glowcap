@@ -208,7 +208,7 @@ export function strokeDashedCurve(
  * Same reason as {@link MarchCanvas}: naming the one method lets the geometry
  * be tested without a Pixi scene, and a real `Container` still satisfies it
  * structurally. */
-export interface Positionable {
+interface Positionable {
 	position: { set(x: number, y: number): unknown };
 }
 

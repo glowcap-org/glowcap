@@ -11,14 +11,14 @@
  * getting around rather than about authoring: Select picks what is under the
  * pointer, and Hand moves the view.
  */
-export type NavigationTool = "select" | "hand";
+type NavigationTool = "select" | "hand";
 
 /**
  * The tools that build a document, all of which act on the Stage and only
  * there: `add-peer` on empty canvas, the two-click tools on a peer or a session
  * end. `STAGE_SURFACES` is the set they can reach.
  */
-export type AuthoringTool = "add-peer" | "open-session" | "send-message";
+type AuthoringTool = "add-peer" | "open-session" | "send-message";
 
 export type BuilderTool = NavigationTool | AuthoringTool;
 

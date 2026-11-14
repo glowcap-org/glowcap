@@ -120,7 +120,7 @@ function rewriteObservationIds(
 
 /** Strip the entity's own observations from every recording source.
  *  Pure. Returns the input doc when nothing matched. */
-function removeObservations(
+function withoutEntityObservations(
 	doc: TimelineDocument,
 	kind: EntityKind,
 	id: string,
@@ -175,7 +175,7 @@ export function cascadeDelete(
 		// 1. Remove from doc.entities, and purge the observations that
 		//    would re-synthesize it.
 		result = removeEntity(result, target.kind, target.id);
-		result = removeObservations(result, target.kind, target.id);
+		result = withoutEntityObservations(result, target.kind, target.id);
 
 		// 2. Queue entities that reference the target (cascade).
 		const entityRefs = findEntityRefs(result, target.kind, target.id);

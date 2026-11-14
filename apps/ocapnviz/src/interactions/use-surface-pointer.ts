@@ -34,12 +34,12 @@ import type { ModifierSet, PointerSnapshot } from "./pointer-input.ts";
 /** What the host tells the machine about a press beyond the pointer event
  *  itself. Exactly what `resolveGesture` reads: the modifiers come off the
  *  event, the hit off `makeHit`, and these two off the host. */
-export type SurfacePointerCtx = {
+type SurfacePointerCtx = {
 	spaceHeld: boolean;
 	activeTool: BuilderTool;
 };
 
-export type SurfacePointerHandlers = {
+type SurfacePointerHandlers = {
 	onEffect: (effect: Effect) => void;
 };
 
@@ -48,7 +48,7 @@ export type SurfacePointerHandlers = {
  *  Used by surfaces whose host element extends past the relevant
  *  region, e.g., the Stage marker covers the canvas but should
  *  ignore clicks over the chrome that bleed through. */
-export type MakeHit<SurfId extends SurfaceId = SurfaceId> = (
+type MakeHit<SurfId extends SurfaceId = SurfaceId> = (
 	ev: { clientX: number; clientY: number; target: EventTarget | null },
 ) => (Hit & { surface: SurfId }) | null;
 
@@ -427,7 +427,7 @@ function snapshotOf(ev: PointerEvent): PointerSnapshot {
 	};
 }
 
-export function modifiersOf(
+function modifiersOf(
 	ev: Pick<PointerEvent, "shiftKey" | "metaKey" | "ctrlKey" | "altKey">,
 ): ModifierSet {
 	return {

@@ -90,7 +90,7 @@ export function waveAlong(net: Network, links: Links, from: number, reach: numbe
  * that ends at `to`, in the order they grew, so the light runs away from the
  * colony. Each thread is five numbers, its two ends and how far along the run
  * its far end lies. */
-export interface RunPath {
+interface RunPath {
 	threads: Float32Array;
 	/** How far the run is from end to end. */
 	length: number;

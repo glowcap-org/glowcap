@@ -47,7 +47,7 @@ function pageDevice(): Promise<GPUDevice | null> {
 }
 
 /** Something drawn on the page's device. */
-export interface Drawing {
+interface Drawing {
 	/** Make what the drawing needs on `device` and configure its canvases for
 	 * `format`. False when the device refuses it, with nothing left made. */
 	mount(device: GPUDevice, format: GPUTextureFormat): boolean;

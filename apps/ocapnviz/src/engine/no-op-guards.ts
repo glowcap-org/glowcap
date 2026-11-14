@@ -372,18 +372,6 @@ export function isNoOpIntent(
 			return categoryVisModeOnDoc(doc, intent.category) === intent.mode;
 		case "set-all-vis-mode":
 			return allVisModeOnDoc(doc) === intent.mode;
-		case "set-peer-end": {
-			// The mutation derives duration from the EFFECTIVE start (the
-			// painted anchor), so the guard must too. An implicit start
-			// retains its last stored value, which the resolvers ignore.
-			const dur = authoredTiming(
-				ownEntry(doc.entities?.peers, intent.peerId)?.timing,
-			)
-				?.duration;
-			return dur?.explicit === true &&
-				peerEffective(doc, intent.peerId).start + dur.value ===
-					intent.t;
-		}
 		case "set-peer-duration": {
 			const def = ownEntry(doc.entities?.peers, intent.peerId);
 			const dur = authoredTiming(def?.timing)?.duration;
@@ -420,28 +408,10 @@ export function isNoOpIntent(
 			const def = ownEntry(doc.entities?.messages, intent.messageId);
 			return def === undefined || def.timing?.start.explicit !== true;
 		}
-		case "set-message-end": {
-			// Effective-start anchor, same rationale as set-peer-end.
-			const dur = authoredTiming(
-				ownEntry(doc.entities?.messages, intent.messageId)?.timing,
-			)?.duration;
-			return dur?.explicit === true &&
-				messageEffective(doc, intent.messageId).start + dur.value ===
-					intent.t;
-		}
 		case "set-message-duration": {
 			const def = ownEntry(doc.entities?.messages, intent.messageId);
 			const dur = authoredTiming(def?.timing)?.duration;
 			return dur?.explicit === true && dur.value === intent.duration;
-		}
-		case "set-session-end": {
-			// Effective-start anchor, same rationale as set-peer-end.
-			const dur = authoredTiming(
-				ownEntry(doc.entities?.sessions, intent.sessionId)?.timing,
-			)?.duration;
-			return dur?.explicit === true &&
-				sessionEffective(doc, intent.sessionId).start + dur.value ===
-					intent.t;
 		}
 		case "set-session-duration": {
 			const def = ownEntry(doc.entities?.sessions, intent.sessionId);

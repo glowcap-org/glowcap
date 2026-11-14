@@ -14,7 +14,7 @@ import { z } from "zod";
 import type { Bound } from "./bound.ts";
 import type { TimeSpan } from "./time-span.ts";
 
-export const BoundSchema = z.object({
+const BoundSchema = z.object({
 	value: z.number().finite(),
 	explicit: z.boolean(),
 });

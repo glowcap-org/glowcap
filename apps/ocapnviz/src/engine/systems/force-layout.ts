@@ -30,7 +30,7 @@ type SimNode = SimulationNodeDatum & { id: string };
 type SimLink = SimulationLinkDatum<SimNode> & { id: string };
 
 /** The fields `runForce` reads off the layout config. */
-export type ForceLayoutConfig = {
+type ForceLayoutConfig = {
 	chargeStrength: number;
 	linkDistance: number;
 	linkStrength: number;

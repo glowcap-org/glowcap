@@ -28,7 +28,7 @@ import { endpointBodyRadius } from "./sprites/endpoint.ts";
 import type { StageHover } from "./stage-selection.ts";
 import type { StageVisibility } from "./stage-visibility.ts";
 
-export type StageArmedNode = {
+type StageArmedNode = {
 	nodeId: string;
 	tool: "open-session" | "send-message";
 };

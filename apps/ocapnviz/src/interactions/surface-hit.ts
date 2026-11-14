@@ -79,7 +79,7 @@ export type SurfaceId = Hit["surface"];
  * added to one family without a thought about the other should be a decision
  * somebody makes here.
  */
-export const STAGE_SURFACES: ReadonlySet<SurfaceId> = new Set<SurfaceId>([
+const STAGE_SURFACES: ReadonlySet<SurfaceId> = new Set<SurfaceId>([
 	"stage-empty",
 	"stage-peer",
 	"stage-endpoint",

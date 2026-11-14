@@ -81,7 +81,7 @@ doc.recording = { sources: RecordingSource[] }
 
 RecordingSource = {
   id: string,                    // "live", "primary", …
-  meta: { kind, version?, capturedAt?, timeOrigin?, notes? },
+  meta: { kind, version?, capturedAt?, notes? },
   observations: Observation[],   // chronological within this source
 }
 

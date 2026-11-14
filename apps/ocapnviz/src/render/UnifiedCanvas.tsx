@@ -54,7 +54,7 @@ export function useUnifiedCanvas(): UnifiedCanvasContextValue | null {
 	return useContext(Ctx);
 }
 
-export interface UnifiedCanvasProps {
+interface UnifiedCanvasProps {
 	theme: Theme;
 	children: ReactNode;
 }

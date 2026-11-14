@@ -447,7 +447,7 @@ export interface NodeBodyCanvas extends RectCanvas {
 
 /** How an unattributed end's body is drawn. The two readings differ only in
  *  size and weight, because they are the same thing in two relationships. */
-export type LooseEndStyle = {
+type LooseEndStyle = {
 	radius: number;
 	corner: number;
 	fillAlpha: number;

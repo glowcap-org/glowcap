@@ -7,8 +7,8 @@
  * a chronological stream of observations from a single emitter
  * (a network simulator, an enterprise simulator, a proxy, an
  * annotation tool).
- * Source-level metadata (kind, version, capture timestamp, time
- * origin) lives once per source, not duplicated on every
+ * Source-level metadata (kind, version, capture timestamp, notes)
+ * lives once per source, not duplicated on every
  * observation.
  *
  * This module owns that shape. `timeline.ts` names the same union
@@ -17,7 +17,7 @@
  * parser accepts either a top-level `events: [...]` array (fixture-
  * friendly flat input) or a fully-populated `recording`. Both
  * normalize to `recording.sources[*].observations` post-parse.
- * Readers go through `observationsOf(doc)` / `sourcesOf(doc)` and
+ * Readers go through `observationsOf(doc)` and
  * never touch a top-level observation array.
  */
 
@@ -32,8 +32,7 @@ const observationBase = {
 	/** Observation id, unique within its source. */
 	id: z.string().min(1),
 	/** Simulated time the emitter recorded for this observation,
-	 *  in simulated milliseconds since the source's `timeOrigin`
-	 *  (which defaults to 0). */
+	 *  in simulated milliseconds. */
 	t: z.number().nonnegative().finite(),
 	/** Optional sub-source detail (function, agent id, etc). The
 	 *  emitter identity itself lives at the source level. */
@@ -252,19 +251,15 @@ export const Observation = z.discriminatedUnion("kind", [
 ]);
 export type Observation = z.infer<typeof Observation>;
 
-export const RecordingSourceMeta = z.object({
+const RecordingSourceMeta = z.object({
 	/** Emitter family / kind, "glowcap-host" (a live host tap), "griddle"
 	 * (the deterministic simulator), etc. */
 	kind: z.string().min(1),
 	version: z.string().optional(),
 	/** ISO timestamp when capture started, if known. */
 	capturedAt: z.string().optional(),
-	/** Optional time-base offset. Observation `t` values within
-	 *  this source are relative to `timeOrigin`. Defaults to 0. */
-	timeOrigin: z.number().finite().optional(),
 	notes: z.string().optional(),
 });
-export type RecordingSourceMeta = z.infer<typeof RecordingSourceMeta>;
 
 export const RecordingSource = z.object({
 	/** Stable identifier for this source within the doc. */

@@ -323,13 +323,12 @@ engineTest(
 );
 
 engineTest(
-	"set-peer-end measures the painted start, not the retained stored value",
+	"set-peer-duration measures from the painted start, not the retained stored value",
 	() => {
 		// clear-peer-start keeps the last stored start (1000) for
 		// toggle-back, but the painted start becomes the world's 0. The
-		// mutation derives duration from the painted start, so the
-		// guard must too, stored-value arithmetic declares a real edit
-		// a no-op exactly when retained-start + duration lands on t.
+		// duration is measured from the painted start, so the end lands
+		// at 0 + duration, not at retained-start + duration.
 		const e = new Engine(TimelineDocument.parse({
 			id: "cleared-start-peer",
 			duration: 60_000,
@@ -344,15 +343,15 @@ engineTest(
 			],
 		}));
 		e.dispatch({ kind: "clear-peer-start", peerId: "p" });
-		e.dispatch({ kind: "set-peer-end", peerId: "p", t: 1_500 });
+		e.dispatch({ kind: "set-peer-duration", peerId: "p", duration: 1_500 });
 		assertEquals(e.effectiveEnd("peers", "p"), 1_500);
-		e.dispatch({ kind: "set-peer-end", peerId: "p", t: 2_500 });
+		e.dispatch({ kind: "set-peer-duration", peerId: "p", duration: 2_500 });
 		assertEquals(e.effectiveEnd("peers", "p"), 2_500);
 	},
 );
 
 engineTest(
-	"set-session-end measures the painted start, not the retained stored value",
+	"set-session-duration measures from the painted start, not the retained stored value",
 	() => {
 		const e = new Engine(TimelineDocument.parse({
 			id: "cleared-start-session",
@@ -387,9 +386,9 @@ engineTest(
 		// Cleared start retains 1000; painted start cascades to the
 		// peers' max join time, 0.
 		e.dispatch({ kind: "clear-session-start", sessionId: "s1" });
-		e.dispatch({ kind: "set-session-end", sessionId: "s1", t: 1_500 });
+		e.dispatch({ kind: "set-session-duration", sessionId: "s1", duration: 1_500 });
 		assertEquals(e.effectiveEnd("sessions", "s1"), 1_500);
-		e.dispatch({ kind: "set-session-end", sessionId: "s1", t: 2_500 });
+		e.dispatch({ kind: "set-session-duration", sessionId: "s1", duration: 2_500 });
 		assertEquals(e.effectiveEnd("sessions", "s1"), 2_500);
 	},
 );

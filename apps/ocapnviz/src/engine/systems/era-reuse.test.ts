@@ -466,7 +466,7 @@ engineTest("ending a peer's life takes it out of every later era", () => {
 	assert(later !== undefined, "the fixture should state an era at t=5000");
 	assert(later.layout.has("b"), "that era should hold b to begin with");
 
-	e.setPeerEnd("b", 1000);
+	e.setPeerDuration("b", 1000);
 
 	const afterward = e.layout.keyframes.find((k) => k.t === 5000);
 	assert(afterward !== undefined, "the era should survive the edit");

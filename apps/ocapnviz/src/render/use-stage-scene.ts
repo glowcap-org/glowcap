@@ -34,8 +34,6 @@ import type { SelectMode } from "../interactions/select-mode.ts";
 import type { StageHover, StageSelection } from "./stage-selection.ts";
 import type { StageSceneRefs } from "./stage-scene-refs.ts";
 
-export type { StageSceneRefs } from "./stage-scene-refs.ts";
-
 export function useStageScene(args: StageSceneRefs): void {
 	const {
 		hostRef,

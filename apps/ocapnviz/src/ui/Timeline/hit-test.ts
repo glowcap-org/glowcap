@@ -141,7 +141,7 @@ export const OVERVIEW_EDGE_GRAB_PX = 8;
  * hits in the plot area) so the two regimes don't collide in
  * the same hit-test contract, Scrubber's pointerdown checks
  * the gutter first, falls through to event hit-test second. */
-export type GutterHit =
+type GutterHit =
 	| {
 		kind: "chevron";
 		category: Exclude<LaneKind, "ruler">;

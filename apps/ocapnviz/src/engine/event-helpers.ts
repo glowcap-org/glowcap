@@ -3,8 +3,7 @@
  * `TimelineEvent`. No dependencies on the engine or the world.
  *
  * Reference-walking lives in the schema-driven primitives in `engine/schema/`,
- * not here. For ref walks, use `findEventRefs` from
- * `engine/schema/walk.ts` instead.
+ * not here.
  */
 
 import type { TimelineDocument, TimelineEvent } from "./timeline.ts";
@@ -216,7 +215,7 @@ export function momentOf(
  * rather than those tracks because the Inspector addresses each
  * moment by the event it came from. Updates that state nothing are
  * left out, `trajectory.ts` decides what counts. */
-export function findPeerUpdateEvents(
+function findPeerUpdateEvents(
 	doc: TimelineDocument,
 	peerId: string,
 ): PeerUpdate[] {
@@ -280,7 +279,7 @@ export function findSessionClosedEvent(
  * moves a whole entity, a peer with its updates and its departure,
  * a session with its state changes and its close, so an ordering
  * check reads a partner's time through this map. */
-export type PlannedTimes = ReadonlyMap<string, number>;
+type PlannedTimes = ReadonlyMap<string, number>;
 
 /** The time an event has once the plan lands: its planned time when
  *  the plan moves it, otherwise where it sits now. */

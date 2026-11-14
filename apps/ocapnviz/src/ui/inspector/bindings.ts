@@ -74,8 +74,7 @@ export type EditorBindings = {
 	/** Storage-shaped peer duration edit. Inspector dispatches this
 	 *  directly. The eternal-peer case stays a real option,
 	 *  `onClearPeerEnd` removes the `peer-left` event entirely.
-	 *  Absolute-time end edits flow through `move-event` (drag) or
-	 *  the `set-peer-end` intent on the engine directly. */
+	 *  Absolute-time end edits flow through `move-event` (drag). */
 	onSetPeerDuration: (peerId: string, duration: number) => void;
 	onClearPeerEnd: (peerId: string) => void;
 	/** Opt-in START time for a peer, mirror of the end-time

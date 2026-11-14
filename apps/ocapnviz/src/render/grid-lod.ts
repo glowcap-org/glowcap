@@ -27,7 +27,7 @@ export const WORLD_SIZE = 4000;
  * Sixteen is a little over the point where a dot lattice stops reading as
  * structure and starts reading as texture.
  */
-export const GRID_MIN_DOT_SPACING_PX = 16;
+const GRID_MIN_DOT_SPACING_PX = 16;
 
 /**
  * The width of the fade, in screen pixels of spacing, above the threshold.
@@ -35,7 +35,7 @@ export const GRID_MIN_DOT_SPACING_PX = 16;
  * A tier appears over a band rather than at an instant so a slow zoom does not
  * pop a whole lattice into place in one frame.
  */
-export const GRID_FADE_SPACING_PX = 10;
+const GRID_FADE_SPACING_PX = 10;
 
 /**
  * How visible a tier whose dots sit `spacingPx` apart on screen should be.
@@ -44,7 +44,7 @@ export const GRID_FADE_SPACING_PX = 10;
  * caller multiplies by whatever alpha the tier is styled at, so this answers
  * only the question of whether there is a readable grid there.
  */
-export function gridTierOpacity(spacingPx: number): number {
+function gridTierOpacity(spacingPx: number): number {
 	const over = (spacingPx - GRID_MIN_DOT_SPACING_PX) / GRID_FADE_SPACING_PX;
 	return over <= 0 ? 0 : over >= 1 ? 1 : over;
 }
@@ -54,13 +54,13 @@ export function gridTierOpacity(spacingPx: number): number {
  * against the field of finer ones at default zoom. One row per tier so
  * paint and the level-of-detail decision share the same `step`.
  */
-export const GRID_TIER_SPECS = [
+const GRID_TIER_SPECS = [
 	{ step: 50, radius: 1.0, alpha: 0.22 },
 	{ step: 250, radius: 2.5, alpha: 0.32 },
 	{ step: 1000, radius: 5.0, alpha: 0.42 },
 ] as const;
 
-export type StageGridLayers = readonly [Container, Container, Container];
+type StageGridLayers = readonly [Container, Container, Container];
 
 /** Stamp every tier's tiles in the given color. */
 export function paintGridTiers(
@@ -107,7 +107,7 @@ const GRID_TILE_SIZE = WORLD_SIZE / GRID_TILES_PER_AXIS;
  * existing tile `Graphics` so a theme repaint doesn't churn GPU
  * buffers. Only the dot geometry is redrawn. Tile identity and
  * `boundsArea` are stable. */
-export function populateGridLOD(
+function populateGridLOD(
 	parent: Container,
 	step: number,
 	radius: number,

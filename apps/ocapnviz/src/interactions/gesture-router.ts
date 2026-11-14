@@ -48,7 +48,7 @@ export type SurfaceTag = string;
  *  surface cannot end a gesture it did not start, not even
  *  another instance of its own kind, which the tag alone cannot
  *  tell apart. */
-export type ActiveGesture = {
+type ActiveGesture = {
 	readonly tag: SurfaceTag;
 	readonly pointerId: number;
 };
@@ -266,7 +266,7 @@ const MODAL_POINTER = -1;
 
 /** What holding the pointer for a modal needs of a window: the blur every
  *  gesture watch already treats as its interruption. */
-export type ModalHoldSource = {
+type ModalHoldSource = {
 	dispatchEvent(event: Event): unknown;
 };
 
@@ -344,7 +344,7 @@ export type GestureEndReason = "finished" | "cancelled";
 
 /** What `watchGestureEnd` needs of a window. Narrow so a test can
  *  hand it a stand-in. */
-export type GestureEndSource = {
+type GestureEndSource = {
 	addEventListener(
 		type: string,
 		listener: (ev: Event) => void,

@@ -173,7 +173,7 @@ const BUILTIN_CAPTP_VERSIONS = ["next", "v1_0"] as const;
 export type BuiltinCaptpVersion = typeof BUILTIN_CAPTP_VERSIONS[number];
 export const CAPTP_VERSION_OPTIONS: readonly BuiltinCaptpVersion[] = BUILTIN_CAPTP_VERSIONS;
 
-export const UNKNOWN_CAPTP_VERSION = "unknown";
+const UNKNOWN_CAPTP_VERSION = "unknown";
 export type CaptpVersionReferenceOption =
 	| BuiltinCaptpVersion
 	| typeof UNKNOWN_CAPTP_VERSION;

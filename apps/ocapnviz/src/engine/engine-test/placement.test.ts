@@ -250,11 +250,10 @@ engineTest(
 );
 
 engineTest(
-	"set-peer-end works on eternal-start peers (cascade-aware validation)",
+	"set-peer-duration gives an eternal-start peer an explicit duration",
 	() => {
-		// An eternal-start peer lives in `entities.peers` with implicit
-		// start. The cascade-aware validation accepts effective-start = 0
-		// for eternal peers.
+		// An eternal-start peer lives in `entities.peers` with no timing of
+		// its own.
 		const e = new Engine(structuredClone(doc));
 		e.doc.entities = {
 			...e.doc.entities,
@@ -264,15 +263,15 @@ engineTest(
 			},
 		};
 		e.seekTo(0);
-		e.dispatch({ kind: "set-peer-end", peerId: "eternal_peer", t: 2000 });
-		// entity.timing.duration is now explicit (2000 − 0 = 2000).
+		e.dispatch({ kind: "set-peer-duration", peerId: "eternal_peer", duration: 2000 });
+		// entity.timing.duration is now explicit.
 		const def = e.doc.entities?.peers?.eternal_peer;
 		assertEquals(def?.timing?.duration, { value: 2000, explicit: true });
 	},
 );
 
 engineTest(
-	"set-session-end works on eternal-start sessions",
+	"set-session-duration gives an eternal-start session an explicit duration",
 	() => {
 		const e = new Engine(structuredClone(doc));
 		e.doc.entities = {
@@ -289,9 +288,9 @@ engineTest(
 		};
 		e.seekTo(0);
 		e.dispatch({
-			kind: "set-session-end",
+			kind: "set-session-duration",
 			sessionId: "eternal_s",
-			t: 3000,
+			duration: 3000,
 		});
 		const def = e.doc.entities?.sessions?.eternal_s;
 		assertEquals(def?.timing?.duration, { value: 3000, explicit: true });
@@ -428,7 +427,7 @@ engineTest(
 );
 
 engineTest(
-	"set-message-end writes entity.timing.duration",
+	"set-message-duration writes entity.timing.duration",
 	() => {
 		const e = new Engine(structuredClone(doc));
 		e.doc.entities = {
@@ -446,14 +445,13 @@ engineTest(
 				},
 			},
 		};
-		// Move arrival to t=1500 → duration becomes 500 (1500 - 1000).
-		e.dispatch({ kind: "set-message-end", messageId: "m_end", t: 1500 });
+		e.dispatch({ kind: "set-message-duration", messageId: "m_end", duration: 500 });
 		assertEquals(
 			e.doc.entities?.messages?.m_end?.timing?.duration,
 			{ value: 500, explicit: true },
 		);
-		// Reject arrival before start.
-		e.dispatch({ kind: "set-message-end", messageId: "m_end", t: 500 });
+		// Reject a negative duration.
+		e.dispatch({ kind: "set-message-duration", messageId: "m_end", duration: -500 });
 		assertEquals(
 			e.doc.entities?.messages?.m_end?.timing?.duration,
 			{ value: 500, explicit: true },

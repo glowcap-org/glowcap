@@ -41,7 +41,7 @@ export type MoveIntent =
 /** A span-shaped entity a timeline drag can retime, peer or session.
  *  Messages stay event-addressed: a message always has its
  *  `message-sent` observation, so the event path covers it. */
-export type SpanRef = { kind: "peer" | "session"; id: string };
+type SpanRef = { kind: "peer" | "session"; id: string };
 
 /** Drag gesture against an entity's span, addressed by the entity
  *  itself rather than an observation event. This is what makes a

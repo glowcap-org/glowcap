@@ -9,7 +9,7 @@
  */
 
 /** Horizontal padding inside a pill, before label start / after end. */
-export const LABEL_INSET_PX = 5;
+const LABEL_INSET_PX = 5;
 /** Min horizontal gap between two adjacent labels in a lane. */
 export const LABEL_GAP_PX = 4;
 /** Below this available width, drop the label rather than render
@@ -49,7 +49,7 @@ export type LaneLabelInput = {
 	pillRight: number;
 };
 
-export type PlacedLabel = {
+type PlacedLabel = {
 	id: string;
 	x: number;
 	/** May be truncated with a trailing `…`. */
