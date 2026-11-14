@@ -110,6 +110,17 @@ class Timeline {
 	on(transport: string): Set<string> {
 		return this.live.get(transport) ?? new Set<string>();
 	}
+
+	/** What a failed wait names: the direct lines open on `transport`, and how
+	 * many are open on each other mode's. A dial that fell back to the relay
+	 * shows there. */
+	held(transport: string): string {
+		const own = `${[...this.on(transport)].join(", ") || "no session"} on ${transport}`;
+		const elsewhere = MODES.map((mode) => mode.transport)
+			.filter((other) => other !== transport && this.on(other).size > 0)
+			.map((other) => `${this.on(other).size} open on ${other}`);
+		return [own, ...elsewhere].join(" and ");
+	}
 }
 
 /** Watch the endpoint the way ocapnviz does: the WebSocket is only the byte
@@ -132,7 +143,7 @@ async function settles(
 	timeoutMs = 30_000,
 ): Promise<void> {
 	await until(() => want(timeline.on(transport)), what, timeoutMs).catch(() =>
-		fail(`${what}; the timeline held ${[...timeline.on(transport)].join(", ") || "no session"}`)
+		fail(`${what}; the timeline held ${timeline.held(transport)}`)
 	);
 }
 
