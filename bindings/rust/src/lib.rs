@@ -207,8 +207,11 @@ pub use abi_constants::{
 /// Typed local failure causes and the bootstrap's unknown-publication wire reason.
 pub use abi_constants::{BreakCause, BreakContext, BreakOrigin, BreakReason, RouteFailure, UNKNOWN_SWISSNUM_MESSAGE};
 
-/// Shared admission budgets for hosts forwarding opaque relay traffic.
-pub use abi_constants::{BINDING_RELAY_MAX_BYTES_PER_SESSION, BINDING_RELAY_TCP_DIAL_TIMEOUT_MS};
+/// Shared admission budgets for hosts forwarding opaque relay traffic, and the
+/// largest WebSocket message a binding adapter admits.
+pub use abi_constants::{
+	BINDING_RELAY_MAX_BYTES_PER_SESSION, BINDING_RELAY_TCP_DIAL_TIMEOUT_MS, BINDING_WEBSOCKET_MESSAGE_CAP_BYTES,
+};
 
 mod carrier_failure;
 mod sys;

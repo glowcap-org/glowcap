@@ -51,7 +51,15 @@ async fn host_trace_discovers_private_authority_and_follows_the_carried_feed() {
         assert!(record["session"].as_str().unwrap().ends_with("/host-proof"));
         nix::sys::signal::kill(nix::unistd::Pid::from_raw(tail.id().unwrap() as i32), nix::sys::signal::Signal::SIGTERM).unwrap();
         assert!(tokio::time::timeout(Duration::from_secs(5), tail.wait()).await.unwrap().unwrap().success());
-        producer.close(None).await.unwrap();
+        // A producer past the timeline's message bound is told so through the
+        // web address, where the proxy meets the message before the endpoint.
+        let bound = rooms_application::server::trace::MAX_SOCKET_MESSAGE_BYTES;
+        producer.send(Message::Text("x".repeat(bound + 1).into())).await.unwrap();
+        let Some(Ok(Message::Close(Some(close)))) = producer.next().await else {
+            panic!("a producer past the bound was not told why it was closed");
+        };
+        assert_eq!(u16::from(close.code), 1009);
+        assert!(close.reason.contains(&bound.to_string()));
         web.stop().await;
     }).await.expect("host trace process deadline");
 }
