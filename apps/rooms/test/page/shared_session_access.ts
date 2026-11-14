@@ -5,7 +5,7 @@ import { Buffer } from "node:buffer";
 import { managedAccessText as text, statusTag } from "../../lib/text/managed_access.ts";
 import { managedSessionText } from "../../lib/text/managed_session.ts";
 import { fail } from "../support/fail.ts";
-import { say, waitForPostedLine } from "./harness.ts";
+import { openLineMenu, say, waitForPostedLine } from "./harness.ts";
 import { png } from "./png.ts";
 import { namedRoomRow } from "../support/conversation_row.ts";
 
@@ -149,8 +149,7 @@ export async function proveManagedAccessEditor(browser: Browser, owner: Page, ht
 		}
 		await waitForPostedLine(observer, "Posted with collaborator access");
 		const posted = observer.locator(".row.mine .bubble").filter({ hasText: "Posted with collaborator access" });
-		await posted.hover();
-		await posted.getByLabel("More for this message", { exact: true }).click();
+		await openLineMenu(posted);
 		await observer.getByRole("menuitem", { name: "Edit", exact: true }).click();
 		await say(observer, "Edited with collaborator access");
 		for (const page of [owner, observer]) {

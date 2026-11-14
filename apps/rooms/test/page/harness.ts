@@ -5,7 +5,7 @@
 //
 // A proof is one conversation driven in order, so these are the only things
 // shared across its phases. Everything else a phase needs, it is handed.
-import type { Locator, Page } from "playwright";
+import { errors, type Locator, type Page } from "playwright";
 import { inkContrast } from "../ink_contrast.ts";
 import { fail } from "../support/fail.ts";
 import { factDmDirect, factDmRelay } from "../../lib/text/conversation.ts";
@@ -83,10 +83,28 @@ export async function say(tab: Page, text: string): Promise<void> {
 /** A line's edit authority proves receipt settlement. Quiet progress does not. */
 export async function waitForPostedLine(tab: Page, text: string): Promise<void> {
 	const bubble = tab.locator(".row.mine .bubble").filter({ hasText: text });
-	await bubble.hover();
-	await bubble.getByLabel("More for this message", { exact: true }).click();
+	await openLineMenu(bubble);
 	await tab.getByRole("menuitem", { name: "Edit", exact: true }).waitFor();
 	await tab.keyboard.press("Escape");
+}
+
+/** Open the menu beside a line. Its mark shows only while the pointer is on
+ * the bubble, and a log that is still taking lines can move the bubble out
+ * from under a pointer that has stopped. A click that started by then waits
+ * its whole deadline for a mark that will not show again. A reader moves the
+ * pointer back, so each attempt aims at the bubble afresh. */
+export async function openLineMenu(bubble: Locator): Promise<void> {
+	const mark = bubble.getByLabel(/^More for this message/);
+	const deadline = Date.now() + 30_000;
+	while (true) {
+		await bubble.hover({ timeout: Math.max(1, deadline - Date.now()) });
+		try {
+			await mark.click({ timeout: 2_000 });
+			return;
+		} catch (error) {
+			if (!(error instanceof errors.TimeoutError) || Date.now() >= deadline) throw error;
+		}
+	}
 }
 
 /** Press the direct-message control beside `peer` in the member list and wait

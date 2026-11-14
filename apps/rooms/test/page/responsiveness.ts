@@ -3,7 +3,7 @@
 import type { Browser, Page } from "playwright";
 import { establishLocalSession } from "../support/session_setup.ts";
 import { fail } from "../support/fail.ts";
-import { awaitBubble, openDmTo, say } from "./harness.ts";
+import { awaitBubble, openDmTo, openLineMenu, say } from "./harness.ts";
 
 async function watch(page: Page, who: string): Promise<void> {
 	await page.evaluate((who) => {
@@ -230,15 +230,13 @@ export async function run(browser: Browser, port: number, transport: "TCP" | "ir
 		}
 
 		const editable = alice.locator(".bubble").filter({ hasText: "responsive-fast-2" });
-		await editable.hover();
-		await editable.getByLabel("More for this message", { exact: true }).click();
+		await openLineMenu(editable);
 		await alice.getByRole("menuitem", { name: "Edit", exact: true }).click();
 		await alice.waitForSelector("#changing");
 		await say(alice, "responsive-fast-2 edited");
 		await awaitBubble(bob, "responsive-fast-2 edited", "responsive-bob");
 		const withdrawing = alice.locator(".bubble").filter({ hasText: "responsive-fast-1" });
-		await withdrawing.hover();
-		await withdrawing.getByLabel("More for this message", { exact: true }).click();
+		await openLineMenu(withdrawing);
 		await alice.getByRole("menuitem", { name: "Withdraw", exact: true }).click();
 		await bob.locator(".bubble.withdrawn").waitFor();
 		await alice.click("#settingsBtn");
@@ -302,8 +300,7 @@ export async function run(browser: Browser, port: number, transport: "TCP" | "ir
 		for (let i = 0; i < 64; i++) {
 			await say(bob, `responsive-burst-${i}`);
 			const sent = bob.locator(".bubble").filter({ hasText: `responsive-burst-${i}` });
-			await sent.hover();
-			await sent.getByLabel("More for this message", { exact: true }).click();
+			await openLineMenu(sent);
 			await bob.getByRole("menuitem", { name: "Edit", exact: true }).waitFor();
 			await bob.keyboard.press("Escape");
 		}

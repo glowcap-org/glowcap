@@ -1,5 +1,6 @@
 // Multiple rooms retain independent delivery, history, drafts and membership.
 import type { Page } from "playwright";
+import { openLineMenu } from "./harness.ts";
 import { namedRoomRow } from "../support/conversation_row.ts";
 import { fail } from "../support/fail.ts";
 import { run as narrow } from "./layout/narrow.ts";
@@ -322,8 +323,7 @@ export async function run(
 		// page.
 		{
 			const bubble = tab.locator(`.bubble:has-text("${said.first}")`).last();
-			await bubble.hover();
-			await bubble.getByLabel(/More for this message/).click();
+			await openLineMenu(bubble);
 			await tab.waitForSelector(".line-menu", { timeout: 10_000 })
 				.catch(() => fail("a message menu would not open"));
 			await tab.mouse.move(10, 10);
@@ -361,8 +361,7 @@ export async function run(
 
 		const items = async (page: Page, text: string) => {
 			const bubble = page.locator(`.bubble:has-text("${text}")`).last();
-			await bubble.hover();
-			await bubble.getByLabel(/More for this message/).click();
+			await openLineMenu(bubble);
 			const said = await page.locator(".line-menu [role=menuitem]").allTextContents();
 			// A menu says it is one, and software that announces it tells its reader
 			// to walk it with the arrows. Opening puts focus on the first item, so

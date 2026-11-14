@@ -44,7 +44,7 @@ import { inkContrast } from "../ink_contrast.ts";
 import { reapOwned } from "../support/children.ts";
 import { waitForHttp } from "../support/rooms_server.ts";
 import { fail } from "../support/fail.ts";
-import { awaitBubble, confirmTitleLeave, directOpened, openDmTo, pathTaken } from "../page/harness.ts";
+import { awaitBubble, confirmTitleLeave, directOpened, openDmTo, openLineMenu, pathTaken } from "../page/harness.ts";
 import { namedDirectRow } from "../support/conversation_row.ts";
 
 const ROOT = new URL("../../../../", import.meta.url).pathname;
@@ -214,8 +214,7 @@ try {
 	// kept file is never re-sent; only the new one crosses.
 	{
 		const line = alice.tab.locator('.bubble:has-text("two files on our direct line")').last();
-		await line.hover();
-		await line.getByLabel("More for this message").click();
+		await openLineMenu(line);
 		await alice.tab.locator('.line-menu [role=menuitem]:has-text("Edit")').click();
 		await alice.tab.waitForSelector('#changing:has-text("files")', { timeout: 10_000 })
 			.catch(() => fail("editing a direct file line did not open the composer on its files"));
@@ -247,8 +246,7 @@ try {
 		// And taking the whole line back reaches Bob too: the message goes, its
 		// files with it.
 		const refiled = alice.tab.locator('.bubble:has-text("swapped one file on our direct line")').last();
-		await refiled.hover();
-		await refiled.getByLabel("More for this message").click();
+		await openLineMenu(refiled);
 		await alice.tab.locator('.line-menu [role=menuitem]:has-text("Withdraw")').click();
 		await bob.tab.waitForFunction(
 			() =>

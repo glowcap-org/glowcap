@@ -17,7 +17,7 @@
 import type { Page } from "playwright";
 import { Buffer } from "node:buffer";
 import { fail } from "../support/fail.ts";
-import { bubbleInkContrast } from "./harness.ts";
+import { bubbleInkContrast, openLineMenu } from "./harness.ts";
 import { inkContrast } from "../ink_contrast.ts";
 
 export async function run(tab: Page, second: Page): Promise<void> {
@@ -270,8 +270,7 @@ export async function run(tab: Page, second: Page): Promise<void> {
 		const older = tab.locator('.bubble:has-text("older line")').last();
 		// The controls appear on the message under the pointer, so reach it the way
 		// a reader does rather than by making them permanently visible for a test.
-		await older.hover();
-		await older.getByLabel("More for this message").click().catch(async () => {
+		await openLineMenu(older).catch(async () => {
 			const state = await tab.evaluate(() => ({
 				matches: [...document.querySelectorAll(".bubble")]
 					.filter((bubble) => (bubble.textContent ?? "").includes("older line"))
