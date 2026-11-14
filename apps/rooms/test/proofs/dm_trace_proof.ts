@@ -1,5 +1,6 @@
 import { spawnWeb, webAnnouncements, webPort } from "../support/web_front.ts";
-// A direct message between two browser tabs appears on the live timeline.
+// A direct message between two browser tabs appears on the live timeline
+// (ADR-0040).
 //
 // This is the whole point of the publishing half of the feed. A DM is a session
 // between two members, formed by three-party introduction and held on the

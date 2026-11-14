@@ -16,6 +16,9 @@
 // directory it already reaches, installed as `webrtc.connector`'s signaling,
 // the same configured posture the rendezvous cold dial holds.
 //
+// The live timeline must name `webrtc` and no keyed-relay session, so relay
+// delivery cannot pass for this proof.
+//
 // Needs deno, the wasm module (`zig build wasm-host`), the installed archives
 // (serve.ts's room server is the Rust process), and a Playwright Chromium
 // (the devcontainer image ships one).

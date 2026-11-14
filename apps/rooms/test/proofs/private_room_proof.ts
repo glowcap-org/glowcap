@@ -36,6 +36,7 @@ import { spawnWeb, webPort } from "../support/web_front.ts";
 //   bo   is offered a second one and declines it, which lets the reference go.
 //
 // And then the link on its own, which is the part no directory has to be in on.
+// Ada's Capabilities control mints the bearer link another tab enters by.
 // A second room server stands beside the page's own, di makes a room there and
 // reads its link out, and bo, who holds only the directory his page serves,
 // pastes it. The link names its own peer, so that is the peer the room is

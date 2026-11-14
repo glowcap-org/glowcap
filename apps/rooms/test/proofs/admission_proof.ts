@@ -1,5 +1,6 @@
 // Shipped browser actions against a small, explicitly configured server budget.
-// Cooldown preserves draft custody and never queues a future send.
+// A refused send keeps the draft and its attachment in the composer and never
+// queues a future send, and another member's lines keep arriving meanwhile.
 import { type Browser, chromium, type Page } from "playwright";
 import { Buffer } from "node:buffer";
 import { spawnWeb, webPort } from "../support/web_front.ts";

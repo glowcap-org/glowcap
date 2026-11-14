@@ -1,5 +1,5 @@
 // A Deno peer direct-messages a browser member by cold-dial rendezvous, end
-// to end (ADR-0034 capability 5, the Deno-dialer row). The browser tab opens
+// to end (ADR-0034). The browser tab opens
 // no listening socket, so it cannot be dialed the ordinary way: it registers
 // its durable identity and a held inbound socket at the relay serve.ts runs,
 // and, on the default **Fastest** route with a server, is listed under an

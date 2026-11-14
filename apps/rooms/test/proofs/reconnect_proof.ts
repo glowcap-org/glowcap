@@ -19,7 +19,9 @@ import { spawnWeb, webPort } from "../support/web_front.ts";
 //      directory is away. That is the one-directory case, where the line is the
 //      whole of what a row has to say about where it is.
 //   2. It comes back on its own, re-entering the room it was in, with nobody
-//      touching the browser.
+//      touching the browser. A listed room is re-entered by name and a private
+//      room by the sturdyref the page retained, and steps 3 and 4 hold for
+//      both.
 //   3. The conversation is still there. History belongs to the page, not to the
 //      session that happened to deliver it.
 //   4. The room works again, a line sent afterwards reaches the room and comes
@@ -53,6 +55,10 @@ import { spawnWeb, webPort } from "../support/web_front.ts";
 // respawn, because a cold-dial line has nothing to do with the room server) is
 // two-peer work and lives with `rooms-web-dm-tabs`. So is the line that is in
 // flight when the session dies, which should come back with a retry action.
+//
+// The room runs over iroh, where a restart changes its routing hints. The proof
+// compares only the locator's authority, so the room keeps its durable identity
+// while the hints may differ.
 //
 // Needs deno, cargo for the iroh sidecar, the wasm module (`zig build
 // wasm-host`), the installed archives, and a Playwright Chromium.
