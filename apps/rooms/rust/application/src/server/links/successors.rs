@@ -49,7 +49,7 @@ impl Authority {
 		}
 		let mut next = self.clone();
 		if !next.linked.contains_key(&key) && next.revoked.contains_key(&key) {
-			let generation = next.generations.get(&key).copied().unwrap_or(0) + 1;
+			let generation = self.room_link_generation(name) + 1;
 			if generation > MAX_SAFE {
 				return Err(Refusal::plain(format!(
 					"room \"{name}\" has exhausted link generations"
@@ -60,7 +60,7 @@ impl Authority {
 		}
 		next.linked.insert(key.clone(), name.into());
 		if steward && !next.has_steward(name) {
-			let generation = next.stewards.get(&key).map_or(1, |row| row.generation + 1);
+			let generation = next.stewards.get(&key).map_or(self.floor, |row| row.generation) + 1;
 			if generation > MAX_SAFE {
 				return Err(Refusal::plain(format!(
 					"room \"{name}\" has exhausted stewardship generations"
@@ -76,7 +76,7 @@ impl Authority {
 			);
 		}
 		if manager && !next.has_manager(name) {
-			let generation = next.managers.get(&key).map_or(1, |row| row.generation + 1);
+			let generation = next.managers.get(&key).map_or(self.floor, |row| row.generation) + 1;
 			if generation > MAX_SAFE {
 				return Err(Refusal::plain(format!("room \"{name}\" exhausted manager generations")));
 			}
@@ -90,10 +90,16 @@ impl Authority {
 			);
 		}
 		if let Some(managed) = managed {
+			if self.floor == MAX_SAFE {
+				return Err(Refusal::plain(format!(
+					"room \"{}\" exhausted public entrance generations",
+					managed.name
+				)));
+			}
 			next.file_managed(Managed {
 				id: name.into(),
 				name: managed.name.into(),
-				generation: 1,
+				generation: self.floor + 1,
 				policy: managed.policy,
 			});
 		}
@@ -259,9 +265,21 @@ impl Authority {
 	/// Rotate the secret and clear every authority row, keeping the Host
 	/// identity and the subjects of public rooms. Old links derive from the
 	/// retired secret and can never collide with what is minted after this.
-	pub fn factory_reset(&self, secret: [u8; KEY_BYTES]) -> Self {
+	/// A link entrance, a steward, and a manager each hold their generation
+	/// as a number. The floor moves above every generation cleared, so none
+	/// issued before this reads as current again.
+	pub fn factory_reset(&self, secret: [u8; KEY_BYTES]) -> Result<Self, Refusal> {
+		let issues = self.stewards.values().chain(self.managers.values());
+		let highest = (self.generations.values().copied())
+			.chain(issues.map(|row| row.generation))
+			.chain(self.managed.values().map(|room| room.generation))
+			.fold(self.floor, u64::max);
+		if highest == MAX_SAFE {
+			return Err(Refusal::plain("this server has exhausted its generations"));
+		}
 		let mut next = self.clone();
 		next.secret = secret;
+		next.floor = highest + 1;
 		next.linked.clear();
 		next.revoked.clear();
 		next.generations.clear();
@@ -271,6 +289,6 @@ impl Authority {
 		next.managed_by_name.clear();
 		next.publications.clear();
 		next.subjects.retain(|_, (name, _)| !RecoveryKey::accepts(name));
-		next
+		Ok(next)
 	}
 }

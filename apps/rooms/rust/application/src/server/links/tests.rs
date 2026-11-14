@@ -15,6 +15,11 @@ fn kept() -> Authority {
 	Authority::read(&Document::decode(KEPT).unwrap()).unwrap()
 }
 
+/// A secret other than the kept document's, read out of that document.
+fn other_secret() -> [u8; KEY_BYTES] {
+	*kept().identity_seed()
+}
+
 fn described(description: &str) -> Subject {
 	Subject::new(description.into(), None).unwrap()
 }
@@ -81,7 +86,7 @@ fn linked_publication_survives_dormancy_and_fences_revocation_reissue_and_reset(
 	let reissued = revoked.remembered("Orchard", false, false, None).unwrap().unwrap();
 	assert_ne!(reissued.named_publication("Orchard").unwrap().id, ordinary.id);
 	assert!(rooms.enter_publication(id, &reissued).is_err());
-	let reset = reissued.factory_reset([8; 32]);
+	let reset = reissued.factory_reset(other_secret()).unwrap();
 	assert!(reset.publications.is_empty());
 	assert!(reset.named_publication("Orchard").is_none());
 	assert!(reset.publication_room(entry.id.text().as_str().unwrap()).is_none());
@@ -351,7 +356,7 @@ fn subjects_follow_durable_names_and_a_link_revocation() {
 #[test]
 fn a_factory_reset_keeps_identity_and_public_subjects_only() {
 	let authority = kept();
-	let reset = authority.factory_reset([9; KEY_BYTES]);
+	let reset = authority.factory_reset(other_secret()).unwrap();
 	assert_eq!(reset.identity_seed(), authority.identity_seed());
 	assert_eq!(reset.linked_rooms().count(), 0);
 	assert!(!reset.has_steward("Garden"));
@@ -359,6 +364,88 @@ fn a_factory_reset_keeps_identity_and_public_subjects_only() {
 	assert_eq!(reset.subject(MANAGED), None);
 	assert_ne!(reset.room_entropy("Garden", 0), authority.room_entropy("Garden", 0));
 	Authority::read(&reset.document()).unwrap();
+}
+
+/// A capability holds its generation as a number, and one issued before a
+/// factory reset outlives it in any session the reset left connected.
+#[test]
+fn nothing_issued_before_a_factory_reset_is_current_after_one() {
+	const SECOND: &str = "~00000000000000000000000000000002";
+	let orchard = || {
+		Some(Registration {
+			name: "Orchard",
+			policy: RoomPolicy::Open,
+		})
+	};
+	// A link with no generation row, and a manager and a managed room at
+	// their first generations, beside the kept steward at its first.
+	let before = kept().remembered("plain", false, false, None).unwrap().unwrap();
+	let before = before.remembered(SECOND, false, true, orchard()).unwrap().unwrap();
+	let held = |authority: &Authority| {
+		[
+			authority.room_link_generation_is_current("plain", before.room_link_generation("plain")),
+			authority.room_link_generation_is_current("garden", before.room_link_generation("garden")),
+			authority.steward_generation_is_current("garden", before.steward_generation("garden")),
+			authority.manager_generation_is_current(SECOND, before.manager_generation(SECOND)),
+			authority.managed_room(SECOND).map(|room| room.generation)
+				== before.managed_room(SECOND).map(|room| room.generation),
+		]
+	};
+	assert_eq!(held(&before), [true; 5]);
+	// The same names are linked, stewarded, managed, and registered again.
+	let after = before.factory_reset(other_secret()).unwrap();
+	let after = after.remembered("plain", false, false, None).unwrap().unwrap();
+	let after = after.remembered("garden", true, false, None).unwrap().unwrap();
+	let after = after.remembered(SECOND, false, true, orchard()).unwrap().unwrap();
+	assert!(after.has_steward("garden") && after.has_manager(SECOND));
+	assert_eq!(held(&after), [false; 5]);
+	// The stored document carries the floor, so a restart derives the same
+	// links, and a second reset moves the numbering again.
+	let stored = after.document().encode().unwrap();
+	assert!(stored.contains("\"generationFloor\":"), "{stored}");
+	let cold = Authority::read(&Document::decode(&stored).unwrap()).unwrap();
+	let plain = after.room_link_generation("plain");
+	assert_eq!(cold.room_link_generation("plain"), plain);
+	assert_eq!(cold.room_entropy("plain", plain), after.room_entropy("plain", plain));
+	let steward = after.steward_generation("garden");
+	assert_eq!(
+		cold.steward_entropy("garden", steward),
+		after.steward_entropy("garden", steward)
+	);
+	let again = cold.factory_reset(other_secret()).unwrap();
+	let again = again.remembered("plain", false, false, None).unwrap().unwrap();
+	assert!(!again.room_link_generation_is_current("plain", after.room_link_generation("plain")));
+}
+
+#[test]
+fn a_factory_reset_with_no_generation_left_above_is_refused() {
+	let last = KEPT.replace(
+		r#"{"name":"garden","generation":3}"#,
+		r#"{"name":"garden","generation":9007199254740991}"#,
+	);
+	assert_ne!(last, KEPT);
+	let authority = Authority::read(&Document::decode(&last).unwrap()).unwrap();
+	let refused = authority.factory_reset(other_secret()).unwrap_err();
+	assert_eq!(refused.reason(), "this server has exhausted its generations");
+	// A floor at the last generation leaves a managed room none to take.
+	let mut document = kept().factory_reset(other_secret()).unwrap().document();
+	document.generation_floor = SafeInteger::new(MAX_SAFE);
+	let refused = Authority::read(&document)
+		.unwrap()
+		.remembered(
+			MANAGED,
+			false,
+			false,
+			Some(Registration {
+				name: "Garden",
+				policy: RoomPolicy::Open,
+			}),
+		)
+		.unwrap_err();
+	assert_eq!(
+		refused.reason(),
+		"room \"Garden\" exhausted public entrance generations"
+	);
 }
 
 #[test]
