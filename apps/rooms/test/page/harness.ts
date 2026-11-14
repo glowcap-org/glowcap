@@ -8,7 +8,9 @@
 import { errors, type Locator, type Page } from "playwright";
 import { inkContrast } from "../ink_contrast.ts";
 import { fail } from "../support/fail.ts";
+import { delay } from "../support/wait.ts";
 import { factDmDirect, factDmRelay } from "../../lib/text/conversation.ts";
+import { LOCAL_REFUSALS } from "../../lib/text/local_refusals.ts";
 
 /** Keep every notice the page tells, because a toast leaves on its own a few
  * seconds after it is shown, and a failure dump that reads `#toasts` after a
@@ -151,12 +153,46 @@ export async function awaitBubble(tab: Page, text: string, who: string): Promise
 }
 
 /** End the conversation on screen with the title's mark. The mark asks in that
- * conversation's card. This confirms. */
+ * conversation's card. This confirms, and returns once the card is closing.
+ *
+ * The page refuses a leave while a change this tab made to the same
+ * conversation is unfinished, such as a line whose receipt has not settled.
+ * The refusal changes nothing, so this clears the notice and confirms again
+ * until the page accepts. It fails after thirty seconds. */
 export async function confirmTitleLeave(tab: Page): Promise<void> {
 	await tab.click("#leaveBtn");
-	const commit = tab.locator("#convcardLeave, #dircardLeave");
+	// A card stops being `open` when it starts to close, so its control counts
+	// only while the card stands.
+	const commit = tab.locator("dialog[open]").locator("#convcardLeave, #dircardLeave");
 	await commit.waitFor({ state: "visible", timeout: 10_000 });
-	await commit.click();
+	const failures = tab.locator('.toast[data-kind="failure"]');
+	const blocked = failures.filter({ hasText: LOCAL_REFUSALS["change-blocked"].summary }).first();
+	const deadline = Date.now() + 30_000;
+	let presses = 0;
+	// Whether the last press is unanswered: the card stands, and the page has
+	// shown no refusal since.
+	let pressed = false;
+	while (await commit.isVisible()) {
+		if (Date.now() > deadline) {
+			const told = (await failures.allTextContents()).join(" | ") || "nothing";
+			fail(
+				`the conversation's card stayed open for thirty seconds (presses of its leave control: ${presses}), ` +
+					`and the page now says ${told}`,
+			);
+		}
+		if (await blocked.isVisible()) {
+			// The notice also leaves on its own, so a dismissal that finds it gone
+			// has nothing to do.
+			pressed = false;
+			await blocked.locator(".toast-dismiss").click({ timeout: 1_000 }).catch(() => undefined);
+		} else if (!pressed) {
+			// The card can close under a press. One that does not land is looked at
+			// again and never counted.
+			pressed = await commit.click({ timeout: 1_000 }).then(() => true, () => false);
+			if (pressed) presses += 1;
+		}
+		await delay(50);
+	}
 }
 
 /** Press the join card's one act until it is offering the room question, or
