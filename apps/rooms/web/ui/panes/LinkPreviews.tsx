@@ -82,6 +82,27 @@ function PreviewEffect(
 	return null;
 }
 
+/** A ready card: the host it opens, then what the page says about itself. The
+ * host is read from the address the card opens, never from the page, so a
+ * page cannot name another place. */
+export function PreviewLink(
+	{ service, url, metadata }: { service: string; url: string; metadata: OpenGraphMetadata },
+) {
+	const image = metadata.images[0];
+	return (
+		<a href={url} target="_blank" rel="noopener noreferrer">
+			<span className="link-preview-copy">
+				<small>
+					<bdi dir="ltr">{previewHost(url)}</bdi>
+				</small>
+				{metadata.title && <strong>{metadata.title}</strong>}
+				{metadata.description && <span>{metadata.description}</span>}
+			</span>
+			{image !== undefined && <PreviewImage service={service} image={image} />}
+		</a>
+	);
+}
+
 function PreviewCard(
 	{ service, conversation, preview }: { service: string; conversation: string; preview: DraftPreview },
 ) {
@@ -108,19 +129,11 @@ function PreviewCard(
 		/>
 	);
 	if (preview.state === "ready") {
-		const image = preview.metadata.images[0];
 		return (
 			<article className="link-preview-card ready">
 				{effect}
 				{remove}
-				<a href={preview.url} target="_blank" rel="noopener noreferrer">
-					<span className="link-preview-copy">
-						{preview.metadata.siteName && <small>{preview.metadata.siteName}</small>}
-						<strong>{preview.metadata.title ?? previewHost(preview.metadata.url)}</strong>
-						{preview.metadata.description && <span>{preview.metadata.description}</span>}
-					</span>
-					{image !== undefined && <PreviewImage service={service} image={image} />}
-				</a>
+				<PreviewLink service={service} url={preview.url} metadata={preview.metadata} />
 			</article>
 		);
 	}
@@ -196,17 +209,9 @@ function MessagePreview({ service, url }: { service: string; url: string }) {
 		// refusal should not turn a delivered message into an error panel.
 		return null;
 	}
-	const image = read.metadata.images[0];
 	return (
 		<article className="link-preview-card ready">
-			<a href={url} target="_blank" rel="noopener noreferrer">
-				<span className="link-preview-copy">
-					{read.metadata.siteName && <small>{read.metadata.siteName}</small>}
-					<strong>{read.metadata.title ?? previewHost(read.metadata.url)}</strong>
-					{read.metadata.description && <span>{read.metadata.description}</span>}
-				</span>
-				{image !== undefined && <PreviewImage service={service} image={image} />}
-			</a>
+			<PreviewLink service={service} url={url} metadata={read.metadata} />
 		</article>
 	);
 }

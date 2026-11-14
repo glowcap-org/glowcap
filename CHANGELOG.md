@@ -31,6 +31,14 @@ Releases before 0.1.7 are in the
   carries one arrives without that file or anything attached after it. A
   saved archive that holds such a file name no longer opens. Remove that
   state directory to start it again.
+- A Rooms link preview shows the host its card opens above the title, with
+  the port when that is not the scheme's own. The card showed the site name
+  the linked page declared, and under a page with no title the host of the
+  address that page declared, so a page could name another site on its own
+  card. A Rooms server no longer sends the site name, the address, or the
+  kind a page declares, and a page that declares only those makes no preview.
+  The Rooms page refuses a preview that carries one of them. Update a Rooms
+  server and the page that uses it together, or previews fail.
 
 ### Added
 

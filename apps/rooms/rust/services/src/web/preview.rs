@@ -237,11 +237,8 @@ fn result_ttl<T>(result: &Result<T, PreviewError>) -> Duration {
 fn metadata_weight(result: &Result<Metadata, PreviewError>) -> usize {
 	result.as_ref().map_or(64, |metadata| {
 		metadata.requested_url.len()
-			+ metadata.url.len()
 			+ metadata.title.as_ref().map_or(0, String::len)
 			+ metadata.description.as_ref().map_or(0, String::len)
-			+ metadata.site_name.as_ref().map_or(0, String::len)
-			+ metadata.object_type.as_ref().map_or(0, String::len)
 			+ metadata
 				.images
 				.iter()

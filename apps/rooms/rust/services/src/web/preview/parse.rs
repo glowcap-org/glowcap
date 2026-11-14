@@ -6,7 +6,7 @@ use html5ever::{
 		states::RawKind,
 	},
 };
-use rooms_application::open_graph::{MAX_PROPERTIES, MAX_TITLE_BYTES, MAX_URL_BYTES, Metadata, Observation, Property};
+use rooms_application::open_graph::{MAX_PROPERTIES, MAX_TITLE_BYTES, Metadata, Observation, Property};
 use serde_json::Value;
 use std::cell::RefCell;
 
@@ -24,7 +24,6 @@ pub(super) fn metadata(requested_url: &str, final_url: &str, content_type: &str,
 	Metadata::from_observation(&Observation {
 		requested_url,
 		final_url,
-		canonical_url: extracted.canonical.as_deref(),
 		html_title: extracted.title.as_deref(),
 		properties: &properties,
 	})
@@ -64,7 +63,6 @@ impl Sink {
 #[derive(Default)]
 struct Extraction {
 	properties: Vec<Property>,
-	canonical: Option<String>,
 	title: Option<BoundedText>,
 	schemas: Vec<String>,
 	current_schema: Option<String>,
@@ -82,16 +80,6 @@ impl Extraction {
 					.and_then(|(key, content)| Property::new(key, content))
 				{
 					self.properties.push(property);
-				}
-			}
-			"link" if self.canonical.is_none() => {
-				let canonical = attribute(tag, "rel").is_some_and(|value| {
-					value
-						.split_ascii_whitespace()
-						.any(|relation| relation.eq_ignore_ascii_case("canonical"))
-				});
-				if canonical && let Some(href) = attribute(tag, "href").filter(|href| href.len() <= MAX_URL_BYTES) {
-					self.canonical = Some(href.to_owned());
 				}
 			}
 			"title" => {
@@ -318,9 +306,9 @@ mod tests {
 	use super::*;
 
 	#[test]
-	fn reads_property_and_name_metadata_with_canonical_url() {
+	fn reads_property_and_name_metadata() {
 		let body = br#"<html><head><title>HTML fallback</title>
-			<link rel="CANONICAL alternate" href="/article">
+			<link rel="canonical" href="https://bank.example/article">
 			<meta name="description" content="The description">
 			<meta property="og:title" content="Open Graph title">
 			<meta property="og:image" content="/cover.jpg"></head></html>"#;
@@ -331,7 +319,10 @@ mod tests {
 			body,
 		)
 		.unwrap();
-		assert_eq!(found.url, "https://example.com/article");
+		assert!(
+			!serde_json::to_string(&found).unwrap().contains("bank.example"),
+			"the address a page declares for itself is not kept"
+		);
 		assert_eq!(found.title.as_deref(), Some("Open Graph title"));
 		assert_eq!(found.description.as_deref(), Some("The description"));
 		assert_eq!(found.images[0].url, "https://example.com/cover.jpg");
