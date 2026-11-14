@@ -1,6 +1,7 @@
-//! The one argument value tests decode wire shapes into: text, naturals,
-//! booleans, bytes, null and lists, read through the same views a binding supplies.
-use super::{ArgumentView, ListArgument};
+//! The one argument value tests hold wire shapes in: text, naturals, booleans,
+//! bytes, null, lists and capabilities, read through the same views a binding
+//! supplies and written through `ValueEncoder`.
+use super::{ArgumentView, DataEncoder, ListArgument, attachment::AttachmentArgument};
 use crate::files::FileArgument;
 use alloc::{string::String, vec::Vec};
 
@@ -12,6 +13,8 @@ pub(crate) enum Value {
 	Bytes(Vec<u8>),
 	Null,
 	List(Vec<Value>),
+	/// A stand-in capability, identified by the number it was minted with.
+	Capability(u32),
 }
 impl ArgumentView for Value {
 	fn boolean(&self) -> Option<bool> {
@@ -39,7 +42,34 @@ impl ArgumentView for Value {
 		None
 	}
 	fn contains_capability(&self) -> bool {
-		false
+		match self {
+			Self::Capability(_) => true,
+			Self::List(items) => items.iter().any(Self::contains_capability),
+			_ => false,
+		}
+	}
+}
+impl AttachmentArgument for Value {
+	type Capability = u32;
+	fn capability(&self) -> Option<&u32> {
+		match self {
+			Self::Capability(id) => Some(id),
+			_ => None,
+		}
+	}
+}
+/// Encodes wire fields into `Value`s, the inverse of reading them.
+pub(crate) struct ValueEncoder;
+impl DataEncoder for ValueEncoder {
+	type Value = Value;
+	fn text(&mut self, value: String) -> Value {
+		Value::Text(value)
+	}
+	fn integer(&mut self, value: u64) -> Value {
+		Value::Integer(value)
+	}
+	fn boolean(&mut self, value: bool) -> Value {
+		Value::Boolean(value)
 	}
 }
 impl ArgumentView for &Value {

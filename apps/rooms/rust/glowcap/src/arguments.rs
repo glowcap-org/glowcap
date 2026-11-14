@@ -1,7 +1,7 @@
 //! Builds the binding's CapTP arguments for every Rooms wire shape, the write
 //! side of `Value`.
 use glowcap::Argument;
-use rooms_application::room::BuildArguments;
+use rooms_application::room::{BuildArguments, DataEncoder};
 
 /// The one builder of CapTP arguments for the Rooms wire shapes.
 pub struct Arguments;
@@ -35,7 +35,7 @@ impl BuildArguments for Arguments {
 	}
 }
 
-impl rooms_application::server::rooms::wire::DataEncoder for Arguments {
+impl DataEncoder for Arguments {
 	type Value = Argument;
 	fn text(&mut self, value: String) -> Argument {
 		Argument::String(value)

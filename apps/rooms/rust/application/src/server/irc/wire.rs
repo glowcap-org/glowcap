@@ -3,12 +3,12 @@
 //! vocabulary is shared, and the bridge and seat facts beside them.
 use super::seat::{self, View};
 use crate::room::{
+	DataEncoder,
 	carries::{self, Carries},
 	inbox::{AUTHORITY_CHANGED, ENDED, ROOM},
 	message::LineId,
 	subject::Subject,
 };
-use crate::server::rooms::wire::DataEncoder;
 use alloc::{format, string::String, vec::Vec};
 
 /// One thing a bridged room's member hears.
