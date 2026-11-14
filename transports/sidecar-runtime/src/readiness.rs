@@ -4,6 +4,7 @@
 use std::collections::{HashMap, VecDeque};
 use std::io::{Read, Write};
 use std::marker::PhantomData;
+use std::mem::MaybeUninit;
 use std::os::unix::net::UnixStream;
 use std::sync::{Arc, Mutex};
 
@@ -106,7 +107,10 @@ impl<E: From<(usize, u32)>> Readiness<E> {
 	/// Clear coalesced wake bytes before draining authoritative records. A signal
 	/// racing this operation either joins this drain or leaves a byte for the next
 	/// poll. A short record drain re-nudges the fd for its remaining backlog.
-	pub fn drain(&self, dest: &mut [E]) -> usize {
+	///
+	/// `dest` may hold anything on entry. When this returns `n`, its first `n`
+	/// slots are initialized records and the rest are untouched.
+	pub fn drain(&self, dest: &mut [MaybeUninit<E>]) -> usize {
 		let mut wake = [0u8; 256];
 		let mut reader = &self.reader;
 		loop {
@@ -121,7 +125,7 @@ impl<E: From<(usize, u32)>> Readiness<E> {
 		let mut queue = self.queue.lock().unwrap();
 		let count = dest.len().min(queue.len());
 		for slot in dest.iter_mut().take(count) {
-			*slot = E::from(queue.pop_front().unwrap());
+			slot.write(E::from(queue.pop_front().unwrap()));
 		}
 		let remaining = !queue.is_empty();
 		drop(queue);

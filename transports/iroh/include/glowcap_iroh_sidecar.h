@@ -17,6 +17,11 @@
  * frame-level ABI (glowcap_iroh_netlayer_*, in include/glowcap_net_transport_iroh.h): the
  * two link into one library without colliding.
  *
+ * Buffers: a `pointer + length` pair is borrowed for the call only. An input
+ * addresses that many readable bytes that nothing modifies during the call. An
+ * output addresses that many writable bytes, or aligned records, that nothing
+ * else accesses during the call; it need not be initialized.
+ *
  * Lifetime order: free every connection before its endpoint, and free the
  * endpoint last. Handles are owned by exactly one caller and are not
  * reference-counted.

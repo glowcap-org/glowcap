@@ -54,7 +54,7 @@ use glowcap_sidecar_runtime::{RuntimeOwner, TaskBarrier};
 
 #[path = "../../ffi_handles.rs"]
 mod ffi_handles;
-use ffi_handles::{borrowed, reclaimed};
+use ffi_handles::{borrowed, caller_out, caller_slice, reclaimed};
 
 /// The shared readiness channel, drained into this sidecar's own record layout.
 type Readiness = glowcap_sidecar_runtime::Readiness<GlowcapWebrtcReadyEvent>;
@@ -345,6 +345,13 @@ impl EndpointInner {
 	}
 }
 
+/// Copy a borrowed view into an owned string. A zero length is the empty string
+/// whatever the pointer, and an oversized length, a null pointer with nonzero
+/// length, or invalid UTF-8 answers `None`.
+///
+/// # Safety
+/// When `view.len` is nonzero, `view.ptr` addresses `view.len` readable bytes
+/// that nothing modifies during the call.
 unsafe fn view_text(view: GlowcapWebrtcStringView, max_len: usize) -> Option<String> {
 	if view.len == 0 {
 		return Some(String::new());
@@ -352,12 +359,9 @@ unsafe fn view_text(view: GlowcapWebrtcStringView, max_len: usize) -> Option<Str
 	if view.len > max_len {
 		return None;
 	}
-	if view.ptr.is_null() {
-		return None;
-	}
-	// SAFETY: the caller lends the view for this call, and the empty, oversized,
-	// and null cases all returned above.
-	std::str::from_utf8(unsafe { std::slice::from_raw_parts(view.ptr, view.len) })
+	// SAFETY: the `# Safety` contract has `view.ptr` address `view.len` readable bytes that nothing modifies during the
+	// call, and `from_utf8` borrows them only until `to_owned` copies.
+	std::str::from_utf8(unsafe { caller_slice(view.ptr, view.len) }?)
 		.ok()
 		.map(str::to_owned)
 }
@@ -378,6 +382,14 @@ fn starts_with_ascii_ignore_case(value: &str, prefix: &str) -> bool {
 		.is_some_and(|head| head.eq_ignore_ascii_case(prefix))
 }
 
+/// Copy the configuration's ICE-server records into owned values, or `None` when
+/// any count, pointer, or text is refused.
+///
+/// # Safety
+/// When `cfg.ice_server_count` is nonzero, `cfg.ice_servers` addresses that many
+/// aligned, readable records. Each record's `urls` addresses `url_count` aligned,
+/// readable views, and every view addresses its `len` readable bytes. Nothing
+/// modifies any of it during the call.
 unsafe fn ice_servers_from_config(cfg: &GlowcapWebrtcEndpointConfig) -> Option<Vec<RTCIceServer>> {
 	if cfg.ice_server_count == 0 {
 		return Some(Vec::new());
@@ -385,26 +397,24 @@ unsafe fn ice_servers_from_config(cfg: &GlowcapWebrtcEndpointConfig) -> Option<V
 	if cfg.ice_server_count > MAX_ICE_SERVERS {
 		return None;
 	}
-	if cfg.ice_servers.is_null() {
-		return None;
-	}
-	// SAFETY: the caller lends the whole configuration tree for this call, and
-	// each count is bounded and each pointer null-checked before it is read.
-	let records = unsafe { std::slice::from_raw_parts(cfg.ice_servers, cfg.ice_server_count) };
+	// SAFETY: the `# Safety` contract has `cfg.ice_servers` address `cfg.ice_server_count` aligned, readable records
+	// that nothing modifies during the call, and the count is bounded first.
+	let records = unsafe { caller_slice(cfg.ice_servers, cfg.ice_server_count) }?;
 	let mut out = Vec::with_capacity(records.len());
 	for record in records {
-		if record.url_count == 0 || record.url_count > MAX_ICE_URLS_PER_SERVER || record.urls.is_null() {
+		if record.url_count == 0 || record.url_count > MAX_ICE_URLS_PER_SERVER {
 			return None;
 		}
-		// SAFETY: `record.urls` is non-null and `record.url_count` is within bounds (checked above); the configuration
-		// contract on `glowcap_webrtc_sidecar_endpoint_new` has the caller lend each record's `urls` array of
-		// `url_count` views for the call, and `url_views` is dropped before this function returns.
-		let url_views = unsafe { std::slice::from_raw_parts(record.urls, record.url_count) };
+		// SAFETY: `record.url_count` is within bounds (checked above); the `# Safety` contract has each record's `urls`
+		// address `url_count` aligned, readable views that nothing modifies during the call, and `url_views` is dropped
+		// before this function returns.
+		let url_views = unsafe { caller_slice(record.urls, record.url_count) }?;
 		let mut urls = Vec::with_capacity(url_views.len());
 		let mut has_turn = false;
 		for url in url_views {
-			// SAFETY: `url` is one view from the `urls` array sliced above, lent by the caller for this call under the
-			// same configuration contract; `view_text` bounds its length, refuses null, and returns an owned `String`.
+			// SAFETY: `url` is one view from the `urls` array sliced above, and the `# Safety` contract has it address its
+			// `len` readable bytes; `view_text` bounds its length, refuses a null pointer with nonzero length, and returns
+			// an owned `String`.
 			let text = unsafe { view_text(*url, MAX_ICE_URL_BYTES) }?;
 			if text.is_empty() {
 				return None;
@@ -412,8 +422,8 @@ unsafe fn ice_servers_from_config(cfg: &GlowcapWebrtcEndpointConfig) -> Option<V
 			has_turn |= ice_url_is_turn(&text)?;
 			urls.push(text);
 		}
-		// SAFETY: `record.username` is a view lent by the caller for this call under the same configuration contract;
-		// `view_text` bounds its length, refuses null, and returns an owned `String`.
+		// SAFETY: the `# Safety` contract has `record.username` address its `len` readable bytes; `view_text` bounds its
+		// length, refuses a null pointer with nonzero length, and returns an owned `String`.
 		let username = unsafe { view_text(record.username, MAX_ICE_CREDENTIAL_BYTES) }?;
 		// SAFETY: as the `username` view above, for `record.credential`.
 		let credential = unsafe { view_text(record.credential, MAX_ICE_CREDENTIAL_BYTES) }?;
@@ -449,8 +459,7 @@ impl GlowcapWebrtcEndpoint {
 	/// runtime every peer shares. `None` when any of the three is refused.
 	///
 	/// # Safety
-	/// The nested ICE-server arrays in `cfg` satisfy their documented pointer and
-	/// length contracts.
+	/// `cfg` satisfies the contract of `ice_servers_from_config`.
 	unsafe fn from_config(cfg: &GlowcapWebrtcEndpointConfig) -> Option<Box<Self>> {
 		// SAFETY: this function's `# Safety` contract lends the whole tree `cfg` describes for this call.
 		// `ice_servers_from_config` returns owned `RTCIceServer` values, so nothing borrows it afterward.
@@ -486,8 +495,11 @@ impl GlowcapWebrtcEndpoint {
 /// if either resource cannot be created.
 ///
 /// # Safety
-/// `config` must be null or point to a readable configuration whose nested
-/// ICE-server arrays satisfy their documented pointer and length contracts.
+/// `config` must be null or point to a readable configuration that satisfies the
+/// contract of `ice_servers_from_config`: when `ice_server_count` is nonzero,
+/// `ice_servers` addresses that many aligned records, each `urls` addresses
+/// `url_count` aligned views, and every view addresses its `len` readable bytes,
+/// all unmodified during the call.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn glowcap_webrtc_sidecar_endpoint_new(
 	config: *const GlowcapWebrtcEndpointConfig,
@@ -518,7 +530,9 @@ pub unsafe extern "C" fn glowcap_webrtc_sidecar_endpoint_readiness_fd(endpoint: 
 ///
 /// # Safety
 /// `endpoint` must be live. When `out_cap` is nonzero, `out` must address that
-/// many writable records.
+/// many aligned, writable records that nothing else accesses during the call.
+/// A null `out` or zero capacity drains nothing and answers 0. A non-null
+/// `out` with an unrepresentable capacity is refused with `ERR`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn glowcap_webrtc_sidecar_endpoint_drain_ready(
 	endpoint: *const GlowcapWebrtcEndpoint,
@@ -531,9 +545,11 @@ pub unsafe extern "C" fn glowcap_webrtc_sidecar_endpoint_drain_ready(
 		if out.is_null() || out_cap == 0 {
 			return 0;
 		}
-		// SAFETY: the caller declares `out_cap` writable records at `out`, and
-		// the null and zero-capacity cases went to the arm above.
-		let dest = unsafe { std::slice::from_raw_parts_mut(out, out_cap) };
+		// SAFETY: the caller declares `out_cap` aligned, writable records at `out` for the call; the slots are the only
+		// reference to them and are dropped when this closure returns.
+		let Some(dest) = (unsafe { caller_out(out, out_cap) }) else {
+			return ERR as isize;
+		};
 		endpoint.inner.readiness.drain(dest) as isize
 	};
 	// SAFETY: the handle contract `borrowed` states.
@@ -566,7 +582,9 @@ pub unsafe extern "C" fn glowcap_webrtc_sidecar_endpoint_driver_readiness_fd(
 ///
 /// # Safety
 /// `endpoint` must be live. When `out_cap` is nonzero, `out` must address that
-/// many writable records.
+/// many aligned, writable records that nothing else accesses during the call.
+/// A null `out` or zero capacity drains nothing and answers 0. A non-null
+/// `out` with an unrepresentable capacity is refused with `ERR`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn glowcap_webrtc_sidecar_endpoint_drain_driver_ready(
 	endpoint: *const GlowcapWebrtcEndpoint,
@@ -579,13 +597,15 @@ pub unsafe extern "C" fn glowcap_webrtc_sidecar_endpoint_drain_driver_ready(
 		if out.is_null() || out_cap == 0 {
 			return 0;
 		}
+		// SAFETY: the caller declares `out_cap` aligned, writable records at `out` for the call; the slots are the only
+		// reference to them and are dropped when this closure returns.
+		let Some(dest) = (unsafe { caller_out(out, out_cap) }) else {
+			return ERR as isize;
+		};
 		let readiness = match endpoint.inner.driver_readiness() {
 			Some(readiness) => readiness,
 			None => return ERR as isize,
 		};
-		// SAFETY: the caller declares `out_cap` writable records at `out`, and
-		// the null and zero-capacity cases went to the arm above.
-		let dest = unsafe { std::slice::from_raw_parts_mut(out, out_cap) };
 		readiness.drain(dest) as isize
 	};
 	// SAFETY: the handle contract `borrowed` states.

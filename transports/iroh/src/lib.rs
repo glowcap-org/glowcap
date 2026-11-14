@@ -28,6 +28,8 @@
 mod admission;
 mod conn;
 mod connect;
+#[cfg(test)]
+mod connect_test;
 mod constants_gen;
 #[cfg(test)]
 mod lifecycle_test;
@@ -54,7 +56,7 @@ use glowcap_sidecar_runtime::{RuntimeOwner, TaskBarrier};
 
 #[path = "../../ffi_handles.rs"]
 mod ffi_handles;
-use ffi_handles::{borrowed, reclaimed};
+use ffi_handles::{borrowed, caller_out, caller_slice, reclaimed};
 
 /// The shared readiness channel, drained into this sidecar's own record layout.
 type Readiness = glowcap_sidecar_runtime::Readiness<GlowcapIrohReadyEvent>;

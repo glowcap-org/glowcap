@@ -3,6 +3,7 @@
 //! C-facing connection calls (ADR-0035).
 
 use super::*;
+use std::mem::MaybeUninit;
 
 #[derive(Clone)]
 pub(crate) struct PeerEvents {
@@ -265,7 +266,7 @@ pub(crate) fn publish_peer_failed(shared: &PeerShared) {
 /// Copy exactly one inbound packet. A too-small destination leaves the packet
 /// queued for retry, because splitting it would change the DataChannel message
 /// boundary the Host profile relies on.
-pub(crate) fn take_inbound_packet(state: &mut Inbound, dest: &mut [u8]) -> isize {
+pub(crate) fn take_inbound_packet(state: &mut Inbound, dest: &mut [MaybeUninit<u8>]) -> isize {
 	let packet = match state.packets.front() {
 		Some(packet) => packet,
 		None => return 0,
@@ -274,7 +275,7 @@ pub(crate) fn take_inbound_packet(state: &mut Inbound, dest: &mut [u8]) -> isize
 		return BUFFER_TOO_SMALL as isize;
 	}
 	let packet = state.packets.pop_front().unwrap();
-	dest[..packet.len()].copy_from_slice(&packet);
+	dest[..packet.len()].write_copy_of_slice(&packet);
 	state.queued_bytes = state.queued_bytes.saturating_sub(packet.len());
 	packet.len() as isize
 }

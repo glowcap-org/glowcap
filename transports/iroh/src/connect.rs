@@ -220,34 +220,33 @@ impl DialState {
 ///
 /// # Safety
 /// `node_id` must address `node_id_len` readable bytes. When non-null,
-/// `addr_hints` must address `addr_hints_len` readable bytes.
+/// `addr_hints` must address `addr_hints_len` readable bytes. Neither is
+/// modified during the call.
 pub(crate) unsafe fn parse_target(
 	node_id: *const u8,
 	node_id_len: usize,
 	addr_hints: *const u8,
 	addr_hints_len: usize,
 ) -> Result<EndpointAddr, i32> {
-	if node_id.is_null()
-		|| (addr_hints.is_null() && addr_hints_len != 0)
-		|| isize::try_from(node_id_len).is_err()
-		|| isize::try_from(addr_hints_len).is_err()
-	{
+	if node_id.is_null() {
 		return Err(DIAL_INVALID);
 	}
-	// SAFETY: `node_id` is non-null and `node_id_len` fits in `isize` (both checked above), and this function's
-	// `# Safety` contract has the caller keep `node_id_len` readable bytes at `node_id` live for the call; the slice is
-	// borrowed only while `from_utf8` validates it, and `EndpointId::from_str` copies it into an owned id.
-	let id_str =
-		std::str::from_utf8(unsafe { std::slice::from_raw_parts(node_id, node_id_len) }).map_err(|_| DIAL_INVALID)?;
+	// SAFETY: this function's `# Safety` contract has the caller keep `node_id_len` readable bytes at `node_id` that
+	// nothing modifies during the call; the slice is borrowed only while `from_utf8` validates it, and
+	// `EndpointId::from_str` copies it into an owned id.
+	let Some(id_bytes) = (unsafe { caller_slice(node_id, node_id_len) }) else {
+		return Err(DIAL_INVALID);
+	};
+	// SAFETY: the same contract has the caller keep `addr_hints_len` readable bytes at `addr_hints` that nothing
+	// modifies during the call; the loop below parses owned `SocketAddr` values from the slice and keeps none of it.
+	let Some(hint_bytes) = (unsafe { caller_slice(addr_hints, addr_hints_len) }) else {
+		return Err(DIAL_INVALID);
+	};
+	let id_str = std::str::from_utf8(id_bytes).map_err(|_| DIAL_INVALID)?;
 	let id = EndpointId::from_str(id_str).map_err(|_| DIAL_INVALID)?;
 	let mut addr = EndpointAddr::new(id);
-	if addr_hints_len > 0 {
-		// SAFETY: `addr_hints_len` is nonzero here, so the check above leaves `addr_hints` non-null and its length
-		// within `isize`; the `# Safety` contract has the caller keep `addr_hints_len` readable bytes at `addr_hints`
-		// live for the call, and the slice is borrowed only while `from_utf8` validates it and the loop below parses
-		// owned `SocketAddr` values from it.
-		let hints = std::str::from_utf8(unsafe { std::slice::from_raw_parts(addr_hints, addr_hints_len) })
-			.map_err(|_| DIAL_INVALID)?;
+	if !hint_bytes.is_empty() {
+		let hints = std::str::from_utf8(hint_bytes).map_err(|_| DIAL_INVALID)?;
 		for hint in hints.split(',') {
 			let hint = hint.trim();
 			if hint.is_empty() {
@@ -372,8 +371,9 @@ pub(crate) fn endpoint_dials(ep: &GlowcapIrohEndpoint) -> Option<&Arc<DialState>
 ///
 /// # Safety
 /// `ep` must be null or a live endpoint handle. Target pointers must address
-/// their declared readable lengths, and non-null output pointers must be
-/// writable. A null `ep` is refused as invalid.
+/// their declared readable lengths and nothing modifies those bytes during the
+/// call, and non-null output pointers must be writable. A null `ep` is refused
+/// as invalid.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn glowcap_iroh_sidecar_connect_blocking(
 	ep: *mut GlowcapIrohEndpoint,
@@ -390,8 +390,8 @@ pub unsafe extern "C" fn glowcap_iroh_sidecar_connect_blocking(
 		// SAFETY: this function's `# Safety` contract makes `ep` null or a live endpoint handle the caller does not free
 		// during the call. `as_ref` maps null to `None`, and the borrow ends with this closure.
 		let ep = unsafe { ep.as_ref() }.ok_or(DIAL_INVALID)?;
-		// SAFETY: the `# Safety` contract has the caller keep `node_id` and `addr_hints` readable for their declared
-		// lengths through the call, which is what `parse_target` requires; it returns an owned `EndpointAddr`, so
+		// SAFETY: the `# Safety` contract has the caller keep `node_id` and `addr_hints` readable and unmodified for their
+		// declared lengths through the call, which is what `parse_target` requires; it returns an owned `EndpointAddr`, so
 		// nothing borrows those bytes afterward.
 		let addr = unsafe { parse_target(node_id, node_id_len, addr_hints, addr_hints_len) }?;
 		let raw = ep.rt.block_on(dial_raw(ep.ep.clone(), addr, ep.connect_timeout))?;
@@ -417,7 +417,8 @@ pub unsafe extern "C" fn glowcap_iroh_sidecar_connect_blocking(
 ///
 /// # Safety
 /// `ep` must be null or a live endpoint handle. Target pointers must address
-/// their declared readable lengths. A null `ep` is refused as invalid.
+/// their declared readable lengths and nothing modifies those bytes during the
+/// call. A null `ep` is refused as invalid.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn glowcap_iroh_sidecar_endpoint_start_connect(
 	ep: *mut GlowcapIrohEndpoint,
