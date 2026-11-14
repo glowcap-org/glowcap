@@ -17,7 +17,6 @@ const PendingOpen = pending_state.Open;
 const ResidentRequestKey = resident_state.RequestKey;
 const SessionAcceptObservation = lifecycle.SessionAcceptObservation;
 const Wire = HostRuntime.Wire;
-const unattended_parked_cap_bytes = HostRuntime.unattended_parked_cap_bytes;
 
 /// Drain and answer one resident's ready records: dial completions release their
 /// awaiting dials, readable connections feed the core, writable ones resume
@@ -251,25 +250,7 @@ fn endOfStream(wire: *Wire) error{ TruncatedFrame, EndOfStream } {
 /// Park `chunk` for an unattended wire, or feed it to the core, which keeps
 /// no borrow of it past the call.
 fn feedChunk(self: *HostRuntime, wire: *Wire, chunk: []const u8) !void {
-    const rl = &wire.link;
-    if (!wire.attended) {
-        switch (wire.session.wire_framing) {
-            .byte_stream => {
-                if (rl.parked.items.len + chunk.len > unattended_parked_cap_bytes)
-                    return error.ConnectionLost;
-                try rl.parked.appendSlice(self.allocator, chunk);
-            },
-            .message => {
-                if (rl.parked_packet_bytes + chunk.len > unattended_parked_cap_bytes)
-                    return error.ConnectionLost;
-                const packet = try self.allocator.dupe(u8, chunk);
-                errdefer self.allocator.free(packet);
-                try rl.parked_packets.append(self.allocator, packet);
-                rl.parked_packet_bytes += packet.len;
-            },
-        }
-        return;
-    }
+    if (!wire.attended) return wire.link.park(self.allocator, wire.session.wire_framing, chunk);
     self.core.feedTransportPacket(wire.session, chunk) catch |err| {
         const failure = net.classifyApplyError(err);
         self.drainActions() catch |drain_err| {

@@ -234,6 +234,7 @@ comptime {
         if (@import("builtin").target.os.tag == .linux) {
             _ = @import("driver/host_runtime_multiplexed/lifecycle_test.zig");
             _ = @import("driver/host_runtime_multiplexed/park_test.zig");
+            _ = @import("driver/host_runtime_multiplexed/parked_input_test.zig");
             _ = @import("driver/host_runtime_multiplexed/zig_server_test.zig");
             _ = @import("driver/host_runtime_multiplexed/conversation_test.zig");
             _ = @import("driver/host_runtime_multiplexed/completion_resident_test.zig");

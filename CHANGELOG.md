@@ -55,6 +55,10 @@ Releases before 0.1.7 are in the
 
 ### Fixed
 
+- A session on a message-framed transport replays the packets that arrived
+  before the application attended it in one pass. The replay took time that
+  grew with the square of the packet count, so a peer sending many small
+  packets could stall the driver when the session was attended.
 - `GLOWCAP_REPL_REDUCED_MOTION=1` turns off the REPL's flash on a table that
   changed and holds the wait spinner on one glyph. The REPL read the variable
   and changed nothing.

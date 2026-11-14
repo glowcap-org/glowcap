@@ -69,17 +69,18 @@ pub fn attendSession(self: *HostRuntime, session: *driver_core.HostSession) !voi
     wire.attended = true;
     const rl = &wire.link;
     if (rl.parked.items.len > 0) {
-        const parked = rl.parked.items;
-        self.core.feedBytes(wire.session, parked) catch |err| return closeWireForRefusedFeed(self, wire, err);
+        switch (wire.session.wire_framing) {
+            .byte_stream => self.core.feedBytes(wire.session, rl.parked.items) catch |err|
+                return closeWireForRefusedFeed(self, wire, err),
+            .message => {
+                var packets = rl.parkedPackets();
+                while (packets.next()) |packet|
+                    self.core.feedTransportPacket(wire.session, packet) catch |err|
+                        return closeWireForRefusedFeed(self, wire, err);
+            },
+        }
         rl.parked.clearAndFree(self.allocator);
     }
-    while (rl.parked_packets.items.len > 0) {
-        const packet = rl.parked_packets.orderedRemove(0);
-        defer self.allocator.free(packet);
-        rl.parked_packet_bytes -= packet.len;
-        self.core.feedTransportPacket(wire.session, packet) catch |err| return closeWireForRefusedFeed(self, wire, err);
-    }
-    rl.parked_packets.clearAndFree(self.allocator);
     // A parked embedder must re-poll: the resumable tail is progress its
     // current wait set cannot see.
     switch (self.drive) {
