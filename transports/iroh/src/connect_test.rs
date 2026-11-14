@@ -61,6 +61,45 @@ fn dial_text_truncates_at_a_char_boundary() {
 	assert_eq!(len, 0, "a null buffer declines the text");
 }
 
+/// A copy reports what it wrote for a fitting buffer, a too-small buffer, and
+/// a null buffer at any capacity, and never writes past the reported count.
+#[test]
+fn dial_text_copy_answers_each_buffer_shape() {
+	let text = DialText::describe(format_args!("refused"));
+	// Each call starts from a count no copy reports, so a call that reported
+	// nothing fails its assertion.
+	let copied = |out: *mut u8, cap: usize| {
+		let mut len = usize::MAX;
+		text.copy_to(out, cap, &mut len);
+		len
+	};
+
+	let mut roomy = [0xAAu8; 9];
+	assert_eq!(copied(roomy.as_mut_ptr(), roomy.len()), 7);
+	assert_eq!(&roomy[..7], b"refused");
+	assert_eq!(&roomy[7..], [0xAA; 2], "bytes past the text stay untouched");
+
+	let mut exact = [0xAAu8; 7];
+	assert_eq!(copied(exact.as_mut_ptr(), exact.len()), 7);
+	assert_eq!(&exact, b"refused");
+
+	let mut small = [0xAAu8; 3];
+	assert_eq!(copied(small.as_mut_ptr(), small.len()), 3);
+	assert_eq!(&small, b"ref");
+
+	let mut untouched = [0xAAu8; 2];
+	assert_eq!(copied(untouched.as_mut_ptr(), 0), 0, "zero capacity copies nothing");
+	assert_eq!(untouched, [0xAA; 2]);
+
+	assert_eq!(copied(std::ptr::null_mut(), 0), 0);
+	assert_eq!(
+		copied(std::ptr::null_mut(), 16),
+		0,
+		"a null buffer declines the text at any capacity"
+	);
+	text.copy_to(std::ptr::null_mut(), 16, std::ptr::null_mut());
+}
+
 /// A short caller-set connect timeout must trip fast. The dial's only route is
 /// a bound-but-silent UDP black hole: because the port is bound, the OS never
 /// answers the QUIC handshake and never sends an ICMP port-unreachable that

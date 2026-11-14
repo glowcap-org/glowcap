@@ -445,8 +445,10 @@ pub unsafe extern "C" fn glowcap_iroh_sidecar_endpoint_new(
 fn write_str(s: &str, out: *mut u8, out_cap: usize) -> isize {
 	let bytes = s.as_bytes();
 	if bytes.len() <= out_cap {
-		// Safety: the contract requires `out_cap` writable bytes at `out`.
-		unsafe { std::ptr::copy_nonoverlapping(bytes.as_ptr(), out, bytes.len()) };
+		// SAFETY: the contract requires `out_cap` writable bytes at `out`, and `bytes.len()` is at most that.
+		if let Some(slots) = unsafe { caller_out(out, bytes.len()) } {
+			slots.write_copy_of_slice(bytes);
+		}
 	}
 	bytes.len() as isize
 }

@@ -18,13 +18,12 @@ pub unsafe extern "C" fn glowcap_iroh_sidecar_conn_remote_node_id(
 	conn: *const GlowcapIrohConn,
 	out_key32: *mut u8,
 ) -> i32 {
-	if out_key32.is_null() {
-		return -1;
-	}
 	let copy = |conn: &GlowcapIrohConn| {
-		let bytes = *conn.conn.remote_id().as_bytes();
-		// SAFETY: upheld by the caller after the null check above. The source is exactly 32 bytes.
-		unsafe { std::ptr::copy_nonoverlapping(bytes.as_ptr(), out_key32, 32) };
+		// SAFETY: the contract makes `out_key32` null or 32 writable bytes, and a null pointer answers `None`.
+		let Some(out) = (unsafe { caller_out(out_key32, 32) }) else {
+			return -1;
+		};
+		out.write_copy_of_slice(conn.conn.remote_id().as_bytes());
 		0
 	};
 	// SAFETY: the handle contract `borrowed` states.

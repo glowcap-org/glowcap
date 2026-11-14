@@ -333,6 +333,23 @@ fn release(dialed: Dialed) {
 	assert_eq!(free_endpoint(dialed.server), 0);
 }
 
+/// A live connection writes its partner's verified 32-byte id and nothing
+/// past it, and refuses a null key buffer.
+#[test]
+fn remote_node_id_writes_the_partner_key_and_refuses_a_null_buffer() {
+	let d = dial_blocking();
+	let mut key = [0xAAu8; 34];
+	// SAFETY: `d.conn` is live until `release`, and `key` holds the 32 bytes the call writes.
+	let status = unsafe { crate::conn::glowcap_iroh_sidecar_conn_remote_node_id(d.conn, key.as_mut_ptr()) };
+	assert_eq!(status, 0);
+	assert_eq!(&key[..32], d.server.ep.id().as_bytes());
+	assert_eq!(&key[32..], [0xAA; 2], "bytes past the key stay untouched");
+	// SAFETY: `d.conn` is live, and a null key buffer is within the contract.
+	let refused = unsafe { crate::conn::glowcap_iroh_sidecar_conn_remote_node_id(d.conn, std::ptr::null_mut()) };
+	assert_eq!(refused, -1);
+	release(d);
+}
+
 #[test]
 fn blocking_read_answers_bytes_then_zero_at_a_finished_stream() {
 	let mut d = dial_blocking();
