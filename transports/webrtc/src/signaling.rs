@@ -168,21 +168,29 @@ pub(crate) fn signal_output_fits(text: &str) -> bool {
 	text.len() <= MAX_SIGNAL_BYTES
 }
 
+/// Borrow a caller's SDP text, refusing null, an oversized length, and invalid UTF-8.
+///
+/// # Safety
+/// `ptr` points to `len` readable bytes that nothing modifies for `'a`.
 pub(crate) unsafe fn signal_text<'a>(ptr: *const u8, len: usize) -> Option<&'a str> {
 	if ptr.is_null() || len > MAX_SIGNAL_BYTES {
 		return None;
 	}
-	// SAFETY: the caller lends `len` readable bytes at `ptr` for this call, and
-	// the null and oversized cases returned above.
-	std::str::from_utf8(unsafe { std::slice::from_raw_parts(ptr, len) }).ok()
+	// SAFETY: the `# Safety` contract has `ptr` address `len` readable bytes that nothing modifies for `'a`.
+	std::str::from_utf8(unsafe { caller_slice(ptr, len) }?).ok()
 }
 
+/// Borrow a caller's ICE candidate JSON, refusing null, an oversized length, and
+/// invalid UTF-8.
+///
+/// # Safety
+/// `ptr` points to `len` readable bytes that nothing modifies for `'a`.
 pub(crate) unsafe fn candidate_text<'a>(ptr: *const u8, len: usize) -> Option<&'a str> {
 	if ptr.is_null() || len > MAX_ICE_CANDIDATE_BYTES {
 		return None;
 	}
 	// SAFETY: as `signal_text`, under the candidate bound.
-	std::str::from_utf8(unsafe { std::slice::from_raw_parts(ptr, len) }).ok()
+	std::str::from_utf8(unsafe { caller_slice(ptr, len) }?).ok()
 }
 
 pub(crate) fn write_local_candidate(queue: &mut CandidateQueue, out: &OutText) -> i32 {
@@ -279,8 +287,8 @@ pub unsafe extern "C" fn glowcap_webrtc_sidecar_peer_create_answer(
 /// call return `ERR`.
 ///
 /// # Safety
-/// `peer` live. `sdp` points to `sdp_len` readable bytes of UTF-8, with
-/// `sdp_len <= MAX_SIGNAL_BYTES`.
+/// `peer` live. `sdp` points to `sdp_len` readable bytes of UTF-8 that nothing
+/// modifies during the call, with `sdp_len <= MAX_SIGNAL_BYTES`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn glowcap_webrtc_sidecar_peer_set_remote(
 	peer: *mut GlowcapWebrtcPeer,
@@ -288,7 +296,8 @@ pub unsafe extern "C" fn glowcap_webrtc_sidecar_peer_set_remote(
 	sdp_len: usize,
 	is_offer: i32,
 ) -> i32 {
-	// SAFETY: the `sdp` view is live for this call per the contract above.
+	// SAFETY: the `# Safety` contract above has `sdp` address `sdp_len` readable bytes that nothing modifies during the
+	// call, and the text is copied before this function returns.
 	let text = match unsafe { signal_text(sdp, sdp_len) } {
 		Some(text) => text.to_string(),
 		None => return ERR,
@@ -350,15 +359,16 @@ fn add_remote_candidate_now(peer: &GlowcapWebrtcPeer, init: RTCIceCandidateInit)
 /// is set.
 ///
 /// # Safety
-/// `peer` live. `cand` points to `cand_len` readable bytes of UTF-8 JSON, with
-/// `cand_len <= MAX_ICE_CANDIDATE_BYTES`.
+/// `peer` live. `cand` points to `cand_len` readable bytes of UTF-8 JSON that
+/// nothing modifies during the call, with `cand_len <= MAX_ICE_CANDIDATE_BYTES`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn glowcap_webrtc_sidecar_peer_add_remote_candidate(
 	peer: *mut GlowcapWebrtcPeer,
 	cand: *const u8,
 	cand_len: usize,
 ) -> i32 {
-	// SAFETY: the `cand` view is live for this call per the contract above.
+	// SAFETY: the `# Safety` contract above has `cand` address `cand_len` readable bytes that nothing modifies during
+	// the call.
 	let text = match unsafe { candidate_text(cand, cand_len) } {
 		Some(text) => text,
 		None => return ERR,

@@ -224,3 +224,146 @@ fn a_vanished_partner_does_not_fail_endpoint_release() {
 	assert_eq!(client.writers.wait(), Ok(()));
 	assert_eq!(free_endpoint(client), 0);
 }
+
+/// An oversized length is refused at entry: an in-range read of the same empty
+/// connection would block.
+#[test]
+fn oversized_nonblocking_lengths_are_refused_before_any_queue_read() {
+	use crate::conn::glowcap_iroh_sidecar_conn_free;
+	use crate::nonblocking::calls::{glowcap_iroh_sidecar_conn_try_read, glowcap_iroh_sidecar_conn_try_write};
+	use crate::{ALPN, AcceptedRaw, make_conn};
+
+	let client = direct_endpoint(5_000);
+	let server = direct_endpoint(5_000);
+	// The partner holds its side open, so the in-range read below finds an empty queue rather than a close.
+	let (raw, accepted) = client.rt.block_on(async {
+		let (dialed, accepted) = tokio::join!(client.ep.connect(server.ep.addr(), ALPN), async {
+			server.ep.accept().await.unwrap().await.unwrap()
+		});
+		let dialed = dialed.unwrap();
+		let (send, recv) = dialed.open_bi().await.unwrap();
+		(
+			AcceptedRaw {
+				conn: dialed,
+				send,
+				recv,
+			},
+			accepted,
+		)
+	});
+	let conn = make_conn(&client, raw).unwrap();
+	assert_eq!(set_nonblocking(&client, conn), 0);
+	let oversized = isize::MAX as usize + 1;
+	let mut byte = 0u8;
+	// SAFETY: `conn` is the live handle `make_conn` returned, and `byte` is a valid local byte. The oversized calls
+	// neither read nor write behind it, because they refuse the length before forming a slice.
+	unsafe {
+		assert_eq!(glowcap_iroh_sidecar_conn_try_read(conn, &mut byte, oversized), -1);
+		assert_eq!(glowcap_iroh_sidecar_conn_try_write(conn, &byte, oversized), -1);
+		// An in-range read on the same empty inbound queue would block instead.
+		assert_eq!(
+			glowcap_iroh_sidecar_conn_try_read(conn, &mut byte, 1),
+			crate::WOULD_BLOCK
+		);
+		glowcap_iroh_sidecar_conn_free(conn);
+	}
+	drop(accepted);
+	assert_eq!(client.writers.wait(), Ok(()));
+	assert_eq!(free_endpoint(client), 0);
+	assert_eq!(free_endpoint(server), 0);
+}
+
+/// A blocking connection dialed to a partner whose accepted side holds the
+/// stream the connection writes to.
+struct Dialed {
+	client: Box<GlowcapIrohEndpoint>,
+	server: Box<GlowcapIrohEndpoint>,
+	conn: *mut crate::GlowcapIrohConn,
+	dialed: crate::Connection,
+	accepted: crate::Connection,
+	partner_send: crate::SendStream,
+}
+
+fn dial_blocking() -> Dialed {
+	use crate::{ALPN, AcceptedRaw, make_conn};
+
+	let client = direct_endpoint(5_000);
+	let server = direct_endpoint(5_000);
+	let (dialed, send, recv, accepted) = client.rt.block_on(async {
+		let (dialed, accepted) = tokio::join!(client.ep.connect(server.ep.addr(), ALPN), async {
+			server.ep.accept().await.unwrap().await.unwrap()
+		});
+		let dialed = dialed.unwrap();
+		let (send, recv) = dialed.open_bi().await.unwrap();
+		(dialed, send, recv, accepted)
+	});
+	let raw = AcceptedRaw {
+		conn: dialed.clone(),
+		send,
+		recv,
+	};
+	let conn = make_conn(&client, raw).unwrap();
+	// A stream is visible to its partner only once bytes cross it.
+	// SAFETY: `conn` is the live handle `make_conn` returned, and the buffer is a local array of the length passed.
+	let written = unsafe { crate::conn::glowcap_iroh_sidecar_conn_write(conn, b"open".as_ptr(), 4) };
+	assert_eq!(written, 4);
+	let partner_send = client.rt.block_on(async { accepted.accept_bi().await.unwrap().0 });
+	Dialed {
+		client,
+		server,
+		conn,
+		dialed,
+		accepted,
+		partner_send,
+	}
+}
+
+fn blocking_read(conn: *mut crate::GlowcapIrohConn, buf: &mut [u8]) -> isize {
+	// SAFETY: `conn` is a live handle its caller frees after this call, and `buf` is a writable local slice of the
+	// length passed.
+	unsafe { crate::conn::glowcap_iroh_sidecar_conn_read(conn, buf.as_mut_ptr(), buf.len()) }
+}
+
+fn release(dialed: Dialed) {
+	// SAFETY: `conn` is the owned handle `make_conn` returned and is not used after this call.
+	unsafe { crate::conn::glowcap_iroh_sidecar_conn_free(dialed.conn) };
+	drop(dialed.partner_send);
+	drop(dialed.accepted);
+	assert_eq!(free_endpoint(dialed.client), 0);
+	assert_eq!(free_endpoint(dialed.server), 0);
+}
+
+#[test]
+fn blocking_read_answers_bytes_then_zero_at_a_finished_stream() {
+	let mut d = dial_blocking();
+	d.client.rt.block_on(async {
+		d.partner_send.write_all(b"hi").await.unwrap();
+		d.partner_send.finish().unwrap();
+	});
+	let mut buf = [0u8; 16];
+	assert_eq!(blocking_read(d.conn, &mut buf), 2);
+	assert_eq!(&buf[..2], b"hi");
+	assert_eq!(blocking_read(d.conn, &mut buf), 0);
+	release(d);
+}
+
+#[test]
+fn blocking_read_answers_zero_when_either_side_closes_cleanly() {
+	let d = dial_blocking();
+	d.accepted.close(0u32.into(), b"");
+	assert_eq!(blocking_read(d.conn, &mut [0u8; 4]), 0);
+	release(d);
+
+	let d = dial_blocking();
+	d.dialed.close(0u32.into(), b"");
+	assert_eq!(blocking_read(d.conn, &mut [0u8; 4]), 0);
+	release(d);
+}
+
+#[test]
+fn blocking_read_answers_minus_one_for_a_reset_stream() {
+	let mut d = dial_blocking();
+	d.partner_send.reset(7u32.into()).unwrap();
+	assert_eq!(blocking_read(d.conn, &mut [0u8; 4]), -1);
+	release(d);
+}

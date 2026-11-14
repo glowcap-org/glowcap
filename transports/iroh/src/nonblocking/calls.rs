@@ -28,7 +28,9 @@ pub unsafe extern "C" fn glowcap_iroh_sidecar_endpoint_readiness_fd(ep: *const G
 ///
 /// # Safety
 /// `ep` must be null or a live endpoint handle. When non-null, `out` must address
-/// `out_cap` writable events. Invalid pointers or capacities are refused.
+/// `out_cap` aligned, writable events that nothing else accesses during the call.
+/// A null `out` or zero capacity drains nothing and answers 0. A non-null
+/// `out` with an unrepresentable capacity answers -1.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn glowcap_iroh_sidecar_endpoint_drain_ready(
 	ep: *const GlowcapIrohEndpoint,
@@ -39,18 +41,13 @@ pub unsafe extern "C" fn glowcap_iroh_sidecar_endpoint_drain_ready(
 		if out.is_null() || out_cap == 0 {
 			return 0;
 		}
-		if out_cap
-			.checked_mul(std::mem::size_of::<GlowcapIrohReadyEvent>())
-			.and_then(|bytes| isize::try_from(bytes).ok())
-			.is_none()
-		{
+		// SAFETY: the `# Safety` contract has the caller keep `out_cap` aligned, writable events at `out` for the call.
+		let Some(dest) = (unsafe { caller_out(out, out_cap) }) else {
 			return -1;
-		}
+		};
 		let Some(r) = ep.readiness.get() else {
 			return 0;
 		};
-		// SAFETY: upheld by the caller after the pointer and capacity checks.
-		let dest = unsafe { std::slice::from_raw_parts_mut(out, out_cap) };
 		isize::try_from(r.drain(dest)).unwrap_or(-1)
 	};
 	// SAFETY: the handle contract `borrowed` states.
@@ -214,7 +211,8 @@ pub unsafe extern "C" fn glowcap_iroh_sidecar_conn_id(conn: *const GlowcapIrohCo
 ///
 /// # Safety
 /// `conn` must be null or a live connection handle. For nonzero `len`, `buf` must
-/// address `len` writable bytes. Null pointers are refused defensively.
+/// address `len` writable bytes that nothing else accesses during the call. Null
+/// pointers and unrepresentable lengths are refused defensively.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn glowcap_iroh_sidecar_conn_try_read(
 	conn: *mut GlowcapIrohConn,
@@ -225,9 +223,11 @@ pub unsafe extern "C" fn glowcap_iroh_sidecar_conn_try_read(
 		if len == 0 {
 			return 0;
 		}
-		if buf.is_null() {
+		// SAFETY: the `# Safety` contract has the caller keep `len` writable bytes at `buf` that nothing else accesses
+		// during the call; the slots are dropped when this closure returns.
+		let Some(dest) = (unsafe { caller_out(buf, len) }) else {
 			return -1;
-		}
+		};
 		let nb = match conn.nb.get() {
 			Some(nb) => nb,
 			None => return -1,
@@ -237,11 +237,7 @@ pub unsafe extern "C" fn glowcap_iroh_sidecar_conn_try_read(
 		if pending > 0 {
 			let n = std::cmp::min(len, pending);
 			if n > 0 {
-				// SAFETY: `buf` is non-null (checked above) and the `# Safety` contract has the caller keep `len`
-				// writable bytes at `buf`; `n` is at most `len`, and the slice is the only reference to those bytes
-				// while it copies out of the inbound buffer.
-				let dest = unsafe { std::slice::from_raw_parts_mut(buf, n) };
-				dest.copy_from_slice(&inb.buf[inb.off..inb.off + n]);
+				dest[..n].write_copy_of_slice(&inb.buf[inb.off..inb.off + n]);
 				inb.off += n;
 			}
 			if inb.off == inb.buf.len() {
@@ -291,8 +287,8 @@ pub unsafe extern "C" fn glowcap_iroh_sidecar_conn_try_read(
 ///
 /// # Safety
 /// `conn` must be null or a live connection handle. For nonzero `len`, `buf` must
-/// address `len` readable bytes. Null pointers and unrepresentable lengths are
-/// refused defensively.
+/// address `len` readable bytes that nothing modifies during the call. Null
+/// pointers and unrepresentable lengths are refused defensively.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn glowcap_iroh_sidecar_conn_try_write(
 	conn: *mut GlowcapIrohConn,
@@ -303,15 +299,15 @@ pub unsafe extern "C" fn glowcap_iroh_sidecar_conn_try_write(
 		if len == 0 {
 			return 0;
 		}
-		if buf.is_null() || isize::try_from(len).is_err() {
+		// SAFETY: the `# Safety` contract has the caller keep `len` readable bytes at `buf` that nothing modifies during
+		// the call.
+		let Some(src) = (unsafe { caller_slice(buf, len) }) else {
 			return -1;
-		}
+		};
 		let nb = match conn.nb.get() {
 			Some(nb) => nb,
 			None => return -1,
 		};
-		// SAFETY: upheld by the caller after the pointer and length checks.
-		let src = unsafe { std::slice::from_raw_parts(buf, len) };
 		let accepted = {
 			let mut out = nb.outbound.lock().unwrap();
 			enqueue_outbound(&mut out, src)

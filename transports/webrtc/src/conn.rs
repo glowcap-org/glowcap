@@ -22,7 +22,12 @@ pub unsafe extern "C" fn glowcap_webrtc_sidecar_peer_is_open(peer: *const Glowca
 
 /// Non-blocking receive for readiness owners. Returns one packet, zero at clean
 /// EOF, `WOULD_BLOCK` when no packet is buffered yet, `BUFFER_TOO_SMALL` when
-/// the packet remains queued for a larger buffer, or `ERR` on invalid input.
+/// the packet remains queued for a larger buffer, or `ERR` on invalid input,
+/// including null pointers and unrepresentable lengths.
+///
+/// # Safety
+/// `peer` must be null or a live peer handle. For nonzero `len`, `buf` must
+/// address `len` writable bytes that nothing else accesses during the call.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn glowcap_webrtc_sidecar_conn_try_receive_packet(
 	peer: *mut GlowcapWebrtcPeer,
@@ -33,16 +38,18 @@ pub unsafe extern "C" fn glowcap_webrtc_sidecar_conn_try_receive_packet(
 	// projection is still marked where it happens, rather than absorbed into
 	// the handle's block.
 	let receive = |peer: &GlowcapWebrtcPeer| {
-		if buf.is_null() || len == 0 {
+		if len == 0 {
 			return ERR as isize;
 		}
+		// SAFETY: the `# Safety` contract has the caller keep `len` writable bytes at `buf` that nothing else accesses
+		// during the call; the slots are dropped when this closure returns.
+		let Some(dst) = (unsafe { caller_out(buf, len) }) else {
+			return ERR as isize;
+		};
 		let mut guard = peer.shared.inbound.0.lock().unwrap();
 		if guard.packets.is_empty() {
 			return terminal_read_result(&guard);
 		}
-		// SAFETY: the caller's contract is `len` writable bytes at `buf`, and
-		// the null and zero-length cases were refused above.
-		let dst = unsafe { std::slice::from_raw_parts_mut(buf, len) };
 		let n = take_inbound_packet(&mut guard, dst);
 		drop(guard);
 		if n > 0 {
@@ -59,6 +66,11 @@ pub unsafe extern "C" fn glowcap_webrtc_sidecar_conn_try_receive_packet(
 /// entering the async runtime. `WOULD_BLOCK` means no sidecar capacity is
 /// available, so re-arm on `EV_WRITABLE` and retry the same packet. An ended
 /// channel admits nothing: `CLOSED` after a clean close, `ERR` after a failure.
+///
+/// # Safety
+/// `peer` must be null or a live peer handle. For nonzero `len`, `buf` must
+/// address `len` readable bytes that nothing modifies during the call. A null
+/// `buf` and an unrepresentable `len` are refused with `ERR`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn glowcap_webrtc_sidecar_conn_try_send_packet(
 	peer: *mut GlowcapWebrtcPeer,
@@ -68,12 +80,14 @@ pub unsafe extern "C" fn glowcap_webrtc_sidecar_conn_try_send_packet(
 	// Outside the `unsafe` block below, so the caller-buffer projection is still
 	// marked where it happens rather than absorbed into the handle's block.
 	let send = |peer: &GlowcapWebrtcPeer| {
-		if buf.is_null() || len > isize::MAX as usize {
+		if buf.is_null() {
 			return ERR as isize;
 		}
-		// SAFETY: the caller's contract is `len` readable bytes at `buf`, and
-		// the null and oversized cases went to the arm above.
-		let bytes = unsafe { std::slice::from_raw_parts(buf, len) };
+		// SAFETY: the `# Safety` contract has the caller keep `len` readable bytes at `buf` that nothing modifies during
+		// the call.
+		let Some(bytes) = (unsafe { caller_slice(buf, len) }) else {
+			return ERR as isize;
+		};
 		try_send(&peer.shared, bytes)
 	};
 	// SAFETY: the handle contract `borrowed` states.

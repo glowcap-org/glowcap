@@ -3,10 +3,6 @@
 
 use super::*;
 
-fn ffi_len(len: usize) -> Option<isize> {
-	isize::try_from(len).ok()
-}
-
 /// Write the connection's QUIC-authenticated remote endpoint id, the 32-byte
 /// Ed25519 public key TLS verified during the handshake, into `out_key32`.
 /// This is the transport-layer peer proof the driver installs as pre-feed
@@ -42,21 +38,20 @@ pub unsafe extern "C" fn glowcap_iroh_sidecar_conn_remote_node_id(
 ///
 /// # Safety
 /// `conn` must be null or a live connection handle. For nonzero `len`, `buf` must
-/// address `len` writable bytes. Null pointers and unrepresentable lengths are
-/// refused defensively. A zero-length read does not dereference `buf`.
+/// address `len` writable bytes that nothing else accesses during the call. Null
+/// pointers and unrepresentable lengths are refused defensively. A zero-length
+/// read does not dereference `buf`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn glowcap_iroh_sidecar_conn_read(conn: *mut GlowcapIrohConn, buf: *mut u8, len: usize) -> isize {
 	let read = |conn: &GlowcapIrohConn| {
 		if len == 0 {
 			return 0;
 		}
-		if buf.is_null() || ffi_len(len).is_none() {
+		// SAFETY: the `# Safety` contract has the caller keep `len` writable bytes at `buf` that nothing else accesses
+		// during the call; the slots are dropped when this closure returns.
+		let Some(dest) = (unsafe { caller_out(buf, len) }) else {
 			return -1;
-		}
-		// SAFETY: `buf` is non-null and `len` is nonzero and fits in `isize` (all checked above), and the `# Safety`
-		// contract has the caller keep `len` writable bytes at `buf` for the call; the slice is the only reference to
-		// them and is dropped when this closure returns.
-		let dest = unsafe { std::slice::from_raw_parts_mut(buf, len) };
+		};
 		let mut guard = match conn.recv.lock() {
 			Ok(guard) => guard,
 			Err(_) => return -1,
@@ -67,13 +62,19 @@ pub unsafe extern "C" fn glowcap_iroh_sidecar_conn_read(conn: *mut GlowcapIrohCo
 			Some(recv) => recv,
 			None => return -1,
 		};
-		use iroh::endpoint::{ConnectionError, ReadError};
-		match conn.rt.block_on(recv.read(dest)) {
-			Ok(Some(n)) => isize::try_from(n).unwrap_or(-1),
-			Ok(None) => 0,
+		use iroh::endpoint::ReadError;
+		use tokio::io::{AsyncRead, ReadBuf};
+		// `RecvStream::read` takes initialized bytes, so read through its `AsyncRead` impl into the uninitialized slots.
+		// Both share one poll, and `AsyncRead` reports a `ReadError` as the source of its `io::Error`.
+		let mut dest = ReadBuf::uninit(dest);
+		let read = std::future::poll_fn(|cx| std::pin::Pin::new(&mut *recv).poll_read(cx, &mut dest));
+		match conn.rt.block_on(read).map_err(std::io::Error::downcast::<ReadError>) {
+			// A finished stream fills nothing, which reads as end-of-stream.
+			Ok(()) => isize::try_from(dest.filled().len()).unwrap_or(-1),
 			// A clean connection-level close is end-of-stream, not a fault.
-			Err(ReadError::ConnectionLost(ConnectionError::ApplicationClosed(_)))
-			| Err(ReadError::ConnectionLost(ConnectionError::LocallyClosed)) => 0,
+			Err(Ok(ReadError::ConnectionLost(
+				ConnectionError::ApplicationClosed(_) | ConnectionError::LocallyClosed,
+			))) => 0,
 			Err(_) => -1,
 		}
 	};
@@ -87,8 +88,9 @@ pub unsafe extern "C" fn glowcap_iroh_sidecar_conn_read(conn: *mut GlowcapIrohCo
 ///
 /// # Safety
 /// `conn` must be null or a live connection handle. For nonzero `len`, `buf` must
-/// address `len` readable bytes. Null pointers and unrepresentable lengths are
-/// refused defensively. A zero-length write does not dereference `buf`.
+/// address `len` readable bytes that nothing modifies during the call. Null
+/// pointers and unrepresentable lengths are refused defensively. A zero-length
+/// write does not dereference `buf`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn glowcap_iroh_sidecar_conn_write(
 	conn: *mut GlowcapIrohConn,
@@ -99,16 +101,11 @@ pub unsafe extern "C" fn glowcap_iroh_sidecar_conn_write(
 		if len == 0 {
 			return 0;
 		}
-		let Some(written) = ffi_len(len) else {
+		// SAFETY: the `# Safety` contract has the caller keep `len` readable bytes at `buf` that nothing modifies during
+		// the call; `write_all` finishes reading the slice before this closure returns.
+		let Some(src) = (unsafe { caller_slice(buf, len) }) else {
 			return -1;
 		};
-		if buf.is_null() {
-			return -1;
-		}
-		// SAFETY: `buf` is non-null and `len` is nonzero and fits in `isize` (all checked above, `ffi_len` for the
-		// length), and the `# Safety` contract has the caller keep `len` readable bytes at `buf` for the call;
-		// `write_all` finishes reading the slice before this closure returns.
-		let src = unsafe { std::slice::from_raw_parts(buf, len) };
 		let mut guard = match conn.send.lock() {
 			Ok(guard) => guard,
 			Err(_) => return -1,
@@ -118,7 +115,8 @@ pub unsafe extern "C" fn glowcap_iroh_sidecar_conn_write(
 			None => return -1,
 		};
 		match conn.rt.block_on(send.write_all(src)) {
-			Ok(()) => written,
+			// `caller_slice` bounded the length by `isize::MAX` bytes.
+			Ok(()) => src.len() as isize,
 			Err(_) => -1,
 		}
 	};
@@ -257,13 +255,5 @@ mod contract_tests {
 			);
 			assert_eq!(glowcap_iroh_sidecar_conn_flush(std::ptr::null_mut()), -1);
 		}
-	}
-
-	#[test]
-	fn blocking_io_refuses_lengths_outside_isize() {
-		let too_large = usize::try_from(isize::MAX).unwrap().checked_add(1).unwrap();
-		assert_eq!(ffi_len(0), Some(0));
-		assert_eq!(ffi_len(usize::try_from(isize::MAX).unwrap()), Some(isize::MAX));
-		assert_eq!(ffi_len(too_large), None);
 	}
 }

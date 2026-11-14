@@ -85,13 +85,12 @@ mod tests {
 			assert!(queue.push(generation, id));
 		}
 		for id in 0..super::super::ACCEPT_QUEUE_BOUND {
-			let mut events = [super::super::GlowcapIrohReadyEvent { subject: 0, events: 0 }];
-			assert_eq!(readiness.drain(&mut events), 1);
+			let events = crate::ffi_handles::drain_records(&readiness, 1);
+			assert_eq!(events.len(), 1);
 			assert_eq!(events[0].events, EV_ACCEPT);
 			assert_eq!(queue.pop(), Some(id));
 		}
 		assert_eq!(queue.pop(), None);
-		let mut events = [super::super::GlowcapIrohReadyEvent { subject: 0, events: 0 }];
-		assert_eq!(readiness.drain(&mut events), 0);
+		assert!(crate::ffi_handles::drain_records(&readiness, 1).is_empty());
 	}
 }

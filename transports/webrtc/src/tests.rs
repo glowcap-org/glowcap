@@ -1,6 +1,7 @@
 //! Unit tests for the sidecar's buffer, admission, and close seams.
 
 use super::*;
+use crate::ffi_handles::drain_records;
 
 use crate::conn::*;
 use crate::signaling::*;
@@ -8,6 +9,7 @@ use std::io::{Read, Write};
 use std::time::Duration;
 
 mod ice_config;
+mod terminal;
 
 fn test_endpoint_new(config: *const GlowcapWebrtcEndpointConfig) -> *mut GlowcapWebrtcEndpoint {
 	// SAFETY: tests pass null or a live local configuration; malformed nested
@@ -183,8 +185,8 @@ fn readiness_coalesces_bits_per_stable_peer() {
 	readiness.signal(7, EV_OPEN | EV_WRITABLE);
 	readiness.signal(9, EV_READABLE);
 
-	let mut events = [GlowcapWebrtcReadyEvent { subject: 0, events: 0 }; 2];
-	assert_eq!(readiness.drain(&mut events), 2);
+	let events = drain_records(&readiness, 2);
+	assert_eq!(events.len(), 2);
 	assert_eq!(events[0].subject, 7);
 	assert_eq!(events[0].events, EV_CANDIDATE | EV_OPEN | EV_WRITABLE);
 	assert_eq!(events[1].subject, 9);
@@ -208,10 +210,11 @@ fn signaling_and_driver_readiness_are_independent_subscriptions() {
 	let driver = shared.endpoint.driver_readiness().unwrap();
 
 	shared.endpoint.signal(7, EV_CANDIDATE | EV_OPEN);
-	let mut event = [GlowcapWebrtcReadyEvent { subject: 0, events: 0 }];
-	assert_eq!(signaling.drain(&mut event), 1);
+	let event = drain_records(&signaling, 1);
+	assert_eq!(event.len(), 1);
 	assert_eq!(event[0].events, EV_CANDIDATE | EV_OPEN);
-	assert_eq!(driver.drain(&mut event), 1);
+	let event = drain_records(&driver, 1);
+	assert_eq!(event.len(), 1);
 	assert_eq!(event[0].events, EV_CANDIDATE | EV_OPEN);
 }
 
@@ -225,8 +228,8 @@ fn a_full_self_pipe_is_already_a_readable_wakeup() {
 	let mut byte = [0u8; 1];
 	let mut reader = &readiness.reader;
 	assert_eq!(reader.read(&mut byte).unwrap(), 1);
-	let mut event = [GlowcapWebrtcReadyEvent { subject: 0, events: 0 }];
-	assert_eq!(readiness.drain(&mut event), 1);
+	let event = drain_records(&readiness, 1);
+	assert_eq!(event.len(), 1);
 	assert_eq!(event[0].events, EV_READABLE);
 }
 
@@ -251,14 +254,15 @@ fn inbound_packet_read_preserves_boundaries() {
 		failed: false,
 	};
 	state.packets.push_back(BytesMut::from(&b"abc"[..]));
-	let mut short = [0u8; 2];
+	let mut short = [std::mem::MaybeUninit::<u8>::uninit(); 2];
 	assert_eq!(take_inbound_packet(&mut state, &mut short), BUFFER_TOO_SMALL as isize);
 	assert_eq!(state.queued_bytes, 3);
 	assert_eq!(state.packets.len(), 1);
 
-	let mut dest = [0u8; 3];
+	let mut dest = [std::mem::MaybeUninit::<u8>::uninit(); 3];
 	assert_eq!(take_inbound_packet(&mut state, &mut dest), 3);
-	assert_eq!(&dest, b"abc");
+	// SAFETY: `take_inbound_packet` returned 3, so it initialized all three slots.
+	assert_eq!(unsafe { dest.map(|slot| slot.assume_init()) }, *b"abc");
 	assert_eq!(state.queued_bytes, 0);
 	assert!(state.packets.is_empty());
 }
@@ -360,175 +364,6 @@ async fn runtime_owner_can_drop_inside_an_async_context() {
 }
 
 #[test]
-fn terminal_event_is_published_exactly_once_even_after_a_drain() {
-	let inbound = Arc::new((Mutex::new(Inbound { ..empty_inbound() }), Condvar::new()));
-	let open = Arc::new(Mutex::new(OpenGate {
-		open: false,
-		closed: false,
-		failed: false,
-	}));
-	let drained = Arc::new(Notify::new());
-	let readiness = Readiness::new().unwrap();
-	let shared = test_shared(7, inbound.clone(), open.clone(), drained, readiness.clone());
-
-	publish_peer_closed(&shared);
-	let mut events = [GlowcapWebrtcReadyEvent { subject: 0, events: 0 }];
-	assert_eq!(readiness.drain(&mut events), 1);
-	assert_eq!(events[0].subject, 7);
-	assert_eq!(events[0].events, EV_CLOSED);
-
-	publish_peer_closed(&shared);
-	assert_eq!(readiness.drain(&mut events), 0);
-	assert!(inbound.0.lock().unwrap().closed);
-	assert!(open.lock().unwrap().closed);
-	assert!(shared.outbound.lock().unwrap().closed);
-}
-
-#[test]
-fn failed_terminal_state_is_not_reported_as_clean_eof() {
-	let inbound = Arc::new((Mutex::new(Inbound { ..empty_inbound() }), Condvar::new()));
-	let open = Arc::new(Mutex::new(OpenGate {
-		open: true,
-		closed: false,
-		failed: false,
-	}));
-	let shared = test_shared(
-		7,
-		inbound.clone(),
-		open,
-		Arc::new(Notify::new()),
-		Readiness::new().unwrap(),
-	);
-
-	publish_peer_failed(&shared);
-	let state = inbound.0.lock().unwrap();
-	assert!(state.closed);
-	assert!(state.failed);
-	assert!(state.packets.is_empty());
-	drop(state);
-
-	let mut state = empty_inbound();
-	state.closed = true;
-	assert!(!state.failed);
-	assert_eq!(terminal_read_result(&state), 0);
-
-	let mut failed = empty_inbound();
-	failed.closed = true;
-	failed.failed = true;
-	assert_eq!(terminal_read_result(&failed), ERR as isize);
-}
-
-#[test]
-fn first_terminal_cause_wins_open_and_read_results() {
-	let clean_first = test_shared(
-		7,
-		Arc::new((Mutex::new(Inbound { ..empty_inbound() }), Condvar::new())),
-		Arc::new(Mutex::new(OpenGate {
-			open: true,
-			closed: false,
-			failed: false,
-		})),
-		Arc::new(Notify::new()),
-		Readiness::new().unwrap(),
-	);
-	publish_peer_closed(&clean_first);
-	publish_peer_failed(&clean_first);
-	{
-		let gate = clean_first.open.lock().unwrap();
-		assert!(gate.closed);
-		assert!(!gate.failed);
-	}
-	assert_eq!(terminal_read_result(&clean_first.inbound.0.lock().unwrap()), 0);
-
-	let failed_first = test_shared(
-		8,
-		Arc::new((Mutex::new(Inbound { ..empty_inbound() }), Condvar::new())),
-		Arc::new(Mutex::new(OpenGate {
-			open: true,
-			closed: false,
-			failed: false,
-		})),
-		Arc::new(Notify::new()),
-		Readiness::new().unwrap(),
-	);
-	publish_peer_failed(&failed_first);
-	publish_peer_closed(&failed_first);
-	{
-		let gate = failed_first.open.lock().unwrap();
-		assert!(gate.closed);
-		assert!(gate.failed);
-	}
-	assert_eq!(
-		terminal_read_result(&failed_first.inbound.0.lock().unwrap()),
-		ERR as isize
-	);
-}
-
-#[test]
-fn a_send_on_an_ended_channel_names_its_ending() {
-	let open_peer = |id| {
-		test_shared(
-			id,
-			Arc::new((Mutex::new(Inbound { ..empty_inbound() }), Condvar::new())),
-			Arc::new(Mutex::new(OpenGate {
-				open: true,
-				closed: false,
-				failed: false,
-			})),
-			Arc::new(Notify::new()),
-			Readiness::new().unwrap(),
-		)
-	};
-	let closed = open_peer(9);
-	publish_peer_closed(&closed);
-	assert_eq!(try_send(&closed, b"late"), CLOSED as isize);
-
-	let failed = open_peer(10);
-	publish_peer_failed(&failed);
-	assert_eq!(try_send(&failed, b"late"), ERR as isize);
-
-	let opening = open_peer(11);
-	opening.open.lock().unwrap().open = false;
-	assert_eq!(try_send(&opening, b"early"), WOULD_BLOCK as isize);
-}
-
-#[test]
-fn open_check_distinguishes_clean_close_from_failed_setup() {
-	assert_eq!(
-		open_result(&OpenGate {
-			open: false,
-			closed: false,
-			failed: false,
-		}),
-		WOULD_BLOCK
-	);
-	assert_eq!(
-		open_result(&OpenGate {
-			open: true,
-			closed: false,
-			failed: false,
-		}),
-		OK
-	);
-	assert_eq!(
-		open_result(&OpenGate {
-			open: false,
-			closed: true,
-			failed: false,
-		}),
-		CLOSED
-	);
-	assert_eq!(
-		open_result(&OpenGate {
-			open: false,
-			closed: true,
-			failed: true,
-		}),
-		ERR
-	);
-}
-
-#[test]
 fn sidecar_signal_text_bounds_before_borrowing() {
 	let valid = b"v=0";
 	// SAFETY: `valid` is a local byte-string literal, so `valid.as_ptr()` and `valid.len()` address live readable bytes
@@ -590,6 +425,51 @@ fn peer_release_joins_its_close_at_endpoint_release() {
 	// freed exactly once here; `endpoint` is the live handle from `test_endpoint_new`, freed after its only peer and
 	// not used again.
 	unsafe {
+		glowcap_webrtc_sidecar_conn_close(peer);
+		glowcap_webrtc_sidecar_peer_free(peer);
+		assert_eq!(glowcap_webrtc_sidecar_endpoint_free(endpoint), OK);
+	}
+}
+
+/// An oversized length or capacity is refused at entry: an in-range call on the
+/// same empty peer answers `WOULD_BLOCK`.
+#[test]
+fn oversized_lengths_are_refused_before_any_queue_read() {
+	let config = GlowcapWebrtcEndpointConfig {
+		ice_servers: std::ptr::null(),
+		ice_server_count: 0,
+		include_loopback_candidates: 1,
+		worker_threads: 1,
+	};
+	let endpoint = test_endpoint_new(&config);
+	assert!(!endpoint.is_null());
+	// SAFETY: `endpoint` is the non-null live handle just returned (asserted above).
+	let peer = unsafe { glowcap_webrtc_sidecar_peer_new(endpoint, 1) };
+	assert!(!peer.is_null());
+	let oversized_bytes = isize::MAX as usize + 1;
+	let oversized_events = isize::MAX as usize / std::mem::size_of::<GlowcapWebrtcReadyEvent>() + 1;
+	let mut byte = 0u8;
+	let mut event = GlowcapWebrtcReadyEvent::from((0, 0));
+	// SAFETY: `peer` and `endpoint` are the live handles above, and `byte` and `event` are valid locals. The oversized
+	// calls neither read nor write behind them, because each refuses the length before forming a slice. The peer and
+	// endpoint are freed once, peer first.
+	unsafe {
+		assert_eq!(
+			glowcap_webrtc_sidecar_conn_try_receive_packet(peer, &mut byte, oversized_bytes),
+			ERR as isize
+		);
+		assert_eq!(
+			glowcap_webrtc_sidecar_endpoint_drain_ready(endpoint, &mut event, oversized_events),
+			ERR as isize
+		);
+		assert_eq!(
+			glowcap_webrtc_sidecar_endpoint_drain_driver_ready(endpoint, &mut event, oversized_events),
+			ERR as isize
+		);
+		assert_eq!(
+			glowcap_webrtc_sidecar_conn_try_receive_packet(peer, &mut byte, 1),
+			WOULD_BLOCK as isize
+		);
 		glowcap_webrtc_sidecar_conn_close(peer);
 		glowcap_webrtc_sidecar_peer_free(peer);
 		assert_eq!(glowcap_webrtc_sidecar_endpoint_free(endpoint), OK);
