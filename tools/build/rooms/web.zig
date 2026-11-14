@@ -27,7 +27,7 @@ pub fn register(
 
     inline for (.{ false, true }) |tor| {
         const run = commands.addRootedSystemCommand(b, .{ .deterministic = 30 }, &.{"env"});
-        run.addDirectoryArg2(.{ .relative = .{ .base = .install_lib } }, .{ .prefix = "LD_LIBRARY_PATH=", .make_absolute = true });
+        commands.addLoaderPathArg(run);
         commands.addLibDirArg(run, .host);
         Binary.web.addTestEnv(run);
         Binary.server.addTestEnv(run);

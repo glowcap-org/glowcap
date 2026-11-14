@@ -24,10 +24,10 @@ const listing = @import("listing.zig");
 const Step = std.Build.Step;
 
 /// The library inventory first, then the applications, demos, and benchmarks.
-const doc_paths = [_][]const u8{ "docs/build-steps.md", "docs/build-steps-apps.md" };
+pub const doc_paths = [_][]const u8{ "docs/build-steps.md", "docs/build-steps-apps.md" };
 
 /// Zig's own top-level steps: never declared here, never listed.
-const builtin_steps = [_][]const u8{ "install", "uninstall" };
+pub const builtin_steps = [_][]const u8{ "install", "uninstall" };
 
 pub fn register(b: *std.Build, source_check_step: *Step) void {
     const check_step = b.step("gen-build-steps-check", "Verify every bare `zig build` row in docs/build-steps.md and docs/build-steps-apps.md carries its step's description and containing steps, and every step has a row (fails if stale)");
@@ -183,17 +183,15 @@ pub fn render(gpa: std.mem.Allocator, doc_path: []const u8, current: []const u8,
 
     var text: std.ArrayList(u8) = .empty;
     var problems: std.ArrayList([]const u8) = .empty;
-    var fenced = false;
+    var fence: Fence = .{};
     var width: usize = 0;
     var line_no: usize = 0;
     var lines = std.mem.splitScalar(u8, current, '\n');
     while (lines.next()) |line| {
         line_no += 1;
-        if (std.mem.startsWith(u8, line, "```")) {
-            fenced = !fenced;
-            if (fenced) width = blockWidth(lines.rest());
-        }
-        const name = if (fenced) bareRowName(line) else null;
+        const was_open = fence.open;
+        const name = fence.rowName(line);
+        if (fence.open and !was_open) width = blockWidth(lines.rest());
         if (name == null) {
             try text.appendSlice(gpa, line);
             if (lines.peek() != null) try text.append(gpa, '\n');
@@ -236,6 +234,40 @@ fn bareRowName(line: []const u8) ?[]const u8 {
     if (rest.len != 0 and rest[0] != '#') return null;
     return name;
 }
+
+/// Which lines of a document sit inside a fenced block, and the bare rows
+/// among them.
+const Fence = struct {
+    open: bool = false,
+
+    /// The step `line` names when it is a bare row inside a fenced block. A
+    /// fence line opens or closes the block and names none.
+    fn rowName(self: *Fence, line: []const u8) ?[]const u8 {
+        if (std.mem.startsWith(u8, line, "```")) {
+            self.open = !self.open;
+            return null;
+        }
+        return if (self.open) bareRowName(line) else null;
+    }
+};
+
+/// The bare row names of a document, in order: only rows inside a fenced block.
+/// Names are slices of the document.
+pub fn rows(text: []const u8) Rows {
+    return .{ .lines = std.mem.splitScalar(u8, text, '\n') };
+}
+
+const Rows = struct {
+    lines: std.mem.SplitIterator(u8, .scalar),
+    fence: Fence = .{},
+
+    pub fn next(self: *Rows) ?[]const u8 {
+        while (self.lines.next()) |line| {
+            if (self.fence.rowName(line)) |name| return name;
+        }
+        return null;
+    }
+};
 
 /// The longest bare name in the fenced block that starts at `rest`, so every
 /// comment in the block starts in one column.
@@ -335,4 +367,19 @@ test "nearest containers skip aliases and anything a smaller container already c
     try std.testing.expect(!immediate(&contains, n, 2, 3));
     try std.testing.expect(immediate(&contains, n, 1, 3));
     try std.testing.expect(immediate(&contains, n, 0, 1));
+}
+
+test "only a bare row inside a fence names a step" {
+    var names = rows(
+        \\zig build outside # prose
+        \\```sh
+        \\zig build check          # the gate
+        \\zig build fmt-check
+        \\zig build check -Dx=1    # an example
+        \\zig build --help
+        \\```
+    );
+    try std.testing.expectEqualStrings("check", names.next().?);
+    try std.testing.expectEqualStrings("fmt-check", names.next().?);
+    try std.testing.expect(names.next() == null);
 }

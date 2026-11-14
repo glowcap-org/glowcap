@@ -5,7 +5,6 @@
 //! language scope, with the TypeScript stack suites beside them.
 
 const std = @import("std");
-const builtin = @import("builtin");
 const cargo = @import("cargo.zig");
 const commands = @import("commands.zig");
 const execution = @import("execution.zig");
@@ -114,25 +113,15 @@ pub fn register(
     python_suite.step.dependOn(&python_wheel_check.step);
     // `test/main.py` imports the package from the checkout, not an installed wheel.
     python_suite.setEnvironmentVariable("PYTHONPATH", commands.rootPath(b, "bindings/python"));
-    // The macOS Rust test executable resolves glowcap's installed dylibs at
-    // load time. Bind both Cargo's resolver and the test process to the archives
-    // this step installed. The suite's compile prep shares its environment.
-    const lib_dir = commands.rootPath(b, "zig-out/lib");
     // Pin every runtime to these installed archives. Otherwise a language's
     // ordinary cold-cache resolver may select an older versioned package first.
     for (suite_runs) |run| commands.setLibDir(run, .host);
     commands.setLibDir(rust_binding_lint, .host);
-    switch (builtin.target.os.tag) {
-        .macos => {
-            rust_suite.setEnvironmentVariable("DYLD_LIBRARY_PATH", lib_dir);
-            rust_binding_lint.setEnvironmentVariable("DYLD_LIBRARY_PATH", lib_dir);
-        },
-        .linux, .freebsd, .netbsd, .openbsd, .dragonfly => {
-            rust_suite.setEnvironmentVariable("LD_LIBRARY_PATH", lib_dir);
-            rust_binding_lint.setEnvironmentVariable("LD_LIBRARY_PATH", lib_dir);
-        },
-        else => {},
-    }
+    // The macOS Rust test executable resolves glowcap's installed dylibs at
+    // load time. Bind both Cargo's resolver and the test process to the archives
+    // this step installed. The suite's compile prep shares its environment.
+    commands.setLoaderPath(rust_suite);
+    commands.setLoaderPath(rust_binding_lint);
     const python_unit_tests = [_][]const u8{
         "bindings/python/test/lib_resolve_test.py",
         "bindings/python/test/session_writer_test.py",
@@ -148,11 +137,7 @@ pub fn register(
         run.step.dependOn(b.getInstallStep());
         run.setEnvironmentVariable("PYTHONPATH", commands.rootPath(b, "bindings/python"));
         commands.setLibDir(run, .host);
-        switch (builtin.target.os.tag) {
-            .macos => run.setEnvironmentVariable("DYLD_LIBRARY_PATH", lib_dir),
-            .linux, .freebsd, .netbsd, .openbsd, .dragonfly => run.setEnvironmentVariable("LD_LIBRARY_PATH", lib_dir),
-            else => {},
-        }
+        commands.setLoaderPath(run);
         python_suite.step.dependOn(&run.step);
     }
     // The Rust crate's README claims the core stands alone with no feature on;

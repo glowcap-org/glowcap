@@ -47,9 +47,9 @@ fn webrtcAbiModule(
 }
 
 const HeaderGen = struct {
-    check_step_name: []const u8,
+    /// The write step's name. The check step is `<name>-check`.
+    name: []const u8,
     check_desc: []const u8,
-    write_step_name: []const u8,
     write_desc: []const u8,
     generator: []const u8,
     /// The Zig module the generator reflects, when it reflects one. A
@@ -181,13 +181,14 @@ fn addHeaderGen(
     check_mod.addImport("generator", gen_mod);
     check_mod.addImport("iroh_sidecar_stub", support.iroh_sidecar_stub);
     check_mod.addImport("webrtc_sidecar_stub", support.webrtc_sidecar_stub);
-    const check_exe = bb.addExecutable(.{ .name = hg.check_step_name, .root_module = check_mod });
-    if (std.mem.eql(u8, hg.check_step_name, "gen-interface-fixtures-check")) {
+    const check_name = bb.fmt("{s}-check", .{hg.name});
+    const check_exe = bb.addExecutable(.{ .name = check_name, .root_module = check_mod });
+    if (std.mem.eql(u8, hg.name, "gen-interface-fixtures")) {
         @import("interface_bench.zig").registerGeneration(bb, check_exe, opt);
     }
     const check_run = execution.addArtifact(bb, .{ .deterministic = 30 }, check_exe);
     check_run.setCwd(bb.path("."));
-    const check_step_h = bb.step(hg.check_step_name, hg.check_desc);
+    const check_step_h = bb.step(check_name, hg.check_desc);
     check_step_h.dependOn(&check_run.step);
     check_agg.dependOn(check_step_h);
 
@@ -199,11 +200,11 @@ fn addHeaderGen(
     write_mod.addImport("generator", gen_mod);
     write_mod.addImport("iroh_sidecar_stub", support.iroh_sidecar_stub);
     write_mod.addImport("webrtc_sidecar_stub", support.webrtc_sidecar_stub);
-    const write_exe = bb.addExecutable(.{ .name = hg.write_step_name, .root_module = write_mod });
+    const write_exe = bb.addExecutable(.{ .name = hg.name, .root_module = write_mod });
     const write_run = execution.addArtifact(bb, .build_tool, write_exe);
     write_run.setCwd(bb.path("."));
     write_run.has_side_effects = true;
-    const write_step_h = bb.step(hg.write_step_name, hg.write_desc);
+    const write_step_h = bb.step(hg.name, hg.write_desc);
     write_step_h.dependOn(&write_run.step);
 }
 
@@ -236,9 +237,8 @@ pub fn register(ctx: Context) *std.Build.Step.Compile {
 
     const interface_test = b.step("interface-test", "Test bounded interface descriptions and generation allocation failures");
     addHeaderGen(b, check_step, target, optimize, support, .{
-        .check_step_name = "gen-interface-fixtures-check",
+        .name = "gen-interface-fixtures",
         .check_desc = "Verify interface qualification projections match the authored Syrup fixtures",
-        .write_step_name = "gen-interface-fixtures",
         .write_desc = "Generate interface qualification projections from authored Syrup fixtures",
         .generator = "tools/interface/generate.zig",
         .test_step = interface_test,
@@ -284,9 +284,8 @@ pub fn register(ctx: Context) *std.Build.Step.Compile {
     check_step.dependOn(interface_step);
 
     addHeaderGen(b, check_step, target, optimize, support, .{
-        .check_step_name = "gen-binding-loam-layout-check",
+        .name = "gen-binding-loam-layout",
         .check_desc = "Verify reflected Rust Loam layouts and fingerprints",
-        .write_step_name = "gen-binding-loam-layout",
         .write_desc = "Generate Rust Loam layouts and fingerprints",
         .generator = "tools/gen/binding/loam_layout.zig",
         .reflects = .{ .name = "c_abi_loam", .module = ctx.loam.portable },
@@ -297,95 +296,84 @@ pub fn register(ctx: Context) *std.Build.Step.Compile {
     // harness. `*-check` steps fail on stale committed mirrors; bare steps
     // rewrite them.
     const header_gens = [_]HeaderGen{
-        .{ .check_step_name = "gen-header-loam-check", .check_desc = "Verify portable Loam header", .write_step_name = "gen-header-loam", .write_desc = "Generate portable Loam header", .generator = "tools/gen/header/loam.zig", .reflects = .{ .name = "c_abi_loam", .module = ctx.loam.portable } },
-        .{ .check_step_name = "gen-header-loam-lmdb-check", .check_desc = "Verify LMDB Loam companion header", .write_step_name = "gen-header-loam-lmdb", .write_desc = "Generate LMDB Loam companion header", .generator = "tools/gen/header/loam_lmdb.zig", .reflects = .{ .name = "c_abi_loam_lmdb", .module = ctx.loam.lmdb } },
-        .{ .check_step_name = "gen-header-loam-sqlite-check", .check_desc = "Verify SQLite Loam companion header", .write_step_name = "gen-header-loam-sqlite", .write_desc = "Generate SQLite Loam companion header", .generator = "tools/gen/header/loam_sqlite.zig", .reflects = .{ .name = "c_abi_loam_sqlite", .module = ctx.loam.sqlite } },
-        .{ .check_step_name = "gen-header-loam-volatile-check", .check_desc = "Verify in-memory Loam companion header", .write_step_name = "gen-header-loam-volatile", .write_desc = "Generate in-memory Loam companion header", .generator = "tools/gen/header/loam_volatile.zig", .reflects = .{ .name = "c_abi_loam_volatile", .module = ctx.loam.volatile_abi } },
+        .{ .name = "gen-header-loam", .check_desc = "Verify portable Loam header", .write_desc = "Generate portable Loam header", .generator = "tools/gen/header/loam.zig", .reflects = .{ .name = "c_abi_loam", .module = ctx.loam.portable } },
+        .{ .name = "gen-header-loam-lmdb", .check_desc = "Verify LMDB Loam companion header", .write_desc = "Generate LMDB Loam companion header", .generator = "tools/gen/header/loam_lmdb.zig", .reflects = .{ .name = "c_abi_loam_lmdb", .module = ctx.loam.lmdb } },
+        .{ .name = "gen-header-loam-sqlite", .check_desc = "Verify SQLite Loam companion header", .write_desc = "Generate SQLite Loam companion header", .generator = "tools/gen/header/loam_sqlite.zig", .reflects = .{ .name = "c_abi_loam_sqlite", .module = ctx.loam.sqlite } },
+        .{ .name = "gen-header-loam-volatile", .check_desc = "Verify in-memory Loam companion header", .write_desc = "Generate in-memory Loam companion header", .generator = "tools/gen/header/loam_volatile.zig", .reflects = .{ .name = "c_abi_loam_volatile", .module = ctx.loam.volatile_abi } },
         .{
-            .check_step_name = "gen-header-locator-check",
+            .name = "gen-header-locator",
             .check_desc = "Verify include/glowcap_locator.h matches the shared locator ABI (fails if stale)",
-            .write_step_name = "gen-header-locator",
             .write_desc = "Regenerate include/glowcap_locator.h from c_abi/shared/locator.zig",
             .generator = "tools/gen/header/locator.zig",
             .reflects = .{ .name = "c_abi_shared", .module = host_mods[layerIndex("c_abi_shared")] },
         },
         .{
-            .check_step_name = "gen-header-ocapn-check",
+            .name = "gen-header-ocapn",
             .check_desc = "Verify include/glowcap_ocapn.h matches src/c_abi/ocapn (fails if stale)",
-            .write_step_name = "gen-header-ocapn",
             .write_desc = "Regenerate include/glowcap_ocapn.h from src/c_abi/ocapn",
             .generator = "tools/gen/header/ocapn.zig",
             .reflects = .{ .name = "c_abi", .module = host_mods[layerIndex("c_abi")] },
         },
         .{
-            .check_step_name = "gen-header-host-check",
+            .name = "gen-header-host",
             .check_desc = "Verify include/glowcap_host.h matches src/c_abi/host (fails if stale)",
-            .write_step_name = "gen-header-host",
             .write_desc = "Regenerate include/glowcap_host.h from src/c_abi/host",
             .generator = "tools/gen/header/host.zig",
             .reflects = .{ .name = "c_abi_host", .module = host_abi_mod },
         },
         .{
-            .check_step_name = "gen-own-wire-check",
+            .name = "gen-own-wire",
             .check_desc = "Verify src/ocapn/model/own_wire.zig fingerprints what the encoders write (fails if stale)",
-            .write_step_name = "gen-own-wire",
             .write_desc = "Regenerate the own-wire fingerprint in src/ocapn/model/own_wire.zig from the Syrup and Cap'n Proto encoders",
             .generator = "tools/gen/own_wire.zig",
             .reflects = .{ .name = "codec", .module = host_mods[layerIndex("codec")] },
             .extra_imports = &.{.{ .name = "model", .module = host_mods[layerIndex("model")] }},
         },
         .{
-            .check_step_name = "gen-header-transport-provider-check",
+            .name = "gen-header-transport-provider",
             .check_desc = "Verify include/glowcap_transport_provider.h matches the shared provider ABI (fails if stale)",
-            .write_step_name = "gen-header-transport-provider",
             .write_desc = "Regenerate include/glowcap_transport_provider.h from c_abi/shared",
             .generator = "tools/gen/header/transport_provider.zig",
             .reflects = .{ .name = "c_abi_shared", .module = host_mods[layerIndex("c_abi_shared")] },
         },
         .{
-            .check_step_name = "gen-header-driver-check",
+            .name = "gen-header-driver",
             .check_desc = "Verify include/glowcap_driver.h matches src/c_abi/driver (fails if stale)",
-            .write_step_name = "gen-header-driver",
             .write_desc = "Regenerate include/glowcap_driver.h from src/c_abi/driver",
             .generator = "tools/gen/header/driver.zig",
             .reflects = .{ .name = "c_abi_driver", .module = driver_abi_mod },
         },
         .{
-            .check_step_name = "gen-header-net-transport-tcp-check",
+            .name = "gen-header-net-transport-tcp",
             .check_desc = "Verify include/glowcap_net_transport_tcp.h matches src/c_abi/net_transport/tcp (fails if stale)",
-            .write_step_name = "gen-header-net-transport-tcp",
             .write_desc = "Regenerate include/glowcap_net_transport_tcp.h from src/c_abi/net_transport/tcp",
             .generator = "tools/gen/header/net_tcp.zig",
             .reflects = .{ .name = "c_abi_net_transport_tcp", .module = reflected_archives.tcp },
         },
         .{
-            .check_step_name = "gen-header-net-transport-inproc-check",
+            .name = "gen-header-net-transport-inproc",
             .check_desc = "Verify include/glowcap_net_transport_inproc.h matches src/c_abi/net_transport/inproc (fails if stale)",
-            .write_step_name = "gen-header-net-transport-inproc",
             .write_desc = "Regenerate include/glowcap_net_transport_inproc.h from src/c_abi/net_transport/inproc",
             .generator = "tools/gen/header/net_inproc.zig",
             .reflects = .{ .name = "c_abi_net_transport_inproc", .module = reflected_archives.inproc },
         },
         .{
-            .check_step_name = "gen-header-net-transport-relay-check",
+            .name = "gen-header-net-transport-relay",
             .check_desc = "Verify include/glowcap_net_transport_relay.h matches src/c_abi/net_transport/relay (fails if stale)",
-            .write_step_name = "gen-header-net-transport-relay",
             .write_desc = "Regenerate include/glowcap_net_transport_relay.h from src/c_abi/net_transport/relay",
             .generator = "tools/gen/header/net_relay.zig",
             .reflects = .{ .name = "c_abi_net_transport_relay", .module = reflected_archives.relay },
         },
         .{
-            .check_step_name = "gen-header-net-transport-onion-check",
+            .name = "gen-header-net-transport-onion",
             .check_desc = "Verify include/glowcap_net_transport_onion.h matches src/c_abi/net_transport/onion (fails if stale)",
-            .write_step_name = "gen-header-net-transport-onion",
             .write_desc = "Regenerate include/glowcap_net_transport_onion.h from src/c_abi/net_transport/onion",
             .generator = "tools/gen/header/net_onion.zig",
             .reflects = .{ .name = "c_abi_net_transport_onion", .module = reflected_archives.onion },
         },
         .{
-            .check_step_name = "gen-binding-host-action-check",
+            .name = "gen-binding-host-action",
             .check_desc = "Verify binding HostAction decode/types match src/c_abi/host (fails if stale)",
-            .write_step_name = "gen-binding-host-action",
             .write_desc = "Regenerate binding HostAction decode/types from src/c_abi/host",
             .generator = "tools/gen/binding/host_action.zig",
             .reflects = .{ .name = "c_abi_host", .module = host_abi_mod },
@@ -394,9 +382,8 @@ pub fn register(ctx: Context) *std.Build.Step.Compile {
         // generator is the authority, and the Deno test holds it to the
         // server's own readers.
         .{
-            .check_step_name = "gen-rooms-protocol-check",
+            .name = "gen-rooms-protocol",
             .check_desc = "Verify the Rooms application and client protocol tables match tools/gen/rooms_protocol.zig (fails if stale)",
-            .write_step_name = "gen-rooms-protocol",
             .write_desc = "Regenerate the Rooms application and client protocol tables from tools/gen/rooms_protocol.zig",
             .generator = "tools/gen/rooms_protocol.zig",
         },
@@ -470,17 +457,15 @@ pub fn registerMirrors(
 
     // The resident-backed archives join after their Zig resident modules exist.
     addHeaderGen(b, check_step, target, optimize, support, .{
-        .check_step_name = "gen-header-net-transport-iroh-check",
+        .name = "gen-header-net-transport-iroh",
         .check_desc = "Verify include/glowcap_net_transport_iroh.h matches src/c_abi/net_transport/iroh/mod.zig (fails if stale)",
-        .write_step_name = "gen-header-net-transport-iroh",
         .write_desc = "Regenerate include/glowcap_net_transport_iroh.h from src/c_abi/net_transport/iroh/mod.zig",
         .generator = "tools/gen/header/iroh.zig",
         .reflects = .{ .name = "c_abi_net_transport_iroh", .module = iroh_abi_mod },
     });
     addHeaderGen(b, check_step, target, optimize, support, .{
-        .check_step_name = "gen-iroh-sidecar-constants-check",
+        .name = "gen-iroh-sidecar-constants",
         .check_desc = "Verify the iroh sidecar's generated Rust constants match iroh transport policy and frame-stream policy (fails if stale)",
-        .write_step_name = "gen-iroh-sidecar-constants",
         .write_desc = "Regenerate the iroh sidecar's Rust constants from iroh transport policy and frame-stream policy",
         .generator = "tools/gen/iroh_sidecar_constants.zig",
         .reflects = .{ .name = "iroh_policy", .module = support.iroh_policy },
@@ -489,25 +474,22 @@ pub fn registerMirrors(
         },
     });
     addHeaderGen(b, check_step, target, optimize, support, .{
-        .check_step_name = "gen-header-net-transport-webrtc-check",
+        .name = "gen-header-net-transport-webrtc",
         .check_desc = "Verify include/glowcap_net_transport_webrtc.h matches src/c_abi/net_transport/webrtc/mod.zig (fails if stale)",
-        .write_step_name = "gen-header-net-transport-webrtc",
         .write_desc = "Regenerate include/glowcap_net_transport_webrtc.h from src/c_abi/net_transport/webrtc/mod.zig",
         .generator = "tools/gen/header/webrtc.zig",
         .reflects = .{ .name = "c_abi_net_transport_webrtc", .module = webrtc_abi_mod },
     });
     addHeaderGen(b, check_step, target, optimize, support, .{
-        .check_step_name = "gen-webrtc-sidecar-constants-check",
+        .name = "gen-webrtc-sidecar-constants",
         .check_desc = "Verify the WebRTC sidecar's generated Rust constants match src/net/transport/webrtc.zig (fails if stale)",
-        .write_step_name = "gen-webrtc-sidecar-constants",
         .write_desc = "Regenerate the WebRTC sidecar's Rust constants from src/net/transport/webrtc.zig",
         .generator = "tools/gen/webrtc_sidecar_constants.zig",
         .reflects = .{ .name = "webrtc", .module = webrtc_resident_mod },
     });
     addHeaderGen(b, check_step, target, optimize, support, .{
-        .check_step_name = "gen-binding-rust-ffi-check",
+        .name = "gen-binding-rust-ffi",
         .check_desc = "Verify the generated Rust extern blocks match src/c_abi and " ++ rust_omissions ++ " (fails if stale)",
-        .write_step_name = "gen-binding-rust-ffi",
         .write_desc = "Regenerate the Rust binding's extern blocks from src/c_abi and " ++ rust_omissions ++ " (types reflected, names from the generated headers)",
         .generator = "tools/gen/binding/rust_ffi.zig",
         .omissions = rust_omissions,
@@ -520,9 +502,8 @@ pub fn registerMirrors(
         }),
     });
     addHeaderGen(b, check_step, target, optimize, support, .{
-        .check_step_name = "gen-binding-racket-ffi-check",
+        .name = "gen-binding-racket-ffi",
         .check_desc = "Verify the generated Racket FFI tables match src/c_abi and " ++ racket_omissions ++ " (fails if stale)",
-        .write_step_name = "gen-binding-racket-ffi",
         .write_desc = "Regenerate the Racket binding's FFI tables from src/c_abi and " ++ racket_omissions ++ " (types reflected, wrapper argument names from the generated headers)",
         .generator = "tools/gen/binding/racket_ffi.zig",
         .omissions = racket_omissions,
@@ -530,9 +511,8 @@ pub fn registerMirrors(
         .extra_imports = &ffi_extra_imports,
     });
     addHeaderGen(b, check_step, target, optimize, support, .{
-        .check_step_name = "gen-binding-python-ffi-check",
+        .name = "gen-binding-python-ffi",
         .check_desc = "Verify the generated Python ctypes signature tables match src/c_abi and " ++ python_omissions ++ " (fails if stale)",
-        .write_step_name = "gen-binding-python-ffi",
         .write_desc = "Regenerate the Python binding's ctypes signature tables from src/c_abi and " ++ python_omissions ++ " (types are reflected and the sigs dicts are positional)",
         .generator = "tools/gen/binding/python_ffi.zig",
         .omissions = python_omissions,
@@ -540,18 +520,16 @@ pub fn registerMirrors(
         .extra_imports = &ffi_extra_imports,
     });
     addHeaderGen(b, check_step, target, optimize, support, .{
-        .check_step_name = "gen-binding-ffi-layouts-check",
+        .name = "gen-binding-ffi-layouts",
         .check_desc = "Verify binding FFI layout facts match src/c_abi (fails if stale)",
-        .write_step_name = "gen-binding-ffi-layouts",
         .write_desc = "Regenerate binding FFI layout facts from src/c_abi (every reflected archive)",
         .generator = "tools/gen/binding/ffi_layouts.zig",
         .reflects = .{ .name = "c_abi", .module = host_mods[layerIndex("c_abi")] },
         .extra_imports = &ffi_layout_extra_imports,
     });
     addHeaderGen(b, check_step, target, optimize, support, .{
-        .check_step_name = "gen-ts-abi-check",
+        .name = "gen-ts-abi",
         .check_desc = "Verify the generated TypeScript ABI mirror files match src/c_abi and " ++ ts_omissions ++ " (fails if stale)",
-        .write_step_name = "gen-ts-abi",
         .write_desc = "Regenerate the TypeScript ABI mirror from src/c_abi and " ++ ts_omissions ++ " (every reflected archive)",
         .generator = "tools/gen/binding/ts_abi.zig",
         .omissions = ts_omissions,
@@ -559,9 +537,8 @@ pub fn registerMirrors(
         .extra_imports = &ts_constants_extra_imports,
     });
     addHeaderGen(b, check_step, target, optimize, support, .{
-        .check_step_name = "gen-binding-constants-check",
+        .name = "gen-binding-constants",
         .check_desc = "Verify binding ABI constants match src/c_abi (fails if stale)",
-        .write_step_name = "gen-binding-constants",
         .write_desc = "Regenerate binding ABI constants from src/c_abi (every reflected archive)",
         .generator = "tools/gen/binding/constants.zig",
         .reflects = .{ .name = "c_abi", .module = host_mods[layerIndex("c_abi")] },

@@ -109,7 +109,7 @@ fn addRelayFamily(
             run.addArgs(&.{ "--env", b.fmt("{s}={s}", .{ pair[0], pair[1] }) });
         }
         if (row.needs_iroh_lib_path) {
-            run.addArgs(&.{ "--env", b.fmt("LD_LIBRARY_PATH={s}", .{commands.rootPath(b, "zig-out/lib")}) });
+            run.addArgs(&.{ "--env", b.fmt("LD_LIBRARY_PATH={s}", .{commands.hostLibDir(b)}) });
         }
         run.addArg("--");
         run.addArgs(row.relay_argv);

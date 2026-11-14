@@ -57,8 +57,9 @@ pub fn register(
         smoke_on_check: bool = false,
         live_smoke_on_runtime: bool = false,
         gate_on_check: bool = false,
-        /// A `profile-*` step for the bench's marked phases under callgrind.
-        profile_step: ?[]const u8 = null,
+        /// A `profile-<name>` step for the bench's marked phases under
+        /// callgrind, named from its `bench-<name>` step.
+        profiled: bool = false,
         /// The snapshot bench measures the persistent-actor divergence path, so
         /// it imports the dependency-free Loam collections leaf directly,
         /// matching the map's tests without linking storage or OS backends.
@@ -73,8 +74,8 @@ pub fn register(
         .{ .step_name = "bench-uri", .description = "Measure locator and sturdyref URI rendering time and allocation traffic", .name = "uri-bench", .path = "bench/uri_bench.zig" },
         .{ .step_name = "bench-set-uniqueness", .description = "Measure borrowed set validation and collision scratch on both codecs", .name = "set-uniqueness-bench", .path = "bench/set_uniqueness_bench.zig" },
         .{ .step_name = "bench-codec", .description = "Run codec/dispatch throughput benchmark", .name = "codec-bench", .path = "bench/codec_bench.zig" },
-        .{ .step_name = "bench-dispatch-scaling", .description = "Measure inbound dispatch ns/turn across N peers (cold-cache regime) with p50/p99", .name = "dispatch-scaling-bench", .path = "bench/dispatch_scaling_bench.zig", .gate_on_check = true, .profile_step = "profile-dispatch-scaling" },
-        .{ .step_name = "bench-outbound", .description = "Measure the outbound engine path (send/step/takeOutbound) and the op:gc-answers release storm", .name = "outbound-bench", .path = "bench/outbound_bench.zig", .gate_on_check = true, .profile_step = "profile-outbound" },
+        .{ .step_name = "bench-dispatch-scaling", .description = "Measure inbound dispatch ns/turn across N peers (cold-cache regime) with p50/p99", .name = "dispatch-scaling-bench", .path = "bench/dispatch_scaling_bench.zig", .gate_on_check = true, .profiled = true },
+        .{ .step_name = "bench-outbound", .description = "Measure the outbound engine path (send/step/takeOutbound) and the op:gc-answers release storm", .name = "outbound-bench", .path = "bench/outbound_bench.zig", .gate_on_check = true, .profiled = true },
         .{ .step_name = "bench-peer-scaling", .description = "Measure per-session memory and live authenticated socket scale", .name = "peer-scaling-bench", .path = "bench/peer_scaling_bench.zig", .smoke_on_check = true, .live_smoke_on_runtime = true, .needs_alloc_metrics = true },
         .{ .step_name = "bench-snapshot", .description = "Measure vat snapshot/restore: O(objects), flat in object size, off by default", .name = "snapshot-bench", .path = "bench/snapshot_bench.zig", .smoke_on_check = true, .needs_persistent = true },
     };
@@ -111,12 +112,13 @@ pub fn register(
         run.addPassthruArgs();
         b.step(bench.step_name, bench.description).dependOn(&run.step);
 
-        if (bench.profile_step) |step_name| {
+        if (bench.profiled) {
             const module = b.createModule(profiles.moduleOptions(b, bench.path));
             module.addImport("glowcap", profiles.module("glowcap"));
             addTestSupport(b, module, profiles.module("glowcap"), profiles.target, profile_build.Profiles.optimize);
             const profiled = b.addExecutable(.{ .name = b.fmt("{s}-profile", .{bench.name}), .root_module = module });
-            b.step(step_name, b.fmt("Profile {s} under callgrind: self cost per file and function for each marked phase (needs valgrind)", .{bench.step_name})).dependOn(profile_build.addRun(b, profiles, profiled));
+            std.debug.assert(std.mem.startsWith(u8, bench.step_name, "bench-"));
+            b.step(b.fmt("profile-{s}", .{bench.step_name["bench-".len..]}), b.fmt("Profile {s} under callgrind: self cost per file and function for each marked phase (needs valgrind)", .{bench.step_name})).dependOn(profile_build.addRun(b, profiles, profiled));
         }
 
         if (bench.gate_on_check) {

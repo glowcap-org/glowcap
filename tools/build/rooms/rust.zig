@@ -1,7 +1,6 @@
 //! Rust application contracts share their test body between host
 //! and browser Wasm. Browser execution remains opt-in like the Rooms page tests.
 const std = @import("std");
-const builtin = @import("builtin");
 const cargo = @import("../cargo.zig");
 const commands = @import("../commands.zig");
 const execution = @import("../execution.zig");
@@ -63,7 +62,7 @@ pub fn register(b: *std.Build, check_step: *std.Build.Step, runtime_gate: *execu
             execution.expectStdOutMatch(maximum, "test result: ok. 1 passed;");
             maximum.setCwd(b.path("."));
             maximum.step.dependOn(previous);
-            setLibraryEnvironment(maximum, b);
+            setLibraryEnvironment(maximum);
             previous = &maximum.step;
         }
     }
@@ -90,7 +89,7 @@ pub fn register(b: *std.Build, check_step: *std.Build.Step, runtime_gate: *execu
     // no transport and needs nothing; the same tests under the workspace run
     // need `libglowcap_net_transport_iroh`, and without this resolved they fail
     // to start rather than to assert, a loader error with no test name in it.
-    for ([_]*std.Build.Step.Run{ compile, workspace_tests, executor_tests }) |run| setLibraryEnvironment(run, b);
+    for ([_]*std.Build.Step.Run{ compile, workspace_tests, executor_tests }) |run| setLibraryEnvironment(run);
     const rust_test_step = b.step("rooms-rust-test", "Run portable Rooms application and Rust/Zig static linking contracts on the host (needs cargo)");
     rust_test_step.dependOn(&executor_tests.step);
     rust_test_step.dependOn(&cargo.rustFmtCheck(b, "apps/rooms/rust/Cargo.toml").step);
@@ -98,7 +97,7 @@ pub fn register(b: *std.Build, check_step: *std.Build.Step, runtime_gate: *execu
         "cargo", "run",                   "--quiet",   "--locked",       "--release", "--manifest-path", "apps/rooms/rust/Cargo.toml",
         "-p",    "rooms-contract-proofs", "--example", "admission_cost",
     });
-    setLibraryEnvironment(admission_cost, b);
+    setLibraryEnvironment(admission_cost);
     admission_cost.step.dependOn(&compile.step);
     b.step("bench-rooms-admission", "Measure admission cost and enforce zero steady policy allocations").dependOn(&admission_cost.step);
     rust_test_step.dependOn(&admission_cost.step);
@@ -251,12 +250,7 @@ pub fn register(b: *std.Build, check_step: *std.Build.Step, runtime_gate: *execu
     return .{ .browser_application = application.production, .lint = &lint.step };
 }
 
-fn setLibraryEnvironment(run: *std.Build.Step.Run, b: *std.Build) void {
-    const directory = commands.rootPath(b, "zig-out/lib");
+fn setLibraryEnvironment(run: *std.Build.Step.Run) void {
     commands.setLibDir(run, .host);
-    switch (builtin.target.os.tag) {
-        .macos => run.setEnvironmentVariable("DYLD_LIBRARY_PATH", directory),
-        .linux, .freebsd, .netbsd, .openbsd, .dragonfly => run.setEnvironmentVariable("LD_LIBRARY_PATH", directory),
-        else => {},
-    }
+    commands.setLoaderPath(run);
 }
