@@ -3,7 +3,6 @@ import { LocalRefusal } from "../../lib/text/failure.ts";
 import { invariant } from "../../lib/invariant.ts";
 import { openGraphMetadata, openGraphSelection, openGraphTargets } from "./application.ts";
 import { ROOMS_FAILURES, type RoomsErrorCode, type RoomsFailureRetry } from "../../lib/failure_data.ts";
-import { linkPreviewShared } from "../../lib/text/link_preview.ts";
 
 export interface OpenGraphImage {
 	readonly url: string;
@@ -15,11 +14,8 @@ export interface OpenGraphImage {
 
 export interface OpenGraphMetadata {
 	readonly requestedUrl: string;
-	readonly url: string;
 	readonly title?: string;
 	readonly description?: string;
-	readonly siteName?: string;
-	readonly objectType?: string;
 	readonly images: readonly OpenGraphImage[];
 }
 
@@ -143,12 +139,11 @@ function validMetadata(value: unknown): OpenGraphMetadata | null {
 	return encoded == null ? null : JSON.parse(encoded) as OpenGraphMetadata;
 }
 
+/** Where a preview card goes, as the browser that opens it reads the address:
+ * the host, with its port when that is not the scheme's own. Every address a
+ * card holds is one Rust admitted, so it parses. */
 export function previewHost(url: string): string {
-	try {
-		return new URL(url).hostname;
-	} catch {
-		return linkPreviewShared;
-	}
+	return new URL(url).host;
 }
 
 /** The failure a preview fetch settled with, in the shared failure vocabulary.

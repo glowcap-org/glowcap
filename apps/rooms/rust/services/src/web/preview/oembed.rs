@@ -62,7 +62,6 @@ fn domain(host: &str, base: &str) -> bool {
 #[derive(Deserialize)]
 struct Response {
 	title: Option<String>,
-	provider_name: Option<String>,
 	#[serde(rename = "type")]
 	object_type: Option<String>,
 	thumbnail_url: Option<String>,
@@ -75,7 +74,6 @@ pub(super) fn metadata(target: &str, body: &[u8]) -> Option<Metadata> {
 	Metadata::from_oembed(&OEmbedObservation {
 		requested_url: target,
 		title: response.title.as_deref(),
-		provider_name: response.provider_name.as_deref(),
 		object_type: response.object_type.as_deref(),
 		thumbnail_url: response.thumbnail_url.as_deref(),
 		thumbnail_width: response.thumbnail_width,
@@ -117,7 +115,7 @@ mod tests {
 		)
 		.unwrap();
 		assert_eq!(found.title.as_deref(), Some("A video"));
-		assert_eq!(found.site_name.as_deref(), Some("YouTube"));
 		assert_eq!(found.images[0].url, "https://i.example/video.jpg");
+		assert!(!serde_json::to_string(&found).unwrap().contains("YouTube"));
 	}
 }

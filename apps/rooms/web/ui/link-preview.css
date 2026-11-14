@@ -3,7 +3,7 @@
    paper, a hairline, the chip radius, and nothing else to say "card" with. No
    accent stripe, no shadow, no rule between the words and the picture. The
    words carry the hierarchy on their own, the way a teaser in a paper does:
-   where it is from, quietly. What it is called. A line of what it says, and
+   where it goes, quietly. What it is called. A line of what it says, and
    the picture set on the far edge. */
 .link-preview-list {
 	display: grid;
@@ -72,15 +72,21 @@
 	padding-right: 2.75rem;
 }
 
-/* Where it is from, said once and small. The site is the least of the three
-   facts, so it takes the caption size and the soft ink, with no weight and no
-   tracking to make a label of it. */
+/* Where it goes, said once and small: the host of the address the card opens.
+   It takes the caption size and the soft ink, with no weight and no tracking
+   to make a label of it. A host longer than the card keeps its end, where the
+   name that owns it is written, and the mark of the cut stands where it
+   starts. The line runs from the right to do that, and the host inside it
+   still reads left to right. */
 .link-preview-copy small {
+	justify-self: start;
+	max-width: 100%;
 	overflow: hidden;
+	direction: rtl;
+	text-overflow: ellipsis;
 	color: var(--ink-soft);
 	font-size: var(--type-caption);
 	line-height: 1.3;
-	text-overflow: ellipsis;
 	white-space: nowrap;
 }
 

@@ -9,7 +9,6 @@ pub const MAX_PROPERTY_KEY_BYTES: usize = 64;
 pub const MAX_PROPERTY_CONTENT_BYTES: usize = 2_048;
 pub const MAX_TITLE_BYTES: usize = 512;
 const MAX_DESCRIPTION_BYTES: usize = 2_048;
-const MAX_SITE_BYTES: usize = 256;
 const MAX_TYPE_BYTES: usize = 128;
 const MAX_IMAGES: usize = 4;
 const MAX_IMAGE_ALT_BYTES: usize = 512;
@@ -46,7 +45,6 @@ impl Property {
 pub struct Observation<'a> {
 	pub requested_url: &'a str,
 	pub final_url: &'a str,
-	pub canonical_url: Option<&'a str>,
 	pub html_title: Option<&'a str>,
 	pub properties: &'a [Property],
 }
@@ -57,7 +55,8 @@ pub struct Observation<'a> {
 pub struct OEmbedObservation<'a> {
 	pub requested_url: &'a str,
 	pub title: Option<&'a str>,
-	pub provider_name: Option<&'a str>,
+	/// The response's `type`. A value outside the standard's four refuses the
+	/// response, and no presentation reads it.
 	pub object_type: Option<&'a str>,
 	pub thumbnail_url: Option<&'a str>,
 	pub thumbnail_width: Option<u32>,
@@ -78,19 +77,17 @@ pub struct Image {
 	pub alt: Option<String>,
 }
 
+/// What a page says about itself, for the address a reader asked for. Only
+/// what a card draws is kept. A page's own account of its address or its site
+/// is not: a presentation shows where a link goes from the address it opens.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Metadata {
 	pub requested_url: String,
-	pub url: String,
 	#[serde(skip_serializing_if = "Option::is_none")]
 	pub title: Option<String>,
 	#[serde(skip_serializing_if = "Option::is_none")]
 	pub description: Option<String>,
-	#[serde(skip_serializing_if = "Option::is_none")]
-	pub site_name: Option<String>,
-	#[serde(skip_serializing_if = "Option::is_none")]
-	pub object_type: Option<String>,
 	pub images: Vec<Image>,
 }
 
@@ -108,17 +105,10 @@ impl Metadata {
 	}
 
 	fn valid(&self) -> bool {
-		(self.title.is_some()
-			|| self.description.is_some()
-			|| self.site_name.is_some()
-			|| self.object_type.is_some()
-			|| !self.images.is_empty())
+		(self.title.is_some() || self.description.is_some() || !self.images.is_empty())
 			&& canonical_url(&self.requested_url)
-			&& canonical_url(&self.url)
 			&& valid_text(&self.title, MAX_TITLE_BYTES)
 			&& valid_text(&self.description, MAX_DESCRIPTION_BYTES)
-			&& valid_text(&self.site_name, MAX_SITE_BYTES)
-			&& valid_text(&self.object_type, MAX_TYPE_BYTES)
 			&& self.images.len() <= MAX_IMAGES
 			&& self.images.iter().all(|image| {
 				canonical_url(&image.url)
@@ -136,10 +126,6 @@ impl Metadata {
 		let requested_url = normalize_url(input.requested_url)?;
 		let final_url = normalize_url(input.final_url)?;
 		let properties = &input.properties[..input.properties.len().min(MAX_PROPERTIES)];
-		let canonical = first(properties, &["og:url"])
-			.and_then(|value| resolve_url(&final_url, value))
-			.or_else(|| input.canonical_url.and_then(|value| resolve_url(&final_url, value)))
-			.unwrap_or_else(|| final_url.clone());
 		let title = first(properties, &["og:title", "twitter:title", "schema:title"])
 			.or(input.html_title)
 			.and_then(|value| bounded_text(value, MAX_TITLE_BYTES));
@@ -153,20 +139,14 @@ impl Metadata {
 			],
 		)
 		.and_then(|value| bounded_text(value, MAX_DESCRIPTION_BYTES));
-		let site_name = first(properties, &["og:site_name"]).and_then(|value| bounded_text(value, MAX_SITE_BYTES));
-		let object_type = first(properties, &["og:type"]).and_then(|value| bounded_text(value, MAX_TYPE_BYTES));
 		let images = images(properties, &final_url);
-		if title.is_none() && description.is_none() && site_name.is_none() && object_type.is_none() && images.is_empty()
-		{
+		if title.is_none() && description.is_none() && images.is_empty() {
 			return None;
 		}
 		Some(Self {
 			requested_url,
-			url: canonical,
 			title,
 			description,
-			site_name,
-			object_type,
 			images,
 		})
 	}
@@ -178,14 +158,12 @@ impl Metadata {
 	pub fn from_oembed(input: &OEmbedObservation<'_>) -> Option<Self> {
 		let requested_url = normalize_url(input.requested_url)?;
 		let title = input.title.and_then(|value| bounded_text(value, MAX_TITLE_BYTES));
-		let site_name = input
-			.provider_name
-			.and_then(|value| bounded_text(value, MAX_SITE_BYTES));
-		let object_type = match input.object_type {
-			Some(value) if matches!(value, "link" | "photo" | "rich" | "video") => bounded_text(value, MAX_TYPE_BYTES),
-			Some(_) => return None,
-			None => None,
-		};
+		if input
+			.object_type
+			.is_some_and(|value| !matches!(value, "link" | "photo" | "rich" | "video"))
+		{
+			return None;
+		}
 		let images = input
 			.thumbnail_url
 			.and_then(|value| resolve_url(&requested_url, value))
@@ -199,16 +177,13 @@ impl Metadata {
 				}]
 			})
 			.unwrap_or_default();
-		if title.is_none() && site_name.is_none() && object_type.is_none() && images.is_empty() {
+		if title.is_none() && images.is_empty() {
 			return None;
 		}
 		Some(Self {
-			url: requested_url.clone(),
 			requested_url,
 			title,
 			description: None,
-			site_name,
-			object_type,
 			images,
 		})
 	}

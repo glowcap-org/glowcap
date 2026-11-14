@@ -37,7 +37,7 @@ Deno.test("unchanged targets preserve outcome and removal intent", () => {
 	assert(fetching?.state === "fetching", "the offered intent did not start");
 	store.settleDraftPreview(projection, room.key, offered.id, offered.attempt, {
 		state: "ready",
-		metadata: { requestedUrl: offered.url, url: offered.url, title: "Example", images: [] },
+		metadata: { requestedUrl: offered.url, title: "Example", images: [] },
 	});
 	store.setDraft(projection, "Please see https://example.com/a now");
 	const ready = store.activeDraft(projection).previews[0];
@@ -75,7 +75,7 @@ Deno.test("only the current attempt can settle or be cancelled", () => {
 	store.startDraftPreview(projection, room.key, retried.id);
 	store.settleDraftPreview(projection, room.key, retried.id, offered.attempt, {
 		state: "ready",
-		metadata: { requestedUrl: retried.url, url: retried.url, title: "stale", images: [] },
+		metadata: { requestedUrl: retried.url, title: "stale", images: [] },
 	});
 	assert(store.activeDraft(projection).previews[0]?.state === "fetching", "an old completion settled a new attempt");
 	store.cancelDraftPreview(projection, room.key, retried.id, offered.attempt);
@@ -149,6 +149,35 @@ Deno.test("malformed drafts and selections admit nothing they do not show", () =
 	assert(
 		previewSelection(text, ["https://example.com/a", "https://example.com/a"]).length <= 1,
 		"a repeated selection admitted the same fetch twice",
+	);
+});
+
+Deno.test("a preview card names the host it opens, whatever its page says", async () => {
+	const { renderToStaticMarkup } = await import("react-dom/server");
+	const { createElement } = await import("react");
+	const { PreviewLink } = await import("../../web/ui/panes/LinkPreviews.tsx");
+	const drawn = (url: string, said: { title?: string; description?: string }) =>
+		renderToStaticMarkup(
+			createElement(PreviewLink, {
+				service: "https://rooms.example",
+				url,
+				metadata: { requestedUrl: url, images: [], ...said },
+			}),
+		);
+	const card = (url: string, host: string, copy: string) =>
+		`<a href="${url}" target="_blank" rel="noopener noreferrer"><span class="link-preview-copy"><small><bdi dir="ltr">${host}</bdi></small>${copy}</span></a>`;
+	for (
+		const [url, said, host, copy] of [
+			["https://example.org/x", { title: "bank.example" }, "example.org", "<strong>bank.example</strong>"],
+			["https://example.org:8443/x", { title: "Sign in" }, "example.org:8443", "<strong>Sign in</strong>"],
+			["http://[::1]:8080/", { description: "Local" }, "[::1]:8080", "<span>Local</span>"],
+			["https://xn--bnk-6cd.example/", { title: "Bank" }, "xn--bnk-6cd.example", "<strong>Bank</strong>"],
+		] as const
+	) assert(drawn(url, said) === card(url, host, copy), `${url} drew ${drawn(url, said)}`);
+	const lookalike = drawn("https://b\u0430nk.example/", { title: "Bank" });
+	assert(
+		/<small><bdi dir="ltr">xn--[a-z0-9-]+\.example<\/bdi><\/small>/.test(lookalike),
+		`a name with a look-alike letter drew ${lookalike}`,
 	);
 });
 

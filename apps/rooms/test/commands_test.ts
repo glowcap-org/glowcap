@@ -89,7 +89,7 @@ Deno.test("composer commits the exact non-removed preview selection", () => {
 				url: "https://one.example/",
 				state: "ready",
 				attempt: 0,
-				metadata: { requestedUrl: "https://one.example/", url: "https://one.example/", images: [] },
+				metadata: { requestedUrl: "https://one.example/", images: [] },
 			},
 			{ id: 2, url: "https://two.example/", state: "removed", attempt: 0 },
 		],
