@@ -26,12 +26,15 @@ export type MarkdownNode =
 	| {
 		readonly kind: "link";
 		readonly destination: string;
+		/** Where the link goes, when its label does not say. */
+		readonly opens: string | null;
 		readonly title: string | null;
 		readonly children: readonly MarkdownNode[];
 	}
 	| {
 		readonly kind: "image";
 		readonly destination: string | null;
+		readonly opens: string | null;
 		readonly title: string | null;
 		readonly alt: string;
 	}

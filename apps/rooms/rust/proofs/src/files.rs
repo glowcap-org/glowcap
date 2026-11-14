@@ -463,6 +463,15 @@ fn empty_files_and_limits() {
 		FileDescription::new("".into(), "".into(), 0, 0, 0),
 		Err(FileError::Description)
 	);
+	// A direction override draws this name as `photoexe.jpg`.
+	for hidden in ["photo\u{202e}gpj.exe", "a\u{2066}b", "a\nb", "a\u{200f}.txt", "\u{61c}"] {
+		assert_eq!(
+			FileDescription::parse(hidden, "", 0, 0, 0),
+			Err(FileError::NameCharacters),
+			"{hidden:?}"
+		);
+	}
+	assert!(FileDescription::parse("صورة.jpg", "image/jpeg", 0, 0, 0).is_ok());
 	assert_eq!(
 		FileDescription::new("a".into(), "".into(), MAX_FILE_BYTES as u64 + 1, 0, 0),
 		Err(FileError::Size)

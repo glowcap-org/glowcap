@@ -19,6 +19,12 @@ function Spoiler({ children }: { children: ReactNode }) {
 		);
 }
 
+/** The place a link opens, beside a label that does not say it. The label is
+ * the author's words. This is the application's, so it reads apart from them. */
+function Opens({ place }: { place: string | null }) {
+	return place == null ? null : <span className="markdown-link-opens">{place}</span>;
+}
+
 function IrcSpan({ run, children }: { run: IrcRun; children: ReactNode }) {
 	let out = children;
 	if (run.mono) out = <code>{out}</code>;
@@ -120,9 +126,20 @@ function MarkdownNodeView(
 		case "delete":
 			return <s>{children}</s>;
 		case "link":
+			// A link reads left to right as one piece, its label then its place,
+			// here and on an image. The label keeps its own direction inside a
+			// `bdi`, so a direction override earlier in the paragraph can neither
+			// draw it backwards into another address nor part it from its place.
 			return (
-				<a href={node.destination} title={node.title ?? undefined} target="_blank" rel="noopener noreferrer">
-					{children}
+				<a
+					href={node.destination}
+					title={node.title ?? undefined}
+					target="_blank"
+					rel="noopener noreferrer"
+					dir="ltr"
+				>
+					<bdi>{children}</bdi>
+					<Opens place={node.opens} />
 				</a>
 			);
 		case "image": {
@@ -134,8 +151,10 @@ function MarkdownNodeView(
 					title={node.title ?? undefined}
 					target="_blank"
 					rel="noopener noreferrer"
+					dir="ltr"
 				>
-					{label}
+					<bdi>{label}</bdi>
+					<Opens place={node.opens} />
 				</a>
 			);
 		}

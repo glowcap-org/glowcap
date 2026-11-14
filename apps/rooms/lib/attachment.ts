@@ -20,10 +20,8 @@ import {
 	MAX_ATTACHMENT_BYTES,
 	MAX_DIRECT_ATTACHMENT_BYTES,
 	MAX_DIRECT_ATTACHMENTS,
-	MAX_FILE_NAME,
 	MAX_IMAGE_DIM,
 	MAX_MESSAGE_FILES,
-	MAX_MIME,
 	REQUEST_TIMEOUT_MS,
 	TRANSFER_STALL_MS,
 } from "./limits.ts";
@@ -124,9 +122,8 @@ function readAttachmentRecord(args: Argument[], at: number): Attachment | null {
 	const mime = args[at + 2];
 	const size = args[at + 3];
 	const blob = args[at + 4];
-	if (typeof name !== "string" || name.length === 0 || name.length > MAX_FILE_NAME) return null;
-	if (typeof mime !== "string" || mime.length > MAX_MIME) return null;
-	if (typeof size !== "bigint" || size < 0n || size > BigInt(MAX_ATTACHMENT_BYTES)) return null;
+	if (typeof name !== "string" || typeof mime !== "string" || typeof size !== "bigint") return null;
+	if (attachmentRefusal(name, mime, Number(size)) !== null) return null;
 	if (!(blob instanceof Ref)) return null;
 	return {
 		name,

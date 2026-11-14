@@ -11,6 +11,7 @@ use crate::{
 use alloc::{format, vec};
 use support::*;
 
+mod attachments;
 mod file_clock;
 mod gate;
 mod names;

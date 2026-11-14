@@ -31,6 +31,7 @@ pub fn run() {
 		(FileError::Spent, FailureCode::UploadIncomplete),
 		(FileError::NotPublished, FailureCode::UploadIncomplete),
 		(FileError::Description, FailureCode::BadAttachment),
+		(FileError::NameCharacters, FailureCode::BadAttachment),
 	] {
 		assert_eq!(
 			Failure::parse(&FileCallError::File(error).to_string()).unwrap().code,

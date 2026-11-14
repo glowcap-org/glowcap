@@ -6,7 +6,7 @@ use core::fmt;
 impl FileError {
 	pub const fn code(self) -> Option<FailureCode> {
 		match self {
-			Self::Description | Self::Size => Some(FailureCode::BadAttachment),
+			Self::Description | Self::NameCharacters | Self::Size => Some(FailureCode::BadAttachment),
 			Self::Capacity | Self::StagedLimit | Self::Allocation | Self::ReadersFull => {
 				Some(FailureCode::AttachmentRefused)
 			}
@@ -26,6 +26,7 @@ impl fmt::Display for FileError {
 		}
 		f.write_str(match self {
 			Self::Description => "the file description is invalid",
+			Self::NameCharacters => super::NAME_CHARACTERS,
 			Self::Size => "the file exceeds the allowed size",
 			Self::Capacity => "there is no capacity for this file",
 			Self::StagedLimit => "this membership has too many staged files",

@@ -29,6 +29,9 @@ pub const CHUNK_BYTES: usize = 64 * 1024;
 pub const MAX_FILE_BYTES: usize = 16 * 1024 * 1024;
 pub const MAX_FILE_NAME_UNITS: usize = 160;
 pub const MAX_MIME_UNITS: usize = 80;
+/// What a sender is told about a file name with a hidden character, here and
+/// by a room that will not take the file.
+pub const NAME_CHARACTERS: &str = "a file name may not contain control or text-direction characters";
 pub const MAX_IMAGE_DIMENSION: u32 = 65_535;
 pub const UPLOAD_IDLE_MS: u64 = 30_000;
 pub const MAX_BLOB_READERS: usize = 256;
@@ -81,11 +84,7 @@ impl FileDescription {
 		Ok(Self::validated(name.into(), mime.into(), size, width, height))
 	}
 	fn validate(name: &str, mime: &str, size: u64) -> Result<(), FileError> {
-		validate_description(
-			name.encode_utf16().take(MAX_FILE_NAME_UNITS + 1).count(),
-			mime.encode_utf16().take(MAX_MIME_UNITS + 1).count(),
-			size,
-		)
+		validate_description(name.encode_utf16(), mime.encode_utf16(), size)
 	}
 
 	fn validated(name: String, mime: String, size: u64, width: u64, height: u64) -> Self {
@@ -121,6 +120,7 @@ impl FileDescription {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FileError {
 	Description,
+	NameCharacters,
 	Size,
 	Capacity,
 	StagedLimit,
@@ -293,9 +293,21 @@ impl Drop for Record {
 	}
 }
 
-pub(crate) fn validate_description(name_units: usize, mime_units: usize, size: u64) -> Result<(), FileError> {
-	if name_units == 0 || name_units > MAX_FILE_NAME_UNITS || mime_units > MAX_MIME_UNITS {
+/// What every file description answers to, given its name and media type as
+/// UTF-16 units. A reader sees the name beside the file and saves under it, so
+/// it holds no control or text-direction character: a direction override
+/// draws `photo` and `gpj.exe` as `photoexe.jpg`.
+pub(crate) fn validate_description(
+	name: impl Iterator<Item = u16> + Clone,
+	mime: impl Iterator<Item = u16>,
+	size: u64,
+) -> Result<(), FileError> {
+	let name_units = name.clone().take(MAX_FILE_NAME_UNITS + 1).count();
+	if name_units == 0 || name_units > MAX_FILE_NAME_UNITS || mime.take(MAX_MIME_UNITS + 1).count() > MAX_MIME_UNITS {
 		return Err(FileError::Description);
+	}
+	if crate::text::units_carry_control_or_direction(name) {
+		return Err(FileError::NameCharacters);
 	}
 	if size > MAX_FILE_BYTES as u64 {
 		return Err(FileError::Size);
