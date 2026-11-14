@@ -64,7 +64,9 @@ pub fn main(init: std.process.Init) !void {
 
 /// Accept clients and run their calls and the board's storage work until
 /// `stop` turns true, or forever without one. Waiting to accept steps the
-/// whole runtime, so every connected client's calls run inside it.
+/// whole runtime, so every connected client's calls run inside it. A stopped
+/// loop returns with the server detached from its thread, so the caller can
+/// close the board from another one.
 pub fn serve(server: *driver.Server, storage: *Storage, stop: ?*const std.atomic.Value(bool)) !void {
     var sessions: [max_sessions]*driver.Session = undefined;
     var open: usize = 0;
@@ -90,6 +92,8 @@ pub fn serve(server: *driver.Server, storage: *Storage, stop: ?*const std.atomic
         }
         open = kept;
     }
+    // The storage pump ends every turn holding the server for this thread.
+    try server.runtime.detachThread();
 }
 
 /// Listen on loopback in the clear, for a peer that speaks only plain TCP.
