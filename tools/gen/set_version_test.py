@@ -167,10 +167,7 @@ class SetVersion(unittest.TestCase):
     def test_the_build_step_and_the_release_guide_name_the_command(self):
         build = (ROOT / "tools/build/release.zig").read_text()
         self.assertIn('"python3", "tools/gen/set_version.py", requested', build)
-        self.assertLess(
-            build.index('"tools/gen/set_version.py", requested'),
-            build.index('"gen-header-ocapn", "gen-binding-constants", "gen-ts-abi", "gen-rust-wasm-layouts"'),
-        )
+        self.assertLess(build.index('"tools/gen/set_version.py", requested'), build.index('regenerate.addArg("gen")'))
         tracked = subprocess.check_output(["git", "ls-files", "*Cargo.toml", "*deno.json"], cwd=ROOT, text=True).split()
         touched = mirrors(ROOT)
         for path in tracked:

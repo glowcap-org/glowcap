@@ -74,8 +74,8 @@ Committed FFI tiers and headers are generated, and their first lines name the
 `tools/gen/header/*.zig`. Signatures and shared layouts affect native and wasm32
 fingerprints.
 
-Run the `gen-*-check` steps in `docs/build-steps.md` and regenerate stale outputs.
-`gen-rust-wasm-layouts` also refreshes the binding layout inventory. Use idle
+After a signature or generator input changes, run `zig build gen`: it rewrites
+every mirror `check` verifies, in dependency order. Use idle
 test waits to check active development commands (`rooms-dev`, `site-rooms-page`)
 and fix straightforward breakage. Keep the requested work primary; these
 checks are opportunistic.
