@@ -49,6 +49,7 @@
     "zustand/vanilla": "npm:zustand@5.1.0/vanilla",
     "zustand/react/shallow": "npm:zustand@5.1.0/react/shallow",
     // dep zod: Validates Rooms data in the browser, clients, and tests.
+    "zod": "npm:zod@4.6.7",
     "zod/mini": "npm:zod@4.6.7/mini",
     // dep vite: Builds and serves the Rooms web client.
     "vite": "npm:vite@8.3.7",
