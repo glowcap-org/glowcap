@@ -2,6 +2,10 @@
 // delivered message, with the real React state machine and Rooms controls.
 // Metadata transport is intercepted so this proof is hermetic. The Rust
 // service separately proves provider selection, bounds, and SSRF policy.
+//
+// A ready card names the host of the address it opens. A short host starts
+// where the title starts, and a host longer than its card keeps its end and
+// marks the cut at its start.
 
 import type { Browser, Page, Route } from "playwright";
 import { establishLocalSession } from "../support/session_setup.ts";
@@ -11,11 +15,12 @@ const VIDEO = "https://youtu.be/NdU6UdUKaYc?si=v9JTLhkE5if3tpCq";
 const RETRY = "https://writingcooperative.com/a-quick-guide-to-medium-9f61864ab26";
 const REFUSED = "https://refused.example/story";
 const BROKEN_IMAGE = "https://image.example/story";
+const LONG_HOST = `https://bank.example.${"a".repeat(40)}.${"b".repeat(40)}.${"c".repeat(40)}.example.org/story`;
 
 function metadata(url: string, values: Record<string, unknown>) {
 	return {
 		ok: true,
-		metadata: { requestedUrl: url, url, images: [], ...values },
+		metadata: { requestedUrl: url, images: [], ...values },
 	};
 }
 
@@ -82,20 +87,19 @@ export async function run(browser: Browser, httpPort: number): Promise<void> {
 					route,
 					metadata(target, {
 						title: "Scott Galloway: The Rich Are Quietly Preparing For The AI Collapse",
-						siteName: "YouTube",
-						objectType: "video",
 						images: [{ url: "https://i.example/video.jpg", width: 480, height: 360 }],
 					}),
 				);
 			} else if (target === RETRY && ++retryRequests > 1) {
 				retryRefreshed = new URL(route.request().url()).searchParams.get("refresh") === "1";
-				await answer(route, metadata(target, { title: "A Quick Guide to Medium", siteName: "Medium" }));
+				await answer(route, metadata(target, { title: "A Quick Guide to Medium" }));
+			} else if (target === LONG_HOST) {
+				await answer(route, metadata(target, { title: "A host longer than its card" }));
 			} else if (target === BROKEN_IMAGE) {
 				await answer(
 					route,
 					metadata(target, {
 						title: "The article survives its image",
-						siteName: "Example",
 						images: [{ url: "https://i.example/broken.jpg", width: 640, height: 360 }],
 					}),
 				);
@@ -110,6 +114,19 @@ export async function run(browser: Browser, httpPort: number): Promise<void> {
 		const ready = page.locator(".draft-link-previews .link-preview-card.ready");
 		await ready.waitFor({ timeout: 10_000 });
 		await ready.locator("img").waitFor({ timeout: 10_000 });
+		// The card says where it goes from the address it opens.
+		const host = await ready.locator(".link-preview-copy small").textContent();
+		if (host !== new URL(VIDEO).host) fail(`the preview card names ${host} over a link to ${VIDEO}`);
+		// A host shorter than its card starts where the title starts.
+		const left = (selector: string) =>
+			ready.locator(selector).evaluate((node) => node.getBoundingClientRect().left);
+		const [hostLeft, titleLeft] = [
+			await left(".link-preview-copy small bdi"),
+			await left(".link-preview-copy strong"),
+		];
+		if (Math.abs(hostLeft - titleLeft) > 1) {
+			fail(`a short preview host does not start with its title: ${hostLeft} against ${titleLeft}`);
+		}
 		const geometry = await ready.evaluate((card) => {
 			const box = (node: Element) => node.getBoundingClientRect();
 			const copy = card.querySelector(".link-preview-copy")!;
@@ -145,6 +162,26 @@ export async function run(browser: Browser, httpPort: number): Promise<void> {
 		}
 		if (capture) {
 			await videoMessage.screenshot({ path: `${capture}/link-preview-message-light.png` });
+		}
+
+		// A host longer than its card keeps its end, where the name that owns it
+		// is written, and marks the cut where it starts.
+		await page.fill("#line", LONG_HOST);
+		const long = page.locator(".draft-link-previews .link-preview-card.ready");
+		await long.waitFor({ timeout: 10_000 });
+		const cut = await long.locator(".link-preview-copy small bdi").evaluate((host) => {
+			const line = host.parentElement;
+			if (line == null) return null;
+			const [outer, inner] = [line.getBoundingClientRect(), host.getBoundingClientRect()];
+			return {
+				clipped: line.scrollWidth > line.clientWidth,
+				mark: getComputedStyle(line).textOverflow,
+				start: inner.left - outer.left,
+				end: inner.right - outer.right,
+			};
+		});
+		if (cut == null || !cut.clipped || cut.mark !== "ellipsis" || cut.start >= 0 || Math.abs(cut.end) > 1) {
+			fail(`a long preview host lost its end or the mark of its cut: ${JSON.stringify(cut)}`);
 		}
 
 		// A refusal preserves the draft intent and offers an explicit retry. Both
