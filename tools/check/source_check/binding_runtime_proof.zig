@@ -37,7 +37,8 @@ const Binding = struct {
     /// The exports the binding's omission policy leaves out of its FFI table,
     /// read from the same compiled policy its generator checks.
     omitted: []const []const u8,
-    /// The policy file, named where a verb lacks both a proof and an entry.
+    /// The binding's own policy file, named with `shared.zig` where a verb lacks
+    /// both a proof and an entry.
     policy_path: []const u8,
     ext: []const u8,
     /// The binding's library: wrapper definitions, never proof.
@@ -69,7 +70,7 @@ const bindings = [_]Binding{
     .{
         .lang = .python,
         .name = "python",
-        .omitted = &policyNames(@import("ffi_omissions_python")),
+        .omitted = &policyNames(@import("ffi_omissions_shared"), @import("ffi_omissions_python")),
         .policy_path = ffi_omissions.path("python"),
         .ext = ".py",
         .lib = &.{"bindings/python/glowcap"},
@@ -79,7 +80,7 @@ const bindings = [_]Binding{
     .{
         .lang = .racket,
         .name = "racket",
-        .omitted = &policyNames(@import("ffi_omissions_racket")),
+        .omitted = &policyNames(@import("ffi_omissions_shared"), @import("ffi_omissions_racket")),
         .policy_path = ffi_omissions.path("racket"),
         .ext = ".rkt",
         .lib = &.{
@@ -94,9 +95,11 @@ const bindings = [_]Binding{
     },
 };
 
-fn policyNames(comptime policy: type) [policy.omissions.len][]const u8 {
-    var names: [policy.omissions.len][]const u8 = undefined;
-    inline for (policy.omissions, 0..) |entry, i| names[i] = entry.name;
+/// The names `shared` and `own` omit together.
+fn policyNames(comptime shared: type, comptime own: type) [shared.omissions.len + own.omissions.len][]const u8 {
+    var names: [shared.omissions.len + own.omissions.len][]const u8 = undefined;
+    inline for (shared.omissions, 0..) |entry, i| names[i] = entry.name;
+    inline for (own.omissions, shared.omissions.len..) |entry, i| names[i] = entry.name;
     return names;
 }
 
@@ -126,9 +129,9 @@ pub fn check(
             const sites = graph.sites.get(verb);
             if (sites) |set| if (graph.anyReached(set)) continue;
             if (sites) |set| {
-                try appendViolation(gpa, violations, "{s}: `{s}` is called only from `{s}`, which no gate reaches — call that wrapper from a script under interop/, apps/, bench/, or the binding's own proof entrypoints, or record its omission and reason in {s}", .{ binding.name, verb, graph.firstName(set), binding.policy_path });
+                try appendViolation(gpa, violations, "{s}: `{s}` is called only from `{s}`, which no gate reaches — call that wrapper from a script under interop/, apps/, bench/, or the binding's own proof entrypoints, or record its omission and reason in {s}, or in {s} when every binding omits it", .{ binding.name, verb, graph.firstName(set), binding.policy_path, ffi_omissions.path("shared") });
             } else {
-                try appendViolation(gpa, violations, "{s}: `{s}` has no call site outside the generated FFI table — give it a wrapper a proof reaches, or record its omission and reason in {s}", .{ binding.name, verb, binding.policy_path });
+                try appendViolation(gpa, violations, "{s}: `{s}` has no call site outside the generated FFI table — give it a wrapper a proof reaches, or record its omission and reason in {s}, or in {s} when every binding omits it", .{ binding.name, verb, binding.policy_path, ffi_omissions.path("shared") });
             }
         }
     }

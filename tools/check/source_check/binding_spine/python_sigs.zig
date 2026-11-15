@@ -4,7 +4,9 @@
 const std = @import("std");
 const text_match = @import("../text_match.zig");
 const violation_log = @import("../violation_log.zig");
-const python_policy_path = @import("../ffi_omissions.zig").path("python");
+const ffi_omissions = @import("../ffi_omissions.zig");
+const python_policy_path = ffi_omissions.path("python");
+const shared_policy_path = ffi_omissions.path("shared");
 
 const appendViolation = violation_log.appendViolation;
 const expectFileContains = text_match.expectFileContains;
@@ -76,7 +78,7 @@ pub fn checkPythonSigsFactoryArity(
                     defer gpa.free(want);
                     const got = try joinArgList(gpa, passed);
                     defer gpa.free(got);
-                    try appendViolation(gpa, violations, "bindings/python/glowcap/{s}: `{s}(…)` passes ({s}) but {s} declares ({s}) — an entry in {s} changed the generated parameter list; match the call, since Python only refuses this when the loader runs", .{ entry.path, name, got, gen_path, want, python_policy_path });
+                    try appendViolation(gpa, violations, "bindings/python/glowcap/{s}: `{s}(…)` passes ({s}) but {s} declares ({s}) — an entry in {s} or {s} changed the generated parameter list; match the call, since Python only refuses this when the loader runs", .{ entry.path, name, got, gen_path, want, python_policy_path, shared_policy_path });
                 }
             }
         }
