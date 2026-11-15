@@ -9,9 +9,9 @@
 ;; committed file" pattern as gen-header. glowcap's own costs go to
 ;; site/content/performance.smd and the comparisons with Cap'n Proto RPC and
 ;; Goblins to site/content/performance/compared.smd, both stamped with the
-;; same run. Every bench runs on the machine's fastest cores, and a TCP row
-;; pins its client and its server to one of them each, so a mixed-core machine
-;; repeats its figures. Surrounding prose is left untouched. There is no stale-check:
+;; same run. Every bench but the live-session run keeps the machine's fastest
+;; cores, and a TCP row pins its client and its server to one of them each, so
+;; a mixed-core machine repeats its figures. Surrounding prose is left untouched. There is no stale-check:
 ;; bench numbers vary by machine, so the pages are a dated snapshot you
 ;; refresh, not a gated invariant.
 ;;
@@ -521,8 +521,10 @@
       (when (and load (>= load 2)) (sleep 20) (loop)))))
 
 ;; Run one bench command on the fast cluster and return what it printed.
-(define (run bench)
-  (define cmd (string-append (cluster-prefix) bench))
+(define (run bench) (run-on-every-core (string-append (cluster-prefix) bench)))
+
+;; Run one command where the scheduler places it and return what it printed.
+(define (run-on-every-core cmd)
   (quiet)
   (printf "  $ ~a\n" cmd) (flush-output)
   (define out (open-output-string))
@@ -597,7 +599,8 @@
   (define codec (parse-codec (run "zig build bench-codec -Doptimize=fast 2>&1")))
   (define fv (parse-frameview (run "zig build bench-frame-view -Doptimize=fast 2>&1")))
   (define peer (parse-peer (run "zig build bench-peer-scaling -Doptimize=fast 2>&1")))
-  (define live (parse-live (run "python3 tools/run-with-timeout.py --kill-after 5s --heartbeat 30s 10m unshare -Urn sh -eu -c 'ulimit -n 524288; ip link set lo up; exec zig build bench-peer-scaling -Doptimize=fast -- --live --live-max=500000' 2>&1")))
+  ;; Thirty-two serving shards and a load process are sized for every core.
+  (define live (parse-live (run-on-every-core "python3 tools/run-with-timeout.py --kill-after 5s --heartbeat 30s 10m unshare -Urn sh -eu -c 'ulimit -n 524288; ip link set lo up; exec zig build bench-peer-scaling -Doptimize=fast -- --live --live-max=500000' 2>&1")))
   (define cores (fast-cores))
   (define each-core (format "~a,~a" (car cores) (cadr cores)))
   (define opens (parse-iroh (string-append
