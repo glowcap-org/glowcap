@@ -337,14 +337,22 @@ pub const HostSession = struct {
         return secret.publicKey();
     }
 
-    /// Whether inbound bytes are parked where no readiness wait can see them:
-    /// paused outer frames in `feed_tail`, or a sealed session's staged
-    /// channel bytes (ADR-0041). An embedder resumes them through
-    /// `HostSession.resumeFeed`. Every byte-fed pump asks this one question
-    /// instead of reaching into the two owners separately.
-    pub fn pausedInboundPending(self: *const HostSession) bool {
-        if (self.feed_tail.isActive()) return true;
-        if (self.sealed) |channel| return channel.hasStagedInbound();
+    /// Whether `resumeFeed` has input it can move now: the front of
+    /// `feed_tail` is a whole, malformed, or oversize outer frame, which a
+    /// resume dispatches or refuses, or a sealed session holds an opened
+    /// record or a whole staged unit (ADR-0041). Such bytes already left the
+    /// kernel, so no readiness wait reports them. The front of a frame whose
+    /// rest has not arrived is not resumable, because the bytes that complete
+    /// it raise readiness themselves. A message-framed session holds no such
+    /// input. Every byte-fed pump asks this one question instead of reaching
+    /// into the two owners separately.
+    pub fn inboundResumable(self: *const HostSession) bool {
+        if (self.wire_framing != .byte_stream) return false;
+        if (self.feed_tail.isActive()) {
+            const max_frame_bytes = self.served.port.peer.limits().max_frame_bytes;
+            if (foundation.stream_framing.parsePrefix(self.feed_tail.bytes(), max_frame_bytes) != .incomplete) return true;
+        }
+        if (self.sealed) |channel| return channel.canMoveInbound();
         return false;
     }
 };

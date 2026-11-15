@@ -148,6 +148,17 @@ Releases before 0.1.7 are in the
 - A Rust Host with a Loam attachment answers a fetch of a durable name
   that arrived before `Session::serve`. The lookup was never started, so
   the fetch stayed unanswered until the caller gave up.
+- A Host stepped by its embedder's loop waits while input it holds cannot
+  move: part of a message from a partner, or messages held until the
+  application serves an accepted session. It woke its embedder after every
+  step in both cases, so a partner that stalled partway through a message
+  kept a core busy.
+- A stepped Host wakes its embedder for input a read left behind the
+  message that opened a session. That input could wait until the partner
+  sent more.
+- `glowcap_driver_step` returns `GLOWCAP_OK` for a step that dispatched
+  held input. It returned `GLOWCAP_ERR_WOULD_BLOCK` when nothing else was
+  ready.
 - A covered spoiler in a Rooms message hides everything under it. A link
   under one showed its color through the cover and opened on the press
   meant to uncover it.

@@ -53,7 +53,7 @@ pub fn stepSession(self: *HostRuntime, session: *driver_core.HostSession, timeou
     // rather than `pumpUntilProbe`, and a settle must not wait for whichever
     // loop the caller happened to pick.
     try Internal.applySettleMailbox(self);
-    try Internal.resumeFeedTails(self, null);
+    _ = try Internal.resumeFeedTails(self, null);
     try self.drainActions();
     try Internal.advancePendingOpens(self);
     Internal.advancePendingListeners(self);
@@ -68,8 +68,9 @@ pub fn stepSession(self: *HostRuntime, session: *driver_core.HostSession, timeou
 
 /// One host-wide pump step (ADR-0024): apply the settle mailbox, drain actions,
 /// wait up to `timeout_ms` for any ready source, service it, and drain again.
-/// Null means the wait ended with nothing to service. `.idle` means a source
-/// was serviced without a counted frame. A resident feed reports through its
+/// Null means nothing held could resume and the wait ended with nothing to
+/// service. `.idle` means a source was serviced or held input resumed,
+/// without a counted frame. A resident feed reports through its
 /// sinks, while a wire closure surfaces through the close observer. When work
 /// remains only in userland buffers, the step posts the readiness wake so a
 /// parked embedder re-enters instead of stranding it.
@@ -97,18 +98,22 @@ pub fn stepAnyOwned(self: *HostRuntime, timeout_ms: i32, goal: StepGoal) !?net.P
     try Internal.progressClose(self, .operational);
     if (self.closeOutcome() != .pending) return null;
     try Internal.applySettleMailbox(self);
-    try Internal.resumeFeedTails(self, null);
+    // Input the sweep moved is progress no source reports, so a step that
+    // services nothing else still answers `.idle` for it.
+    const unserviced: ?net.Progress = if (try Internal.resumeFeedTails(self, null)) .idle else null;
     try self.drainActions();
     try Internal.advancePendingOpens(self);
     Internal.advancePendingListeners(self);
     if (self.terminal_failure) |failure| return failure.chain.cause;
     // Immediate lifecycle work can satisfy a blocking convenience. Check its
-    // barrier at the one boundary after which this step may park.
-    if (goal.reached(self)) return null;
-    // A carrier the prelude retired inline (a resident close that completed
-    // within its verb) leaves no descriptor to wake a park; the caller
-    // observes the closed session now.
-    if (self.open_wire_count < open_wires) return null;
+    // barrier at the one boundary after which this step may park. A carrier
+    // the prelude retired inline (a resident close that completed within its
+    // verb) leaves no descriptor to wake a park, so the caller observes the
+    // closed session now.
+    if (goal.reached(self) or self.open_wire_count < open_wires) {
+        nudgeIfWorkRemains(self);
+        return unserviced;
+    }
     const index = try Internal.waitAnySource(self, timeout_ms, true) orelse {
         // The park may have ended on a staged operation's clamped deadline;
         // settle it now rather than a step later.
@@ -118,7 +123,7 @@ pub fn stepAnyOwned(self: *HostRuntime, timeout_ms: i32, goal: StepGoal) !?net.P
         try Internal.progressSessionCloses(self);
         try Internal.progressClose(self, .operational);
         nudgeIfWorkRemains(self);
-        return null;
+        return unserviced;
     };
     self.readTurnClock();
     _ = try Internal.serviceResident(self, index, null);
@@ -199,9 +204,11 @@ pub fn terminalCleanupPending(self: *HostRuntime) bool {
     return false;
 }
 
-/// Preserve readiness when work already left the kernel's observable buffers.
-/// Only a parked embedder can be stranded by such work. The blocking face
-/// re-derives its wait set on every entry.
+/// Preserve readiness when work already left the kernel's observable buffers
+/// and the next step's sweep can move it (`sweepCanMove`). Input that cannot
+/// move until more bytes arrive is not such work, because those bytes raise
+/// the descriptor themselves. Only a parked embedder can be stranded by such
+/// work. The blocking face re-derives its wait set on every entry.
 pub fn nudgeIfWorkRemains(self: *HostRuntime) void {
     const rs = switch (self.drive) {
         .blocking => return,
@@ -217,8 +224,7 @@ pub fn nudgeIfWorkRemains(self: *HostRuntime) void {
     }
     var it = self.wires.valueIterator();
     while (it.next()) |wire| {
-        if (wire.*.closed) continue;
-        if (wire.*.session.pausedInboundPending()) {
+        if (Internal.sweepCanMove(self, wire.*)) {
             rs.postWake() catch |err| self.noteTerminalFailure(err);
             return;
         }

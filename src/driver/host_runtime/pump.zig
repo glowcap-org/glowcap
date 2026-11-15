@@ -89,21 +89,6 @@ pub fn attendSession(self: *HostRuntime, session: *driver_core.HostSession) !voi
     }
 }
 
-/// Resume any session whose `feed_tail` holds paused frames: the core
-/// stops consuming at the frame that opens a session, so frames that
-/// coalesced behind the handshake hello wait in the tail, and no poll
-/// will ever report them, because they already left the kernel. Every
-/// binding's serve loop resumes retained input before parking for exactly
-/// this reason. This is the owning face's spelling of that contract. A
-/// refusal closes that wire like any dispatch refusal.
-///
-/// The pause exists so the embedder can finish post-open setup (publish,
-/// spawn) before the partner's coalesced first frames dispatch, so a session
-/// whose open has not yet committed keeps waiting: `skip`, the session a
-/// handshake pump is itself opening, and any session a pending open still
-/// owns, such as a listener arrival its accept observer has not yet taken.
-/// Resuming either would answer a pipelined fetch before the object it names
-/// exists.
 /// Close `wire` for a feed the core refused, after draining the actions the
 /// partial feed committed. The drain's own failure is the caller's.
 fn closeWireForRefusedFeed(self: *HostRuntime, wire: *Wire, err: anyerror) !void {
@@ -113,31 +98,57 @@ fn closeWireForRefusedFeed(self: *HostRuntime, wire: *Wire, err: anyerror) !void
     return drained;
 }
 
-pub fn resumeFeedTails(self: *HostRuntime, skip: ?*driver_core.HostSession) !void {
+/// Resume every wire the sweep can move (`sweepCanMove`): the core stops
+/// consuming at the frame that opens a session, so frames that coalesced
+/// behind the handshake hello wait in the tail, and no poll will ever report
+/// them, because they already left the kernel. Every binding's serve loop
+/// resumes retained input before parking for exactly this reason. This is
+/// the owning face's spelling of that contract. A refusal closes that wire
+/// like any dispatch refusal. Returns whether the sweep acted on any wire,
+/// which is progress no source reports.
+///
+/// The pause exists so the embedder can finish post-open setup (publish,
+/// spawn) before the partner's coalesced first frames dispatch, so a session
+/// whose open has not yet committed keeps waiting: `skip`, the session a
+/// handshake pump is itself opening, and any session a pending open still
+/// owns, such as a listener arrival its accept observer has not yet taken.
+/// Resuming either would answer a pipelined fetch before the object it names
+/// exists.
+pub fn resumeFeedTails(self: *HostRuntime, skip: ?*driver_core.HostSession) !bool {
+    var acted = false;
     var it = self.wires.valueIterator();
     while (it.next()) |entry| {
         const wire = entry.*;
-        if (wire.closed) continue;
-        if (!wire.attended) continue;
         if (wire.session == skip) continue;
-        const deferred = wire.link.read_deferred;
-        if (!deferred and !wire.session.pausedInboundPending()) continue;
-        if (openPending(self, wire.session)) continue;
-        if (deferred) {
+        if (!sweepCanMove(self, wire)) continue;
+        acted = true;
+        if (wire.link.read_deferred) {
             wire.link.read_deferred = false;
             if (try feedReadable(self, wire, null) == .closed) continue;
         }
-        if (wire.session.pausedInboundPending()) {
+        if (wire.session.inboundResumable()) {
             wire.session.resumeFeed() catch |err| {
                 try closeWireForRefusedFeed(self, wire, err);
                 continue;
             };
         }
     }
+    return acted;
+}
+
+/// Whether the sweep's action on `wire` can make progress: the wire is live,
+/// attended, and past its open, and it holds a deferred read or input a
+/// resume can move. `resumeFeedTails` acts on a wire this admits, and the
+/// step's nudge posts the readiness wake for one, so an embedder steps again
+/// for held input only when the sweep has work.
+pub fn sweepCanMove(self: *const HostRuntime, wire: *const Wire) bool {
+    if (wire.closed or !wire.attended) return false;
+    if (!wire.link.read_deferred and !wire.session.inboundResumable()) return false;
+    return !openPending(self, wire.session);
 }
 
 /// Bounded by `Options.max_pending_opens`, and reached only for a session
-/// holding deferred or paused input.
+/// holding deferred or resumable input.
 fn openPending(self: *const HostRuntime, session: *const driver_core.HostSession) bool {
     for (self.pending_opens.items) |row| if (row.session == session) return true;
     return false;
@@ -163,7 +174,7 @@ pub fn pumpUntilProbe(self: *HostRuntime, probe: anytype, budget: Budget) !void 
         // uncontended lock and a count check, next to nothing beside the
         // poll below.
         try applySettleMailbox(self);
-        try resumeFeedTails(self, probe.resumeSkip());
+        _ = try resumeFeedTails(self, probe.resumeSkip());
         try self.drainActions();
         try Internal.advancePendingOpens(self);
         Internal.advancePendingListeners(self);
