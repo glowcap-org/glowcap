@@ -17,18 +17,24 @@ pub(super) fn coordinate(args: &[Argument]) -> Result<custody::Coordinate> {
 	}
 	Ok(coordinate)
 }
-pub(super) fn selection(args: &[Argument], intent: &workspace::Intent) -> Result<custody::Coordinate> {
+/// The seat when the current intent selects it in a room, or none when
+/// it does not. A request can name a seat the session's current intent does
+/// not select, so an unselected seat is an expected answer and not a refusal.
+pub(super) fn selection(args: &[Argument], intent: &workspace::Intent) -> Result<Option<custody::Coordinate>> {
 	let selected = coordinate(args)?;
-	if !intent.conversations.as_slice().iter().any(|row| matches!(row,
+	let held = intent.conversations.as_slice().iter().any(|row| matches!(row,
 		workspace::Conversation::Room(room) if room.seat.is_some_and(|key| key.slot() == selected.key.slot() && key.generation() == selected.key.generation())
-	)) { return Err(refuse("the exact room seat is no longer selected")); }
-	Ok(selected)
+	));
+	Ok(held.then_some(selected))
 }
 /// One facade over the seat answers both identities: the manager's, and the
-/// room's public digest a steward governs.
+/// room's public digest a steward governs. A seat the intent does not select is
+/// answered with `Void`.
 pub(super) fn invoke(call: &mut Call<'_>, input: Invocation<'_>) -> Result<Argument> {
 	let record = records::decode(input)?;
-	let coordinate = selection(input.args, &record.intent)?;
+	let Some(coordinate) = selection(input.args, &record.intent)? else {
+		return Ok(Argument::Void);
+	};
 	let field = record
 		.custody
 		.get(coordinate)

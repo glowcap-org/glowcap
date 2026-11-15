@@ -8,8 +8,9 @@ enum Standing<'a> {
 	/// This acquisition imports the room's entrance too, so the session holds
 	/// no seat and the imported entrance answers.
 	Imported(&'a Import),
-	/// The session already stands in the room, and its seat answers.
-	Seated(custody::Coordinate),
+	/// The session already stands in the room, and the facade over its seat
+	/// answers.
+	Seated(Ref),
 }
 
 impl<D: Deadline + Clone> Workspace<D> {
@@ -140,21 +141,31 @@ impl<D: Deadline + Clone> Workspace<D> {
 		}
 		None
 	}
-	/// The identity facade over the exact seat `seat` names. It answers the
+	/// The identity facade over the exact seat `seat` names, or none when the
+	/// session answers that it selects no such seat in a room. It answers the
 	/// manager's identity and the room's public digest.
-	async fn room_identity_reader(&self, seat: custody::Coordinate) -> Result<Ref, Error> {
+	async fn room_identity_reader(&self, seat: custody::Coordinate) -> Result<Option<Ref>, Error> {
 		if seat.role != custody::Role::RoomSeat {
 			return Err(loam::refusal("room identity requires a room seat").into());
 		}
 		let selected = serde_json::to_string(&seat).map_err(|_| loam::refusal("invalid room seat coordinate"))?;
-		self.reader("room-identity-reader", &[selected.into()]).await
+		let reply = self.call("room-identity-reader", &[selected.into()]).await?;
+		if matches!(reply, Argument::Void) {
+			return Ok(None);
+		}
+		Self::capability(&reply).map(Some)
 	}
-	pub async fn room_identity(&self, seat: custody::Coordinate) -> Result<String, Error> {
-		let reader = self.room_identity_reader(seat).await?;
+	/// The facade over a seat, refusing when the session holds no such seat.
+	async fn held_reader(&self, seat: custody::Coordinate) -> Result<Ref, Error> {
+		self.room_identity_reader(seat)
+			.await?
+			.ok_or_else(|| loam::refusal("the session does not hold that room seat").into())
+	}
+	async fn room_identity_through(&self, reader: &Ref) -> Result<String, Error> {
 		let reply = self
 			.caller
 			.call(
-				&reader,
+				reader,
 				authority::ROOM_IDENTITY,
 				&[],
 				"the exact room did not identify its link",
@@ -162,18 +173,23 @@ impl<D: Deadline + Clone> Workspace<D> {
 			.await?;
 		Ok(authority::seat_room_identity(&crate::Value(&reply))?.into())
 	}
-	pub async fn room_management_identity(&self, seat: custody::Coordinate) -> Result<String, Error> {
-		let reader = self.room_identity_reader(seat).await?;
+	async fn management_identity_through(&self, reader: &Ref) -> Result<String, Error> {
 		let reply = self
 			.caller
 			.call(
-				&reader,
+				reader,
 				authority::MANAGED_IDENTITY,
 				&[],
 				"the exact room did not identify its manager",
 			)
 			.await?;
 		Ok(authority::management_identity(&crate::Value(&reply))?.into())
+	}
+	pub async fn room_identity(&self, seat: custody::Coordinate) -> Result<String, Error> {
+		self.room_identity_through(&self.held_reader(seat).await?).await
+	}
+	pub async fn room_management_identity(&self, seat: custody::Coordinate) -> Result<String, Error> {
+		self.management_identity_through(&self.held_reader(seat).await?).await
 	}
 	/// Whether `link` arrives over the session `entrance` arrives over, or both
 	/// are local to this Host.
@@ -189,7 +205,9 @@ impl<D: Deadline + Clone> Workspace<D> {
 	}
 	/// Both product fronts perform the same identity checks before preparing the
 	/// retained acquisition. The transaction subsequently verifies each actual
-	/// capability/recipe pair and the original workspace revision.
+	/// capability/recipe pair and the original workspace revision. A seat the
+	/// session's current intent does not select means the candidate that names
+	/// it is stale, which reads as a workspace conflict.
 	pub async fn validate_room_authority_imports(&self, imports: &[Import], intent: &Intent) -> Result<(), Error> {
 		for conversation in intent.conversations.as_slice() {
 			let workspace::Conversation::Room(room) = conversation else {
@@ -215,7 +233,10 @@ impl<D: Deadline + Clone> Workspace<D> {
 			});
 			let standing = match (imported, room.seat) {
 				(Some(entry), _) => Standing::Imported(entry),
-				(None, Some(seat)) => Standing::Seated(custody::Coordinate::new(custody::Role::RoomSeat, seat)),
+				(None, Some(seat)) => {
+					let seat = custody::Coordinate::new(custody::Role::RoomSeat, seat);
+					Standing::Seated(self.room_identity_reader(seat).await?.ok_or(Error::WorkspaceConflict)?)
+				}
 				(None, None) => {
 					return Err(loam::refusal("join the room before taking a link to manage or moderate it").into());
 				}
@@ -253,7 +274,7 @@ impl<D: Deadline + Clone> Workspace<D> {
 							)
 							.await?
 					}
-					Standing::Seated(seat) => self.room_management_identity(*seat).await?.into(),
+					Standing::Seated(reader) => self.management_identity_through(reader).await?.into(),
 				};
 				authority::verify_manager(&crate::Value(&governed), &crate::Value(&identity))?;
 			}
@@ -268,7 +289,7 @@ impl<D: Deadline + Clone> Workspace<D> {
 							.map_err(|_| loam::refusal("the room link is not well formed"))?;
 						authority::room_identity(token)?
 					}
-					Standing::Seated(seat) => self.room_identity(*seat).await?,
+					Standing::Seated(reader) => self.room_identity_through(reader).await?,
 				};
 				let governed = self
 					.caller

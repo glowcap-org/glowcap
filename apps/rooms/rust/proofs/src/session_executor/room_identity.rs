@@ -1,14 +1,20 @@
 //! A room's identities are read through the exact seat the session holds
 //! there: the facade reads over a seat on another Host, the wrong role refused
-//! at the client and at the runtime, a retired seat refused, and a manager link
-//! taken with no seat and no imported entrance refused. An imported entrance
-//! whose manager identity the held seat answers folds onto that seat's row,
-//! and one to another room keeps its own. The forwarded verbs' admission
-//! through the facade (the runtime's dependent requirement) is not reached
-//! here; the browser proofs take that path.
+//! at the client and at the runtime, and a manager link taken with no seat and
+//! no imported entrance refused. A seat the session does not select reads
+//! two ways: the direct identity reads refuse it with their own sentence, and
+//! the validation of a candidate that names it reports a workspace conflict.
+//! An imported entrance whose manager identity the held seat answers folds onto
+//! that seat's row, and one to another room keeps its own. The forwarded verbs'
+//! admission through the facade (the runtime's dependent requirement) is not
+//! reached here; the browser proofs take that path.
 use super::*;
 use rooms_glowcap::client::workspace::Workspace;
 use std::cell::RefCell;
+
+/// What the fixture's seat answers when it is asked as a moderator link. Only
+/// a validation that read the held seat reaches that call.
+const LINK_REFUSAL: &str = "the fixture link refuses to say what it governs";
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
 #[tokio::test]
@@ -32,6 +38,11 @@ pub(super) async fn run() {
 			let host = Host::from_seed([122; 32]).unwrap();
 			let platform = Platform::default();
 			let owner = managed::Session::new(host.clone(), platform.clone(), std::num::NonZeroUsize::new(8192).unwrap());
+			let reports = Rc::new(RefCell::new(Vec::<(String, String)>::new()));
+			owner.on_trouble({
+				let reports = reports.clone();
+				move |operation, cause| reports.borrow_mut().push((operation.to_owned(), cause.to_string()))
+			}).unwrap();
 			// The seat lives on the server's host, as a member's does, so every
 			// identity read forwards through the session's facade to a remote peer.
 			let server = Host::from_seed([123; 32]).unwrap();
@@ -54,6 +65,7 @@ pub(super) async fn run() {
 				match verb {
 					"managedRoomIdentity" => Ok(Argument::String("manager-identity".into())),
 					"roomIdentity" => Ok(Argument::String("room-identity".into())),
+					"governs" => Err(LINK_REFUSAL.into()),
 					_ => Err(format!("the seat fixture has no method {verb}")),
 				}
 			}).unwrap();
@@ -165,15 +177,88 @@ pub(super) async fn run() {
 			};
 			let unproven = workspace.validate_room_authority_imports(&[manager], &unseated).await.unwrap_err().to_string();
 			assert!(unproven.contains("join the room before taking a link"), "an unseated manager import was not refused: {unproven}");
+			stale_candidate(&workspace, &owner, &original, &seat_target, &reports).await;
 			let mut departed = original.clone();
 			if let rooms_application::content::session::workspace::Conversation::Room(room) = &mut departed.conversations.as_mut_slice()[0] {
 				room.seat = None;
 			}
 			owner.replace_workspace(&departed).await.unwrap();
-			let retired = workspace.room_management_identity(seat).await.unwrap_err().to_string();
-			assert!(retired.contains("ApplicationRefused"), "a retired seat was still answered: {retired}");
+			assert_not_held(&workspace, seat).await;
 			drop((workspace, seat_target, remote_sink, sink, server_seat, client, accepted, source, control, root, root_control, owner));
 			attachment.close().await.unwrap();
 		}).await;
 	}).await;
+}
+
+/// The direct identity reads refuse a seat the session does not select, with
+/// the sentence the client owns for it.
+async fn assert_not_held(workspace: &Workspace<Platform>, seat: custody::Coordinate) {
+	let manager = workspace.room_management_identity(seat).await;
+	let link = workspace.room_identity(seat).await;
+	for (read, outcome) in [("manager identity", manager), ("room identity", link)] {
+		let text = outcome.as_ref().err().map(ToString::to_string);
+		assert!(
+			text.as_deref()
+				.is_some_and(|text| text.ends_with("the session does not hold that room seat")),
+			"the {read} of an unselected seat read as {outcome:?}"
+		);
+	}
+}
+
+/// A moderator link prepared from a candidate that names a seat the session
+/// replaced is validated as a workspace conflict. The direct read of that seat
+/// refuses.
+async fn stale_candidate(
+	workspace: &Workspace<Platform>,
+	owner: &managed::Session<Platform>,
+	original: &Intent,
+	seat_target: &Ref,
+	reports: &RefCell<Vec<(String, String)>>,
+) {
+	use rooms_application::content::session::workspace::Conversation;
+	let moderator_key = requests::coordinate(custody::Role::RoomAccess, 3).key.retag();
+	let mut candidate = original.clone();
+	let Conversation::Room(room) = &mut candidate.conversations.as_mut_slice()[0] else {
+		panic!("the fixture holds one room")
+	};
+	room.moderator = Some(moderator_key);
+	let moderator = || rooms_glowcap::client::workspace::Import {
+		coordinate: custody::Coordinate::new(custody::Role::RoomAccess, moderator_key),
+		reference: seat_target.clone(),
+		uri: None,
+	};
+	let before = reports.borrow().len();
+	let held = workspace
+		.validate_room_authority_imports(&[moderator()], &candidate)
+		.await;
+	let reached = held.as_ref().err().map(ToString::to_string);
+	assert!(
+		reached.as_deref().is_some_and(|text| text.contains(LINK_REFUSAL)),
+		"a held seat did not reach the link: {held:?}"
+	);
+	assert_eq!(
+		reports.borrow().len(),
+		before,
+		"a held seat reported a refusal: {:?}",
+		reports.borrow()
+	);
+	// The session replaces the room's seat.
+	let replaced = requests::coordinate(custody::Role::RoomSeat, 1);
+	let replacement = requests::coordinate(custody::Role::RoomSeat, 2);
+	owner.import(replacement, seat_target.clone(), None).await.unwrap();
+	let mut moved = original.clone();
+	let Conversation::Room(room) = &mut moved.conversations.as_mut_slice()[0] else {
+		panic!("the fixture holds one room")
+	};
+	room.seat = Some(replacement.key.retag());
+	owner.replace_workspace(&moved).await.unwrap();
+	let stale = workspace
+		.validate_room_authority_imports(&[moderator()], &candidate)
+		.await;
+	assert!(
+		matches!(stale, Err(rooms_glowcap::client::Error::WorkspaceConflict)),
+		"a replaced seat validated as {stale:?}, reports {:?}",
+		reports.borrow()
+	);
+	assert_not_held(workspace, replaced).await;
 }
