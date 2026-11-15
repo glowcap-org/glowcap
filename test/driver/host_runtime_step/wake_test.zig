@@ -1,7 +1,6 @@
 //! Readiness and wake edges (ADR-0024): a wire lost mid-handshake fails
 //! through the dial observer, a silent connector cannot park a staged-accept
-//! server, `stepAny` self-wakes over an incomplete feed tail, and
-//! `wakeReadiness` raises the descriptor from another thread.
+//! server, and `wakeReadiness` raises the descriptor from another thread.
 
 const std = @import("std");
 const wait = @import("../../support/wait.zig");
@@ -103,82 +102,6 @@ test "a silent connector cannot park a staged-accept server: a healthy dial open
     try std.testing.expectEqual(@as(usize, 1), accepts.opened_count);
     try std.testing.expectEqual(@as(?anyerror, null), accepts.failed_err);
     try client_runtime.releaseWire(dials.opened_session.?);
-}
-
-test "stepAny self-wakes when a feed_tail still holds incomplete outer-frame bytes" {
-    const allocator = std.testing.allocator;
-    var threaded = std.Io.Threaded.init(allocator, .{});
-    defer threaded.deinit();
-    const io = threaded.io();
-
-    var server = try driver.listen(
-        allocator,
-        io,
-        .{ .symbols = &.{.tcp} },
-        model.transport.tcp,
-        .{ .designator = "127.0.0.1:0" },
-        .ephemeral,
-        opts,
-    );
-    defer server.deinit();
-    var addr_buf: [64]u8 = undefined;
-    const address = try tcp.parseDesignator(try server.localDesignator(&addr_buf));
-
-    var stop = std.atomic.Value(bool).init(false);
-    var accept_future = try io.concurrent(struct {
-        fn run(s: *driver.Server, stopped: *const std.atomic.Value(bool)) !void {
-            if (!try wait.acceptableUnlessStopped(s, stopped)) return;
-            var session = try s.accept();
-            defer session.deinit();
-            try session.serve();
-        }
-    }.run, .{ server, &stop });
-    var accept_joined = false;
-    errdefer if (!accept_joined) {
-        stop.store(true, .release);
-        wait.joinedUnwinding("accept", accept_future.await(io));
-    };
-
-    // The client is built stepped: its descriptor is read below, never armed.
-    var designator_buf: [tcp.designator_buf_len]u8 = undefined;
-    var client = try driver.connect(
-        allocator,
-        io,
-        .{ .symbols = &.{.tcp} },
-        tcp.locatorFromAddress(&designator_buf, address),
-        .ephemeral,
-        harness.steppedQuiet(),
-    );
-    var client_open = true;
-    errdefer if (client_open) client.deinit();
-
-    // Drain any connect-time wake so a leftover cannot fake the proof.
-    _ = try client.runtime.stepAny(0);
-
-    // An incomplete outer Syrup length prefix (`3:` declares three body
-    // bytes that never arrive): parse retains the suffix in `feed_tail`,
-    // which no readiness wait can see. Calibrate the pause before asking
-    // the nudge to report it.
-    try client.runtime.core.feedBytes(client.hs, "3:");
-    try std.testing.expect(client.hs.pausedInboundPending());
-
-    const ready_fd = try client.runtime.readinessDescriptor();
-    // Resume leaves the incomplete tail, the park times out, and the nudge
-    // must leave the aggregate descriptor readable.
-    _ = try client.runtime.stepAny(0);
-    try std.testing.expect(client.hs.pausedInboundPending());
-    var fds = [_]std.posix.pollfd{
-        .{ .fd = ready_fd, .events = std.posix.POLL.IN, .revents = 0 },
-    };
-    const ready = try std.posix.poll(&fds, 0);
-    try std.testing.expectEqual(@as(usize, 1), ready);
-    try std.testing.expect((fds[0].revents & std.posix.POLL.IN) != 0);
-
-    // The accept loop ends when the client leaves, and a failure fails the test.
-    client_open = false;
-    accept_joined = true;
-    client.deinit();
-    try accept_future.await(io);
 }
 
 test "wakeReadiness raises the descriptor from another thread, and a sessionless step parks instead of refusing" {

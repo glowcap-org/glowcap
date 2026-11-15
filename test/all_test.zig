@@ -249,6 +249,7 @@ comptime {
             _ = @import("driver/host_runtime_step/deferred_release_claim_test.zig");
         _ = @import("driver/host_runtime_step/refused_partner_release_test.zig");
         _ = @import("driver/host_runtime_step/staged_dial_test.zig");
+        _ = @import("driver/host_runtime_step/held_input_test.zig");
         _ = @import("driver/host_runtime_step/wake_test.zig");
         _ = @import("driver/host_runtime_multiplexed/external_resident_test.zig");
         _ = @import("driver/host_runtime_multiplexed/inproc_resident_test.zig");
@@ -264,6 +265,7 @@ comptime {
         _ = @import("driver/core_host/finish_test.zig");
         _ = @import("driver/core_host/pressure_test.zig");
         _ = @import("driver/core_host/stream_tail_test.zig");
+        _ = @import("driver/core_host/resumable_inbound_test.zig");
         _ = @import("driver/core_host/give_test.zig");
         _ = @import("driver/core_host/give/staged_test.zig");
         _ = @import("driver/core_host/give/tell_retirement_test.zig");

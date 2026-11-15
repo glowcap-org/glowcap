@@ -242,3 +242,38 @@ test "a suffix park cannot keep fails the channel" {
     try std.testing.expect(!responder.isOpen());
     try std.testing.expect(!responder.hasStagedInbound());
 }
+
+test "canMoveInbound is true for a lent record or a whole staged unit and false for the front of one" {
+    const gpa = std.testing.allocator;
+    var initiator: sealed.SealedChannel = undefined;
+    var responder: sealed.SealedChannel = undefined;
+    try openedPair(&initiator, &responder, .{ 21, 22, 23, 24 });
+    defer initiator.deinit(gpa);
+    defer responder.deinit(gpa);
+
+    var wire: std.ArrayList(u8) = .empty;
+    defer wire.deinit(gpa);
+    try initiator.sealBytes(gpa, &wire, "first");
+    const first_len = wire.items.len;
+    try initiator.sealBytes(gpa, &wire, "second");
+
+    try std.testing.expect(!responder.canMoveInbound());
+    // Cuts inside the record header and inside its body.
+    for (1..first_len) |cut| {
+        try responder.park(gpa, wire.items[0..cut]);
+        try std.testing.expect(responder.hasStagedInbound());
+        try std.testing.expect(!responder.canMoveInbound());
+        responder.staged.truncate(0);
+    }
+
+    try responder.park(gpa, wire.items[0 .. first_len + 2]);
+    try std.testing.expect(responder.canMoveInbound());
+    const step = try responder.ingest(gpa, &.{});
+    try std.testing.expectEqualStrings("first", step.event.plaintext);
+    // The record is lent, so the owner can still move it.
+    try std.testing.expect(responder.canMoveInbound());
+    responder.releasePlaintext();
+    // Only the front of the second record is staged now.
+    try std.testing.expect(responder.hasStagedInbound());
+    try std.testing.expect(!responder.canMoveInbound());
+}

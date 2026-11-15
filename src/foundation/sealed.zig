@@ -259,6 +259,22 @@ pub const SealedChannel = struct {
         return self.pending_plain_len != 0 or self.staged.isActive();
     }
 
+    /// Whether `ingest` can consume something without more wire bytes: an
+    /// opened record is still lent to the owner, or `staged` holds a whole
+    /// unit. A unit whose declared length overflows counts, because `ingest`
+    /// refuses it. The front of a unit split across reads does not, and the
+    /// bytes that complete it raise the transport's own readiness.
+    pub fn canMoveInbound(self: *const SealedChannel) bool {
+        if (self.pending_plain_len != 0) return true;
+        if (self.phase == .failed or !self.staged.isActive()) return false;
+        const held = self.staged.bytes();
+        if (held.len < self.unitHeaderLen()) return false;
+        // tolerant: an overflowing length is a unit `ingest` refuses, so a
+        // resume has work and nothing is lost by saying so.
+        const unit_len = self.unitLen(held) catch return true;
+        return held.len >= unit_len;
+    }
+
     /// The opened record still lent to the owner, if any. No next record may be
     /// ingested until the owner acknowledges this borrow with
     /// `releasePlaintext`.
