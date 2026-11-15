@@ -6,6 +6,7 @@ export const MAX_DURABLE_ROOM = 33;
 export const MAX_LINE = 8192;
 export const MAX_AWAY = 120;
 export const MAX_MESSAGE_FILES = 8;
+export const ATTACHMENT_RECORD_SPAN = 7;
 export const MAX_ROOM_MESSAGE_BACKLOG = 256;
 export const MAX_SUBJECT_DESCRIPTION = 300;
 export const MAX_SUBJECT_LINK = 1024;

@@ -319,12 +319,10 @@ pub fn checkRoomsBootStates(
     }
 }
 
-/// The stylesheet import list, and one number for the layout breakpoint.
+/// The stylesheet import list, then the layout breakpoint.
 ///
 /// `page.css` is the only sheet the browser loads, so a sheet it does not
-/// import is dead. The store's `mobileQuery` and the layout `@media` block in
-/// `stream.css` are two spellings of the same breakpoint, and they have to
-/// agree.
+/// import is dead.
 pub fn checkRoomsConfig(
     io: std.Io,
     gpa: std.mem.Allocator,
@@ -369,6 +367,22 @@ pub fn checkRoomsConfig(
         }
     }
 
+    try checkLayoutBreakpoint(io, gpa, root, violations);
+}
+
+/// One number for the layout breakpoint.
+///
+/// The store's `mobileQuery`, the layout `@media` block in `stream.css`, and
+/// every other width query within `breakpoint_reach` pixels of it are
+/// forms of the same breakpoint. A narrow query is `max-width: N` and a
+/// wide one is `min-width: N+1`. `stream.css` has to carry the layout block so
+/// the number cannot vanish from the sheets.
+fn checkLayoutBreakpoint(
+    io: std.Io,
+    gpa: std.mem.Allocator,
+    root: std.Io.Dir,
+    violations: *std.ArrayList([]const u8),
+) !void {
     const store_path = ui_dir ++ "/store/projection.ts";
     const sheet_path = ui_dir ++ "/stream.css";
     const store = root.readFileAlloc(io, store_path, gpa, .limited(1 << 20)) catch |err| {
@@ -395,6 +409,72 @@ pub fn checkRoomsConfig(
             .{ store_path, in_store, sheet_path, in_sheet },
         );
     }
+    const narrow = in_store orelse return;
+    var dir = root.openDir(io, ui_dir, .{ .iterate = true }) catch {
+        try appendViolation(gpa, violations, "{s}: could not be opened", .{ui_dir});
+        return;
+    };
+    defer dir.close(io);
+    var it = dir.iterate();
+    while (true) {
+        const entry = (it.next(io) catch |err| {
+            try appendViolation(gpa, violations, "{s}: failed while listing stylesheets with {s}", .{ ui_dir, @errorName(err) });
+            return;
+        }) orelse break;
+        if (entry.kind == .directory) continue;
+        if (!keepRoomsSheet(entry.name)) continue;
+        const path = try gpa.print("{s}/{s}", .{ ui_dir, entry.name });
+        defer gpa.free(path);
+        const css = root.readFileAlloc(io, path, gpa, .limited(1 << 20)) catch |err| {
+            try appendViolation(gpa, violations, "{s}: cannot be read for the layout breakpoint ({s})", .{ path, @errorName(err) });
+            continue;
+        };
+        defer gpa.free(css);
+        const code = try codeOnly(gpa, css);
+        defer gpa.free(code);
+        try appendStrayWidthQueries(gpa, violations, path, code, narrow);
+    }
+}
+
+/// How many pixels around the breakpoint a width query counts as a form of
+/// it. A query farther away is a different breakpoint with its own purpose.
+const breakpoint_reach = 10;
+
+/// One violation for each width query in `code` that sits within
+/// `breakpoint_reach` pixels of `narrow` and is not `max-width: narrow` or
+/// `min-width: narrow + 1`, in source order within each kind.
+///
+/// It reads only the forms `(max-width: <digits>px)` and `(min-width: <digits>px)`,
+/// with any whitespace after the colon. Decimals, other units, a space before the
+/// colon, uppercase, and range syntax such as `width <= 820px` are not read.
+/// The marker's paren occurs only in a media or container condition, so no
+/// at-rule check is needed.
+fn appendStrayWidthQueries(
+    gpa: std.mem.Allocator,
+    violations: *std.ArrayList([]const u8),
+    path: []const u8,
+    code: []const u8,
+    narrow: u32,
+) !void {
+    const kinds = [_]struct { name: []const u8, marker: []const u8, expected: u32 }{
+        .{ .name = "max-width", .marker = "(max-width:", .expected = narrow },
+        .{ .name = "min-width", .marker = "(min-width:", .expected = narrow +| 1 },
+    };
+    for (kinds) |kind| {
+        var at: usize = 0;
+        while (std.mem.findPos(u8, code, at, kind.marker)) |found| {
+            at = found + kind.marker.len;
+            const px = pxAt(code[at..]) orelse continue;
+            if (px == kind.expected) continue;
+            if (@abs(@as(i64, px) - @as(i64, narrow)) > breakpoint_reach) continue;
+            try appendViolation(
+                gpa,
+                violations,
+                "{s}: `{s}: {d}px` is within {d}px of the {d}px layout breakpoint but is not `{s}: {d}px`. Use {d}px to switch with the layout, or move it further away if it is a different breakpoint",
+                .{ path, kind.name, px, breakpoint_reach, narrow, kind.name, kind.expected, kind.expected },
+            );
+        }
+    }
 }
 
 /// What opens the store's breakpoint, up to the number.
@@ -407,7 +487,12 @@ const sheet_media_marker = "@media (max-width:";
 /// marker is absent or no whole `<digits>px` follows it.
 fn breakpointPx(code: []const u8, marker: []const u8) ?u32 {
     const at = std.mem.find(u8, code, marker) orelse return null;
-    const rest = std.mem.trimStart(u8, code[at + marker.len ..], " ");
+    return pxAt(code[at + marker.len ..]);
+}
+
+/// The whole `<digits>px` at the start of `rest`, after any whitespace, or null.
+fn pxAt(rest_in: []const u8) ?u32 {
+    const rest = std.mem.trimStart(u8, rest_in, " \t\r\n");
     var end: usize = 0;
     while (end < rest.len and std.ascii.isDigit(rest[end])) end += 1;
     if (end == 0 or !std.mem.startsWith(u8, rest[end..], "px")) return null;
@@ -419,4 +504,36 @@ test "breakpointPx reads the number after a media marker" {
     try std.testing.expectEqual(@as(?u32, 820), breakpointPx("const mobileQuery = matchMedia(\"(max-width: 820px)\");", store_media_marker));
     try std.testing.expectEqual(@as(?u32, null), breakpointPx("@media (max-width: 34rem) {", sheet_media_marker));
     try std.testing.expectEqual(@as(?u32, null), breakpointPx("@media (hover: none) {", sheet_media_marker));
+}
+
+test "appendStrayWidthQueries flags a width query that drifts from the breakpoint" {
+    const gpa = std.testing.allocator;
+    var violations: std.ArrayList([]const u8) = .empty;
+    defer {
+        for (violations.items) |item| gpa.free(item);
+        violations.deinit(gpa);
+    }
+    const code =
+        \\@media (max-width: 820px) { a { top: 0 } }
+        \\@media (min-width:
+        \\    821px) { a { top: 0 } }
+        \\@container (max-width:   820px) { a { top: 0 } }
+        \\@media (min-width: 521px) and (max-width: 820px) { a { top: 0 } }
+        \\@media (max-width: 520px) { a { top: 0 } }
+        \\@media (min-width: 900px) { a { top: 0 } }
+        \\@media (max-width: 34rem) { a { top: 0 } }
+        \\a { max-width: 821px }
+        \\@media (max-width: 821px) { a { top: 0 } }
+        \\@container (min-width: 822px) { a { top: 0 } }
+        \\@media (min-width: 820px) { a { top: 0 } }
+    ;
+    try appendStrayWidthQueries(gpa, &violations, "x.css", code, 820);
+    try std.testing.expectEqual(@as(usize, 3), violations.items.len);
+    const flagged = [_][]const u8{ "`max-width: 821px` is within 10px", "`min-width: 822px` is within 10px", "`min-width: 820px` is within 10px" };
+    for (flagged) |needle| {
+        var seen = false;
+        for (violations.items) |item| seen = seen or std.mem.find(u8, item, needle) != null;
+        try std.testing.expect(seen);
+    }
+    try std.testing.expect(std.mem.find(u8, violations.items[0], "Use 820px to switch with the layout") != null);
 }

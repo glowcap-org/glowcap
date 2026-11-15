@@ -345,6 +345,9 @@ export const MAX_DIRECT_ATTACHMENTS = APPLICATION_DATA.MAX_DIRECT_ATTACHMENTS;
  * server-wide pending budget. */
 export const MAX_MESSAGE_FILES = APPLICATION_DATA.MAX_MESSAGE_FILES;
 
+/** How many arguments one file record spans in a message. */
+export const ATTACHMENT_RECORD_SPAN = APPLICATION_DATA.ATTACHMENT_RECORD_SPAN;
+
 /** What the whole server will hold, across every room.
  *
  * The per-room ceilings above are a fairness rule, not a resource bound. Rooms
