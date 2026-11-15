@@ -67,7 +67,7 @@ fn measureAt(value: Value, depth: usize) !usize {
         .@"error" => |reason| bytes = reason.message.len,
         .big_integer => |big| bytes = big.digits.len,
         .integers => |words| {
-            if (words.len != 0 and depth == 64) return error.ValueTooDeep;
+            if (words.len != 0 and depth == Value.max_depth) return error.ValueTooDeep;
             bytes = try std.math.mul(usize, words.len, @sizeOf(i64));
         },
         .list, .set => |items| {

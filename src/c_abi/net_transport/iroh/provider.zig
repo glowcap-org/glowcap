@@ -139,8 +139,10 @@ fn multiplexedDrainReady(
 ) callconv(.c) i32 {
     const adapter = MultiplexedAdapter.fromOpaque(ctx);
     const slot = out_count orelse return c.transport_provider.failProvider(out_failure, GLOWCAP_ERR_NULL_POINTER, error.NullPointer);
-    slot.* = 0;
-    if (cap == 0) return GLOWCAP_OK;
+    if (cap == 0) {
+        slot.* = 0;
+        return GLOWCAP_OK;
+    }
     const dest = out orelse return c.transport_provider.failProvider(out_failure, GLOWCAP_ERR_NULL_POINTER, error.NullPointer);
     var ready: [32]@import("net").multiplexed_resident.ReadyEvent = undefined;
     const count = adapter.zig.drainReady(ready[0..@min(cap, ready.len)]) catch |err|

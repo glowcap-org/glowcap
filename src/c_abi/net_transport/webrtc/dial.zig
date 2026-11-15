@@ -122,7 +122,14 @@ pub fn finishConnect(
     out_failure: ?*c.GlowcapProviderFailure,
 ) callconv(.c) i32 {
     const payload: *NetlayerPayload = @ptrCast(@alignCast(ctx.?));
-    const slot = out_conn orelse return failProvider(out_failure, GLOWCAP_ERR_NULL_POINTER, error.NullPointer);
+    const slot = out_conn orelse {
+        // The exchange is consumed on every return, and a caller with no
+        // slot can never collect it, so it ends as a cancel does. A release
+        // that fails is the failure this call reports.
+        const cancelled = cancelConnect(ctx, request_id, out_failure);
+        if (cancelled != GLOWCAP_OK) return cancelled;
+        return failProvider(out_failure, GLOWCAP_ERR_NULL_POINTER, error.NullPointer);
+    };
     const peer = dialPeer(payload, request_id) orelse
         return failProvider(out_failure, GLOWCAP_ERR_INVALID_ARGUMENT, error.UnknownExchange);
     switch (peer.exchange.?.state) {

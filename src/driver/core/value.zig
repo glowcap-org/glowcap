@@ -51,7 +51,10 @@ pub const Value = union(enum) {
         value: Value,
     };
 
-    /// The nesting every value walk admits. A deeper value is `ValueTooDeep`.
+    /// The nesting a value may have to be copied, measured, retained, or
+    /// delivered to a local actor. A deeper value is `ValueTooDeep`. The Host's
+    /// lift and lower between wire arguments and values bound at
+    /// `model.max_value_depth`, behind the session's `max_nesting_depth`.
     pub const max_depth = 64;
 
     /// Visit every capability in this value without allocation. Composite

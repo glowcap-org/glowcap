@@ -133,7 +133,7 @@ fn connClose(ctx: ?*anyopaque, conn: u64, out_failure: ?*c.GlowcapProviderFailur
 
 fn connRemoteKey(ctx: ?*anyopaque, conn: u64, out_key: ?[*]u8) callconv(.c) i32 {
     const payload: *NetlayerPayload = @ptrCast(@alignCast(ctx.?));
-    const dest = out_key orelse return GLOWCAP_ERR_NULL_POINTER;
+    const dest = out_key orelse return 0;
     const peer = payload.peers.get(@intCast(conn)) orelse return 0;
     if (!peer.provider_claimed) return 0;
     // tolerant: the contract answers 1 or 0, a channel that is not open has proved no key, and its reads and writes report why it is not.

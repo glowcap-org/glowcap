@@ -109,6 +109,7 @@ pub const Fixture = struct {
         stub.add_remote_candidate_calls = 0;
         stub.add_remote_candidate_result = 0;
         stub.driver_event_count = 0;
+        stub.drain_driver_fails = false;
         var self: Fixture = .{};
         var config: webrtc_archive.GlowcapWebrtcConfig = std.mem.zeroes(webrtc_archive.GlowcapWebrtcConfig);
         config.signaling = signaling;
@@ -136,6 +137,7 @@ pub const Fixture = struct {
         stub.add_remote_candidate_result = -1;
         stub.open_result = -2;
         stub.driver_event_count = 0;
+        stub.drain_driver_fails = false;
         std.testing.expectEqual(c.GLOWCAP_OK, webrtc_archive.glowcap_webrtc_netlayer_release(self.netlayer)) catch unreachable;
     }
 
