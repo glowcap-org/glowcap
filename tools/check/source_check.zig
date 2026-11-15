@@ -114,16 +114,15 @@ pub fn create(b: *Build) *Step {
     });
     const run = b.addRunArtifact(exe);
     run.addArg(b.root.toString(b.allocator) catch @panic("OOM"));
-    run.addArg(zigLibPath(b));
     return &run.step;
 }
 
 /// The modules some checks read by reflection rather than by parsing their
 /// text: the codec-neutral model, the `libglowcap_host` symbol inventory, and
-/// the Python and Racket FFI omission policies that the binding runtime-proof
-/// check joins.
+/// the shared, Python, and Racket FFI omission tables that the binding
+/// runtime-proof check joins.
 pub fn checkImports(b: *Build, target: Build.ResolvedTarget, optimize: std.lang.Optimize) []const Build.Module.Import {
-    const policies = [_][]const u8{ "python", "racket" };
+    const policies = [_][]const u8{ "shared", "python", "racket" };
     const imports = b.allocator.alloc(Build.Module.Import, 3 + policies.len) catch @panic("OOM");
     imports[0] = .{ .name = "model", .module = leafModule(b, target, optimize, "src/ocapn/model/mod.zig", &.{}) };
     imports[1] = .{ .name = "host_inventory", .module = hostInventoryModule(b, target, optimize) };
@@ -171,7 +170,6 @@ pub fn check(
     gpa: std.mem.Allocator,
     root: std.Io.Dir,
     root_path: []const u8,
-    zig_lib_path: []const u8,
 ) !usize {
     var violations: std.ArrayList([]const u8) = .empty;
     defer violations.deinit(gpa);
@@ -316,7 +314,6 @@ pub fn check(
     try ps_zig_version.check(io, gpa, root, &violations);
     try ps_dependency_doc.check(io, gpa, root, &violations);
     try ps_hygiene.checkDevcontainerBashScripts(io, gpa, root, &violations);
-    _ = zig_lib_path;
     try fuzz.checkFuzzRegressionSeeds(io, gpa, root, &violations);
     try fuzz.checkFuzzTargetsAreReachable(io, gpa, root, &violations);
     try cp_cli_ux.checkSingleJsonEscaper(io, gpa, root, &violations);
@@ -352,11 +349,6 @@ pub fn check(
         for (violations.items) |msg| std.debug.print("source-check: {s}\n", .{msg});
     }
     return violations.items.len;
-}
-
-fn zigLibPath(b: *Build) []const u8 {
-    const zig_dir = std.Io.Dir.path.dirname(b.graph.zig_exe) orelse ".";
-    return b.pathJoin(&.{ zig_dir, "lib" });
 }
 
 test {

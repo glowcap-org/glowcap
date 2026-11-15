@@ -12,6 +12,7 @@ const rust_omissions = ffi_omissions.path("rust");
 const racket_omissions = ffi_omissions.path("racket");
 const python_omissions = ffi_omissions.path("python");
 const ts_omissions = ffi_omissions.path("ts");
+const shared_omissions = ffi_omissions.path("shared");
 
 const AbiImport = modules.AbiImport;
 const layerIndex = root.layerIndex;
@@ -162,15 +163,22 @@ fn addHeaderGen(
     gen_mod.addImport("c_abi_shared", support.c_abi_shared);
     gen_mod.addImport("binding_policy", support.binding_policy);
     if (hg.omissions) |path| {
+        // The policy's table and the table every binding shares, each with its
+        // path, so a refused entry names the file that holds it.
+        const source = bb.addOptions();
+        source.addOption([]const u8, "path", path);
+        source.addOption([]const u8, "shared_path", shared_omissions);
+        gen_mod.addOptions("binding_omissions_source", source);
         gen_mod.addAnonymousImport("binding_omissions", .{
             .root_source_file = bb.path(path),
             .target = tgt,
             .optimize = opt,
         });
-        // The policy's path, so a refused entry names the file that holds it.
-        const source = bb.addOptions();
-        source.addOption([]const u8, "path", path);
-        gen_mod.addOptions("binding_omissions_source", source);
+        gen_mod.addAnonymousImport("shared_omissions", .{
+            .root_source_file = bb.path(shared_omissions),
+            .target = tgt,
+            .optimize = opt,
+        });
     }
 
     if (hg.test_step) |step| {
@@ -508,8 +516,8 @@ pub fn registerMirrors(
     });
     addHeaderGen(b, check_step, target, optimize, support, .{
         .name = "gen-binding-rust-ffi",
-        .check_desc = "Verify the generated Rust extern blocks match src/c_abi and " ++ rust_omissions ++ " (fails if stale)",
-        .write_desc = "Regenerate the Rust binding's extern blocks from src/c_abi and " ++ rust_omissions ++ " (types reflected, names from the generated headers, which it regenerates first)",
+        .check_desc = "Verify the generated Rust extern blocks match src/c_abi and " ++ rust_omissions ++ " with " ++ shared_omissions ++ " (fails if stale)",
+        .write_desc = "Regenerate the Rust binding's extern blocks from src/c_abi and " ++ rust_omissions ++ " with " ++ shared_omissions ++ " (types reflected, names from the generated headers, which it regenerates first)",
         .generator = "tools/gen/binding/rust_ffi.zig",
         .omissions = rust_omissions,
         .reads_headers = true,
@@ -523,8 +531,8 @@ pub fn registerMirrors(
     });
     addHeaderGen(b, check_step, target, optimize, support, .{
         .name = "gen-binding-racket-ffi",
-        .check_desc = "Verify the generated Racket FFI tables match src/c_abi and " ++ racket_omissions ++ " (fails if stale)",
-        .write_desc = "Regenerate the Racket binding's FFI tables from src/c_abi and " ++ racket_omissions ++ " (types reflected, wrapper argument names from the generated headers, which it regenerates first)",
+        .check_desc = "Verify the generated Racket FFI tables match src/c_abi and " ++ racket_omissions ++ " with " ++ shared_omissions ++ " (fails if stale)",
+        .write_desc = "Regenerate the Racket binding's FFI tables from src/c_abi and " ++ racket_omissions ++ " with " ++ shared_omissions ++ " (types reflected, wrapper argument names from the generated headers, which it regenerates first)",
         .generator = "tools/gen/binding/racket_ffi.zig",
         .omissions = racket_omissions,
         .reads_headers = true,
@@ -533,8 +541,8 @@ pub fn registerMirrors(
     });
     addHeaderGen(b, check_step, target, optimize, support, .{
         .name = "gen-binding-python-ffi",
-        .check_desc = "Verify the generated Python ctypes signature tables match src/c_abi and " ++ python_omissions ++ " (fails if stale)",
-        .write_desc = "Regenerate the Python binding's ctypes signature tables from src/c_abi and " ++ python_omissions ++ " (types are reflected and the sigs dicts are positional)",
+        .check_desc = "Verify the generated Python ctypes signature tables match src/c_abi and " ++ python_omissions ++ " with " ++ shared_omissions ++ " (fails if stale)",
+        .write_desc = "Regenerate the Python binding's ctypes signature tables from src/c_abi and " ++ python_omissions ++ " with " ++ shared_omissions ++ " (types are reflected and the sigs dicts are positional)",
         .generator = "tools/gen/binding/python_ffi.zig",
         .omissions = python_omissions,
         .reflects = .{ .name = "c_abi_net_transport_iroh", .module = iroh_abi_mod },
@@ -550,8 +558,8 @@ pub fn registerMirrors(
     });
     addHeaderGen(b, check_step, target, optimize, support, .{
         .name = "gen-ts-abi",
-        .check_desc = "Verify the generated TypeScript ABI mirror files match src/c_abi and " ++ ts_omissions ++ " (fails if stale)",
-        .write_desc = "Regenerate the TypeScript ABI mirror from src/c_abi and " ++ ts_omissions ++ " (every reflected archive)",
+        .check_desc = "Verify the generated TypeScript ABI mirror files match src/c_abi and " ++ ts_omissions ++ " with " ++ shared_omissions ++ " (fails if stale)",
+        .write_desc = "Regenerate the TypeScript ABI mirror from src/c_abi and " ++ ts_omissions ++ " with " ++ shared_omissions ++ " (every reflected archive)",
         .generator = "tools/gen/binding/ts_abi.zig",
         .omissions = ts_omissions,
         .reflects = .{ .name = "c_abi", .module = host_mods[layerIndex("c_abi")] },

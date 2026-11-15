@@ -11,7 +11,8 @@
 //!
 //! `archive_contract.fingerprint` holds this inventory and the export set to
 //! each other in both directions at compile time. Each binding's omission
-//! policy under `bindings/ffi_omissions/` chooses the rows its FFI table skips.
+//! policy under `bindings/ffi_omissions/` and the table every binding shares
+//! choose the rows its FFI table skips.
 
 const shared = @import("c_abi_shared");
 

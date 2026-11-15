@@ -279,4 +279,5 @@ fn generateLayouts(gpa: std.mem.Allocator) ![]u8 {
 // and result classes come from the types, the out-buffer indexes and
 // pointer-crossing overrides from the table. Each archive's
 // `archive_contract.fingerprint` holds its rows and exports one to one, and
-// `bindings/ffi_omissions/ts.zig` names the rows the tables leave out.
+// `bindings/ffi_omissions/ts.zig` and `shared.zig` name the rows the tables
+// leave out.
