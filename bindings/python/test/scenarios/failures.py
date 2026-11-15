@@ -27,6 +27,7 @@ from glowcap._constants import (
     ERR_INTERNAL,
     ERR_INVALID_ARGUMENT,
     ERR_IO,
+    FAILURE_TRUNCATED_OPERATION,
     UNKNOWN_SWISSNUM_MESSAGE,
     BreakCause,
     BreakOrigin,
@@ -357,7 +358,7 @@ def _ffi_finalizer_failure_is_nonfatal_and_observable() -> None:
     text_queue.record(FailureLayer.BINDING, "x" * 600, RuntimeError("unretained"))
     truncated = text_queue.claim()[0]
     assert len(truncated.operation.encode()) <= DEFAULT_FAILURE_PAYLOAD_CAP, truncated
-    assert truncated.truncated_fields & 1, truncated
+    assert truncated.truncated_fields & FAILURE_TRUNCATED_OPERATION, truncated
 
     unicode_queue = _RuntimeFailureQueue(1)
     unicode_queue.record(FailureLayer.BINDING, "☃" * 600, RuntimeError("unretained"))

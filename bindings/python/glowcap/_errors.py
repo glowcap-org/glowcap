@@ -23,7 +23,11 @@ _OK = _abi.OK
 
 
 def abi_version() -> tuple[int, int, int]:
-    """The linked library's ``(major, minor, patch)`` ABI version."""
+    """The linked library's ``(major, minor, patch)`` ABI version.
+
+    Compare it with ``VERSION_MAJOR``, ``VERSION_MINOR``, and ``VERSION_PATCH``,
+    the header constants the binding was built against.
+    """
     major = ctypes.c_uint32()
     minor = ctypes.c_uint32()
     patch = ctypes.c_uint32()

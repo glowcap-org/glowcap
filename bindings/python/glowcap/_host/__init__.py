@@ -94,9 +94,9 @@ class Host(_LifecycleMixin, _PublicationMixin, _ActorMixin, _ProgressMixin):
     admissible frame in bytes. ``context`` routes every byte the host owns
     through a caller-supplied allocation scope (:class:`Context`).
     ``local_turn_budget`` caps local-turn amplification per session
-    (ADR-0018): ``0`` applies the Host's finite default, ``0xFFFF_FFFF`` (the C
-    ABI's ``GLOWCAP_LOCAL_TURN_BUDGET_UNBOUNDED``) turns the cap off, and any
-    other value is the cap."""
+    (ADR-0018): ``LOCAL_TURN_BUDGET_DEFAULT`` applies the Host's finite
+    default, ``LOCAL_TURN_BUDGET_UNBOUNDED`` turns the cap off, and any other
+    value is the cap."""
 
     def __init__(
         self,
@@ -108,7 +108,7 @@ class Host(_LifecycleMixin, _PublicationMixin, _ActorMixin, _ProgressMixin):
         features=_DEFAULT_FEATURES,
         context: Context | None = None,
         frame_cap: int = _HOST_FRAME_CAP,
-        local_turn_budget: int = 0,
+        local_turn_budget: int = _abi.LOCAL_TURN_BUDGET_DEFAULT,
         _adopt_raw: int | None = None,
         _driver_loop: DriverLoop | None = None,
     ):

@@ -17,6 +17,7 @@ export interface FailureEvent {
 	readonly primaryResult: number;
 	readonly secondaryResult: number;
 	readonly secondaryCount: number;
+	/** The `FAILURE_TRUNCATED_*` bits of the text fields cut to fit the payload bound. */
 	readonly truncatedFields: number;
 	readonly operation: string;
 	readonly primaryName: string;
@@ -57,6 +58,7 @@ function boundedFailureText(fields: readonly string[]): { fields: string[]; trun
 			while (copied > 0 && copied < encoded.byteLength && (encoded[copied] & 0xc0) === 0x80) copied--;
 			const retained = encoded.subarray(0, copied);
 			remaining -= copied;
+			// Bit `index` is the field's `FAILURE_TRUNCATED_*` constant: the constants number the fields in this order.
 			if (retained.byteLength !== encoded.byteLength) truncatedFields |= 1 << index;
 			return failureTextDecoder.decode(retained);
 		}),

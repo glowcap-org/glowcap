@@ -58,6 +58,8 @@ class FailureEvent:
     Events are claimed once in observation order. ``dropped_before`` reports
     bounded records evicted before this event. ``secondary_count`` preserves
     the total consequences while the first remains typed in ``secondary_*``.
+    ``truncated_fields`` holds the ``FAILURE_TRUNCATED_*`` bits of the text
+    fields cut to fit the payload bound.
     """
 
     sequence: int
@@ -108,6 +110,7 @@ def _bounded_text(fields: tuple[str, ...]) -> tuple[tuple[str, ...], int]:
         retained.append(decoded)
         remaining -= copied_len
         if copied_len != len(encoded):
+            # Bit `index` is the field's `FAILURE_TRUNCATED_*` constant: the constants number the fields in this order.
             flags |= 1 << index
     return tuple(retained), flags
 

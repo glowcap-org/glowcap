@@ -50,6 +50,7 @@ pub fn Header(comptime engine: Engine, comptime c_module: type) type {
             prefix ++ "last_error",
             prefix ++ "archive_fingerprint",
         };
+        const fingerprint = "GLOWCAP_LOAM_" ++ engine.macro ++ "_ARCHIVE_FINGERPRINT";
         const Spec = struct {
             pub const c = c_module;
             pub const emitted_fns = &names;
@@ -60,6 +61,7 @@ pub fn Header(comptime engine: Engine, comptime c_module: type) type {
         const E = header_emit.Emit(Spec);
         comptime {
             E.guardFns(engine.module_name, prefix);
+            E.guardConsts("glowcap_loam_" ++ engine.symbol ++ ".h", "emit it in tools/gen/header/loam_engine.zig and list it beside `fingerprint` in this call", &.{fingerprint}, &.{}, .{});
         }
 
         pub fn generate(gpa: std.mem.Allocator) ![]u8 {
@@ -73,7 +75,7 @@ pub fn Header(comptime engine: Engine, comptime c_module: type) type {
                 "extern \"C\" {\n" ++
                 "#endif\n");
             try b.appendSlice(gpa, "typedef struct " ++ engine.typedef ++ " " ++ engine.typedef ++ ";\n");
-            try E.emitConst(&b, gpa, "GLOWCAP_LOAM_" ++ engine.macro ++ "_ARCHIVE_FINGERPRINT");
+            try E.emitConst(&b, gpa, fingerprint);
             try E.emitFn(&b, gpa, prefix ++ "open", engine.open_params, engine.open_doc);
             try E.emitFn(&b, gpa, prefix ++ "release", &.{"raw"}, engine.release_doc ++ release_consumed_doc);
             try E.emitFn(&b, gpa, prefix ++ "work_run", &.{ "raw", "work_handle" }, "Execute one storage effect on the storage executor without touching Host state." ++ engine.work_run_note ++ " Join before portable work_complete or work_release. Repeated execution, foreign Store work, and completed work refuse. Operational results remain on the work handle.");

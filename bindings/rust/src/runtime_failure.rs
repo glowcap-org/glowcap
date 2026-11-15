@@ -114,6 +114,7 @@ fn bounded_failure_text(fields: [&str; 5]) -> ([String; 5], u32) {
 		}
 		remaining -= copied;
 		if copied != field.len() {
+			// Bit `index` is the field's `FAILURE_TRUNCATED_*` constant: the constants number the fields in this order.
 			flags |= 1 << index;
 		}
 		field[..copied].to_owned()

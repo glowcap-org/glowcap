@@ -15,7 +15,9 @@
 (provide (all-defined-out))
 
 ;; ── Library identity and per-thread last error ───────────────────────────────
-;; (abi-version) -> (values major minor patch) of the linked library.
+;; (abi-version) -> (values major minor patch) of the linked library. Compare it
+;; with VERSION-MAJOR, VERSION-MINOR, and VERSION-PATCH, the header constants the
+;; binding was built against.
 (define (abi-version) (glowcap_abi_version))
 
 ;; Read a thread-local last-error slot into a Racket string, or #f when empty.

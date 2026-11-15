@@ -77,6 +77,17 @@ Releases before 0.1.7 are in the
   `zig build site-ocapnviz-page` builds the page into the site's assets.
 - The Rust binding exports `BINDING_WEBSOCKET_MESSAGE_CAP_BYTES`, the largest
   WebSocket message a binding's adapter admits.
+- Every binding exports `VERSION_MAJOR`, `VERSION_MINOR`, and `VERSION_PATCH`,
+  the library version it was built against, to compare with the linked
+  library's ABI version. Racket writes these and every other name here with
+  hyphens, as in `VERSION-MAJOR`.
+- Every binding exports `LOCAL_TURN_BUDGET_DEFAULT` and
+  `LOCAL_TURN_BUDGET_UNBOUNDED`, the two special values of the Host's
+  local-turn budget option.
+- Every binding exports the five `FAILURE_TRUNCATED_*` bits, which name the
+  text fields a failure event reports as cut to fit.
+- TypeScript's `@glowcap/abi` also gains `FAILURE_EVENT_ABI_VERSION` and the
+  return codes `NULL_POINTER` and `MALFORMED`.
 
 ### Changed
 

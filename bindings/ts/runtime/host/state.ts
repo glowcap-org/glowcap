@@ -18,6 +18,7 @@ import {
 	DEFAULT_FRAME_CAP,
 	INTERNAL,
 	INVALID_ARGUMENT,
+	LOCAL_TURN_BUDGET_DEFAULT,
 	OK,
 } from "@glowcap/abi";
 import { encodeArgs } from "../abi_value.ts";
@@ -194,9 +195,9 @@ export abstract class HostState {
 	 * feature sets. Omitted profile options use the generated C ABI defaults.
 	 * `context` routes every byte the host owns through a caller-supplied
 	 * allocation scope; `localTurnBudget` caps local-turn amplification per
-	 * session (ADR-0018): `0` applies the Host's finite default, `0xFFFF_FFFF`
-	 * (the C ABI's `GLOWCAP_LOCAL_TURN_BUDGET_UNBOUNDED`) turns the cap off, and
-	 * any other value is the cap. */
+	 * session (ADR-0018): `LOCAL_TURN_BUDGET_DEFAULT` applies the Host's finite
+	 * default, `LOCAL_TURN_BUDGET_UNBOUNDED` turns the cap off, and any other
+	 * value is the cap. */
 	constructor(
 		seed?: Uint8Array,
 		opts: HostOptions = {},
@@ -246,7 +247,7 @@ export abstract class HostState {
 		seedWithRoot.set(this._seed, 0);
 		crypto.getRandomValues(seedWithRoot.subarray(32));
 		const out = new Uint8Array(8);
-		const localTurnBudget = opts.localTurnBudget ?? 0;
+		const localTurnBudget = opts.localTurnBudget ?? LOCAL_TURN_BUDGET_DEFAULT;
 		const context = opts.context ?? Context.create();
 		this._context = context;
 		const contextRaw = retainContext(context);

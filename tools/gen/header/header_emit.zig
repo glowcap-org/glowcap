@@ -53,8 +53,33 @@ pub fn section(b: *Buf, gpa: std.mem.Allocator, comptime title: []const u8) !voi
     try line(b, gpa, "/* ── {s} ── */", .{title});
 }
 
+const reflect = @import("reflect");
+
+/// A constant a header leaves out, with the reason (see `Emit.guardConsts`).
+pub const ConstOmission = reflect.ConstOmission;
+
+/// A header whose constants this header includes, owned by `module`.
+pub const ConstOwner = reflect.ConstOwner;
+
+/// The omission row of an archive fingerprint macro the header does not emit:
+/// the header declares `fn_name`, which returns the value.
+pub fn fingerprintOmission(comptime name: []const u8, comptime fn_name: []const u8) reflect.ConstOmission {
+    return .{ .name = name, .reason = "The header declares " ++ fn_name ++ ", which returns the value, and emits no macro for it." };
+}
+
+/// The constant names of a `const_docs` table, in table order: the one list a
+/// generator's emit loop and coverage guard both read.
+pub fn docNames(comptime docs: anytype) []const []const u8 {
+    comptime {
+        var names: [docs.len][]const u8 = undefined;
+        for (docs, 0..) |entry, i| names[i] = entry.name;
+        const done = names;
+        return &done;
+    }
+}
+
 /// `c_abi.GlowcapFrame` → `GlowcapFrame` (strip the module path).
-const baseName = @import("reflect").baseName;
+const baseName = reflect.baseName;
 
 /// The reflection primitives, bound to one generator's `Spec`. `Spec` supplies
 /// `c` and `emitted_fns` always, and `const_docs` / `special` when it needs
@@ -152,6 +177,47 @@ pub fn Emit(comptime Spec: type) type {
                 if (!@hasDecl(c, name)) @compileError("emitted_fns lists '" ++ name ++ "' but " ++ module_name ++ " has no such declaration");
                 if (@typeInfo(@TypeOf(@field(c, name))) != .@"fn") @compileError("emitted_fns entry '" ++ name ++ "' is not a " ++ module_name ++ " function");
             }
+        }
+
+        /// Coverage guard for the header's constants, walking the integer
+        /// `GLOWCAP_*` declarations of the reflected archive module. See
+        /// `reflect.guardConstants`: each is in `emitted` (the names the emit
+        /// loops read), has a row in `omitted`, or is declared with the same
+        /// value by a `covered` owner, a header this one includes. `header`
+        /// names the output and `add_hint` is the instruction its failure prints.
+        pub fn guardConsts(
+            comptime header: []const u8,
+            comptime add_hint: []const u8,
+            comptime emitted: []const []const u8,
+            comptime omitted: []const reflect.ConstOmission,
+            comptime covered: anytype,
+        ) void {
+            reflect.guardConstants(header, add_hint, .{c}, emitted, omitted, covered);
+        }
+
+        /// `guardConsts` over the named modules instead of the reflected one,
+        /// for a header that reflects the namespaces of the shared contract.
+        pub fn guardConstsOf(
+            comptime header: []const u8,
+            comptime add_hint: []const u8,
+            comptime modules: anytype,
+            comptime emitted: []const []const u8,
+        ) void {
+            reflect.guardConstants(header, add_hint, modules, emitted, &.{}, .{});
+        }
+
+        /// Emit each named constant in order, the list the generator's coverage
+        /// guard reads.
+        pub fn emitConsts(b: *Buf, gpa: std.mem.Allocator, comptime names: []const []const u8) !void {
+            inline for (names) |name| try emitConst(b, gpa, name);
+        }
+
+        /// Emit `#define NAME <value>u` for each named constant in order, with the
+        /// value reflected from the module, for a header whose constants are all
+        /// unsigned bit sets, sizes, and versions. The list is the one the
+        /// generator's coverage guard reads.
+        pub fn emitUnsignedConsts(b: *Buf, gpa: std.mem.Allocator, comptime names: []const []const u8) !void {
+            inline for (names) |name| try line(b, gpa, "#define {s} {d}u", .{ name, @field(c, name) });
         }
 
         /// Emit `#define NAME <value>` with the value reflected from the module.

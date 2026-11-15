@@ -26,6 +26,14 @@ const Spec = struct {
 
 const E = header_emit.Emit(Spec);
 
+/// The constants `src/c_abi/shared/locator.zig` declares, which is the whole
+/// of what this header emits.
+const emitted_consts = header_emit.docNames(Spec.const_docs);
+
+comptime {
+    E.guardConstsOf("glowcap_locator.h", "add it to `const_docs` in tools/gen/header/locator.zig", .{cp.locator}, emitted_consts);
+}
+
 fn generate(gpa: std.mem.Allocator) ![]u8 {
     var b: header_emit.Buf = .empty;
     errdefer b.deinit(gpa);
@@ -41,15 +49,7 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
         \\#include <stdint.h>
         \\
     );
-    inline for (.{
-        "GLOWCAP_HINT_STRING",
-        "GLOWCAP_HINT_BYTES",
-        "GLOWCAP_HINT_BOOLEAN",
-        "GLOWCAP_HINT_INTEGER",
-        "GLOWCAP_HINTS_MAP",
-        "GLOWCAP_HINTS_BOOLEAN_FALSE",
-        "GLOWCAP_LOCATOR_VIEW_ABI_VERSION",
-    }) |name| try E.emitConst(&b, gpa, name);
+    try E.emitConsts(&b, gpa, emitted_consts);
     try b.appendSlice(gpa, "\n");
     try E.emitStruct(&b, gpa, cp.GlowcapLocatorHintView, "GlowcapLocatorHintView", &.{
         "Borrowed hint name.", "", "GLOWCAP_HINT_*.", "Borrowed STRING/BYTES value.", "", "BOOLEAN value.", "INTEGER value.",

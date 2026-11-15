@@ -18,7 +18,8 @@ error_slot::error_slot!(
 );
 
 /// The linked `libglowcap_ocapn`'s ABI version as `(major, minor, patch)`. Compare it
-/// against the header constants the binding was built against to detect skew.
+/// with `VERSION_MAJOR`, `VERSION_MINOR`, and `VERSION_PATCH`, the header
+/// constants the binding was built against, to detect skew.
 pub fn abi_version() -> (u32, u32, u32) {
 	let (mut major, mut minor, mut patch) = (0u32, 0u32, 0u32);
 	// SAFETY: `major`, `minor`, and `patch` are local `u32`s borrowed for the call; the callee writes each and keeps no
@@ -220,7 +221,7 @@ impl ContextInner {
 		};
 		let secondary = error.secondary.first();
 		let report = sys::GlowcapFailureReport {
-			abi_version: 1,
+			abi_version: abi_constants_gen::FAILURE_EVENT_ABI_VERSION,
 			struct_size: core::mem::size_of::<sys::GlowcapFailureReport>(),
 			layer,
 			scope_kind: scope,

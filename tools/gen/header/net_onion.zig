@@ -15,7 +15,6 @@
 //! struct, and the `glowcap_onion_*` prototypes are new here.
 
 const std = @import("std");
-const c = @import("c_abi_net_transport_onion");
 const header_emit = @import("header_emit.zig");
 
 const Output = @import("output").Output;
@@ -61,10 +60,25 @@ const Buf = header_emit.Buf;
 const emitDoc = header_emit.emitDoc;
 const emitFn = E.emitFn;
 
+const auth_consts = [_][]const u8{
+    "GLOWCAP_ONION_AUTH_NONE",
+    "GLOWCAP_ONION_AUTH_COOKIE",
+    "GLOWCAP_ONION_AUTH_PASSWORD",
+};
+const service_consts = [_][]const u8{
+    "GLOWCAP_ONION_SERVICE_ID_LEN",
+    "GLOWCAP_ONION_SERVICE_KEY_CAP",
+};
+const emitted_consts = auth_consts ++ service_consts;
+const omitted_consts = [_]header_emit.ConstOmission{
+    header_emit.fingerprintOmission("GLOWCAP_ONION_ARCHIVE_FINGERPRINT", "glowcap_onion_archive_fingerprint"),
+};
+
 // Coverage guard, both directions: every `pub export fn glowcap_onion_*` in
 // `c_abi_net_transport_onion` must be listed, and every listed name must be real.
 comptime {
     E.guardFns("c_abi_net_transport_onion", "glowcap_onion_");
+    E.guardConsts("glowcap_net_transport_onion.h", "add it to `auth_consts` or `service_consts` in tools/gen/header/net_onion.zig, or a row to `omitted_consts` there with a reason", &emitted_consts, &omitted_consts, .{});
 }
 
 /// Build the full header text. Caller owns the returned bytes.
@@ -155,17 +169,18 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
         \\   the file CookieAuthFile names, as hexadecimal, and is the common default
         \\   on a distribution's Tor package. PASSWORD sends the cleartext of a
         \\   HashedControlPassword setup. */
-        \\#define GLOWCAP_ONION_AUTH_NONE 0u
-        \\#define GLOWCAP_ONION_AUTH_COOKIE 1u
-        \\#define GLOWCAP_ONION_AUTH_PASSWORD 2u
+    );
+    try b.appendSlice(gpa, "\n");
+    try E.emitUnsignedConsts(&b, gpa, &auth_consts);
+    try b.appendSlice(gpa,
         \\
         \\/* A version 3 onion service id is always exactly this many characters, so a
         \\   caller can size a fixed buffer for glowcap_onion_listen's out-parameter.
         \\   The key cap bounds Tor's ED25519-V3: private-key form with room to
         \\   spare. */
     );
-    try b.print(gpa, "\n#define GLOWCAP_ONION_SERVICE_ID_LEN {d}u", .{c.GLOWCAP_ONION_SERVICE_ID_LEN});
-    try b.print(gpa, "\n#define GLOWCAP_ONION_SERVICE_KEY_CAP {d}u\n", .{c.GLOWCAP_ONION_SERVICE_KEY_CAP});
+    try b.appendSlice(gpa, "\n");
+    try E.emitUnsignedConsts(&b, gpa, &service_consts);
     try b.appendSlice(gpa,
         \\
         \\/* Everything the netlayer needs to reach Tor, and what to ask for when

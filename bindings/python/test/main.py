@@ -16,6 +16,9 @@ import threading
 from contextvars import ContextVar
 
 from glowcap import (
+    VERSION_MAJOR,
+    VERSION_MINOR,
+    VERSION_PATCH,
     Context,
     FailureLayer,
     FailureScope,
@@ -156,9 +159,8 @@ def main() -> int:
     except TypeError:
         pass
 
-    # The linked library reports a nonzero ABI version.
-    major, minor, patch = abi_version()
-    assert major + minor + patch > 0, (major, minor, patch)
+    # The linked library reports the ABI version the binding was built against.
+    assert abi_version() == (VERSION_MAJOR, VERSION_MINOR, VERSION_PATCH), abi_version()
 
     value_ownership.run()
     print("python test OK: C argument bytes borrow immutable Python storage")

@@ -59,12 +59,15 @@ pub struct HostOptions {
 	pub captp_version: crate::CaptpVersion,
 	/// Optional CapTP features this Host advertises.
 	pub features: crate::FeatureSet,
-	/// Caps local-turn amplification per session (ADR-0018). `0` applies the
-	/// Host's finite default, `u32::MAX` (the C ABI's
-	/// `GLOWCAP_LOCAL_TURN_BUDGET_UNBOUNDED`) turns the cap off, and any other
-	/// value is the cap.
+	/// Caps local-turn amplification per session (ADR-0018).
+	/// `LOCAL_TURN_BUDGET_DEFAULT` applies the Host's finite default,
+	/// `LOCAL_TURN_BUDGET_UNBOUNDED` turns the cap off, and any other value is
+	/// the cap.
 	pub local_turn_budget: u32,
 }
+
+// The derived `Default` leaves `local_turn_budget` at zero, which must be the Host's default-budget value.
+const _: () = assert!(crate::LOCAL_TURN_BUDGET_DEFAULT == 0);
 
 impl HostOptions {
 	/// Select one core-authored coherent codec/version pair.

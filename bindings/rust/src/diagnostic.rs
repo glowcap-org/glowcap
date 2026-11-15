@@ -78,6 +78,7 @@ pub struct FailureEvent {
 	pub primary_result: i32,
 	pub secondary_result: i32,
 	pub secondary_count: u32,
+	/// The `FAILURE_TRUNCATED_*` bits of the text fields cut to fit the payload bound.
 	pub truncated_fields: u32,
 	pub operation: String,
 	pub primary_name: String,
