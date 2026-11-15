@@ -264,8 +264,8 @@ def smoke(binary):
         raise RuntimeError(f"interface benchmark exited {result.returncode}")
     rows = records(result.stdout)
     for client in ("raw", "generated"):
-        for row in ("ordinary", "preparation", "submission", "replay", "wide"):
-            if client == "generated" and row == "wide":
+        for row in ("ordinary", "preparation", "submission", "replay", "wide", "wide-reply"):
+            if client == "generated" and row in ("wide", "wide-reply"):
                 continue
             matches = [
                 record

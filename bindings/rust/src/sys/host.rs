@@ -100,9 +100,10 @@ pub struct GlowcapHostTurn {
 }
 
 /// A hosted object's behavior (`GlowcapHostBehavior` in `glowcap_host.h`):
-/// verb/args are borrowed for the call, and the vat copies `out_reply`'s
-/// payload the instant the callback returns, so the reply's bytes must stay
-/// valid across the return.
+/// verb/args are borrowed for the call, and the vat reads `out_reply`'s
+/// payload after the callback returns: before the library call that ran the
+/// callback returns, and before any behavior callback is entered again. The
+/// reply's bytes must stay valid and unchanged until whichever comes first.
 pub type GlowcapHostBehavior = unsafe extern "C" fn(
 	ctx: *mut c_void,
 	turn: *mut GlowcapHostTurn,

@@ -149,7 +149,7 @@ async fn diagnostic(client: Client, row: Row, warmup: usize) -> wire::Counts {
 		row.name(),
 		frames,
 		bytes,
-		after.0 - before.0 + after.1 - before.1 + after.2 - before.2 + after.4 - before.4,
+		after.0 - before.0 + after.1 - before.1 + after.2 - before.2 + after.4 - before.4 + after.5 - before.5,
 		after.3 - before.3
 	);
 	for (arm, count) in &wire.arms {
@@ -175,6 +175,7 @@ fn phase(client: Client, row: Row) -> &'static CStr {
 		("raw", Row::Replay) => c"raw-replay",
 		("generated", Row::Replay) => c"generated-replay",
 		("raw", Row::Wide) => c"raw-wide",
+		("raw", Row::WideReply) => c"raw-wide-reply",
 		_ => unreachable!(),
 	}
 }

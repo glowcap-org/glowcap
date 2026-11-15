@@ -21,18 +21,20 @@ pub enum Row {
 	Submission,
 	Replay,
 	Wide,
+	WideReply,
 }
 impl Row {
-	/// Wide has no generated wrapper, so only the raw client runs it.
+	/// The wide rows have no generated wrapper, so only the raw client runs them.
 	pub fn has_generated_call(self) -> bool {
-		!matches!(self, Self::Wide)
+		!matches!(self, Self::Wide | Self::WideReply)
 	}
-	pub const ALL: [Self; 5] = [
+	pub const ALL: [Self; 6] = [
 		Self::Ordinary,
 		Self::Preparation,
 		Self::Submission,
 		Self::Replay,
 		Self::Wide,
+		Self::WideReply,
 	];
 	pub fn name(self) -> &'static str {
 		match self {
@@ -41,6 +43,7 @@ impl Row {
 			Self::Submission => "submission",
 			Self::Replay => "replay",
 			Self::Wide => "wide",
+			Self::WideReply => "wide-reply",
 		}
 	}
 }
@@ -96,7 +99,32 @@ pub fn check_wide(args: &[Argument]) {
 	assert_eq!(args.len(), 3);
 	assert!(matches!(&args[0], Argument::List(items) if items.len() == 256));
 	assert!(matches!(&args[1], Argument::Struct(fields) if fields.len() == 16));
-	assert!(matches!(&args[2], Argument::List(outer) if matches!(&outer[..], [Argument::List(middle)] if matches!(&middle[..], [Argument::List(inner)] if inner.len() == 2))));
+	assert!(
+		matches!(&args[2], Argument::List(outer) if matches!(&outer[..], [Argument::List(middle)] if matches!(&middle[..], [Argument::List(inner)] if inner.len() == 2)))
+	);
+}
+
+/// The reply a served call returns for the wide-reply row: one 64 KiB bytes
+/// leaf and a struct of 16 strings, with no capability.
+pub fn wide_reply() -> Argument {
+	let fields = (0..16)
+		.map(|n| (format!("field{n:02}"), Argument::String(format!("value-{n:02}"))))
+		.collect();
+	Argument::List(vec![
+		Argument::Bytes(vec![0x5a; WIDE_REPLY_BYTES]),
+		Argument::Struct(fields),
+	])
+}
+pub const WIDE_REPLY_BYTES: usize = 64 * 1024;
+/// The client shape check: constant time, so the profiled window stays the
+/// call and not the assertion.
+pub fn check_wide_reply(reply: &Argument) {
+	let Argument::List(items) = reply else {
+		panic!("expected a wide reply list")
+	};
+	assert!(
+		matches!(&items[..], [Argument::Bytes(bytes), Argument::Struct(fields)] if bytes.len() == WIDE_REPLY_BYTES && fields.len() == 16)
+	);
 }
 
 pub enum Prepared {
@@ -148,6 +176,7 @@ async fn prepare(pair: &Pair, client: Client) -> Prepared {
 
 pub enum ResultValue {
 	Void(Argument),
+	Reply(Argument),
 	Text(String),
 	Prepared(Prepared),
 	Child(Ref),
@@ -156,7 +185,7 @@ pub enum ResultValue {
 // Preparation owns its result through the end snapshot before cleanup.
 pub async fn setup(pair: &Pair, client: Client, row: Row) -> Option<Prepared> {
 	match row {
-		Row::Ordinary | Row::Preparation => None,
+		Row::Ordinary | Row::Preparation | Row::WideReply => None,
 		Row::Wide => Some(Prepared::Wide(WideCall {
 			session: pair.connection.client.clone(),
 			target: pair.target.clone(),
@@ -194,6 +223,13 @@ pub async fn operation(pair: &Pair, client: Client, row: Row, request: Option<&P
 		}),
 		Row::Preparation => ResultValue::Prepared(prepare(pair, client).await),
 		Row::Submission | Row::Replay => ResultValue::Child(request.unwrap().submit().await),
+		Row::WideReply => ResultValue::Reply(
+			pair.connection
+				.client
+				.send(&pair.target, "wide-reply", &[])
+				.await
+				.unwrap(),
+		),
 		Row::Wide => {
 			let Some(Prepared::Wide(call)) = request else {
 				panic!("wide call not prepared")
@@ -203,30 +239,40 @@ pub async fn operation(pair: &Pair, client: Client, row: Row, request: Option<&P
 	}
 }
 
-pub type State = (usize, usize, usize, usize, usize);
+pub type State = (usize, usize, usize, usize, usize, usize);
 
 pub fn verify(pair: &Pair, row: Row, before: State, result: &ResultValue) {
 	let state = pair.effects.borrow();
-	let after = (state.ordinary, state.queries, state.submissions, state.effects, state.wide);
+	let after = (
+		state.ordinary,
+		state.queries,
+		state.submissions,
+		state.effects,
+		state.wide,
+		state.wide_replies,
+	);
 	let delta = (
 		after.0 - before.0,
 		after.1 - before.1,
 		after.2 - before.2,
 		after.3 - before.3,
 		after.4 - before.4,
+		after.5 - before.5,
 	);
 	assert_eq!(
 		delta,
 		match row {
-			Row::Ordinary => (1, 0, 0, 0, 0),
-			Row::Preparation => (0, 1, 0, 0, 0),
-			Row::Submission => (0, 0, 1, 1, 0),
-			Row::Replay => (0, 0, 1, 0, 0),
-			Row::Wide => (0, 0, 0, 0, 1),
+			Row::Ordinary => (1, 0, 0, 0, 0, 0),
+			Row::Preparation => (0, 1, 0, 0, 0, 0),
+			Row::Submission => (0, 0, 1, 1, 0, 0),
+			Row::Replay => (0, 0, 1, 0, 0, 0),
+			Row::Wide => (0, 0, 0, 0, 1, 0),
+			Row::WideReply => (0, 0, 0, 0, 0, 1),
 		}
 	);
 	match result {
 		ResultValue::Void(reply) => assert!(matches!(reply, Argument::Void)),
+		ResultValue::Reply(reply) => check_wide_reply(reply),
 		ResultValue::Text(text) => assert_eq!(text, "benchmark reply"),
 		ResultValue::Prepared(request) => {
 			std::hint::black_box(request);
@@ -238,5 +284,12 @@ pub fn verify(pair: &Pair, row: Row, before: State, result: &ResultValue) {
 }
 pub fn state(pair: &Pair) -> State {
 	let state = pair.effects.borrow();
-	(state.ordinary, state.queries, state.submissions, state.effects, state.wide)
+	(
+		state.ordinary,
+		state.queries,
+		state.submissions,
+		state.effects,
+		state.wide,
+		state.wide_replies,
+	)
 }

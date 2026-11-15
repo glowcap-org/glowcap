@@ -286,7 +286,7 @@ fn valueFromCImpl(
         },
         GLOWCAP_ARG_INTEGERS => blk: {
             if (c_arg.bytes_len != 0 and depth == max_marshal_depth) return error.UnsupportedValue;
-            const words = try integersFromC(arena, c_arg, own_bytes);
+            const words = try integersFromC(arena, c_arg, own_bytes and @hasField(Output, "integers"));
             if (comptime @hasField(Output, "integers")) break :blk .{ .integers = words };
             // The model has no run arm: the words become the list they mean.
             const items = try arena.alloc(Output, words.len);
@@ -310,15 +310,17 @@ fn valueFromCImpl(
 }
 
 /// The `int64_t` words behind an `_INTEGERS` value, 8-aligned and a whole
-/// number of words, or the value is refused before anything is queued.
-fn integersFromC(arena: std.mem.Allocator, c_arg: GlowcapArgument, comptime own_bytes: bool) MarshalError![]const i64 {
+/// number of words, or the value is refused before anything is queued. The
+/// words are a view of the caller's bytes, or a copy in `arena` when
+/// `copy_words` is set.
+fn integersFromC(arena: std.mem.Allocator, c_arg: GlowcapArgument, comptime copy_words: bool) MarshalError![]const i64 {
     const bytes = try sliceFromC(c_arg.bytes, c_arg.bytes_len);
     if (bytes.len % model.run_word_bytes != 0) return error.UnsupportedValue;
     if (bytes.len == 0) return &.{};
     if (!std.mem.isAligned(@intFromPtr(bytes.ptr), 8)) return error.UnsupportedValue;
     const aligned: []align(@alignOf(i64)) const u8 = @alignCast(bytes);
     const words = std.mem.bytesAsSlice(i64, aligned);
-    return if (own_bytes) try arena.dupe(i64, words) else words;
+    return if (copy_words) try arena.dupe(i64, words) else words;
 }
 
 fn structFromCImpl(

@@ -90,12 +90,14 @@ typedef struct GlowcapHostTurn GlowcapHostTurn;
    borrowed for the call; each GlowcapReference leaf is nevertheless
    one application retain and must eventually be returned with
    glowcap_host_ref_release. Copying its { id } bytes does not create
-   another retain. The vat copies *out_reply's payload the
-   instant you return, so its bytes must stay valid across the return
-   (point them at your ctx or a buffer you own, not a callback stack
-   local). Any non-OK return settles the answer broken
-   with a generic reason. A NULL verb means no leading selector. A non-NULL
-   verb of length zero is the empty-symbol selector. */
+   another retain. The vat reads *out_reply's payload after you
+   return: before the library call that ran this callback returns,
+   and before any behavior callback is entered again. Keep its bytes
+   valid and unchanged until whichever comes first (point them at
+   your ctx or a buffer you own, not a callback stack local). Any
+   non-OK return settles the answer broken with a generic reason. A
+   NULL verb means no leading selector. A non-NULL verb of length
+   zero is the empty-symbol selector. */
 typedef int32_t (*GlowcapHostBehavior)(void *ctx, GlowcapHostTurn *turn,
     const uint8_t *verb, size_t verb_len, const GlowcapArgument *args,
     size_t args_len, GlowcapArgument *out_reply);
@@ -916,11 +918,15 @@ int32_t glowcap_host_turn_session(GlowcapHostTurn *turn, GlowcapHostSession **ou
 /* From inside a behavior callback, forward this turn's call to an opaque
    Host-scoped target and let this object's own answer settle on the forwarded
    result. This is the caretaker/attenuator primitive. The Host resolves the target and
-   every nested capability; a stale or foreign-Host identity is refused. In a
-   local eventual or wire-served turn the real answer rides the forwarded vow and *out_reply gets a
-   void placeholder; pass your behavior's own out_reply and return GLOWCAP_OK.
-   The written reply is BORROWED and valid until the next turn verb or drive on
-   this host. The selector-presence contract is glowcap_host_session_send's. */
+   every nested capability; a stale or foreign-Host identity is refused. In an
+   eventual or wire-served turn the real answer rides the forwarded vow,
+   *out_reply gets a void placeholder, and the vat ignores *out_reply after you
+   return: whatever it holds then neither fails the turn nor lowers a reference.
+   In a near-call turn *out_reply gets the target's real reply, which the vat
+   reads as this behavior's own. Pass your behavior's own out_reply and return
+   GLOWCAP_OK. The written reply is BORROWED and valid until the next turn verb
+   or drive on this host.
+   The selector-presence contract is glowcap_host_session_send's. */
 int32_t glowcap_host_turn_forward(GlowcapHostTurn *turn, const GlowcapReference *target, const uint8_t *verb, size_t verb_len, const GlowcapArgument *args, size_t args_len, GlowcapArgument *out_reply);
 /* Atomically defer this turn's answer onto a fresh resolver vow (ADR-0014).
    *out_resolver_id receives the one-shot settle authority used by

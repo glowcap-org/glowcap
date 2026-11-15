@@ -242,12 +242,14 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
         \\   borrowed for the call; each GlowcapReference leaf is nevertheless
         \\   one application retain and must eventually be returned with
         \\   glowcap_host_ref_release. Copying its { id } bytes does not create
-        \\   another retain. The vat copies *out_reply's payload the
-        \\   instant you return, so its bytes must stay valid across the return
-        \\   (point them at your ctx or a buffer you own, not a callback stack
-        \\   local). Any non-OK return settles the answer broken
-        \\   with a generic reason. A NULL verb means no leading selector. A non-NULL
-        \\   verb of length zero is the empty-symbol selector. */
+        \\   another retain. The vat reads *out_reply's payload after you
+        \\   return: before the library call that ran this callback returns,
+        \\   and before any behavior callback is entered again. Keep its bytes
+        \\   valid and unchanged until whichever comes first (point them at
+        \\   your ctx or a buffer you own, not a callback stack local). Any
+        \\   non-OK return settles the answer broken with a generic reason. A
+        \\   NULL verb means no leading selector. A non-NULL verb of length
+        \\   zero is the empty-symbol selector. */
         \\typedef int32_t (*GlowcapHostBehavior)(void *ctx, GlowcapHostTurn *turn,
         \\    const uint8_t *verb, size_t verb_len, const GlowcapArgument *args,
         \\    size_t args_len, GlowcapArgument *out_reply);
@@ -527,7 +529,7 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
     try emitFn(&b, gpa, "glowcap_host_resolver_break", &.{ "host", "resolver_id", "message", "message_len" }, "Settle a resolver vow broken with a diagnostic borrowed for the call. The\nsame top-level, consume-on-success contract as\nglowcap_host_resolver_fulfill.");
     try emitFn(&b, gpa, "glowcap_host_resolver_abandon", &.{ "host", "resolver_id", "message", "message_len" }, "Abandon a deferred answer, top-level. A resolver already consumed by\nsession teardown or settlement is complete cleanup. Unminted ids refuse\nNOT_FOUND; other failures leave the operation retryable.");
     try emitFn(&b, gpa, "glowcap_host_turn_session", &.{ "turn", "out_session" }, "Borrow the session that delivered this callback turn: the one whose Port\ncarried it, or the one an in-Host forwarder such as a Loam endpoint continued\nacross a local hop. Work the application itself originated succeeds with a\nnull session. A nonnull handle is Host-owned and lives with that session; do\nnot release it. This identifies the arriving connection without\nreconstructing delivery state outside the core.");
-    try emitFn(&b, gpa, "glowcap_host_turn_forward", &.{ "turn", "target", "verb", "verb_len", "args", "args_len", "out_reply" }, "From inside a behavior callback, forward this turn's call to an opaque\nHost-scoped target and let this object's own answer settle on the forwarded\nresult. This is the caretaker/attenuator primitive. The Host resolves the target and\nevery nested capability; a stale or foreign-Host identity is refused. In a\nlocal eventual or wire-served turn the real answer rides the forwarded vow and *out_reply gets a\nvoid placeholder; pass your behavior's own out_reply and return GLOWCAP_OK.\nThe written reply is BORROWED and valid until the next turn verb or drive on\nthis host. The selector-presence contract is glowcap_host_session_send's.");
+    try emitFn(&b, gpa, "glowcap_host_turn_forward", &.{ "turn", "target", "verb", "verb_len", "args", "args_len", "out_reply" }, "From inside a behavior callback, forward this turn's call to an opaque\nHost-scoped target and let this object's own answer settle on the forwarded\nresult. This is the caretaker/attenuator primitive. The Host resolves the target and\nevery nested capability; a stale or foreign-Host identity is refused. In an\neventual or wire-served turn the real answer rides the forwarded vow,\n*out_reply gets a void placeholder, and the vat ignores *out_reply after you\nreturn: whatever it holds then neither fails the turn nor lowers a reference.\nIn a near-call turn *out_reply gets the target's real reply, which the vat\nreads as this behavior's own. Pass your behavior's own out_reply and return\nGLOWCAP_OK. The written reply is BORROWED and valid until the next turn verb\nor drive on this host.\nThe selector-presence contract is glowcap_host_session_send's.");
     try emitFn(&b, gpa, "glowcap_host_turn_defer", &.{ "turn", "out_resolver_id" }, "Atomically defer this turn's answer onto a fresh resolver vow (ADR-0014).\n*out_resolver_id receives the one-shot settle authority used by\nglowcap_host_resolver_fulfill / _break. All rows and the forward listener are\nreserved before publication, so refusal leaves no live resolver and no\nforwarded effect. The behavior returns normally after success; its return\nvalue resolves nothing once the turn is deferred.");
     try emitFn(&b, gpa, "glowcap_host_turn_defer_if_answer", &.{ "turn", "out_resolver_id" }, "Defer an answered call; a tell succeeds with zero and creates no resolver.\nNonzero IDs carry the same one-shot authority as glowcap_host_turn_defer.\nRefusal zeros the output and leaves the current turn unchanged.");
     try emitFn(&b, gpa, "glowcap_host_turn_send", &.{ "turn", "target", "verb", "verb_len", "args", "args_len", "out_vow" }, "From inside a behavior callback, eventual-send to target and mint a Host\nvow for the answer. Trusted local callbacks use the target's actual local\nor foreign home; wire callbacks use their Session routing. Local public\nvows settle through Host actions and support release, without a wire\npipeline or raw wire listener. Delivery commits with the enclosing turn.\nThe selector-presence contract is glowcap_host_session_send's.");

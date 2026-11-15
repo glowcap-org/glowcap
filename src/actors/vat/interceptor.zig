@@ -4,7 +4,7 @@ const model = @import("model");
 const engine = @import("engine");
 
 /// What a reply interceptor decided: claim publication completely, or return
-/// the turn-borrowed value the vat should resolve with.
+/// the borrowed value the vat should resolve with.
 pub const Outcome = union(enum) {
     claimed,
     resolve: model.view.Argument,
@@ -15,7 +15,11 @@ pub const Outcome = union(enum) {
 /// node-local route before the value reaches the wire. Implementors are
 /// unknown at this declaration, so `func` keeps an `anyerror` return set.
 /// The handler has committed. Nested actor calls keep their effects even if
-/// the interceptor refuses the reply. Its value borrows the active turn.
+/// the interceptor refuses the reply. Its value borrows what the handler's
+/// reply borrows (`HandlerResult`). For
+/// a value that is not a bare reference, `func` runs no behavior and no
+/// release callback, because `serve` reads the reply's borrowed bytes after
+/// it returns.
 pub const Interceptor = struct {
     ctx: ?*anyopaque,
     func: *const fn (

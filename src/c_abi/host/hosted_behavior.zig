@@ -33,8 +33,9 @@ pub const HostedBehavior = struct {
 
     /// The vat calls this on each deliver. It marshals the message into C,
     /// invokes the consumer's callback with the turn, and materializes its
-    /// reply into `turn.arena`. The consumer lends its reply storage across
-    /// callback return. The copied reply then borrows the whole turn.
+    /// reply into `turn.arena`. The reply's byte leaves are copied into the
+    /// arena, or for a served turn lent from the consumer's storage (see
+    /// `callAndReply`).
     pub fn handle(erased: *anyopaque, turn: *actors.Turn, msg: actors.Delivery) actors.HostedActor.Result {
         return .{ .returned = handleOwned(erased, turn, msg) catch |err| return .{ .refused = failure(err) } };
     }
@@ -68,8 +69,22 @@ pub const HostedBehavior = struct {
         return self.callAndReply(inst, session, turn, msg.verb, input.args);
     }
 
-    /// Run the foreign callback over `c_args` and copy its borrowed reply into
-    /// the turn arena. Both argument routes end here.
+    /// Run the foreign callback over `c_args` and read its reply into the turn
+    /// arena. Both argument routes end here. A turn that forwarded its answer
+    /// reads nothing: the answer rides the forwarded vow and `out_reply` is
+    /// ignored. A `.local` or `.eventual` turn hands the value to a caller
+    /// that keeps it, so its leaves are copied.
+    ///
+    /// A `.served` turn lends the reply's byte leaves to the answer store's
+    /// copy in `serve`'s `fulfillServed`. The consumer keeps that storage
+    /// valid and unchanged until the library call that ran this callback
+    /// returns or a behavior callback is entered again, whichever comes
+    /// first. Nothing between the return and the copy runs a behavior or
+    /// release callback: `TurnParticipant` forbids one in a commit,
+    /// `ResolveInterceptor` forbids one for any value but a bare reference,
+    /// which holds no bytes, and a C behavior stages no `become`, so the
+    /// commit releases no state. The copy allocates, so a consumer's own
+    /// allocator (`glowcap_context_new_with_allocator`) can run in that span.
     fn callAndReply(
         self: *HostedBehavior,
         inst: *instance.Instance,
@@ -89,7 +104,11 @@ pub const HostedBehavior = struct {
             &reply,
         );
         if (code != shared.GLOWCAP_OK) return error.ForeignBehaviorBroke;
-        return try marshal.hostArgumentFromCOwned(inst, session, turn.arena, reply, 0);
+        if (turn.forwarded) return .{ .void = {} };
+        return switch (turn.origin) {
+            .served => try marshal.hostArgumentFromCLent(inst, session, turn.arena, reply, 0),
+            .local, .eventual => try marshal.hostArgumentFromCOwned(inst, session, turn.arena, reply, 0),
+        };
     }
 
     /// The same foreign callback receives owning values on a trusted local

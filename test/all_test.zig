@@ -485,6 +485,7 @@ comptime {
         _ = @import("c_abi/host/callback_test.zig");
         _ = @import("c_abi/host/last_error_cause_test.zig");
         _ = @import("c_abi/host/capability_free_deliver_test.zig");
+        _ = @import("c_abi/host/reply_lend_test.zig");
         _ = @import("c_abi/last_error_test.zig");
         _ = @import("c_abi/failure_diagnostics_test.zig");
         _ = @import("c_abi/foreign_call_barrier_test.zig");

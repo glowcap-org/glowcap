@@ -60,3 +60,47 @@ pub fn argRef(reference: c.GlowcapReference) c.GlowcapArgument {
     arg.reference = reference;
     return arg;
 }
+
+/// Write `arg` as one canonical line, so two values compare field by field
+/// through their text: leaves carry their bytes, containers their children in
+/// order, and an integer run reads as the list of integers it holds.
+pub fn render(w: *std.Io.Writer, arg: c.GlowcapArgument) std.Io.Writer.Error!void {
+    const leaf: []const u8 = if (arg.bytes) |bytes| bytes[0..arg.bytes_len] else &.{};
+    const items: []const c.GlowcapArgument = if (arg.items) |ptr| ptr[0..arg.items_len] else &.{};
+    switch (arg.kind) {
+        c.GLOWCAP_ARG_INTEGER => try w.print("i{d}", .{arg.integer}),
+        c.GLOWCAP_ARG_FLOAT64 => try w.print("f{d}", .{arg.float64}),
+        c.GLOWCAP_ARG_BOOLEAN => try w.print("b{d}", .{arg.boolean}),
+        c.GLOWCAP_ARG_BYTES => try w.print("x\"{s}\"", .{leaf}),
+        c.GLOWCAP_ARG_STRING => try w.print("s\"{s}\"", .{leaf}),
+        c.GLOWCAP_ARG_SYMBOL => try w.print("y\"{s}\"", .{leaf}),
+        c.GLOWCAP_ARG_KEYWORD => try w.print("k\"{s}\"", .{leaf}),
+        c.GLOWCAP_ARG_ERROR => try w.print("e\"{s}\"", .{leaf}),
+        c.GLOWCAP_ARG_BIG_INTEGER => try w.print("n{s}{s}", .{ if (arg.boolean != 0) "-" else "+", leaf }),
+        c.GLOWCAP_ARG_VOID => try w.writeAll("v"),
+        c.GLOWCAP_ARG_REFERENCE => try w.writeAll("r"),
+        c.GLOWCAP_ARG_INTEGERS => {
+            try w.writeAll("[");
+            const words = std.mem.bytesAsSlice(i64, leaf);
+            for (words, 0..) |word, i| try w.print("{s}i{d}", .{ if (i == 0) "" else " ", word });
+            try w.writeAll("]");
+        },
+        c.GLOWCAP_ARG_TAGGED => {
+            try w.print("t\"{s}\"", .{leaf});
+            try renderItems(w, "(", ")", items);
+        },
+        c.GLOWCAP_ARG_LIST => try renderItems(w, "[", "]", items),
+        c.GLOWCAP_ARG_SET => try renderItems(w, "#{", "}", items),
+        c.GLOWCAP_ARG_STRUCT => try renderItems(w, "{", "}", items),
+        else => try w.print("?{d}", .{arg.kind}),
+    }
+}
+
+fn renderItems(w: *std.Io.Writer, open: []const u8, close: []const u8, items: []const c.GlowcapArgument) std.Io.Writer.Error!void {
+    try w.writeAll(open);
+    for (items, 0..) |item, i| {
+        if (i != 0) try w.writeAll(" ");
+        try render(w, item);
+    }
+    try w.writeAll(close);
+}

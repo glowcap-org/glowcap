@@ -36,7 +36,9 @@ declaration under `src/`.
   (ADR-0063). A served Host reply with no capability stays a view through
   interception, then copies directly into the answer store. The store serves
   later listeners and pipelined operations after the turn and frame retire.
-  The Host builds no temporary model containers for this reply. A near
+  The Host builds no temporary model containers for this reply. A C-hosted
+  object's reply lends its byte leaves to that same copy (see "C bridge reply
+  spine" in `references/host.md` for its containers). A near
   caller receiving explicit views materializes them in `callWithOrigin`
   before actor replacement, which also removes the need for a sever copy.
 - **Outbound tree inventory**: `session.inventory.ofMessage` and

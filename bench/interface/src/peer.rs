@@ -12,6 +12,7 @@ pub struct Effects {
 	pub effects: usize,
 	pub ordinary: usize,
 	pub wide: usize,
+	pub wide_replies: usize,
 	last: Option<(i64, String)>,
 }
 pub struct Pair {
@@ -70,6 +71,11 @@ impl Pair {
 						crate::workflow::check_wide(args);
 						state.wide += 1;
 						Ok(Argument::Void)
+					}
+					Some("wide-reply") => {
+						assert!(args.is_empty());
+						state.wide_replies += 1;
+						Ok(crate::workflow::wide_reply())
 					}
 					_ => panic!("unexpected benchmark call"),
 				}

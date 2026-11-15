@@ -7,10 +7,11 @@
 // with their last actor root. Settlements never cross
 // the C boundary as callbacks; they ride the action queue (SETTLE/FAIL).
 //
-// Reply discipline: the vat copies `out_reply`'s payload the instant the
+// Reply discipline: the vat reads `out_reply`'s payload after the
 // trampoline returns, so the encoded reply's buffers are retained in the
-// module's one keep slot across the return (overwritten by the next reply:
-// the previous one has long been copied). A thrown error crosses the boundary
+// module's one keep slot until the next reply replaces it, which happens
+// inside a later callback, so the reply outlives the library call that ran
+// this one. A thrown error crosses the boundary
 // through `glowcap_host_turn_break`, which settles the answer broken with the
 // actor's own words. A bare non-OK return would flatten "Revoked" into a
 // generic reason. A `Forward` return maps onto `glowcap_host_turn_forward`
@@ -322,10 +323,10 @@ export function insideTurn(): boolean {
 }
 
 // The most recent reply's encoded argument and its pinned child buffers,
-// retained across the trampoline's return so the host's immediate copy reads
+// retained across the trampoline's return so the host's read of the reply sees
 // live memory (a JIT may collect locals after their last use). One slot
-// suffices: the host copies before any other JS code can run, so by the time
-// this is overwritten the previous reply is long copied.
+// suffices: the host reads a reply before it enters another behavior, and only
+// a later reply overwrites this slot.
 let lastReplyKeep: { buf: Uint8Array; keep: Uint8Array[] } | null = null;
 void lastReplyKeep; // held for its liveness, never read
 

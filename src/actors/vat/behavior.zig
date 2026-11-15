@@ -39,10 +39,15 @@ pub const HandlerFailure = struct {
         return @errorFromInt(self.ordinal);
     }
 };
-/// A reply borrows the active turn in either representation. `returned`
-/// carries model containers and `viewed` lends a sequence backing. A near
-/// call materializes views into the turn arena. A served reply remains a
-/// view through interception and is copied once into the retained answer.
+/// A reply borrows storage that stays valid and unchanged until the vat has
+/// read it: the active turn's arena, or bytes the handler's owner holds, in
+/// either representation. `returned` carries model containers and `viewed` lends a
+/// sequence backing. A near call materializes views into the turn arena. A
+/// served reply remains a view through interception and is copied once into
+/// the retained answer before the vat runs another behavior. The turn's
+/// commit comes first and may release a staged state that a later `become`
+/// superseded. The actor's running state is released when its frame closes,
+/// after that copy.
 pub const HandlerResult = union(enum) {
     returned: model.Argument,
     viewed: model.view.Argument,

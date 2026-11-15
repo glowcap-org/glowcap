@@ -42,9 +42,10 @@ workload deadline panics.
 | Submission | Send retained mutation, await and decode capability | One submission and one effect |
 | Replay | Send the same retained mutation, await and decode capability | One submission and no additional effect |
 | Wide | Send one call whose arguments carry no capability: a 256-element list with one string among integers, a 16-field string struct, and a list nested three deep | One call and no other effect |
+| Wide reply | Send one call with no arguments to a served behavior that returns a capability-free reply: a list holding one 64 KiB bytes leaf and a 16-field string struct | One call and no other effect |
 
-Wide has no generated wrapper, so only the raw client runs it. The served
-behavior is the cost under test.
+The wide rows have no generated wrapper, so only the raw client runs them. The
+served behavior is the cost under test.
 
 Preparation runs before submission and replay timing. Replay also submits once
 before timing. Both clients retain the target, sequence, input string and

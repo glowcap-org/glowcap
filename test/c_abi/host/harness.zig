@@ -286,11 +286,20 @@ pub const CapturedSettle = struct {
     msg: [160]u8 = undefined,
     msg_len: usize = 0,
     cause: c.GlowcapBreakCause = std.mem.zeroes(c.GlowcapBreakCause),
+    /// The whole settled value as `c_args.render` writes it, copied out of
+    /// the popped action so a test can compare every field.
+    rendered: [768]u8 = undefined,
+    rendered_len: usize = 0,
 
     fn recordSettle(self: *CapturedSettle, action: *const cd.GlowcapHostAction) void {
         self.fired = true;
         self.kind = c.GLOWCAP_RESOLUTION_FULFILL;
         self.value = action.value;
+        var writer = std.Io.Writer.fixed(&self.rendered);
+        // tolerant: a value too long for the buffer renders truncated, and a
+        // test's exact comparison against its expected text then fails loudly.
+        c_args.render(&writer, action.value) catch {};
+        self.rendered_len = writer.buffered().len;
         if ((action.value.kind == c.GLOWCAP_ARG_STRING or action.value.kind == c.GLOWCAP_ARG_ERROR) and action.value.bytes != null) {
             self.text_len = @min(action.value.bytes_len, self.text.len);
             @memcpy(self.text[0..self.text_len], action.value.bytes.?[0..self.text_len]);

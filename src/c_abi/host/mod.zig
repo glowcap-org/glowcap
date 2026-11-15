@@ -389,9 +389,10 @@ pub const GlowcapHostPumpHooks = extern struct {
 /// borrowed for the call. Each `GlowcapReference` leaf is nevertheless one
 /// application retain and must eventually be returned with
 /// `glowcap_host_ref_release`. Copying its `{ id }` bytes does not create
-/// another retain. The vat copies
-/// `out_reply`'s payload the instant the callback returns, so its bytes must
-/// stay valid across the return (point them at your `ctx` or a buffer you own,
+/// another retain. The vat reads `out_reply`'s payload after you return:
+/// before the library call that ran this callback returns, and before any
+/// behavior callback is entered again. Keep its bytes valid and unchanged
+/// until whichever comes first (point them at your `ctx` or a buffer you own,
 /// not a callback stack local). Any non-OK return settles the answer broken
 /// with a generic reason. Inside the callback the enqueueing host verbs and
 /// the `glowcap_host_turn_*` verbs (with this `turn` only) are legal. The
