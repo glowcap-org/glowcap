@@ -101,16 +101,9 @@ pub fn independentPreparations(store: *r.h.loam.core.Store, backend: anytype) !v
 }
 
 fn prepareZig(operation: *r.storage.Operation, backend: anytype, target: r.core.ResourceId) !bool {
-    for (0..128) |_| {
-        const changed = operation.prepareResourceCopying(target, .delete_leaf, .{ .permissions = &.{f.vocabulary.read} }) catch |err| {
-            if (err != error.RecordUnloaded) return err;
-            _ = try r.pump(operation, backend);
-            continue;
-        };
-        _ = try r.pump(operation, backend);
-        return changed;
-    }
-    return error.NoProgress;
+    const changed = try r.loaded(operation, backend, r.storage.Operation.prepareResourceCopying, .{ operation, target, .delete_leaf, .{ .permissions = &.{f.vocabulary.read} } });
+    _ = try r.pump(operation, backend);
+    return changed;
 }
 
 pub fn cursorCustody(store: *r.h.loam.core.Store, backend: anytype) !void {
@@ -231,16 +224,7 @@ pub fn visibility(store: *r.h.loam.core.Store, backend: anytype) !void {
     const operation = try use.begin(8);
     defer operation.deinit() catch unreachable;
     _ = try r.pump(operation, backend);
-    var cursor: ?*r.storage.Children = null;
-    for (0..128) |_| {
-        cursor = operation.children(seeded.root, .{ .permissions = &.{f.vocabulary.read} }) catch |err| {
-            if (err != error.RecordUnloaded) return err;
-            _ = try r.pump(operation, backend);
-            continue;
-        };
-        break;
-    }
-    const query = cursor orelse return error.NoProgress;
+    const query = try r.loaded(operation, backend, r.storage.Operation.children, .{ operation, seeded.root, .{ .permissions = &.{f.vocabulary.read} } });
     defer query.deinit() catch unreachable;
     _ = try f.resource(store, backend, seeded.data.owner, seeded.root);
     try std.testing.expectError(error.RevisionConflict, query.advance());
@@ -273,16 +257,8 @@ pub fn rollback(store: *r.h.loam.core.Store, backend: anytype) !void {
     defer fresh.deinit() catch unreachable;
     _ = try f.pump(&fresh, backend);
     var resources = try fresh.resourceView();
-    for (0..128) |_| {
-        const record = resources.get(leaf) catch |err| {
-            if (err != error.RecordUnloaded) return err;
-            _ = try f.pump(&fresh, backend);
-            continue;
-        };
-        try std.testing.expect(record.parent.?.eql(branch));
-        return;
-    }
-    return error.NoProgress;
+    const record = try f.loaded(&fresh, backend, f.core.ResourceView.get, .{ &resources, leaf });
+    try std.testing.expect(record.parent.?.eql(branch));
 }
 
 pub fn queued(store: *r.h.loam.core.Store, backend: anytype) !void {

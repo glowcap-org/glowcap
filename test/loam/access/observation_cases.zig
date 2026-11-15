@@ -21,14 +21,10 @@ pub fn registerLifetime(caps: *storage.Capabilities, backend: anytype, descripto
     };
     defer operation.deinit() catch unreachable;
     _ = try f.pump(operation, backend);
-    const registration = for (0..128) |_| {
-        const value = (if (lifetime) |marker| storage.ObservationRegistration.initLifetime(operation, target, key, marker) else storage.ObservationRegistration.init(operation, target, key)) catch |err| {
-            if (err != error.RecordUnloaded) return err;
-            _ = try f.pump(operation, backend);
-            continue;
-        };
-        break value;
-    } else return error.NoProgress;
+    const registration = if (lifetime) |marker|
+        try f.loaded(operation, backend, storage.ObservationRegistration.initLifetime, .{ operation, target, key, marker })
+    else
+        try f.loaded(operation, backend, storage.ObservationRegistration.init, .{ operation, target, key });
     defer registration.deinit() catch unreachable;
     _ = try f.pump(registration, backend);
     try caps.store.begin();
@@ -258,14 +254,7 @@ pub fn composed(store: *f.loam.core.Store, backend: anytype) !void {
         source.* = try held.begin(8);
         errdefer if (count <= index) source.*.deinit() catch unreachable;
         _ = try f.pump(source.*, backend);
-        registration.* = for (0..128) |_| {
-            const registration_value = storage.ObservationRegistration.init(source.*, data.resource, @splat(@intCast(index + 1))) catch |err| {
-                if (err != error.RecordUnloaded) return err;
-                _ = try f.pump(source.*, backend);
-                continue;
-            };
-            break registration_value;
-        } else return error.NoProgress;
+        registration.* = try f.loaded(source.*, backend, storage.ObservationRegistration.init, .{ source.*, data.resource, @splat(@intCast(index + 1)) });
         count += 1;
         _ = try f.pump(registration.*, backend);
     }
@@ -274,14 +263,7 @@ pub fn composed(store: *f.loam.core.Store, backend: anytype) !void {
     defer read.deinit() catch unreachable;
     _ = try f.pump(&read, backend);
     try f.require(&read, backend, data.grant, data.resource, .{ .permissions = &.{} });
-    for (0..128) |_| {
-        read.prepareHistory() catch |err| {
-            if (err != error.RecordUnloaded) return err;
-            _ = try f.pump(&read, backend);
-            continue;
-        };
-        break;
-    } else return error.NoProgress;
+    try f.loaded(&read, backend, storage.Read.prepareHistory, .{&read});
     try store.begin();
     errdefer if (store.phase == .staging) store.abort() catch unreachable;
     const first = try registrations[0].stage(@splat(null));

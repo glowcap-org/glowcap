@@ -7,14 +7,7 @@ pub const storage = f.storage;
 pub const a = h.a;
 
 pub fn prepare(read: *storage.Read, backend: anytype, target: core.ResourceId, action: storage.ResourceChange.Action) !storage.ResourceChange {
-    for (0..128) |_| {
-        return storage.ResourceChange.init(read, target, action) catch |err| {
-            if (err != error.RecordUnloaded) return err;
-            _ = try f.pump(read, backend);
-            continue;
-        };
-    }
-    return error.NoProgress;
+    return f.loaded(read, backend, storage.ResourceChange.init, .{ read, target, action });
 }
 
 pub fn pump(operation: anytype, backend: anytype) !usize {
@@ -28,6 +21,11 @@ pub fn pump(operation: anytype, backend: anytype) !usize {
         },
     };
     return error.NoProgress;
+}
+
+/// `f.loadedWith` pumping through this fixture's `pump`.
+pub fn loaded(operation: anytype, backend: anytype, comptime call: anytype, args: std.meta.ArgsTuple(@TypeOf(call))) !f.Loaded(call) {
+    return f.loadedWith(pump, operation, backend, call, args);
 }
 
 pub fn change(store: *h.loam.core.Store, backend: anytype, owner: h.loam.core.ObjectId, target: core.ResourceId, action: storage.ResourceChange.Action) !bool {
@@ -53,16 +51,7 @@ pub fn children(caps: *storage.Capabilities, backend: anytype, use_id: h.loam.co
     const operation = try use.begin(6);
     defer operation.deinit() catch unreachable;
     _ = try pump(operation, backend);
-    var cursor: ?*storage.Children = null;
-    for (0..128) |_| {
-        cursor = operation.children(parent, .{ .permissions = &.{f.vocabulary.read} }) catch |err| {
-            if (err != error.RecordUnloaded) return err;
-            _ = try pump(operation, backend);
-            continue;
-        };
-        break;
-    }
-    const query = cursor orelse return error.NoProgress;
+    const query = try loaded(operation, backend, storage.Operation.children, .{ operation, parent, .{ .permissions = &.{f.vocabulary.read} } });
     defer query.deinit() catch unreachable;
     try std.testing.expectError(error.Busy, operation.deinit());
     var count: usize = 0;

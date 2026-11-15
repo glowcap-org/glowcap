@@ -64,14 +64,7 @@ test "access observation resolves a warm maximum depth path without a spurious w
         const source = try held.begin(70);
         defer source.deinit() catch unreachable;
         _ = try f.pump(source, backend);
-        const registration = for (0..256) |_| {
-            const value = storage.ObservationRegistration.init(source, target, @splat(64)) catch |err| {
-                if (err != error.RecordUnloaded) return err;
-                _ = try f.pump(source, backend);
-                continue;
-            };
-            break value;
-        } else return error.NoProgress;
+        const registration = try f.loaded(source, backend, storage.ObservationRegistration.init, .{ source, target, @splat(64) });
         defer registration.deinit() catch unreachable;
         _ = try f.pump(registration, backend);
         try store.begin();

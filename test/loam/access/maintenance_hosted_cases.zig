@@ -67,16 +67,11 @@ pub fn replay(store: *h.loam.core.Store, backend: anytype, collect: anytype) !vo
     errdefer read.deinit() catch unreachable;
     _ = try h.f.pump(&read, backend);
     var grants = try read.grantView();
-    for (0..32) |_| {
-        const parent = grants.borrow(data.grant) catch |err| {
-            if (err != error.RecordUnloaded) return err;
-            _ = try h.f.pump(&read, backend);
-            continue;
-        };
+    {
+        const parent = try h.f.loaded(&read, backend, h.f.core.GrantView.borrow, .{ &grants, data.grant });
         defer grants.release();
         try std.testing.expectEqual(@as(u32, 0), parent.child_count);
-        break;
-    } else return error.NoProgress;
+    }
     try read.deinit();
     try collect(store, backend);
     try std.testing.expect(store.metadata.objects < before);

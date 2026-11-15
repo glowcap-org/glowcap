@@ -73,15 +73,10 @@ pub fn churn(store: *h.loam.core.Store, backend: anytype, collect: anytype) !voi
         try std.testing.expectEqual(@as(u64, cycle + 2), read.header.next_grant);
         try std.testing.expectEqual(@as(u64, 2 * (cycle + 1) + 1), read.header.next_identity);
         var grants = try read.grantView();
-        for (0..32) |_| {
-            const record = grants.borrow(parent) catch |err| {
-                if (err != error.RecordUnloaded) return err;
-                _ = try f.pump(&read, backend);
-                continue;
-            };
+        {
+            const record = try f.loaded(&read, backend, f.core.GrantView.borrow, .{ &grants, parent });
             defer grants.release();
             try std.testing.expectEqual(@as(u32, 0), record.child_count);
-            break;
-        } else return error.NoProgress;
+        }
     }
 }
