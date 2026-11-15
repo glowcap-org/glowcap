@@ -273,3 +273,70 @@ test "giving up on an exchange fails the dial at the next drain with the signali
     try std.testing.expectEqual(c.GLOWCAP_OK, t.cancel_connect.?(t.ctx, 13, &fx.failure));
     try std.testing.expectEqual(@as(usize, 2), stub.freed_peers);
 }
+
+test "finish_connect with no slot consumes the exchange as a cancel does" {
+    var fx = try Fixture.init(full_signaling);
+    defer fx.deinit();
+    const t = fx.table();
+    var conn: u64 = 0;
+
+    try std.testing.expectEqual(c.GLOWCAP_OK, start(&fx, 12));
+    try std.testing.expectEqual(c.GLOWCAP_ERR_NULL_POINTER, t.finish_connect.?(t.ctx, 12, null, &fx.failure));
+    try std.testing.expectEqual(c.GLOWCAP_ERR_NULL_POINTER, fx.failure.result);
+    try std.testing.expectEqual(@as(usize, 1), stub.freed_peers);
+    try std.testing.expectEqual(@as(?u64, 12), fixture.signals.done_exchange);
+    // The exchange is gone, so a retry with a slot finds nothing to finish.
+    try std.testing.expectEqual(c.GLOWCAP_ERR_INVALID_ARGUMENT, t.finish_connect.?(t.ctx, 12, &conn, &fx.failure));
+    try std.testing.expectEqual(@as(usize, 1), fixture.signals.done_calls);
+}
+
+test "finish_connect with no slot releases an opened channel nobody claimed" {
+    var fx = try Fixture.init(full_signaling);
+    defer fx.deinit();
+    const t = fx.table();
+    var records: [4]c.GlowcapMultiplexedReadyEvent = undefined;
+    var conn: u64 = 0;
+
+    try std.testing.expectEqual(c.GLOWCAP_OK, start(&fx, 14));
+    stub.open_result = 0;
+    stub.pushDriverEvent(stub.lastPeer(), webrtc.ev_open);
+    try std.testing.expectEqual(@as(usize, 1), (try fx.drain(&records)).len);
+
+    try std.testing.expectEqual(c.GLOWCAP_ERR_NULL_POINTER, t.finish_connect.?(t.ctx, 14, null, &fx.failure));
+    try std.testing.expectEqual(@as(usize, 1), stub.freed_peers);
+    try std.testing.expectEqual(@as(usize, 1), fixture.signals.done_calls);
+    try std.testing.expectEqual(c.GLOWCAP_ERR_INVALID_ARGUMENT, t.finish_connect.?(t.ctx, 14, &conn, &fx.failure));
+}
+
+test "conn_remote_key with no destination answers 0 for an open connection" {
+    var fx = try Fixture.init(full_signaling);
+    defer fx.deinit();
+    const t = fx.table();
+    var records: [4]c.GlowcapMultiplexedReadyEvent = undefined;
+    var conn: u64 = 0;
+
+    try std.testing.expectEqual(c.GLOWCAP_OK, start(&fx, 13));
+    stub.open_result = 0;
+    stub.pushDriverEvent(stub.lastPeer(), webrtc.ev_open);
+    try std.testing.expectEqual(@as(usize, 1), (try fx.drain(&records)).len);
+    try std.testing.expectEqual(c.GLOWCAP_OK, t.finish_connect.?(t.ctx, 13, &conn, &fx.failure));
+
+    try std.testing.expectEqual(@as(i32, 0), t.conn_remote_key.?(t.ctx, conn, null));
+    var remote: [foundation.crypto.peer_key_bytes]u8 = undefined;
+    try std.testing.expectEqual(@as(i32, 1), t.conn_remote_key.?(t.ctx, conn, &remote));
+    try std.testing.expectEqual(c.GLOWCAP_OK, t.conn_close.?(t.ctx, conn, &fx.failure));
+}
+
+test "drain_ready leaves the count untouched when readiness fails" {
+    var fx = try Fixture.init(full_signaling);
+    defer fx.deinit();
+    const t = fx.table();
+    var records: [4]c.GlowcapMultiplexedReadyEvent = undefined;
+    var count: usize = 99;
+
+    stub.drain_driver_fails = true;
+    try std.testing.expectEqual(c.GLOWCAP_ERR_IO, t.drain_ready.?(t.ctx, &records, records.len, &count, &fx.failure));
+    try std.testing.expectEqual(@as(usize, 99), count);
+    try std.testing.expectEqual(c.GLOWCAP_ERR_NULL_POINTER, t.drain_ready.?(t.ctx, null, records.len, &count, &fx.failure));
+    try std.testing.expectEqual(@as(usize, 99), count);
+}

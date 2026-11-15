@@ -13,14 +13,13 @@
 //!
 //! A codec is identified on the wire by its `model.CodecId` (a stable `u16`).
 //! A `Spec` binds that id to the codec's frame shape and its implementation
-//! module, any type exposing `decodeBody`, `decodeBodyForProfile`,
-//! `decodeBodyInto`, `encodeMessageForProfile`, `encodeBodyForProfile`, a
-//! `meter` (the type that sizes an outbound tree's values during the
-//! session's admission walk, or null when the codec sizes its own frames),
-//! and an `Error` set, exactly the shape `syrup` and `capnp` already have.
-//! The `comptime` block below
-//! `active` holds every registered module to this shape, so a misspelled
-//! member is a compile error naming the member rather than a silent fallback.
+//! module, any type exposing `decodeBodyInto`, `encodeMessageForProfile`,
+//! `encodeBodyForProfile`, a `meter` (the type that sizes an outbound tree's
+//! values during the session's admission walk, or null when the codec sizes
+//! its own frames), and the `Error` and `EncodeError` sets, the shape `syrup`
+//! and `capnp` have. The `comptime` block below `active` holds every
+//! registered module to this shape, so a misspelled member is a compile error
+//! naming the member rather than a silent fallback.
 
 const std = @import("std");
 

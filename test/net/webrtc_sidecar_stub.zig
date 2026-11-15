@@ -30,6 +30,8 @@ pub var receive_result: isize = -2;
 /// Records the next `drain_driver_ready` hands the driver, then clears.
 var driver_events: [8]webrtc.ReadyEvent = undefined;
 pub var driver_event_count: usize = 0;
+/// Fail every driver-facing drain while set, as a sidecar whose readiness broke does.
+pub var drain_driver_fails: bool = false;
 
 /// The id of the peer created last.
 pub fn lastPeer() usize {
@@ -55,6 +57,7 @@ export fn glowcap_webrtc_sidecar_endpoint_driver_readiness_fd(_: *const anyopaqu
     return 0;
 }
 export fn glowcap_webrtc_sidecar_endpoint_drain_driver_ready(_: *const anyopaque, out: [*]webrtc.ReadyEvent, cap: usize) callconv(.c) isize {
+    if (drain_driver_fails) return -1;
     const n = @min(cap, driver_event_count);
     @memcpy(out[0..n], driver_events[0..n]);
     driver_event_count = 0;
