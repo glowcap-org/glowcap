@@ -92,6 +92,28 @@ impl HostShared {
 		Ok(())
 	}
 
+	/// Kick the drain after a loop-backed session is served. Input held for
+	/// the serve reaches the core inside that call or in the prelude of the
+	/// next step, and the step reports neither as work. A Host with a Loam
+	/// attachment therefore runs the task that steps and then advances
+	/// storage, whatever is pending at this call, so storage work a held
+	/// frame asks for starts. Any other Host takes the ordinary kick. A
+	/// kick that cannot be scheduled is recorded for the next verb head.
+	#[cfg(not(target_arch = "wasm32"))]
+	pub(crate) fn schedule_served_kick(self: &Rc<HostShared>) {
+		#[cfg(feature = "loam")]
+		let scheduled = if self.loam.attached() {
+			self.schedule_loam_kick()
+		} else {
+			self.schedule_kick()
+		};
+		#[cfg(not(feature = "loam"))]
+		let scheduled = self.schedule_kick();
+		if let Err(error) = scheduled {
+			self.record_background_failure(error);
+		}
+	}
+
 	/// Schedule progress for an unowned destructor/finalizer effect. The work
 	/// stays queued, and refused admission is retained for the next verb head.
 	pub(crate) fn schedule_kick_or_record(self: &Rc<HostShared>) {

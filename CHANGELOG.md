@@ -145,6 +145,9 @@ Releases before 0.1.7 are in the
 
 ### Fixed
 
+- A Rust Host with a Loam attachment answers a fetch of a durable name
+  that arrived before `Session::serve`. The lookup was never started, so
+  the fetch stayed unanswered until the caller gave up.
 - A covered spoiler in a Rooms message hides everything under it. A link
   under one showed its color through the cover and opened on the press
   meant to uncover it.
