@@ -266,7 +266,13 @@ int32_t glowcap_iroh_conn_try_read(GlowcapIrohConn *conn, uint8_t *buf, size_t l
 /* Non-blocking write of len raw bytes from buf: GLOWCAP_OK with the count written
    (possibly a prefix) in out_written, GLOWCAP_ERR_WOULD_BLOCK when the outbound
    buffer has no room (retry after the next writable record), or GLOWCAP_ERR_IO on
-   a fault (out_written untouched on any non-OK return). */
+   a fault (out_written untouched on any non-OK return). When the transport
+   observes that the partner stopped reading this stream or closed the connection,
+   it drops the bytes still queued, reports one writable record, and from then on
+   accepts and discards every write in full. The read side reports the end of the
+   partner's stream or the closed connection. A partner that stops reading and
+   keeps its own stream open stays connected: its input is still delivered, and
+   every write to it is discarded. */
 int32_t glowcap_iroh_conn_try_write(GlowcapIrohConn *conn, const uint8_t *buf, size_t len, size_t *out_written);
 /* Fill out_provider with this runtime's one-entry iroh package. Install it with
    glowcap_driver_add_provider. The driver acquires the provider lease through

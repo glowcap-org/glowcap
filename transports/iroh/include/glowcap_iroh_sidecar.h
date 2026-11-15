@@ -323,10 +323,18 @@ size_t glowcap_iroh_sidecar_conn_id(const glowcap_iroh_sidecar_conn *conn);
 intptr_t glowcap_iroh_sidecar_conn_try_read(glowcap_iroh_sidecar_conn *conn, uint8_t *buf, size_t len);
 
 /* Non-blocking write: copy the prefix that fits into the bounded outbound
- * buffer for the writer task. Returns the admitted byte count, -1 if the
- * connection is closed, or GLOWCAP_IROH_WOULD_BLOCK when no outbound room
- * remains (re-arm on the next EV_WRITABLE). The connection must have been moved
- * to the readiness surface. Borrows the handle. */
+ * buffer for the writer task. Returns the admitted byte count, or
+ * GLOWCAP_IROH_WOULD_BLOCK when no outbound room remains (re-arm on the next
+ * EV_WRITABLE), or -1 on error: a write that failed with no departure
+ * observed, a null buffer, or a connection not moved to the readiness surface.
+ * A departure is the sidecar observing that the partner stopped reading this
+ * stream or closed the connection, or that this endpoint closed it under a
+ * live write. The sidecar then drops the bytes still queued, reports one
+ * EV_WRITABLE record, and from then on accepts and discards every write in
+ * full. The read side reports the end of the partner's stream or the closed
+ * connection. A partner that stops reading and keeps its own stream open stays
+ * connected: its input is still delivered, and every write to it is
+ * discarded. Borrows the handle. */
 intptr_t glowcap_iroh_sidecar_conn_try_write(glowcap_iroh_sidecar_conn *conn, const uint8_t *buf, size_t len);
 
 /* Close the endpoint without releasing its handle: an in-flight bounded accept

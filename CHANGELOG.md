@@ -153,6 +153,13 @@ Releases before 0.1.7 are in the
   application serves an accepted session. It woke its embedder after every
   step in both cases, so a partner that stalled partway through a message
   kept a core busy.
+- An iroh connection whose partner stopped reading, or closed cleanly,
+  accepts and discards what is written to it and reports one writable
+  record. `glowcap_iroh_conn_try_write` answered
+  `GLOWCAP_ERR_WOULD_BLOCK` from then on, so a loop that had stopped
+  reading until its queued output could move was never woken again. What
+  the partner sent before it left still arrives in order, ahead of the
+  closed record.
 - A stepped Host wakes its embedder for input a read left behind the
   message that opened a session. That input could wait until the partner
   sent more.

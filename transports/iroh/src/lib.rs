@@ -32,6 +32,8 @@ mod connect;
 mod connect_test;
 mod constants_gen;
 #[cfg(test)]
+mod departure_test;
+#[cfg(test)]
 mod lifecycle_test;
 mod nonblocking;
 
