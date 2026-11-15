@@ -97,6 +97,6 @@ export function applyComposerPlan(plan: ComposerPlan, conv: Conv | null, powers:
 	if (plan.kind !== "command") return plan;
 	const outcome = applyCommandPlan(plan.plan, powers, conv);
 	if (outcome.kind === "refused") return outcome;
-	invariant(outcome.kind === "done", "a Rust command gesture unexpectedly produced a message");
+	invariant(outcome.kind === "done", "a command effect unexpectedly produced a message");
 	return { kind: "handled", original: plan.original, retires: outcome.retires, completion: outcome.completion };
 }

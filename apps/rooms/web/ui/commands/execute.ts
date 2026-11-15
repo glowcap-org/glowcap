@@ -2,6 +2,7 @@
 // Text formatting reads projections. It cannot manufacture live authority.
 import { invariant } from "../../../lib/invariant.ts";
 import * as z from "zod/mini";
+import { COMMAND_EFFECT_OPS } from "../application_data.ts";
 import { applicationModule } from "../application.ts";
 import type { Conv } from "../conversation.ts";
 import type { CommandOutcome, CommandPowers, CommandResult, HeldDirectory } from "./types.ts";
@@ -29,12 +30,12 @@ import {
 	whoisNotHere,
 } from "../../../lib/text/commands.ts";
 
-/** The wire shape of one Rust command gesture. The composer's command plan
+/** The wire shape of one Rust command effect. The composer's command plan
  * embeds the same arm. The schema is the one definition: the type derives
  * from it. */
 export const EffectSchema = z.object({
 	kind: z.literal("effect"),
-	op: z.string(),
+	op: z.enum(COMMAND_EFFECT_OPS),
 	text: z.string(),
 	extra: z.optional(z.string()),
 });
@@ -191,8 +192,10 @@ export function applyCommandPlan(
 			return committed(powers.invite(text));
 		case "kick":
 			return committed(powers.kick(text));
-		default:
-			invariant(false, `unknown Rust command gesture: ${plan.op}`);
+		default: {
+			const unhandled: never = plan.op;
+			invariant(false, `unknown command effect op: ${unhandled}`);
+		}
 	}
 	return { kind: "done" };
 }
