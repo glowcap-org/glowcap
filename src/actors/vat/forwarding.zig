@@ -130,9 +130,8 @@ pub fn forwardTurn(self: *Vat, turn: *Turn, target: vat_mod.Ref, msg: vat_mod.De
     if (turn.forwarded) return error.AlreadyForwarded;
     if (turn.origin == .local) return self.nearDelivery(turn.source, target, msg);
     // An eventual hop leaves the turn, and views end with it: a far hop is
-    // the Port's to send as it is, and a local one is materialized once into
-    // the turn arena, which holds it until the queue clones it
-    // (`Turn.sendDelivery`).
+    // the Port's to send as it is, and a local one is lent to the queue,
+    // which copies its byte leaves once (`Turn.sendDelivery`).
     const answer = try destination(turn);
     if (answer == null) {
         try turn.tellDelivery(target, msg);

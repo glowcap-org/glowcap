@@ -124,6 +124,9 @@ Releases before 0.1.7 are in the
 - A fulfilled reply off the wire reaches its listener with its text and bytes
   read from the received frame. Each was copied into the Vat's settle arena
   first.
+- A delivery lent as views and sent on to a local actor, from a handler turn
+  or through a Port, has its text and bytes copied once, by the queue. They
+  were copied twice.
 
 ### Fixed
 

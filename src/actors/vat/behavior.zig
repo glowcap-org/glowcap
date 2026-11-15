@@ -148,14 +148,20 @@ pub const Delivery = struct {
         };
     }
 
-    /// The send shape of this delivery, borrowed for one call. A delivery
-    /// built over an owned slice lends that slice as is, so a forward of
-    /// owned arguments copies nothing. A delivery over views materializes
-    /// them into `allocator`, the one copy a forwarded wire deliver pays when
-    /// it leaves the turn the views belong to.
-    pub fn toMessage(self: Delivery, allocator: std.mem.Allocator) model.view.Error!Message {
+    /// The send shape of this delivery, lent for one call. A delivery built
+    /// over an owned slice lends that slice as is. Over views, the message's
+    /// spines are allocated in `arena`, a reference or a handoff takes its
+    /// owned conversion there, and every byte leaf stays where the views hold
+    /// it, so the message is valid only while the views and `arena` are.
+    /// `arena` must be an arena, since a lent tree is never passed to a model
+    /// free function.
+    pub fn lendMessage(self: Delivery, arena: std.mem.Allocator) Error!Message {
         if (self.args.ownedSlice()) |args| return .{ .verb = self.verb, .args = args };
-        return .{ .verb = self.verb, .args = try self.args.toOwnedSlice(allocator) };
+        const args = self.args.toSliceDepth(arena, 0, .lent) catch |err| return switch (err) {
+            error.OutOfMemory => error.OutOfMemory,
+            error.MalformedView => Error.MalformedView,
+        };
+        return .{ .verb = self.verb, .args = args };
     }
 };
 

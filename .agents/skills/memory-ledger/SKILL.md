@@ -433,12 +433,16 @@ declaration under `src/`.
 
 ### Actor layer
 
-- **Materialized views**: `Port.sendDelivery`. Views to a local actor, or
-  to a far one when session validation counted a reference in them, are
-  materialized once into the vat's allocator and freed when the queue or
-  the wire has taken them, because the queue retains owned arguments and
-  the session rewrites a reference in place. A handler's turn has an arena
-  and takes `Turn.sendDelivery`, so a local send from a turn pays no free.
+- **Materialized views**: `farDeliverViews`. Views to a far actor that session
+  validation counted a reference in are materialized once into the vat's
+  allocator and freed when the wire has taken them, because the session
+  rewrites a reference in place.
+- **Lent views**: `Delivery.lendMessage`. Views to a local actor keep their
+  byte leaves where they lie. Their spines, and a reference or a handoff
+  whole, are built in an arena: `enqueueLocalDelivery` makes one over the
+  vat's allocator per send, and `Turn.sendDelivery` uses the turn's.
+  `cloneForQueue` then makes the one copy of the byte leaves, into the queue
+  chunk's arena.
 - **Opaque ingress custody**: `OpaqueMessage` charges its requested bytes before
   guarded copy admission.
   - `local_delivery.Input.copy` materializes verb, Value spines/leaves and
