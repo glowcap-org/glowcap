@@ -88,9 +88,10 @@ pub const Port = struct {
     /// decides how it leaves (ADR-0064): arguments behind an owned slice go
     /// as that message, a far delivery whose views session validation
     /// counted no reference in leaves as freight, certified and encoded in
-    /// place with nothing copied, and any other views are materialized once
-    /// into the vat's allocator and freed when the queue or the wire has
-    /// taken them.
+    /// place with nothing copied, views to a local actor are lent to the
+    /// queue, whose clone is the one copy of their byte leaves, and any other
+    /// views to a far actor are materialized once into the vat's allocator
+    /// and freed when the wire has taken them.
     pub fn sendDelivery(self: *Port, vat: *Vat, target: Ref, delivery: Delivery) Error!Vow {
         if (delivery.args.ownedSlice()) |args| return self.send(vat, target, .{ .verb = delivery.verb, .args = args });
         switch (target) {
@@ -330,11 +331,13 @@ pub const Port = struct {
     }
 };
 
-/// Views to a local actor are materialized once into the vat's allocator
-/// and freed after the queue copied them.
+/// Views to a local actor are lent to the queue (`Delivery.lendMessage`): the
+/// message's spines sit in an arena that ends with this call, and the queue's
+/// clone is the one copy of its byte leaves.
 fn enqueueLocalDelivery(vat: *Vat, port: *Port, id: u64, delivery: Delivery, answered: ingress_mod.Answer) Error!u64 {
-    const message = try materialize(vat, delivery);
-    defer model.freeArgumentSlice(vat.allocator, message.args);
+    var arena = std.heap.ArenaAllocator.init(vat.allocator);
+    defer arena.deinit();
+    const message = try delivery.lendMessage(arena.allocator());
     return ingress_mod.enqueueLocal(vat, port.ingress, port, id, message, answered);
 }
 

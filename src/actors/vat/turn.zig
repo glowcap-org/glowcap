@@ -159,22 +159,16 @@ pub const Turn = struct {
         };
     }
     /// `send` for a delivery as a handler holds it. A far delivery is the
-    /// Port's to send as it is (`Port.sendDelivery`), and a local one
-    /// becomes a message in this turn's arena.
+    /// Port's to send as it is (`Port.sendDelivery`). A local one is lent to
+    /// the queue (`Delivery.lendMessage`) with its spines in this turn's arena.
     pub fn sendDelivery(self: *Turn, target: Ref, delivery: Delivery) Error!Vow {
         if (target == .far) if (self.port()) |via| return via.sendDelivery(self.vat, target, delivery);
-        return self.send(target, try self.messageOf(delivery));
+        return self.send(target, try delivery.lendMessage(self.arena));
     }
     /// `tell` for a delivery as a handler holds it, routed as `sendDelivery`.
     pub fn tellDelivery(self: *Turn, target: Ref, delivery: Delivery) Error!void {
         if (target == .far) if (self.port()) |via| return via.tellDelivery(self.vat, target, delivery);
-        return self.tell(target, try self.messageOf(delivery));
-    }
-    fn messageOf(self: *Turn, delivery: Delivery) Error!Message {
-        return delivery.toMessage(self.arena) catch |err| switch (err) {
-            error.OutOfMemory => error.OutOfMemory,
-            error.MalformedView => Error.MalformedView,
-        };
+        return self.tell(target, try delivery.lendMessage(self.arena));
     }
     /// Functional "become" for a persistent actor (mirrors Goblins `bcom`): stage
     /// `next` as this actor's state. The new value is installed when this turn

@@ -448,6 +448,7 @@ comptime {
         _ = @import("actors/vat/opaque_test.zig");
         _ = @import("actors/vat/far_test.zig");
         _ = @import("actors/vat/far_lend_test.zig");
+        _ = @import("actors/vat/delivery_enqueue_test.zig");
         _ = @import("actors/vat/snapshot_test.zig");
         _ = @import("actors/vat/move_test.zig");
         _ = @import("actors/vat/become_test.zig");

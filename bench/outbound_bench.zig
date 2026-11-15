@@ -17,6 +17,10 @@
 //! flat across the Q sweep. The sweep defends that shape: ns/answer growing
 //! with Q means a per-position scan crept back.
 //!
+//! Scenario (c) is the local leg: a delivery lent as views and queued to a
+//! local actor, then driven. The owned message through the same Port is the
+//! calibration, so the views row reads against what the queue copy costs alone.
+//!
 //! Run `zig build bench-outbound` (use `-Doptimize=fast` for absolute
 //! figures) to measure and write the report under `zig-out/bench-reports/`.
 //! The `--smoke` argument runs tiny counts and skips the report write. The
@@ -33,6 +37,7 @@ const profile = @import("support/profile.zig");
 
 const engine = glowcap.ocapn.engine;
 const model = glowcap.ocapn.model;
+const actors = glowcap.actors;
 
 /// The same representative outbound call `bench-codec` encodes: a method
 /// invocation on an imported object with a small mixed-type argument list, so
@@ -179,6 +184,74 @@ fn measureAnsweredSend(io: std.Io, allocator: std.mem.Allocator, iters: usize) !
     return .{ .iters = iters, .total_ns = total_ns, .clone_ns = clone_ns };
 }
 
+/// A few kilobytes of bytes and a short list, the shape a forwarded wire
+/// deliver carries.
+const local_blob: [4096]u8 = @splat('x');
+const local_list = [_]model.Argument{ .{ .integer = 1 }, .{ .integer = 2 }, .{ .string = "tail" } };
+const local_args = [_]model.Argument{ .{ .bytes = &local_blob }, .{ .list = &local_list } };
+
+/// Counts what the local actor receives, so the loop proves its path ran.
+const LocalSink = struct {
+    seen: *usize,
+    pub fn handle(self: *LocalSink, _: *actors.Turn, msg: actors.Delivery) !model.Argument {
+        self.seen.* += 1;
+        std.mem.doNotOptimizeAway(msg.args);
+        return .{ .void = {} };
+    }
+};
+
+const LocalMeasurement = struct {
+    iters: usize,
+    /// One views delivery queued to a local actor and driven, ns per message.
+    views_ns: f64,
+    /// The same values as an owned message, ns per message.
+    owned_ns: f64,
+};
+
+/// Scenario (c): a views delivery through `Port.tellDelivery` to a local
+/// actor, then `drive`, against the owned message through `Port.tell`.
+fn measureLocalDelivery(io: std.Io, allocator: std.mem.Allocator, iters: usize) !LocalMeasurement {
+    var peer = engine.Peer.init(allocator);
+    defer peer.deinit();
+    var vat = actors.Vat.init(allocator);
+    defer vat.deinit();
+    var port = actors.Port.init(allocator, &peer);
+    defer port.deinit(&vat);
+    var seen: usize = 0;
+    const sink = try vat.spawn(LocalSink, .{ .seen = &seen });
+
+    var slots: [local_args.len]model.view.Argument = undefined;
+    for (&local_args, &slots) |*owned, *slot| slot.* = model.view.Argument.fromOwned(owned);
+    const delivery: actors.Delivery = .{ .verb = "hit", .args = .fromViews(&slots), .reference_slots = 0 };
+    const owned: actors.Message = .{ .verb = "hit", .args = &local_args };
+
+    for (0..64) |_| {
+        try port.tellDelivery(&vat, sink, delivery);
+        try vat.drive();
+    }
+
+    profile.begin();
+    const views_start = nowNs(io);
+    for (0..iters) |_| {
+        try port.tellDelivery(&vat, sink, delivery);
+        try vat.drive();
+    }
+    profile.end("local-views");
+    const views_ns = @as(f64, @floatFromInt(elapsed(views_start, nowNs(io)))) / @as(f64, @floatFromInt(iters));
+
+    profile.begin();
+    const owned_start = nowNs(io);
+    for (0..iters) |_| {
+        try port.tell(&vat, sink, owned);
+        try vat.drive();
+    }
+    profile.end("local-owned");
+    const owned_ns = @as(f64, @floatFromInt(elapsed(owned_start, nowNs(io)))) / @as(f64, @floatFromInt(iters));
+
+    if (seen != 64 + 2 * iters) return error.LocalSinkMissedDeliveries;
+    return .{ .iters = iters, .views_ns = views_ns, .owned_ns = owned_ns };
+}
+
 const StormMeasurement = struct {
     q: usize,
     /// Median ns for the whole release wave (one `op:gc-answers` send + step).
@@ -273,6 +346,12 @@ pub fn main(init: std.process.Init) !void {
         .{ send.iters, send.total_ns, send.clone_ns, send.total_ns - send.clone_ns, @tagName(builtin.optimize) },
     );
 
+    const local = try measureLocalDelivery(io, allocator, if (smoke) 500 else 50_000);
+    std.debug.print(
+        "outbound_local_delivery iters={d} views_ns_per_msg={d:.1} owned_ns_per_msg={d:.1} mode={s}\n",
+        .{ local.iters, local.views_ns, local.owned_ns, @tagName(builtin.optimize) },
+    );
+
     var storms: [3]StormMeasurement = undefined;
     var count: usize = 0;
     for (storm_qs) |q| {
@@ -287,11 +366,11 @@ pub fn main(init: std.process.Init) !void {
 
     if (smoke) return;
 
-    try writeReport(allocator, io, send, storms[0..count]);
+    try writeReport(allocator, io, send, local, storms[0..count]);
     std.debug.print("outbound report written to zig-out/bench-reports/outbound.md\n", .{});
 }
 
-fn writeReport(gpa: std.mem.Allocator, io: std.Io, send: SendMeasurement, storms: []const StormMeasurement) !void {
+fn writeReport(gpa: std.mem.Allocator, io: std.Io, send: SendMeasurement, local: LocalMeasurement, storms: []const StormMeasurement) !void {
     var b: std.ArrayList(u8) = .empty;
     defer b.deinit(gpa);
 
@@ -311,6 +390,16 @@ fn writeReport(gpa: std.mem.Allocator, io: std.Io, send: SendMeasurement, storms
         \\| ---: | ---: | ---: | ---: |
         \\| {d} | {d:.1} | {d:.1} | {d:.1} |
         \\
+        \\## One delivery queued to a local actor
+        \\
+        \\A 4 KiB byte string and a short list, lent as views through
+        \\`Port.tellDelivery`, queued and driven, beside the same values as an
+        \\owned message through `Port.tell`.
+        \\
+        \\| iters | views ns/msg | owned ns/msg |
+        \\| ---: | ---: | ---: |
+        \\| {d} | {d:.1} | {d:.1} |
+        \\
         \\## GC release storm (`op:gc-answers` over Q open answers)
         \\
         \\Q answered delivers opened, then one `op:gc-answers` releasing all Q,
@@ -322,7 +411,7 @@ fn writeReport(gpa: std.mem.Allocator, io: std.Io, send: SendMeasurement, storms
         \\| Q | wave (ns) | ns/answer |
         \\| ---: | ---: | ---: |
         \\
-    , .{ @tagName(builtin.optimize), send.iters, send.total_ns, send.clone_ns, send.total_ns - send.clone_ns });
+    , .{ @tagName(builtin.optimize), send.iters, send.total_ns, send.clone_ns, send.total_ns - send.clone_ns, local.iters, local.views_ns, local.owned_ns });
     for (storms) |m| {
         try b.print(gpa, "| {d} | {d} | {d:.1} |\n", .{ m.q, m.wave_ns, m.ns_per_answer });
     }
