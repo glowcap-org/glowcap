@@ -174,3 +174,18 @@ test "a departure that precedes the pressure wakes the embedder once the resumed
     } else return error.NeverClosed;
     try std.testing.expectEqual(@as(?anyerror, error.ConnectionLost), rig.observed.close_failure);
 }
+
+test "a hello coalesced with the partner's abort, then its departure, end an attended session cleanly" {
+    const rig = try Rig.build(std.testing.allocator, .{ .fetches = 0, .opens_on_read = true });
+    defer rig.destroy();
+    const bytes = try rig.helloThenAbort();
+    rig.resident.offer(&.{bytes});
+    for (0..4) |_| _ = try rig.step();
+    try std.testing.expect(rig.observed.did_open);
+    rig.resident.read_result = 0;
+    rig.resident.signal_closed = true;
+    try stepUntilClosed(rig);
+    for (0..8) |_| _ = try rig.step();
+    try std.testing.expectEqual(@as(usize, 1), rig.observed.close_events);
+    try std.testing.expectEqual(@as(?anyerror, null), rig.observed.close_failure);
+}

@@ -280,11 +280,13 @@ fn wouldBlock(wire: *Wire, total: usize) error{ TruncatedFrame, EndOfStream }!us
     return if (wire.link.resident_closed) endOfRead(wire, total) else total;
 }
 
-/// The read reached the end of the stream. The end waits while the core holds
-/// input a resume can move, because it would read as a truncated frame, and
-/// `read_deferred` brings the sweep back to it once that input has moved.
+/// The read reached the end of the stream. The end waits while an attended
+/// wire's core holds input a resume can move, because it would read as a
+/// truncated frame, and `read_deferred` brings the sweep back to it once that
+/// input has moved. An unattended wire dispatches nothing, so no resume moves
+/// that input and the end is final.
 fn endOfRead(wire: *Wire, total: usize) error{ TruncatedFrame, EndOfStream }!usize {
-    if (wire.session.inboundResumable()) {
+    if (wire.attended and wire.session.inboundResumable()) {
         wire.link.read_deferred = true;
         return total;
     }

@@ -218,6 +218,13 @@ pub const ObservedOpen = struct {
     /// The answers the session had accepted from its partner when the close
     /// arrived: one per request dispatched.
     close_inbound_answers: usize = 0,
+    /// The runtime whose embedder holds each opened session's inbound until it
+    /// attends, as the driver's event queue does for a session it surfaces.
+    unattend: ?*driver.HostRuntime = null,
+    /// A close arrived before `opened` returned, so a driver's queue would
+    /// hold the session's close ahead of the event that introduces it.
+    close_inside_open: bool = false,
+    in_opened: bool = false,
 
     fn of(ctx: *anyopaque) *ObservedOpen {
         return @ptrCast(@alignCast(ctx));
@@ -248,6 +255,9 @@ pub const ObservedOpen = struct {
         release(ctx, 0);
         self.did_open = true;
         self.session = session;
+        self.in_opened = true;
+        defer self.in_opened = false;
+        if (self.unattend) |runtime| runtime.markSessionUnattended(session);
     }
 
     pub fn failed(ctx: *anyopaque, _: u64, failure: driver.OperationFailure) void {
@@ -261,6 +271,7 @@ pub const ObservedOpen = struct {
         const self = of(ctx);
         releaseClose(ctx);
         self.close_events += 1;
+        if (self.in_opened or !self.did_open) self.close_inside_open = true;
         self.close_failure = if (failure) |f| f.chain.cause else null;
         self.close_tail = session.feed_tail.len;
         self.close_inbound_answers = session.served.port.peer.session_state.inbound_answers.len();

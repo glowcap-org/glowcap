@@ -169,7 +169,8 @@ fn closeWireForRefusedFeed(self: *HostRuntime, wire: *Wire, err: anyerror) !void
 /// session a handshake pump is itself opening, and any session a pending
 /// open still owns, such as a listener arrival its accept observer has not
 /// yet taken. Resuming either would answer a pipelined fetch before the
-/// object it names exists.
+/// object it names exists. An unattended wire dispatches nothing, so the sweep
+/// only finishes the read's end it owes (`endOwed`).
 pub fn resumeFeedTails(self: *HostRuntime, skip: ?*driver_core.HostSession) !bool {
     var acted = false;
     self.held_input_possible = false;
@@ -178,7 +179,12 @@ pub fn resumeFeedTails(self: *HostRuntime, skip: ?*driver_core.HostSession) !boo
         const wire = entry.*;
         const holds = !wire.closed and holdsInput(wire);
         self.held_input_possible = self.held_input_possible or holds;
-        if (wire.session == skip or !holds or !sweepEligible(self, wire)) continue;
+        if (wire.session == skip or !sweepHolds(self, wire)) continue;
+        if (!wire.attended) {
+            acted = true;
+            _ = try feedReadable(self, wire, null);
+            continue;
+        }
         if (pressuredAfterOffer(self, wire) or wire.closed) continue;
         acted = true;
         try replayParked(self, wire);
@@ -219,6 +225,13 @@ fn writableOwed(wire: *const Wire) bool {
         !wire.link.resident_closed;
 }
 
+/// Whether an unattended wire still owes the read of its stream's end: a read
+/// was left for the sweep and the resident reported the partner's departure,
+/// both while the wire was attended.
+fn endOwed(wire: *const Wire) bool {
+    return wire.link.resident_closed and wire.link.read_deferred;
+}
+
 /// Whether `wire` holds input no readiness source will report: bytes the
 /// runtime kept (parked input or a deferred read) or input the core can
 /// resume. The wire's own fields and its session's answer.
@@ -227,16 +240,14 @@ pub fn holdsInput(wire: *const Wire) bool {
         wire.session.inboundResumable();
 }
 
-/// Whether the sweep may act on `wire`'s held input: it is live and attended,
-/// and its open has committed.
-fn sweepEligible(self: *const HostRuntime, wire: *const Wire) bool {
-    return !wire.closed and wire.attended and !openPending(self, wire.session);
-}
-
-/// Whether the sweep holds input for `wire` (`holdsInput`) and may act on it
-/// (`sweepEligible`).
+/// Whether the sweep has work on `wire`, the one answer the sweep and the
+/// park bound share. The wire is live and its open has committed. An attended
+/// wire has work while it holds input (`holdsInput`). An unattended wire
+/// dispatches nothing, so its only work is the read's end it owes
+/// (`endOwed`), which the sweep reads and parks without feeding the core.
 fn sweepHolds(self: *const HostRuntime, wire: *const Wire) bool {
-    return sweepEligible(self, wire) and holdsInput(wire);
+    if (wire.closed or openPending(self, wire.session)) return false;
+    return if (wire.attended) holdsInput(wire) else endOwed(wire);
 }
 
 /// Whether the next sweep would act on some wire other than `skip`'s: input

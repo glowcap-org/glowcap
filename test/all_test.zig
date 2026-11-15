@@ -254,6 +254,7 @@ comptime {
         _ = @import("driver/host_runtime_step/outbound_pressure_test.zig");
         _ = @import("driver/host_runtime_step/attend_pressure_test.zig");
         _ = @import("driver/host_runtime_step/close_pressure_test.zig");
+        _ = @import("driver/host_runtime_step/unattended_close_test.zig");
         _ = @import("driver/host_runtime_step/sweep_edges_test.zig");
         _ = @import("driver/host_runtime_multiplexed/external_resident_test.zig");
         _ = @import("driver/host_runtime_multiplexed/inproc_resident_test.zig");

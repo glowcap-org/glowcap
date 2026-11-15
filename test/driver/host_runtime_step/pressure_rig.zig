@@ -10,6 +10,8 @@ const driver = glowcap.driver;
 const driver_core = driver.core;
 const net = glowcap.net;
 
+const stream_framing = glowcap.foundation.stream_framing;
+
 const harness = @import("harness.zig");
 const residents = @import("../host_runtime_multiplexed/residents.zig");
 const raw_partner = @import("raw_partner.zig");
@@ -34,6 +36,9 @@ pub const Spec = struct {
     lending: bool = false,
     /// The wire carries one bare frame per packet, with no outer prefix.
     message: bool = false,
+    /// The open's observer holds the session's inbound until the test
+    /// attends it, as the driver's event queue does.
+    unattended_on_open: bool = false,
 };
 
 /// A runtime serving one adopted connection whose partner is a raw core
@@ -97,6 +102,7 @@ pub const Rig = struct {
         rig.runtime = try driver.HostRuntime.init(allocator, rig.threaded.io(), .{}, .ephemeral, options);
         errdefer rig.runtime.deinit();
         try rig.runtime.core.setSessionLimits(null, null, spec.limit, null, null);
+        if (spec.unattended_on_open) rig.observed.unattend = &rig.runtime;
         const profile: model.transport.Metadata = .{
             .symbol = Fixture.transport,
             .designator_scheme = .key,
@@ -230,6 +236,21 @@ pub const Rig = struct {
     /// sweep can move anything.
     pub fn stepQuiet(self: *Rig) !?net.Progress {
         return self.runtime.stepAny(0);
+    }
+
+    /// The opening burst of an `opens_on_read` rig with no fetches, followed by
+    /// an `op:abort`. The partner's session projects one on a frame it cannot
+    /// decode, as a dialer does on a hello it refuses.
+    pub fn helloThenAbort(self: *Rig) ![]const u8 {
+        var prefix_buf: [stream_framing.prefix_buffer_bytes]u8 = undefined;
+        const prefix = stream_framing.renderPrefix(&prefix_buf, 1);
+        var bad: [stream_framing.prefix_buffer_bytes + 1]u8 = undefined;
+        @memcpy(bad[0..prefix.len], prefix);
+        bad[prefix.len] = 0xff;
+        // tolerant: the partner refuses the frame, and the abort it queues is what the test takes.
+        self.partner.host.feedBytes(self.partner.session, bad[0 .. prefix.len + 1]) catch {};
+        try self.takeFrames(&self.opening);
+        return self.opening.items;
     }
 
     /// Park the first `parked` fetches on the unattended wire, then queue the
