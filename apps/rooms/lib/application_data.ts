@@ -129,3 +129,31 @@ export const BOOT_CAPS = {
 export const ALL_BOOT_CAPS = Object.values(BOOT_CAPS);
 export type OperationsCapability = (typeof ALL_BOOT_CAPS)[number]["id"];
 export const OPERATIONS_CAPABILITIES: readonly OperationsCapability[] = ALL_BOOT_CAPS.map((cap) => cap.id);
+export const COMMAND_EFFECT_OPS = [
+	"help",
+	"joinRoom",
+	"joinLink",
+	"leave",
+	"directMessage",
+	"members",
+	"theme",
+	"clear",
+	"ignored",
+	"ignore",
+	"unignore",
+	"list",
+	"directories",
+	"whois",
+	"details",
+	"quit",
+	"away",
+	"edit",
+	"delete",
+	"showSubject",
+	"setSubject",
+	"roomLink",
+	"moderator",
+	"invite",
+	"kick",
+] as const;
+export type CommandEffectOp = (typeof COMMAND_EFFECT_OPS)[number];

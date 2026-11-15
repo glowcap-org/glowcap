@@ -20,6 +20,50 @@ pub struct Context<'a> {
 	pub you: &'a DocumentText,
 	pub away: bool,
 }
+/// Declares `EffectOp` and its list of every variant from one set of names, so
+/// a variant cannot be left out of `ALL`, the list the browser mirror reads.
+macro_rules! effect_ops {
+	($($variant:ident),+ $(,)?) => {
+		/// What the page performs for a command it must carry out, named on the
+		/// wire in camel case. The page refuses a plan whose op is outside the
+		/// mirrored list, and its switch over the ops is exhaustive.
+		#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+		#[serde(rename_all = "camelCase")]
+		pub enum EffectOp {
+			$($variant),+
+		}
+		impl EffectOp {
+			pub const ALL: &'static [EffectOp] = &[$(EffectOp::$variant),+];
+		}
+	};
+}
+effect_ops! {
+	Help,
+	JoinRoom,
+	JoinLink,
+	Leave,
+	DirectMessage,
+	Members,
+	Theme,
+	Clear,
+	Ignored,
+	Ignore,
+	Unignore,
+	List,
+	Directories,
+	Whois,
+	Details,
+	Quit,
+	Away,
+	Edit,
+	Delete,
+	ShowSubject,
+	SetSubject,
+	RoomLink,
+	Moderator,
+	Invite,
+	Kick,
+}
 #[derive(Serialize)]
 #[serde(tag = "kind", rename_all = "lowercase")]
 pub enum Plan {
@@ -33,7 +77,7 @@ pub enum Plan {
 		text: DocumentText,
 	},
 	Effect {
-		op: &'static str,
+		op: EffectOp,
 		text: DocumentText,
 		#[serde(skip_serializing_if = "Option::is_none")]
 		extra: Option<DocumentText>,
@@ -42,7 +86,7 @@ pub enum Plan {
 fn refused(why: impl Into<String>) -> Plan {
 	Plan::Refused { why: why.into() }
 }
-fn effect(op: &'static str, text: DocumentText) -> Plan {
+fn effect(op: EffectOp, text: DocumentText) -> Plan {
 	Plan::Effect { op, text, extra: None }
 }
 /// A leading `ocapn://` word is the subject's link, and the words after it
@@ -100,6 +144,33 @@ fn one_person(text: &DocumentText, name: Name) -> Result<Option<DocumentText>, P
 fn everyone(text: &DocumentText) -> bool {
 	text.as_str().is_some_and(crate::room::inbox::addresses_everyone)
 }
+/// A command that takes nothing and acts on the open conversation.
+fn open_conversation_act(
+	context: &Context<'_>,
+	name: Name,
+	text: &DocumentText,
+	op: EffectOp,
+	none_open: &'static str,
+) -> Result<Plan, Plan> {
+	nothing_after(text, name)?;
+	Ok(if context.place == Place::None {
+		refused(none_open)
+	} else {
+		effect(op, "".into())
+	})
+}
+/// A command that takes one person's name and acts on it.
+fn named_person_act(name: Name, text: &DocumentText, op: EffectOp, usage: &'static str) -> Result<Plan, Plan> {
+	Ok(match one_person(text, name)? {
+		None => refused(usage),
+		Some(who) => effect(op, who),
+	})
+}
+/// A command that takes nothing and acts regardless of the conversation.
+fn bare_act(name: Name, text: &DocumentText, op: EffectOp) -> Result<Plan, Plan> {
+	nothing_after(text, name)?;
+	Ok(effect(op, "".into()))
+}
 pub fn invite_refusal(who: &DocumentText, you: &DocumentText) -> Option<String> {
 	let who = person(&trimmed(who));
 	if empty(&who) {
@@ -146,9 +217,9 @@ pub fn interpret(name: Name, rest: &DocumentText, context: &Context<'_>) -> Plan
 			},
 			Join => match join(&text) {
 				None => refused("Use /join followed by a room name or a link."),
-				Some(super::input::Join::Name { name }) => effect("joinRoom", name),
+				Some(super::input::Join::Name { name }) => effect(EffectOp::JoinRoom, name),
 				Some(super::input::Join::Link { link, label }) => Plan::Effect {
-					op: "joinLink",
+					op: EffectOp::JoinLink,
 					text: link,
 					extra: Some(label),
 				},
@@ -162,32 +233,23 @@ pub fn interpret(name: Name, rest: &DocumentText, context: &Context<'_>) -> Plan
 				Some(who) if !empty(context.you) && who.lowercase() == context.you.lowercase() => {
 					refused("You can't start a direct message with yourself.")
 				}
-				Some(who) => effect("directMessage", who),
+				Some(who) => effect(EffectOp::DirectMessage, who),
 			},
 			Theme => {
 				let choice = text.lowercase();
 				if matches!(choice.as_str(), Some("light" | "dark")) {
-					effect("theme", choice)
+					effect(EffectOp::Theme, choice)
 				} else {
 					refused("Use /theme light or /theme dark.")
 				}
 			}
-			Leave | Clear | Details => {
-				nothing_after(&text, name)?;
-				if context.place == Place::None {
-					refused(match name {
-						Leave => "There is nothing open to leave.",
-						Clear => "There is nothing open to clear.",
-						_ => "Open a conversation first.",
-					})
-				} else {
-					effect(name.definition().name, "".into())
-				}
-			}
+			Leave => open_conversation_act(context, name, &text, EffectOp::Leave, "There is nothing open to leave.")?,
+			Clear => open_conversation_act(context, name, &text, EffectOp::Clear, "There is nothing open to clear.")?,
+			Details => open_conversation_act(context, name, &text, EffectOp::Details, "Open a conversation first.")?,
 			Members => {
 				nothing_after(&text, name)?;
 				room(context, "Only a room has a member list.")?;
-				effect("members", "".into())
+				effect(EffectOp::Members, "".into())
 			}
 			Away => {
 				room(context, "Only a room has anyone to tell.")?;
@@ -196,7 +258,7 @@ pub fn interpret(name: Name, rest: &DocumentText, context: &Context<'_>) -> Plan
 					refused(format!("A reason may be at most {maximum} characters."))
 				} else {
 					effect(
-						"away",
+						EffectOp::Away,
 						if empty(&text) {
 							if context.away { "".into() } else { "away".into() }
 						} else {
@@ -208,7 +270,7 @@ pub fn interpret(name: Name, rest: &DocumentText, context: &Context<'_>) -> Plan
 			Subject => {
 				room(context, "Only a room has a subject.")?;
 				if empty(&text) {
-					effect("showSubject", text)
+					effect(EffectOp::ShowSubject, text)
 				} else {
 					let subject = if text.as_str() == Some("-") {
 						Ok(crate::room::subject::Subject::default())
@@ -221,7 +283,7 @@ pub fn interpret(name: Name, rest: &DocumentText, context: &Context<'_>) -> Plan
 						Err(None) => refused("A subject must be well-formed text."),
 						Err(Some(invalid)) => refused(subject_refusal(invalid)),
 						Ok(subject) => Plan::Effect {
-							op: "setSubject",
+							op: EffectOp::SetSubject,
 							text: subject.description().into(),
 							extra: subject.link().map(DocumentText::from),
 						},
@@ -234,7 +296,7 @@ pub fn interpret(name: Name, rest: &DocumentText, context: &Context<'_>) -> Plan
 					None => refused("Use /invite followed by who to hand it to."),
 					Some(who) => match invite_refusal(&who, context.you) {
 						Some(why) => refused(why),
-						None => effect("invite", who),
+						None => effect(EffectOp::Invite, who),
 					},
 				}
 			}
@@ -242,7 +304,7 @@ pub fn interpret(name: Name, rest: &DocumentText, context: &Context<'_>) -> Plan
 				room(context, "Only a room can ask somebody to leave.")?;
 				match one_person(&text, name)? {
 					None => refused("Use /kick followed by who to ask out."),
-					Some(who) => effect("kick", who),
+					Some(who) => effect(EffectOp::Kick, who),
 				}
 			}
 			Link => {
@@ -251,42 +313,40 @@ pub fn interpret(name: Name, rest: &DocumentText, context: &Context<'_>) -> Plan
 				if !empty(&text) && empty(&wanted) {
 					refused("Use /link on its own for this room, or /link followed by a listed room's name.")
 				} else {
-					effect("roomLink", wanted)
+					effect(EffectOp::RoomLink, wanted)
 				}
 			}
 			Moderator => {
 				room(context, "Only a room has a moderator capability.")?;
-				effect("moderator", text)
+				effect(EffectOp::Moderator, text)
 			}
 			Edit => {
 				if empty(&text) {
 					refused("Use /edit followed by what the message should say.")
 				} else {
-					effect("edit", text)
+					effect(EffectOp::Edit, text)
 				}
 			}
 			Delete => {
 				nothing_after(&text, name)?;
-				effect("delete", "".into())
+				effect(EffectOp::Delete, "".into())
 			}
 			Ignore => match one_person(&text, name)? {
-				None if empty(&text) => effect("ignored", text),
+				None if empty(&text) => effect(EffectOp::Ignored, text),
 				None => refused("Use /ignore followed by who to stop hearing, or /ignore on its own to list them."),
-				Some(who) => effect("ignore", who),
+				Some(who) => effect(EffectOp::Ignore, who),
 			},
-			Unignore | Whois => match one_person(&text, name)? {
-				None => refused(if name == Unignore {
-					"Use /unignore followed by who to hear again."
-				} else {
-					"Use /whois followed by who to ask about."
-				}),
-				Some(who) => effect(name.definition().name, who),
-			},
-			Help | Directories | Quit => {
-				nothing_after(&text, name)?;
-				effect(name.definition().name, "".into())
-			}
-			List => effect("list", text),
+			Unignore => named_person_act(
+				name,
+				&text,
+				EffectOp::Unignore,
+				"Use /unignore followed by who to hear again.",
+			)?,
+			Whois => named_person_act(name, &text, EffectOp::Whois, "Use /whois followed by who to ask about.")?,
+			Help => bare_act(name, &text, EffectOp::Help)?,
+			Directories => bare_act(name, &text, EffectOp::Directories)?,
+			Quit => bare_act(name, &text, EffectOp::Quit)?,
+			List => effect(EffectOp::List, text),
 		})
 	};
 	plan().unwrap_or_else(|refusal| refusal)
