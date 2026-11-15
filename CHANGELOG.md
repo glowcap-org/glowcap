@@ -296,6 +296,11 @@ Releases before 0.1.7 are in the
   applied that frame twice.
 - The progress ring on a busy Rooms icon button stands in the exact middle of
   the button. It sat half a pixel to one side.
+- A Rooms result that carries a link to manage or moderate a room is prepared
+  again from the current workspace when the session took a new seat in that
+  room after the page read it, as any other workspace conflict is. The result
+  ended in recovery with a bare refusal, which the room's connection
+  restarting at that moment was enough to cause.
 
 ## [0.1.7] - 2026-11-11
 

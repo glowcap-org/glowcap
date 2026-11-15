@@ -131,7 +131,10 @@ pub(super) fn references(input: Invocation<'_>, record: &MetadataRecord) -> Resu
 		return Ok(Vec::new());
 	}
 	let coordinate = if input.verb == "room-identity-reader" {
-		rooms::selection(input.args, &record.intent)?
+		let Some(selected) = rooms::selection(input.args, &record.intent)? else {
+			return Ok(Vec::new());
+		};
+		selected
 	} else if input.verb == "operations-reader" {
 		operations::selection(input.args, &record.intent)?
 	} else if input.verb == "custody-recipe" {

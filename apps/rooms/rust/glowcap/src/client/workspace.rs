@@ -250,8 +250,10 @@ impl<D: Deadline> Workspace<D> {
 		self.reader("file-reader", &[blob.clone().into()]).await
 	}
 	async fn reader(&self, method: &'static str, args: &[Argument]) -> Result<Ref, Error> {
-		Ref::try_from(&self.call(method, args).await?)
-			.map_err(|_| loam::refusal("managed reader returned no capability").into())
+		Self::capability(&self.call(method, args).await?)
+	}
+	fn capability(reply: &Argument) -> Result<Ref, Error> {
+		Ref::try_from(reply).map_err(|_| loam::refusal("managed reader returned no capability").into())
 	}
 	async fn call(&self, method: &'static str, args: &[Argument]) -> Result<Argument, Error> {
 		self.caller
