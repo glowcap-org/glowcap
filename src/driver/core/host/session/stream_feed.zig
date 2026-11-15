@@ -159,7 +159,7 @@ fn parseOuterStreamPrefix(session: *HostSession, bytes: []const u8, was_open: bo
         // A prior frame in this same call may have crossed the waterline.
         // Stop before dispatching another frame. The caller retains the suffix
         // in `feed_tail`, so replay is neither required nor permitted.
-        if (dispatched and session.served.queuedOutboundBytes() >= session.outbound_high_water_bytes)
+        if (dispatched and session.outboundAtWaterline())
             return .{ .consumed = consumed, .needs_resume = true };
         const outer = (try nextFrame(session, bytes[consumed..])) orelse break;
         dispatchBody(session, outer.body) catch |err| {

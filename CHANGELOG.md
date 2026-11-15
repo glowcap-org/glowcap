@@ -13,6 +13,15 @@ Releases before 0.1.7 are in the
 
 ### Breaking
 
+- A Host refuses an `outbound_high_water_bytes` of zero with
+  `InvalidOutboundHighWater`, at construction and in `setSessionLimits`. A
+  session with a zero waterline could never take input. Pass null for the
+  default. The C ABI already reads zero as the default.
+- `HostSession.resumeFeed` and `glowcap_host_session_resume_feed` refuse
+  with `OutboundBackpressure` (`GLOWCAP_ERR_WOULD_BLOCK`) while a session
+  holds input it can dispatch and its queued outbound is at the waterline.
+  The input stays held: drain outbound and call again, as each binding's
+  pump does.
 - A Rooms room name holds no control or text-direction character, as a
   nickname does not. The directory refuses one when a room is opened,
   renamed, or published from another directory, and an IRC bridge refuses a
@@ -163,6 +172,17 @@ Releases before 0.1.7 are in the
 - A stepped Host wakes its embedder for input a read left behind the
   message that opened a session. That input could wait until the partner
   sent more.
+- A stepped Host holds a session's unread input while that session's queued
+  replies are at the outbound waterline, and dispatches it as they drain.
+  It closed the session, so a partner that sent requests faster than it
+  read replies lost its connection, and so did a session the application
+  served while its replies were queued that deep. A partner that never
+  reads its replies keeps its session until the application closes it.
+- For a session the application is serving, a stepped Host dispatches what
+  a partner sent before it closed its side when a read was waiting behind
+  the message that opened the session. Over a transport that reports the
+  partner's close as an event, it dropped that input and reported a lost
+  connection.
 - `glowcap_driver_step` returns `GLOWCAP_OK` for a step that dispatched
   held input. It returned `GLOWCAP_ERR_WOULD_BLOCK` when nothing else was
   ready.

@@ -134,7 +134,7 @@ async def _feed(session, chunk: bytes) -> None:
     # unconsumed tail, a partial frame straddling two reads stays buffered
     # in the session, so one borrowed call moves the whole chunk (c_char_p
     # points at `chunk`'s own bytes, which the synchronous feed only reads).
-    # The serve loop resumes any handshake-held tail through _resume_feed. A
+    # The serve loop resumes any retained tail through _resume_feed. A
     # mid-feed close parks its C release; it drains the moment the feed returns.
     n = len(chunk)
     ptr = ctypes.cast(ctypes.c_char_p(chunk), ctypes.c_void_p) if n else None
@@ -163,8 +163,10 @@ async def _feed(session, chunk: bytes) -> None:
 
 
 async def _resume_feed(session) -> None:
-    # Resume frames the Host held behind the handshake open. Stream sessions
-    # may dispatch a retained tail; packet-framed sessions have no hidden tail.
+    # Resume input the Host retained: frames held behind the handshake open,
+    # or input held while the session sat at its outbound high-water mark
+    # (a would-block waits for outbound room and retries). Packet-framed
+    # sessions have no hidden tail.
     while True:
         if session.released:
             return

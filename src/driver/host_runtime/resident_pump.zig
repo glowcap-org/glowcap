@@ -143,16 +143,19 @@ fn handleResidentEvent(
     }
     var own_fed: usize = 0;
     if (event.events & er.ev_readable != 0) {
+        if (event.events & er.ev_closed != 0) wire.link.resident_closed = true;
         const for_own = own != null and wire.session == own.?;
         switch (try Internal.feedReadable(self, wire, own)) {
             .fed => |fed| own_fed = if (for_own) fed else 0,
             .closed => return 0,
         }
     }
-    // Clean resident EOF is always READABLE|CLOSED: `feedReadable` drains the
-    // buffered tail and observes the zero read above. CLOSED alone is the
-    // resident's fault signal.
-    if (event.events & er.ev_closed != 0) Internal.closeWire(self, wire, error.ConnectionLost);
+    // Clean resident EOF is always READABLE|CLOSED, and the buffered bytes
+    // stay readable until the read reaches the end. A read left deferred
+    // observes the end itself once the sweep finishes it, so the close waits
+    // with it. CLOSED alone is the resident's fault signal.
+    const read_left = event.events & er.ev_readable != 0 and wire.link.read_deferred;
+    if (event.events & er.ev_closed != 0 and !read_left) Internal.closeWire(self, wire, error.ConnectionLost);
     return own_fed;
 }
 
@@ -196,31 +199,40 @@ fn startAcceptedConn(
 /// chunk. A drained ready record is consumed, so bytes left unread here would
 /// wait for a future readiness transition instead of the next wait. A resident
 /// that lends its received bytes feeds the core from the loan. Any other
-/// copies into the runtime's one read scratch.
+/// copies into the runtime's one read scratch. The loop stops at the chunk
+/// that opens the session (`stopAtOpen`) and before a read the session cannot
+/// take (`holdRead`). The unread input stays in the resident, which is the
+/// flow control the partner sees, and `read_deferred` brings the sweep back
+/// to it. Returns the bytes fed.
 pub fn readAndFeed(self: *HostRuntime, wire: *Wire) !usize {
     const rl = &wire.link;
     const resident = self.residents.items[rl.index].resident;
     var total: usize = 0;
+    rl.read_deferred = false;
     if (resident.vtable.borrowed_read) |borrowed| {
-        while (true) switch (borrowed.lend(resident.ctx, rl.conn)) {
-            .would_block => return total,
-            .end_of_stream => return endOfStream(wire),
-            .dead => return error.ConnectionLost,
-            .bytes => |chunk| {
-                defer borrowed.release(resident.ctx, rl.conn);
-                if (chunk.len == 0) return error.ConnectionLost;
-                const was_open = wire.session.served.port.peer.sessionIsOpen();
-                try feedChunk(self, wire, chunk);
-                total += chunk.len;
-                if (stopAtOpen(wire, was_open)) return total;
-            },
-        };
+        while (true) {
+            if (holdRead(self, wire)) return total;
+            switch (borrowed.lend(resident.ctx, rl.conn)) {
+                .would_block => return wouldBlock(wire, total),
+                .end_of_stream => return endOfRead(wire, total),
+                .dead => return error.ConnectionLost,
+                .bytes => |chunk| {
+                    defer borrowed.release(resident.ctx, rl.conn);
+                    if (chunk.len == 0) return error.ConnectionLost;
+                    const was_open = wire.session.served.port.peer.sessionIsOpen();
+                    try feedChunk(self, wire, chunk);
+                    total += chunk.len;
+                    if (stopAtOpen(wire, was_open)) return total;
+                },
+            }
+        }
     }
     while (true) {
+        if (holdRead(self, wire)) return total;
         const scratch = self.resident_read_scratch;
         const got = resident.tryRead(rl.conn, scratch);
-        if (got == net.multiplexed_resident.would_block) return total;
-        if (got == 0) return endOfStream(wire);
+        if (got == net.multiplexed_resident.would_block) return wouldBlock(wire, total);
+        if (got == 0) return endOfRead(wire, total);
         if (got < 0) return error.ConnectionLost;
         if (@as(usize, @intCast(got)) > scratch.len) return error.ConnectionLost;
         const chunk = scratch[0..@intCast(got)];
@@ -241,6 +253,44 @@ fn stopAtOpen(wire: *Wire, was_open: bool) bool {
     if (was_open or !wire.session.served.port.peer.sessionIsOpen()) return false;
     wire.link.read_deferred = true;
     return true;
+}
+
+/// Whether the next read waits in the resident, which leaves `read_deferred`
+/// set for the sweep to finish it. An unattended wire parks what it reads, so
+/// it never waits. An attended wire waits while older input is parked ahead
+/// of the read, which keeps the reads in order, and while its session is at
+/// the outbound waterline after the window was offered the queue
+/// (`pressuredAfterOffer`), where the core would refuse the read with a
+/// retryable `OutboundBackpressure`. The offer can close the wire, so callers
+/// read `wire.closed` after it.
+fn holdRead(self: *HostRuntime, wire: *Wire) bool {
+    if (!wire.attended) return false;
+    const parked_ahead = wire.link.parked.items.len != 0;
+    const pressured = !parked_ahead and Internal.pressuredAfterOffer(self, wire);
+    if (wire.closed) return true;
+    if (!parked_ahead and !pressured) return false;
+    wire.link.read_deferred = true;
+    return true;
+}
+
+/// A read that answers would-block returns what it fed, unless the resident
+/// reported the partner's departure: its buffered bytes were the last, so the
+/// end of the stream is here (`endOfRead`).
+fn wouldBlock(wire: *Wire, total: usize) error{ TruncatedFrame, EndOfStream }!usize {
+    return if (wire.link.resident_closed) endOfRead(wire, total) else total;
+}
+
+/// The read reached the end of the stream. The end waits while an attended
+/// wire's core holds input a resume can move, because it would read as a
+/// truncated frame, and `read_deferred` brings the sweep back to it once that
+/// input has moved. An unattended wire dispatches nothing, so no resume moves
+/// that input and the end is final.
+fn endOfRead(wire: *Wire, total: usize) error{ TruncatedFrame, EndOfStream }!usize {
+    if (wire.attended and wire.session.inboundResumable()) {
+        wire.link.read_deferred = true;
+        return total;
+    }
+    return endOfStream(wire);
 }
 
 fn endOfStream(wire: *Wire) error{ TruncatedFrame, EndOfStream } {

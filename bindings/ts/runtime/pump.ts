@@ -243,8 +243,10 @@ async function awaitOutboundRoom(h: PumpHandle): Promise<void> {
 	await h.written(h.requestFlush());
 }
 
-/** Resume input the Host retained during a prior feed. Byte-stream sessions
- * may dispatch a held tail; message-framed sessions have no hidden tail. */
+/** Resume input the Host retained during a prior feed: frames held behind
+ * the handshake open, or input held while the session sat at its outbound
+ * high-water mark (a would-block waits for outbound room and retries).
+ * Message-framed sessions have no hidden tail. */
 async function resumeFeed(h: PumpHandle): Promise<void> {
 	while (true) {
 		if (h.released) return;

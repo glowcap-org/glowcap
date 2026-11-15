@@ -293,7 +293,7 @@
 ;; callbacks fire inside), then the actions the dispatch queued drain. The
 ;; library owns the unconsumed tail (a partial frame straddling two reads
 ;; stays buffered in the session), so one call moves the whole read. The serve
-;; loop resumes any handshake-held tail through `resume-feed!`. On a refused
+;; loop resumes any retained tail through `resume-feed!`. On a refused
 ;; stream the peer has already projected a typed op:abort; write it so the
 ;; partner hears why, then raise the typed failure carrying the
 ;; connection's `abort-info`. The FFI pin (`pin-immobile`) is a named Racket
@@ -333,8 +333,10 @@
              (values (drain-effects '() #f #t) (cons captured (outbound-request! (session-outbound c))))]))))
     (feed-outcome! c result loop)))
 
-;; Resume frames the Host held behind the handshake open. Stream sessions may
-;; dispatch a retained tail; packet-framed sessions have no hidden tail.
+;; Resume input the Host retained: frames held behind the handshake open, or
+;; input held while the session sat at its outbound high-water mark (a
+;; would-block waits for outbound room and retries). Packet-framed sessions
+;; have no hidden tail.
 (define (resume-feed! c)
   (define m (session-host c))
   (let loop ()

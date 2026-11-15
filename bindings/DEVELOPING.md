@@ -78,11 +78,12 @@ progress task:
 Inbound byte streams go through `glowcap_host_session_feed_bytes`. The host
 unwraps canonical Syrup byte strings, retains a split prefix or body, and
 applies the declared-body limit. A binding should not add another scanner or
-tail buffer. `GLOWCAP_ERR_WOULD_BLOCK` from `feed_bytes` is outbound
-backpressure, not a protocol refusal: drain actions, wait until the session's
-writer has written the frames queued so far, then retry the same byte chunk. On
-output, prefix each bare `take_outbound` frame with its decimal byte length and
-`:`. Write the prefix and frame separately.
+tail buffer. `GLOWCAP_ERR_WOULD_BLOCK` from `feed_bytes` or
+`glowcap_host_session_resume_feed` is outbound backpressure, not a protocol
+refusal: drain actions, wait until the session's writer has written the frames
+queued so far, then retry the call, with the same byte chunk for `feed_bytes`.
+On output, prefix each bare `take_outbound` frame with its decimal byte length
+and `:`. Write the prefix and frame separately.
 
 Reading and writing are separate tasks. `FLUSH` and `CLOSE` wake the session's
 one writer, which takes and writes the frames, and the action drain never waits

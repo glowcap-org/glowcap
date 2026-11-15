@@ -41,6 +41,7 @@ pub const borrowed_read = @import("multiplexed_resident/borrowed_read.zig");
 pub const ReadyEvent = readiness.ReadyEvent;
 pub const ev_readable = readiness.ev_readable;
 pub const ev_writable = readiness.ev_writable;
+/// See `readiness.ev_closed` for the readable-and-closed reading.
 pub const ev_closed = readiness.ev_closed;
 pub const ev_accept = readiness.ev_accept;
 pub const ev_connect = readiness.ev_connect;

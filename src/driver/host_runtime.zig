@@ -18,6 +18,7 @@
 //! connection id. The pump polls those descriptors, never a socket per
 //! connection.
 
+const builtin = @import("builtin");
 const std = @import("std");
 const foundation = @import("foundation");
 
@@ -60,6 +61,11 @@ const OperationFailure = @import("operation_failure.zig").OperationFailure;
 /// `HostRuntime` and its core `Host`. Every blocking verb on a view pumps through
 /// here.
 pub const HostRuntime = struct {
+    /// Test seams for the pump's internal questions.
+    pub const testing = if (builtin.is_test) struct {
+        pub const parkBoundMs = Internal.parkBoundMs;
+    } else struct {};
+
     allocator: std.mem.Allocator,
     io: std.Io,
     /// The time of the turn in progress, read once when a step or a pump
@@ -195,6 +201,16 @@ pub const HostRuntime = struct {
     /// stages another open during the sweep. Admission lives separately
     /// because blocking opens consume the same bound without owning a row.
     pending_opens: std.ArrayList(*PendingOpen) = .empty,
+    /// Whether some wire may hold input: a deferred read, parked bytes, or
+    /// input the core can resume (`pump.holdsInput`). A conservative hint
+    /// that gates the exact walk of `pump.parkBoundMs` and never replaces it:
+    /// false means no wire held input when last checked, true means one may.
+    /// The sweep (`resumeFeedTails`) clears it and sets it for every live
+    /// wire that holds input, before its filters. The creators that run
+    /// between a sweep and the wait after it set it too: a wire started by
+    /// `startWire`, which reads once, and `attendSession`, whose replay can
+    /// leave a resumable tail. `parkBoundMs` reads it.
+    held_input_possible: bool = false,
     /// Listener construction that waits on provider progress. Completed
     /// listeners never remain here: finish transfers ownership to the
     /// observer, while cancellation and failure consume the attempt.
@@ -469,7 +485,10 @@ pub const HostRuntime = struct {
     pub const markSessionUnattended = runtime_pump.markSessionUnattended;
     pub const attendSession = runtime_pump.attendSession;
     const resumeFeedTails = runtime_pump.resumeFeedTails;
-    const sweepCanMove = runtime_pump.sweepCanMove;
+    const parkBoundMs = runtime_pump.parkBoundMs;
+    const pressuredAfterOffer = runtime_pump.pressuredAfterOffer;
+    const sweepWorkRemains = runtime_pump.sweepWorkRemains;
+    const holdsInput = runtime_pump.holdsInput;
     const pumpUntilProbe = runtime_pump.pumpUntilProbe;
     const feedReadable = runtime_pump.feedReadable;
     pub const settleMailbox = runtime_pump.settleMailbox;
@@ -507,7 +526,10 @@ pub const Internal = struct {
     pub const applySettleMailbox = HostRuntime.applySettleMailbox;
     pub const applySettleMailboxWith = HostRuntime.applySettleMailboxWith;
     pub const resumeFeedTails = HostRuntime.resumeFeedTails;
-    pub const sweepCanMove = HostRuntime.sweepCanMove;
+    pub const parkBoundMs = HostRuntime.parkBoundMs;
+    pub const pressuredAfterOffer = HostRuntime.pressuredAfterOffer;
+    pub const sweepWorkRemains = HostRuntime.sweepWorkRemains;
+    pub const holdsInput = HostRuntime.holdsInput;
     pub const advancePendingOpens = HostRuntime.advancePendingOpens;
     pub const advancePendingListeners = HostRuntime.advancePendingListeners;
     pub const waitAnySource = HostRuntime.waitAnySource;

@@ -97,7 +97,10 @@ pub fn glowcap_host_session_feed_packet(
 
 /// Resume input retained by a previous feed. Byte-stream sessions may
 /// dispatch their held tail. Message-framed sessions have no hidden tail and
-/// no-op. Refused inside a callback.
+/// no-op. `GLOWCAP_ERR_WOULD_BLOCK` means the session holds input it can
+/// dispatch and its queued outbound is at the waterline: the input stays
+/// held, so the caller drains outbound and calls again. Refused inside a
+/// callback.
 pub fn glowcap_host_session_resume_feed(raw: ?*GlowcapHostSession) callconv(.c) i32 {
     shared.lastErrorClear();
     const session = sessionFrom(raw) orelse return GLOWCAP_ERR_NULL_POINTER;

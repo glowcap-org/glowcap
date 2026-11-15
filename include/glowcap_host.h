@@ -629,7 +629,10 @@ int32_t glowcap_host_session_feed_bytes(GlowcapHostSession *session, const uint8
 int32_t glowcap_host_session_feed_packet(GlowcapHostSession *session, const uint8_t *bytes, size_t len);
 /* Resume input retained by an earlier feed, without treating an empty transport
    packet as new input. Byte-stream sessions may dispatch a held tail; message-
-   framed sessions have no hidden tail and no-op. Refused inside a callback. */
+   framed sessions have no hidden tail and no-op. GLOWCAP_ERR_WOULD_BLOCK means the
+   session holds input it can dispatch and its queued outbound is at the high-water
+   mark: the input stays held, so drain outbound and call again. Refused inside a
+   callback. */
 int32_t glowcap_host_session_resume_feed(GlowcapHostSession *session);
 /* Drain one transport-ready packet. Write
    out_prefix[0..*out_prefix_len] and then the owned out_frame bytes. Byte-stream

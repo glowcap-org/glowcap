@@ -6,6 +6,7 @@
 //! and each resident drains its ready records in bounded batches.
 
 const std = @import("std");
+const builtin = @import("builtin");
 
 const net = @import("net");
 const driver_core = @import("driver_core");
@@ -56,8 +57,10 @@ pub fn markSessionUnattended(self: *HostRuntime, session: *driver_core.HostSessi
 
 /// The embedder announced it is serving `session`: deliver inbound from
 /// here on. Bytes that arrived first replay in order: the link's parked
-/// chunks feed now, and a paused handshake tail resumes through the next
-/// step's sweep.
+/// input feeds now while the session admits it, and a paused handshake tail
+/// resumes through the next step's sweep. A session whose outbound stays at
+/// its waterline keeps its parked input, and the sweep replays it once the
+/// outbound drains.
 /// Idempotent on a session already delivering. A foreign or unknown
 /// handle refuses, exactly as release does, because silently ignoring
 /// one leaves the real session's inbound held with nothing to say why.
@@ -67,26 +70,76 @@ pub fn attendSession(self: *HostRuntime, session: *driver_core.HostSession) !voi
     if (wire.session != session) return Error.SessionNotOwned;
     if (wire.closed or wire.attended) return;
     wire.attended = true;
-    const rl = &wire.link;
-    if (rl.parked.items.len > 0) {
-        switch (wire.session.wire_framing) {
-            .byte_stream => self.core.feedBytes(wire.session, rl.parked.items) catch |err|
-                return closeWireForRefusedFeed(self, wire, err),
-            .message => {
-                var packets = rl.parkedPackets();
-                while (packets.next()) |packet|
-                    self.core.feedTransportPacket(wire.session, packet) catch |err|
-                        return closeWireForRefusedFeed(self, wire, err);
-            },
-        }
-        rl.parked.clearAndFree(self.allocator);
-    }
+    try replayParked(self, wire);
+    self.held_input_possible = self.held_input_possible or holdsInput(wire);
     // A parked embedder must re-poll: the resumable tail is progress its
     // current wait set cannot see.
     switch (self.drive) {
         .blocking => {},
         .stepped => |*stepped| stepped.ready_set.postWake() catch |err| self.noteTerminalFailure(err),
     }
+}
+
+/// Feed the wire's parked input to the core, in order, while its session is
+/// not pressured. Input the core took leaves the buffer, and the rest stays
+/// parked for the sweep. A byte stream feeds as one buffer, and the core
+/// keeps a suffix it paused on in its own tail. A message-framed wire feeds
+/// one packet at a time and stops at the first pressured one. A refusal other
+/// than pressure closes the wire.
+fn replayParked(self: *HostRuntime, wire: *Wire) !void {
+    const rl = &wire.link;
+    if (rl.parked.items.len == 0) return;
+    switch (wire.session.wire_framing) {
+        .byte_stream => {
+            if (pressuredAfterOffer(self, wire) or wire.closed) return;
+            self.core.feedBytes(wire.session, rl.parked.items) catch |err| switch (err) {
+                error.OutboundBackpressure => return,
+                else => return closeWireForRefusedFeed(self, wire, err),
+            };
+            rl.dropParked(self.allocator, rl.parked.items.len);
+        },
+        .message => {
+            var packets = rl.parkedPackets();
+            var consumed: usize = 0;
+            defer rl.dropParked(self.allocator, consumed);
+            while (!pressuredAfterOffer(self, wire) and !wire.closed) {
+                const packet = packets.next() orelse break;
+                self.core.feedTransportPacket(wire.session, packet) catch |err| switch (err) {
+                    // The refused packet stays parked.
+                    error.OutboundBackpressure => return,
+                    else => return closeWireForRefusedFeed(self, wire, err),
+                };
+                consumed = rl.parked.items.len - packets.rest.len;
+            }
+        },
+    }
+}
+
+/// Whether `wire`'s session is at its outbound waterline once the window has
+/// been offered what the core queued for it. The offer is made unless a
+/// writable event is owed (`writableOwed`): queued output with no pending
+/// write has not met the window, and a pending write after the closed edge
+/// (`resident_closed`) has no event to report a window that reopened, so
+/// holding input for either would strand the wire. A pending write with its
+/// event owed means the window refused, so no attempt is made, and the
+/// event's drain re-arms the sweep. A failed offer closes the wire the way a
+/// writable event does. A wire still pressured after the closed edge closes
+/// with `error.ConnectionLost`. Closing the wire answers false, so the caller
+/// finds `wire.closed` set and holds nothing.
+pub fn pressuredAfterOffer(self: *HostRuntime, wire: *Wire) bool {
+    if (!wire.session.outboundPressured()) return false;
+    if (!writableOwed(wire)) {
+        Internal.writeOutbound(self, wire) catch |err| {
+            Internal.closeWire(self, wire, err);
+            return false;
+        };
+    }
+    if (!wire.session.outboundPressured()) return false;
+    if (wire.link.resident_closed) {
+        Internal.closeWire(self, wire, error.ConnectionLost);
+        return false;
+    }
+    return true;
 }
 
 /// Close `wire` for a feed the core refused, after draining the actions the
@@ -98,53 +151,130 @@ fn closeWireForRefusedFeed(self: *HostRuntime, wire: *Wire, err: anyerror) !void
     return drained;
 }
 
-/// Resume every wire the sweep can move (`sweepCanMove`): the core stops
-/// consuming at the frame that opens a session, so frames that coalesced
-/// behind the handshake hello wait in the tail, and no poll will ever report
-/// them, because they already left the kernel. Every binding's serve loop
-/// resumes retained input before parking for exactly this reason. This is
-/// the owning face's spelling of that contract. A refusal closes that wire
-/// like any dispatch refusal. Returns whether the sweep acted on any wire,
-/// which is progress no source reports.
+/// Move the input the runtime and the core hold, wire by wire, and report
+/// whether any wire acted, which is progress no source reports.
+/// The core stops consuming at the frame that opens a session, so frames
+/// that coalesced behind the handshake hello wait in its tail, and no poll
+/// will report them, because they already left the kernel. A wire's input
+/// moves oldest first. Parked bytes replay first, then the core's held
+/// input resumes, and then the read a hold left in the resident finishes.
+/// A wire at its outbound waterline is offered its queued output first
+/// (`pressuredAfterOffer`), so a window that opened since the last drain
+/// releases the hold in the same sweep. A refusal closes that wire like any
+/// dispatch refusal.
 ///
-/// The pause exists so the embedder can finish post-open setup (publish,
-/// spawn) before the partner's coalesced first frames dispatch, so a session
-/// whose open has not yet committed keeps waiting: `skip`, the session a
-/// handshake pump is itself opening, and any session a pending open still
-/// owns, such as a listener arrival its accept observer has not yet taken.
-/// Resuming either would answer a pipelined fetch before the object it names
-/// exists.
+/// The pause at the open exists so the embedder can finish post-open setup
+/// (publish, spawn) before the partner's coalesced first frames dispatch, so
+/// a session whose open has not yet committed keeps waiting: `skip`, the
+/// session a handshake pump is itself opening, and any session a pending
+/// open still owns, such as a listener arrival its accept observer has not
+/// yet taken. Resuming either would answer a pipelined fetch before the
+/// object it names exists. An unattended wire dispatches nothing, so the sweep
+/// only finishes the read's end it owes (`endOwed`).
 pub fn resumeFeedTails(self: *HostRuntime, skip: ?*driver_core.HostSession) !bool {
     var acted = false;
+    self.held_input_possible = false;
     var it = self.wires.valueIterator();
     while (it.next()) |entry| {
         const wire = entry.*;
-        if (wire.session == skip) continue;
-        if (!sweepCanMove(self, wire)) continue;
-        acted = true;
-        if (wire.link.read_deferred) {
-            wire.link.read_deferred = false;
-            if (try feedReadable(self, wire, null) == .closed) continue;
+        const holds = !wire.closed and holdsInput(wire);
+        self.held_input_possible = self.held_input_possible or holds;
+        if (wire.session == skip or !sweepHolds(self, wire)) continue;
+        if (!wire.attended) {
+            acted = true;
+            _ = try feedReadable(self, wire, null);
+            continue;
         }
-        if (wire.session.inboundResumable()) {
-            wire.session.resumeFeed() catch |err| {
+        if (pressuredAfterOffer(self, wire) or wire.closed) continue;
+        acted = true;
+        try replayParked(self, wire);
+        if (wire.closed or wire.link.parked.items.len != 0) continue;
+        wire.session.resumeFeed() catch |err| switch (err) {
+            // The documented retry: the input stays held.
+            error.OutboundBackpressure => {},
+            else => {
                 try closeWireForRefusedFeed(self, wire, err);
                 continue;
-            };
+            },
+        };
+        if (wire.link.read_deferred) {
+            if (try feedReadable(self, wire, null) == .closed) continue;
         }
     }
     return acted;
 }
 
-/// Whether the sweep's action on `wire` can make progress: the wire is live,
-/// attended, and past its open, and it holds a deferred read or input a
-/// resume can move. `resumeFeedTails` acts on a wire this admits, and the
-/// step's nudge posts the readiness wake for one, so an embedder steps again
-/// for held input only when the sweep has work.
-pub fn sweepCanMove(self: *const HostRuntime, wire: *const Wire) bool {
-    if (wire.closed or !wire.attended) return false;
-    if (!wire.link.read_deferred and !wire.session.inboundResumable()) return false;
-    return !openPending(self, wire.session);
+/// Whether the next sweep has work on `wire` that no readiness source
+/// reports: the sweep holds input for it (`sweepHolds`) and no writable
+/// event is owed (`writableOwed`). With nothing held, the wire's own events
+/// bring whatever remains. With a writable event owed, that event wakes the
+/// embedder when the window opens, so polling for it would only spin. Held
+/// input with no event owed is work the sweep acts on: it offers the queue,
+/// then moves the input, closes the wire, or skips it while it is still
+/// pressured, and the drain after it writes what the offer could not.
+fn sweepCanMove(self: *const HostRuntime, wire: *const Wire) bool {
+    return sweepHolds(self, wire) and !writableOwed(wire);
+}
+
+/// Whether the resident owes `wire` a writable event whose drain re-arms the
+/// sweep: its session is at the waterline with a refused write pending, and
+/// the resident has not reported the closed edge, after which the runtime
+/// counts on no further event.
+fn writableOwed(wire: *const Wire) bool {
+    return wire.session.outboundPressured() and wire.link.pending != null and
+        !wire.link.resident_closed;
+}
+
+/// Whether an unattended wire still owes the read of its stream's end: a read
+/// was left for the sweep and the resident reported the partner's departure,
+/// both while the wire was attended.
+fn endOwed(wire: *const Wire) bool {
+    return wire.link.resident_closed and wire.link.read_deferred;
+}
+
+/// Whether `wire` holds input no readiness source will report: bytes the
+/// runtime kept (parked input or a deferred read) or input the core can
+/// resume. The wire's own fields and its session's answer.
+pub fn holdsInput(wire: *const Wire) bool {
+    return wire.link.read_deferred or wire.link.parked.items.len != 0 or
+        wire.session.inboundResumable();
+}
+
+/// Whether the sweep has work on `wire`, the one answer the sweep and the
+/// park bound share. The wire is live and its open has committed. An attended
+/// wire has work while it holds input (`holdsInput`). An unattended wire
+/// dispatches nothing, so its only work is the read's end it owes
+/// (`endOwed`), which the sweep reads and parks without feeding the core.
+fn sweepHolds(self: *const HostRuntime, wire: *const Wire) bool {
+    if (wire.closed or openPending(self, wire.session)) return false;
+    return if (wire.attended) holdsInput(wire) else endOwed(wire);
+}
+
+/// Whether the next sweep would act on some wire other than `skip`'s: input
+/// the runtime or the core holds that no readiness source will report. A
+/// wait that parks with such work left strands it, so `stepSession`,
+/// `stepAnyOwned` and `pumpUntilProbe` read this after the drain and poll
+/// instead. `awaitResidentConnect` waits on one connect and does not.
+pub fn sweepWorkRemains(self: *const HostRuntime, skip: ?*const driver_core.HostSession) bool {
+    var it = self.wires.valueIterator();
+    while (it.next()) |wire| {
+        if (wire.*.session == skip) continue;
+        if (sweepCanMove(self, wire.*)) return true;
+    }
+    return false;
+}
+
+/// The longest a wait may park: zero while the sweep has work for a wire
+/// other than `skip`'s, because no source reports that work, else `timeout_ms`.
+/// A zero timeout is already a poll. The walk runs only while
+/// `held_input_possible`. Debug builds check that a skipped walk was right.
+pub fn parkBoundMs(self: *const HostRuntime, timeout_ms: i32, skip: ?*const driver_core.HostSession) i32 {
+    if (timeout_ms == 0) return 0;
+    if (!self.held_input_possible) {
+        if (comptime builtin.optimize == .debug) std.debug.assert(!sweepWorkRemains(self, skip));
+        return timeout_ms;
+    }
+    return if (sweepWorkRemains(self, skip)) 0 else timeout_ms;
 }
 
 /// Bounded by `Options.max_pending_opens`, and reached only for a session
@@ -186,10 +316,11 @@ pub fn pumpUntilProbe(self: *HostRuntime, probe: anytype, budget: Budget) !void 
             if (remaining <= 0) return Error.WaitTimedOut;
             break :blk std.math.cast(i32, remaining) orelse std.math.maxInt(i32);
         } else -1;
+        const wait_ms = parkBoundMs(self, timeout, probe.resumeSkip());
 
         // A probe wire closed in here surfaces at the loop top's
         // `wireClosed` check.
-        const woke = try waitAnySource(self, timeout, false);
+        const woke = try waitAnySource(self, wait_ms, false);
         self.readTurnClock();
         const index = woke orelse continue;
         _ = try resident_pump.serviceResident(self, index, probeSession(probe));

@@ -104,10 +104,10 @@ it with a transport connection, and repeats three operations:
 
 `feed_bytes` accepts canonical Syrup byte strings (`length:body`) and owns split
 or coalesced input plus the bounded tail. Whole-frame `feed` and
-`take_outbound` stay bare for transports that already frame messages. If `feed`
-or `feed_bytes` returns `GLOWCAP_ERR_WOULD_BLOCK`, the session has too many
-encoded outbound bytes queued. Drain `take_outbound`, write those frames, then
-retry the feed.
+`take_outbound` stay bare for transports that already frame messages. If `feed`,
+`feed_bytes`, or `resume_feed` returns `GLOWCAP_ERR_WOULD_BLOCK`, the session
+has too many encoded outbound bytes queued. Drain `take_outbound`, write those
+frames, then retry the call.
 
 The pump hooks handle flushes, completed promises, handoff dials, and gift-id
 requests. Hosted behavior callbacks run synchronously while the Host is driven,
