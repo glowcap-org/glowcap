@@ -42,16 +42,10 @@ async fn terminal_status_distinguishes_successful_retirement_from_cleanup_failur
 }
 
 struct Platform;
-struct Task(tokio::task::JoinHandle<()>);
-impl Drop for Task {
-	fn drop(&mut self) {
-		self.0.abort();
-	}
-}
 impl Tasks for Platform {
-	type Task = Task;
-	fn spawn(&self, work: impl core::future::Future<Output = ()> + 'static) -> Task {
-		Task(tokio::task::spawn_local(work))
+	type Task = rooms_testing::local_set::AbortOnDrop;
+	fn spawn(&self, work: impl core::future::Future<Output = ()> + 'static) -> Self::Task {
+		rooms_testing::local_set::AbortOnDrop::spawn(work)
 	}
 }
 

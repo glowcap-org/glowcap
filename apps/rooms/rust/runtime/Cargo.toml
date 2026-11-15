@@ -13,7 +13,7 @@ workspace = true
 
 [dependencies]
 rooms-application = { path = "../application" }
-rooms-glowcap = { path = "../glowcap", features = ["loam"] }
+rooms-glowcap = { path = "../glowcap" }
 glowcap = { workspace = true, features = ["loam"] }
 serde_json.workspace = true
 serde.workspace = true

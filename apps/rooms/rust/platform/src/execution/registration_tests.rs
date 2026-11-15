@@ -2,7 +2,7 @@
 use super::HostPlatform;
 use glowcap::{Argument, ConnectOptions, Host, ListenerIdentity, PendingWork, Runtime, RuntimeConfig, tcp};
 use rooms_application::directory::registration::{self as policy, Id, Kind, NicknameAllocation};
-use rooms_glowcap::client::{Client, Error, Tasks, directory::Directory};
+use rooms_glowcap::client::{Client, Error, directory::Directory};
 use serde_json::{Value, json};
 use std::{
 	cell::{Cell, RefCell},
@@ -11,22 +11,6 @@ use std::{
 };
 
 const ID: &str = "11111111-1111-4111-8111-111111111111";
-#[derive(Clone, Default)]
-struct Platform;
-impl rooms_glowcap::client::Deadline for Platform {
-	fn monotonic_millis(&self) -> u64 {
-		0
-	}
-	async fn within<T>(&self, milliseconds: u64, work: impl core::future::Future<Output = T>) -> Option<T> {
-		HostPlatform.within(milliseconds, work).await
-	}
-}
-impl Tasks for Platform {
-	type Task = super::HostTask;
-	fn spawn(&self, work: impl core::future::Future<Output = ()> + 'static) -> Self::Task {
-		HostPlatform.spawn(work)
-	}
-}
 fn project(arg: &Argument) -> Value {
 	match arg {
 		Argument::Reference(_) => json!({"capability":true}),
@@ -73,8 +57,7 @@ async fn scenario() {
 	let accepted = Rc::new(accepted.unwrap());
 	let service = accepted.clone();
 	let serving = tokio::task::spawn_local(async move { service.serve().await });
-	let platform = Platform;
-	let client = Client::new(connected.unwrap(), platform.clone());
+	let client = Client::new(connected.unwrap(), HostPlatform);
 	let calls = Rc::new(RefCell::new(Vec::<Value>::new()));
 	let voucher = Rc::new(RefCell::new(Argument::Bytes(vec![1, 2, 3])));
 	let (recorded, answer) = (calls.clone(), voucher.clone());
