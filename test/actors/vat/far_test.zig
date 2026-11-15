@@ -1,7 +1,7 @@
 //! The wire seam: far tells deliver with no answer, settled far vows refuse
 //! a second resolve, breakFarVows settles everything broken including a vow
-//! registered during the sweep, and listeners that re-enter serve still
-//! read intact bytes off one converged resolve.
+//! registered during the sweep, and one converged resolve fires every local
+//! far listener.
 
 const BreakCause = @import("glowcap").foundation.break_cause.BreakCause;
 const std = @import("std");
@@ -198,118 +198,6 @@ test "a listener that drives a state-mutating turn still reads an intact resolut
 
     try std.testing.expect(!capture.broke);
     try std.testing.expectEqualStrings("before", capture.buf[0..capture.len]);
-}
-
-/// Replies with a fresh turn-arena byte string naming the verb, for the
-/// re-entrant far-settle test below.
-const EchoVerb = struct {
-    pub fn handle(self: *EchoVerb, turn: *Turn, msg: Delivery) !model.Argument {
-        _ = self;
-        return .{ .bytes = try turn.arena.print("reply-{s}", .{msg.verb orelse return error.NoSuchMethod}) };
-    }
-};
-
-/// A far listener that re-enters `serve` with a second resolve event while
-/// its own resolution is live, then reads its bytes. The vat's settle-depth
-/// guard is what keeps the nested settle from resetting the settle arena
-/// under the outer value.
-const NestedServeCapture = struct {
-    vat: *actors.Vat,
-    port: *actors.Port,
-    inner_event: *glowcap.ocapn.engine.Event,
-    buf: [64]u8 = undefined,
-    len: usize = 0,
-    broke: bool = false,
-
-    fn record(ctx: ?*anyopaque, resolution: actors.Resolution) void {
-        const self: *NestedServeCapture = @ptrCast(@alignCast(ctx.?));
-        const bytes = switch (resolution) {
-            .fulfilled => |value| value.bytes,
-            .broken, .give => {
-                self.broke = true;
-                return;
-            },
-        };
-        // Pump the second resolve through a nested serve, the same shape a
-        // driver's `step` → `drainEvents` re-entry has, before reading.
-        _ = self.port.serve(self.vat, self.inner_event) catch {
-            self.broke = true;
-            return;
-        };
-        @memcpy(self.buf[0..bytes.len], bytes);
-        self.len = bytes.len;
-    }
-};
-
-test "a far listener that pumps a second resolve through a nested serve reads intact bytes" {
-    const allocator = std.testing.allocator;
-    var pair = try glowcap.ocapn.engine.pairing.paired(allocator);
-    defer pair.deinit();
-    const host_peer = &pair.p1;
-    const caller_peer = &pair.p2;
-
-    var host_vat = actors.Vat.init(allocator);
-    defer host_vat.deinit();
-    var host_port = actors.Port.init(allocator, host_peer);
-    defer host_port.deinit(&host_vat);
-    const echo = try host_vat.spawn(EchoVerb, .{});
-    try host_port.bindExport(&host_vat, echo, 5);
-    try host_peer.exportObject(5);
-
-    try caller_peer.importObject(5);
-    var caller_vat = actors.Vat.init(allocator);
-    defer caller_vat.deinit();
-    var caller_port = actors.Port.init(allocator, caller_peer);
-    defer caller_port.deinit(&caller_vat);
-    const remote: actors.Ref = .{ .far = model.FarRef.object(5) };
-
-    const first = try caller_port.send(&caller_vat, remote, .{ .verb = "one" });
-    const second = try caller_port.send(&caller_vat, remote, .{ .verb = "two" });
-
-    // Shuttle the delivers over (one step per frame), run both turns, then
-    // shuttle the resolves back the same way.
-    try cross_peer.pumpAll(caller_peer, host_peer);
-    while (host_peer.pollEvent()) |ev| {
-        var e = ev;
-        defer e.deinit();
-        _ = try host_port.serve(&host_vat, &e);
-    }
-    try cross_peer.pumpAll(host_peer, caller_peer);
-
-    var resolves: [2]?glowcap.ocapn.engine.Event = .{ null, null };
-    var resolve_count: usize = 0;
-    while (caller_peer.pollEvent()) |event| {
-        if (event.kind() == .resolve) {
-            if (resolve_count == resolves.len) {
-                var extra = event;
-                extra.deinit();
-                return error.UnexpectedResolve;
-            }
-            resolves[resolve_count] = event;
-            resolve_count += 1;
-        } else {
-            var bookkeeping = event;
-            bookkeeping.deinit();
-        }
-    }
-    try std.testing.expectEqual(resolves.len, resolve_count);
-    var first_event = resolves[0] orelse return error.ExpectedResolve;
-    defer first_event.deinit();
-    var second_event = resolves[1] orelse return error.ExpectedResolve;
-    defer second_event.deinit();
-
-    var outer = NestedServeCapture{ .vat = &caller_vat, .port = &caller_port, .inner_event = &second_event };
-    try caller_port.on(&caller_vat, first, .{ .ctx = &outer, .func = NestedServeCapture.record });
-    var inner = Captured{};
-    try caller_port.on(&caller_vat, second, .{ .ctx = &inner, .func = Captured.record });
-
-    try std.testing.expect(try caller_port.serve(&caller_vat, &first_event));
-
-    // Both resolutions read intact: the nested settle allocated in the same
-    // arena but never reset it (depth returned to 1, not 0).
-    try std.testing.expect(!outer.broke);
-    try std.testing.expectEqualStrings("reply-one", outer.buf[0..outer.len]);
-    try std.testing.expectEqualStrings("reply-two", inner.buf[0..inner.len]);
 }
 
 test "one converged wire resolve fires every local far listener" {

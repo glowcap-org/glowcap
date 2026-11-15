@@ -121,6 +121,9 @@ Releases before 0.1.7 are in the
   read, in the connection loop and in a byte-fed Host session, and the frames
   behind it are read where they arrived. Each read behind a split frame was
   copied whole.
+- A fulfilled reply off the wire reaches its listener with its text and bytes
+  read from the received frame. Each was copied into the Vat's settle arena
+  first.
 
 ### Fixed
 

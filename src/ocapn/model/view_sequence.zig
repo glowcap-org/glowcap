@@ -15,6 +15,15 @@ const view = @import("view.zig");
 const ProjectError = view.ProjectError;
 const Error = view.Error;
 
+/// How a materializing walk treats the byte leaves of the tree it builds: a
+/// string, symbol, keyword, byte string, tag, struct key, error message, or
+/// big-integer digits. `copied` duplicates each one, so the tree owns its
+/// bytes and frees with the model's free functions. `lent` makes each one the
+/// view's own slice, so the tree is valid only while the view's storage is,
+/// lives in an arena, and is never passed to a model free function. The
+/// spines, and a reference or handoff whole, are allocated in both modes.
+pub const Leaves = enum { copied, lent };
+
 // ── Lazy sequences ───────────────────────────────────────────────────────────
 
 /// Codec-private cursor borrowing wire memory, shared by every lazy sequence.
@@ -202,15 +211,17 @@ pub fn LazySequence(comptime OwnedElem: type, comptime ViewElem: type, comptime 
         }
 
         /// Materialize one viewed element into its owned form at `depth`.
-        fn materialize(allocator: std.mem.Allocator, elem: *const ViewElem, depth: usize) Error!OwnedElem {
+        fn materialize(allocator: std.mem.Allocator, elem: *const ViewElem, depth: usize, comptime leaves: Leaves) Error!OwnedElem {
             if (comptime OwnedElem == ViewElem) {
                 return elem.*;
             } else {
-                return elem.toOwnedDepth(allocator, depth);
+                return elem.toTreeDepth(allocator, depth, leaves);
             }
         }
 
-        /// Release one owned element on the partial-failure unwind.
+        /// Release one owned element on the partial-failure unwind. A lent
+        /// tree lives in an arena, so its unwind frees only the slice itself
+        /// and never reaches here.
         fn freeOwned(allocator: std.mem.Allocator, elem: OwnedElem) void {
             if (comptime OwnedElem == model.Argument) {
                 model.freeArgument(allocator, elem);
@@ -371,10 +382,12 @@ pub fn LazySequence(comptime OwnedElem: type, comptime ViewElem: type, comptime 
         }
 
         pub fn toOwnedSlice(self: Self, allocator: std.mem.Allocator) Error![]OwnedElem {
-            return self.toOwnedSliceDepth(allocator, 0);
+            return self.toSliceDepth(allocator, 0, .copied);
         }
 
-        pub fn toOwnedSliceDepth(self: Self, allocator: std.mem.Allocator, depth: usize) Error![]OwnedElem {
+        /// The one materializing walk: every element in its owned form at
+        /// `depth`, byte leaves treated as `leaves` says.
+        pub fn toSliceDepth(self: Self, allocator: std.mem.Allocator, depth: usize, comptime leaves: Leaves) Error![]OwnedElem {
             // The session sets its own, lower inbound cap
             // (`SessionLimits.max_nesting_depth`) and validates before it
             // materializes anything, so real wire data never reaches this. The
@@ -386,11 +399,11 @@ pub fn LazySequence(comptime OwnedElem: type, comptime ViewElem: type, comptime 
             const out = try allocator.alloc(OwnedElem, count);
             errdefer allocator.free(out);
             var initialized: usize = 0;
-            errdefer for (out[0..initialized]) |elem| freeOwned(allocator, elem);
+            errdefer if (leaves == .copied) for (out[0..initialized]) |elem| freeOwned(allocator, elem);
             var it = self.iterator();
             while (try it.nextRef()) |elem| {
                 if (initialized >= count) return error.MalformedView;
-                out[initialized] = try materialize(allocator, elem, depth);
+                out[initialized] = try materialize(allocator, elem, depth, leaves);
                 initialized += 1;
             }
             if (initialized != count) return error.MalformedView;

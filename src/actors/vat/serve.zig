@@ -167,27 +167,39 @@ fn fulfillServed(self: *Vat, port: *Port, answer: ?engine.AnswerTarget, value: m
     try resolveFulfillView(port, answer, value);
 }
 
-/// The fulfilled-arm settle spine shared by `serveResolve` and
-/// `settleFar`, holding the choreography both must keep in sync. The clone defends two hazards: a listener may open a
-/// top-level turn (`near` or `drive`) whose depth-0 turn-arena reset
-/// would free a turn-borrowed value mid-call, and the value may borrow
-/// actor state a listener-run turn mutates or `become`-frees. Its home is
-/// the settle arena. Queue chunks own queued messages and are not listener
+/// The fulfilled-arm settle spine shared by `serveResolve` and `settleFar`,
+/// holding the choreography both must keep in sync. The settle arena holds
+/// the value's tree for the listener call, and `leaves` says whether it holds
+/// the byte leaves too. `settleFar` copies them, which defends its caller's
+/// value against two hazards: a listener may open a top-level turn (`near` or
+/// `drive`) whose depth-0 turn-arena reset would free a turn-borrowed value
+/// mid-call, and the value may borrow actor state a listener-run turn mutates
+/// or `become`-frees. `serveResolve` lends them, because its value is a view
+/// over the event's frame, which neither hazard reaches: `serve`'s caller
+/// owns the event for the whole call, a listener that re-enters `serve` for a
+/// later event included. Queue chunks own queued messages and are not listener
 /// scratch. The depth guard keeps a re-entrant settle (a listener pumping
-/// `serve` again) from resetting the arena under the outer value. Materialized
-/// before the remove so a refused clone leaves the listener parked. That is
-/// open to the far arms only because their producer survives the refusal: a
-/// Host action stays parked for a retry, and a refused frame retires the
-/// session, whose release runs `breakFarVows`. A local turn has no such
-/// producer, so `settleLocal` breaks its waiter instead. `value` is borrowed
-/// for the call.
-fn fireFulfilledFar(self: *Vat, port: *Port, answer: engine.OutboundAnswerTarget, listener: Listener, value: model.view.Argument) !void {
+/// `serve` again) from resetting the arena under the outer value. The tree is
+/// built before the remove, so a refused build leaves the listener parked.
+/// That is open to the far arms only because their producer survives the
+/// refusal: a Host action stays parked for a retry, and a refused frame
+/// retires the session, whose release runs `breakFarVows`. A local turn has no
+/// such producer, so `settleLocal` breaks its waiter instead. `value` is
+/// borrowed for the call.
+fn fireFulfilledFar(
+    self: *Vat,
+    port: *Port,
+    answer: engine.OutboundAnswerTarget,
+    listener: Listener,
+    value: model.view.Argument,
+    comptime leaves: model.view.Leaves,
+) !void {
     const arena = vows.beginSettle(self);
     defer vows.endSettle(self);
-    const owned = try value.toOwned(arena);
+    const tree = try value.toTreeDepth(arena, 0, leaves);
     std.debug.assert(port.far_listeners.fetchSwapRemove(answer) != null);
     port.peer.session_state.consumeOutboundAnswerNotification(answer);
-    listener.func(listener.ctx, .{ .fulfilled = owned });
+    listener.func(listener.ctx, .{ .fulfilled = tree });
 }
 
 /// The broken-arm sibling: remove-before-fire, reason borrowed for the
@@ -201,8 +213,10 @@ fn fireBrokenFar(port: *Port, answer: engine.OutboundAnswerTarget, listener: Lis
 /// The resolve arm of `serve`: fire the far vow's one-shot listener with
 /// the settled outcome, a typed give projection when the fulfillment
 /// carries a signed handoff give (`event` is here for exactly that: the
-/// verbatim envelope span lives only in the event's frame), an owned clone
-/// on the plain fulfilled path, or the break reason.
+/// verbatim envelope span lives only in the event's frame), a tree on the
+/// plain fulfilled path, or the break reason. The plain tree lives in the
+/// settle arena with its byte leaves lent from the event's frame, which
+/// `serve`'s caller holds for the whole call (`fireFulfilledFar`).
 /// `answer` is the question `resolve` settles, by identity: the event's own
 /// target or one of its aliases.
 fn serveResolve(self: *Vat, port: *Port, resolve: model.view.Resolve, answer: engine.OutboundAnswerTarget) !bool {
@@ -246,7 +260,7 @@ fn serveResolve(self: *Vat, port: *Port, resolve: model.view.Resolve, answer: en
                     }
                 }
             }
-            try fireFulfilledFar(self, port, answer, listener, value);
+            try fireFulfilledFar(self, port, answer, listener, value, .lent);
         },
         .@"break" => |reason| fireBrokenFar(port, answer, listener, engine.Broken.partner(reason.message)),
     }
@@ -272,7 +286,7 @@ pub fn settleFar(self: *Vat, port: *Port, answer: engine.OutboundAnswerTarget, o
         return;
     };
     switch (outcome) {
-        .fulfilled => |*value| try fireFulfilledFar(self, port, answer, listener, .fromOwned(value)),
+        .fulfilled => |*value| try fireFulfilledFar(self, port, answer, listener, .fromOwned(value), .copied),
         .broken => |reason| fireBrokenFar(port, answer, listener, reason),
     }
 }
