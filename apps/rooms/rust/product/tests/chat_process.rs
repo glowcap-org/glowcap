@@ -118,8 +118,10 @@ fn installed_chat_switches_preserves_refused_membership_and_observes_shutdown() 
 		} else {
 			announced.into()
 		};
-		let mut first = chat(&locator, "general");
+		// The occupied room is admitted before the first client reads its
+		// directory snapshot, so `/list` shows it without waiting for an update.
 		let mut occupied = chat(&locator, "occupied");
+		let mut first = chat(&locator, "general");
 		first.send("/help");
 		first.until("/list");
 		first.send("/list");
