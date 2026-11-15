@@ -287,6 +287,7 @@ pub fn check(
     try cp_racket.checkBindingTestAggregate(io, gpa, root, &violations);
     try bs_iroh.checkIrohLoopConvergence(io, gpa, root, &violations);
     try bs_iroh.checkIrohBindingAggregatesComplete(io, gpa, root, &violations);
+    try bs_iroh.checkIrohSidecarHeaderConstants(io, gpa, root, &violations);
     try binding_literals.check(io, gpa, root, &violations);
     try agents_catalog.checkRuleFrontmatter(io, gpa, root, &violations);
     try ps_layers.checkLayerOwnership(io, gpa, root, &violations);

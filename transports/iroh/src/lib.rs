@@ -127,56 +127,15 @@ pub struct GlowcapIrohEndpointConfig {
 	pub worker_threads: u32,
 }
 
-/// Reachability postures, chosen explicitly by the caller, with no default. A
-/// glowcap peer never enables relays or a discovery service as a
-/// hidden implementation detail. The host decides, in the open, how this
-/// endpoint becomes reachable. These values mirror
-/// `GLOWCAP_IROH_REACH_*` in `include/glowcap_iroh_sidecar.h` and the
-/// `Reachability` enum the Zig resident exposes.
-const REACH_DIRECT: u32 = 0;
-const REACH_DISCOVERY: u32 = 1;
-const REACH_DISCOVERY_NO_RELAY: u32 = 2;
-const REACH_LOCAL_DISCOVERY: u32 = 3;
-
-/// `conn_try_read` / `conn_try_write` return this when the operation cannot make
-/// progress without blocking: no inbound bytes are buffered yet, or the outbound
-/// buffer has no room. The loop yields the connection and re-arms it on the next
-/// readiness event. Distinct from `0` (clean end of stream or zero-length write)
-/// and `-1` (error). Mirrors `GLOWCAP_IROH_WOULD_BLOCK` in the header and the
-/// Zig resident.
-const WOULD_BLOCK: isize = -2;
-
-/// Readiness event bits packed into `GlowcapIrohReadyEvent.events`. A single
-/// drained record may carry several at once (e.g. `EV_READABLE | EV_CLOSED` when
-/// the peer's last bytes arrive with its end of stream).
-const EV_READABLE: u32 = 1;
-const EV_WRITABLE: u32 = 2;
-const EV_CLOSED: u32 = 4;
-const EV_ACCEPT: u32 = 8;
-const EV_CONNECT: u32 = 16;
-
-const DIAL_OK: i32 = 0;
-const DIAL_INVALID: i32 = 1;
-const DIAL_TIMEOUT: i32 = 2;
-const DIAL_UNREACHABLE: i32 = 3;
-const DIAL_LOST: i32 = 4;
-const DIAL_CANCELED: i32 = 5;
-const DIAL_PENDING: i32 = 6;
-const DIAL_BUSY: i32 = 7;
-/// The endpoint this dial was asked on is already closed: a local lifecycle
-/// fault, permanent for this endpoint, and never a reason to retry.
-const DIAL_CLOSED: i32 = 8;
-/// The partner refused the connection during the QUIC or TLS handshake, or
-/// this endpoint rejected it locally: a peer-refusal fault, not a path fault.
-const DIAL_REFUSED: i32 = 9;
-
-/// Bound on the text a failed dial keeps beside its code: iroh's own account
-/// of the fault, which the code alone cannot carry (which relay refused, which
-/// address stayed silent, the QUIC close reason). Mirrors
-/// `GLOWCAP_IROH_SIDECAR_DIAL_TEXT_BYTES` in the header and `dial_text_bytes`
-/// in the Zig resident, so a caller that sizes its buffer by the constant
-/// never sees a truncated copy.
-const DIAL_TEXT_BYTES: usize = 256;
+// The vocabulary shared with the Zig resident, which owns it in
+// `src/net/transport/iroh/policy.zig` and `sidecar.zig`: the reachability
+// postures `REACH_*` a caller chooses explicitly, with no default, `WOULD_BLOCK`
+// (the `try_read` and `try_write` sentinel, distinct from `0` for end of stream
+// and `-1` for an error), the readiness bits `EV_*` packed into
+// `GlowcapIrohReadyEvent.events`, the dial classification `DIAL_*`, and
+// `DIAL_TEXT_BYTES`, the bound on the text a failed dial keeps beside its code.
+// `zig build gen-iroh-sidecar-constants` writes them into `constants_gen.rs`.
+use constants_gen::*;
 
 /// The non-blocking inbound/outbound buffer bound, per connection and direction
 /// (ADR-0019's back-pressure policy). A reader that fills the inbound buffer

@@ -14,8 +14,8 @@
 //! 2. Submit offers, answers, and remote candidates outside the reactor turn.
 //!    Peer creation and signaling submissions are synchronous control calls.
 //! 3. When the fd wakes, call `Resident.drainReady` and route each record by its
-//!    stable `PeerId`. Drain local candidates on `ev_candidate`. Call `checkOpen`
-//!    on `ev_open` and stop on `ev_closed`. A blocking owner can use
+//!    stable `PeerId`. Drain local candidates on `ev.candidate`. Call `checkOpen`
+//!    on `ev.open` and stop on `ev.closed`. A blocking owner can use
 //!    `Resident.pollReady`, which performs the same ordered drain.
 //! 4. Once open, use `tryReceivePacket` / `trySendPacket` from that readiness
 //!    loop.
@@ -86,11 +86,8 @@ const backend = @import("webrtc/backend/state.zig");
 
 // Supported WebRTC surface. Leaf `pub` declarations are cross-file visibility;
 // this facade is the consumer namespace.
-pub const ev_open = sidecar.ev_open;
-pub const ev_candidate = sidecar.ev_candidate;
-pub const ev_readable = sidecar.ev_readable;
-pub const ev_writable = sidecar.ev_writable;
-pub const ev_closed = sidecar.ev_closed;
+pub const ev = sidecar.ev;
+pub const result = sidecar.result;
 pub const ReadyEvent = sidecar.ReadyEvent;
 pub const PeerId = sidecar.PeerId;
 pub const StringView = sidecar.StringView;

@@ -8,8 +8,8 @@ const webrtc = @import("webrtc");
 const stub = @import("webrtc_sidecar_stub.zig");
 
 fn resetSignalStub() void {
-    stub.create_offer_result = -2;
-    stub.create_answer_result = -2;
+    stub.create_offer_result = webrtc.result.would_block;
+    stub.create_answer_result = webrtc.result.would_block;
     stub.create_signal_len = 0;
     stub.candidate_bytes_to_emit = 0;
     stub.candidate_ok_past_cap = false;
@@ -23,7 +23,7 @@ test "webrtc signal verbs refuse an ok result longer than the buffer they offere
     var wide: [webrtc.max_signal_bytes + 8]u8 = undefined;
     var out_len: usize = 0;
 
-    stub.create_offer_result = 0;
+    stub.create_offer_result = webrtc.result.ok;
     stub.create_signal_len = small.len + 1;
     try std.testing.expectError(error.SignalFailed, peer.createOffer(&small, &out_len));
     stub.create_signal_len = webrtc.max_signal_bytes + 1;
@@ -31,7 +31,7 @@ test "webrtc signal verbs refuse an ok result longer than the buffer they offere
     stub.create_signal_len = small.len;
     try std.testing.expectEqual(small.len, (try peer.createOffer(&small, &out_len)).len);
 
-    stub.create_answer_result = 0;
+    stub.create_answer_result = webrtc.result.ok;
     stub.create_signal_len = small.len + 1;
     try std.testing.expectError(error.SignalFailed, peer.createAnswer(&small, &out_len));
     stub.create_signal_len = webrtc.max_signal_bytes + 1;

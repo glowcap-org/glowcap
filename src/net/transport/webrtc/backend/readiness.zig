@@ -6,11 +6,7 @@ const sidecar = @import("../sidecar.zig");
 
 const completion = net.completion;
 const ReadyEvent = sidecar.ReadyEvent;
-const ev_open = sidecar.ev_open;
-const ev_candidate = sidecar.ev_candidate;
-const ev_readable = sidecar.ev_readable;
-const ev_writable = sidecar.ev_writable;
-const ev_closed = sidecar.ev_closed;
+const ev = sidecar.ev;
 
 /// A descriptor outside this backend that one `submitPoll` waits on. The
 /// next park that finds it ready completes it once and drops the row.
@@ -31,35 +27,35 @@ pub fn Machine(comptime Self: type, comptime Signaling: type, comptime Connectio
             return requested_ms;
         }
 
-        fn dispatchReady(self: *Self, ev: ReadyEvent) !void {
-            const fd = self.by_id.get(ev.subject) orelse return;
+        fn dispatchReady(self: *Self, record: ReadyEvent) !void {
+            const fd = self.by_id.get(record.subject) orelse return;
             if (self.pending_dials.getPtr(fd)) |row| {
-                if (ev.events & ev_candidate != 0) Signaling.pumpLocalCandidates(self, fd, &row.peer) catch |err| return Signaling.failDial(self, fd, err);
-                if (ev.events & ev_closed != 0) return Signaling.failDial(self, fd, channelTerminalCause(&row.peer));
-                if (ev.events & ev_open != 0) return Signaling.finishDial(self, fd);
+                if (record.events & ev.candidate != 0) Signaling.pumpLocalCandidates(self, fd, &row.peer) catch |err| return Signaling.failDial(self, fd, err);
+                if (record.events & ev.closed != 0) return Signaling.failDial(self, fd, channelTerminalCause(&row.peer));
+                if (record.events & ev.open != 0) return Signaling.finishDial(self, fd);
                 return;
             }
             if (self.adopting.getPtr(fd)) |row| {
-                if (ev.events & ev_candidate != 0) Signaling.pumpLocalCandidates(self, fd, &row.peer) catch |err| return Signaling.failAdopt(self, fd, err);
-                if (ev.events & ev_closed != 0) {
+                if (record.events & ev.candidate != 0) Signaling.pumpLocalCandidates(self, fd, &row.peer) catch |err| return Signaling.failAdopt(self, fd, err);
+                if (record.events & ev.closed != 0) {
                     return Signaling.failAdopt(self, fd, channelTerminalCause(&row.peer));
                 }
-                if (ev.events & ev_open != 0) return Signaling.openAdopted(self, fd);
+                if (record.events & ev.open != 0) return Signaling.openAdopted(self, fd);
                 return;
             }
             const entry = self.conns.getPtr(fd) orelse return;
-            if (ev.events & ev_candidate != 0) Signaling.pumpLocalCandidates(self, fd, &entry.peer) catch |err| {
+            if (record.events & ev.candidate != 0) Signaling.pumpLocalCandidates(self, fd, &entry.peer) catch |err| {
                 Connections.failOpenConnection(self, entry, err);
                 return;
             };
-            if (ev.events & (ev_readable | ev_closed) != 0) {
+            if (record.events & (ev.readable | ev.closed) != 0) {
                 entry.pending.readable_hint = true;
                 if (entry.pending.read_ud != null) Connections.completeRecv(self, entry);
             }
             // A closed channel settles a parked write as readily as a parked
             // read: the try-write reports the close, and the shared machine
             // latches it, exactly as the iroh backend handles its own edge.
-            if (ev.events & (ev_writable | ev_closed) != 0) {
+            if (record.events & (ev.writable | ev.closed) != 0) {
                 if (entry.pending.write_ud != null) Connections.completeSend(self, entry);
             }
         }
@@ -103,7 +99,7 @@ pub fn Machine(comptime Self: type, comptime Signaling: type, comptime Connectio
                 while (true) {
                     const n = try self.resident.drainReady(&events_buf);
                     if (n == 0) break;
-                    for (events_buf[0..n]) |ev| try dispatchReady(self, ev);
+                    for (events_buf[0..n]) |record| try dispatchReady(self, record);
                     if (n < events_buf.len) break;
                     try self.ready.ensureUnusedCapacity(self.allocator, events_buf.len * 2);
                 }

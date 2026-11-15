@@ -52,12 +52,43 @@ pub extern fn glowcap_iroh_sidecar_conn_try_write(conn: *CConn, buf: [*]const u8
 
 /// `conn_try_read` / `conn_try_write` return this when the operation cannot make
 /// progress without blocking. Distinct from 0 (clean end of stream) and -1
-/// (error). Mirrors `GLOWCAP_IROH_WOULD_BLOCK` in the sidecar header.
+/// (error). The Rust crate's `WOULD_BLOCK` is generated from this declaration
+/// and the header's `GLOWCAP_IROH_WOULD_BLOCK` is checked against it.
 pub const would_block: isize = -2;
 
-/// Bound on the text the sidecar keeps for one failed dial, mirroring
-/// `GLOWCAP_IROH_SIDECAR_DIAL_TEXT_BYTES`. A `DialText` is exactly this
-/// large, so the resident never receives a truncated copy.
+/// The dial classification the sidecar reports through `out_code` and the
+/// evented start and finish calls. The Rust crate's `DIAL_*` constants are
+/// generated from these tags (`zig build gen-iroh-sidecar-constants`) and the
+/// header's `GLOWCAP_IROH_DIAL_*` defines are checked against them. A value
+/// outside this set is the sidecar breaking its contract, so a caller reads a
+/// code with `std.enums.fromInt`.
+pub const DialCode = enum(i32) {
+    ok = 0,
+    /// A malformed node id or address hint, or a refused argument.
+    invalid = 1,
+    /// A bounded deadline passed before the dial or accept completed.
+    timeout = 2,
+    /// The QUIC connection could not be established.
+    @"unreachable" = 3,
+    /// The connection came up, then the stream failed.
+    lost = 4,
+    canceled = 5,
+    /// The terminal result was requested before the dial completed.
+    pending = 6,
+    /// The dial admission table is full, so the start owes no event.
+    busy = 7,
+    /// The endpoint this dial was asked on is already closed: a local
+    /// lifecycle fault, permanent for this endpoint, and never a reason to retry.
+    closed = 8,
+    /// The partner refused the connection during the QUIC or TLS handshake, or
+    /// this endpoint rejected it locally: a peer-refusal fault, not a path fault.
+    refused = 9,
+};
+
+/// Bound on the text the sidecar keeps for one failed dial. The Rust crate's
+/// `DIAL_TEXT_BYTES` is generated from this declaration and the header's
+/// `GLOWCAP_IROH_DIAL_TEXT_BYTES` is checked against it. A `DialText` is exactly
+/// this large, so the resident never receives a truncated copy.
 pub const dial_text_bytes: usize = 256;
 
 /// The sidecar's account of one failed dial, iroh's own text beside the code
@@ -76,13 +107,17 @@ pub const DialText = struct {
     }
 };
 
-/// Readiness event bits packed into `ReadyEvent.events`, mirroring the sidecar
-/// header's `GLOWCAP_IROH_EV_*`. A drained record may carry several at once.
-pub const ev_readable: u32 = 1;
-pub const ev_writable: u32 = 2;
-pub const ev_closed: u32 = 4;
-pub const ev_accept: u32 = 8;
-pub const ev_connect: u32 = 16;
+/// Readiness event bits packed into `ReadyEvent.events`. A drained record may
+/// carry several at once. The Rust crate's `EV_*` constants are generated from
+/// these declarations and the header's `GLOWCAP_IROH_EV_*` defines are checked
+/// against them.
+pub const ev = struct {
+    pub const readable: u32 = 1;
+    pub const writable: u32 = 2;
+    pub const closed: u32 = 4;
+    pub const accept: u32 = 8;
+    pub const connect: u32 = 16;
+};
 
 /// One drained readiness record: the subject that became ready (the stable
 /// `loopConnId` identity for connection records, a caller request id for

@@ -35,6 +35,7 @@ pub const locatorWithDirectAddresses = locators.locatorWithDirectAddresses;
 
 pub const ReadyEvent = sidecar.ReadyEvent;
 pub const DialText = sidecar.DialText;
+pub const DialCode = sidecar.DialCode;
 pub const dial_text_bytes = sidecar.dial_text_bytes;
 pub const Resident = resident.Resident;
 pub const MultiplexedAdapter = @import("iroh/multiplexed.zig").MultiplexedAdapter;

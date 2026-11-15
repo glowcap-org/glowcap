@@ -50,9 +50,9 @@ fn drainReady(ctx: ?*anyopaque, out: ?[*]c.GlowcapMultiplexedReadyEvent, cap: us
         }
         if (!peer.provider_claimed) continue;
         var mapped: u32 = 0;
-        if (event.events & webrtc.ev_readable != 0) mapped |= c.multiplexed_transport.GLOWCAP_MULTIPLEXED_EV_READABLE;
-        if (event.events & webrtc.ev_writable != 0) mapped |= c.multiplexed_transport.GLOWCAP_MULTIPLEXED_EV_WRITABLE;
-        if (event.events & webrtc.ev_closed != 0) mapped |= c.multiplexed_transport.GLOWCAP_MULTIPLEXED_EV_CLOSED;
+        if (event.events & webrtc.ev.readable != 0) mapped |= c.multiplexed_transport.GLOWCAP_MULTIPLEXED_EV_READABLE;
+        if (event.events & webrtc.ev.writable != 0) mapped |= c.multiplexed_transport.GLOWCAP_MULTIPLEXED_EV_WRITABLE;
+        if (event.events & webrtc.ev.closed != 0) mapped |= c.multiplexed_transport.GLOWCAP_MULTIPLEXED_EV_CLOSED;
         if (mapped == 0) continue;
         dest.?[total] = .{ .subject = @intCast(event.subject), .events = mapped };
         total += 1;

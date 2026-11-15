@@ -101,13 +101,13 @@ pub const Fixture = struct {
         signals = .{};
         stub.freed_peers = 0;
         stub.next_connection_id = stub_peer_id;
-        stub.create_offer_result = 0;
-        stub.create_answer_result = 0;
+        stub.create_offer_result = webrtc.result.ok;
+        stub.create_answer_result = webrtc.result.ok;
         stub.create_signal_len = 64;
         stub.set_remote_calls = 0;
-        stub.set_remote_result = 0;
+        stub.set_remote_result = webrtc.result.ok;
         stub.add_remote_candidate_calls = 0;
-        stub.add_remote_candidate_result = 0;
+        stub.add_remote_candidate_result = webrtc.result.ok;
         stub.driver_event_count = 0;
         stub.drain_driver_fails = false;
         var self: Fixture = .{};
@@ -130,12 +130,12 @@ pub const Fixture = struct {
     }
 
     pub fn deinit(self: *Fixture) void {
-        stub.create_offer_result = -2;
-        stub.create_answer_result = -2;
+        stub.create_offer_result = webrtc.result.would_block;
+        stub.create_answer_result = webrtc.result.would_block;
         stub.create_signal_len = 0;
-        stub.set_remote_result = -1;
-        stub.add_remote_candidate_result = -1;
-        stub.open_result = -2;
+        stub.set_remote_result = webrtc.result.err;
+        stub.add_remote_candidate_result = webrtc.result.err;
+        stub.open_result = webrtc.result.would_block;
         stub.driver_event_count = 0;
         stub.drain_driver_fails = false;
         std.testing.expectEqual(c.GLOWCAP_OK, webrtc_archive.glowcap_webrtc_netlayer_release(self.netlayer)) catch unreachable;

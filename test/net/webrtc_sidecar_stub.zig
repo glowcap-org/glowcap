@@ -1,10 +1,9 @@
 //! A scripted stand-in for the WebRTC Rust sidecar, linked in place of the
 //! real one so the resident, the backend, and the C module can be tested
 //! without cargo. Each export answers from the variables below, and the tests
-//! set them before a call and reset them after. Return codes follow
-//! `sidecar.zig`: 0 ok, -1 failed, -2 would block, -3 buffer too small,
-//! -4 signal too large, -5 closed. Peers get ids counting from 2, and a
-//! fixture resets the count, so a test's first peer has id 2.
+//! set them before a call and reset them after. Return codes are the names in
+//! `webrtc.result`. Peers get ids counting from 2, and a fixture resets the
+//! count, so a test's first peer has id 2.
 
 const webrtc = @import("webrtc");
 
@@ -16,16 +15,16 @@ pub var candidate_bytes_to_emit: usize = 0;
 pub var candidate_ok_past_cap: bool = false;
 pub var candidate_reads: usize = 0;
 pub var candidate_sent_bytes: usize = 0;
-pub var create_offer_result: i32 = -2;
-pub var create_answer_result: i32 = -2;
+pub var create_offer_result: i32 = webrtc.result.would_block;
+pub var create_answer_result: i32 = webrtc.result.would_block;
 pub var create_signal_len: usize = 0;
 pub var set_remote_calls: usize = 0;
-pub var set_remote_result: i32 = -1;
+pub var set_remote_result: i32 = webrtc.result.err;
 pub var add_remote_candidate_calls: usize = 0;
-pub var add_remote_candidate_result: i32 = -1;
-pub var open_result: i32 = -2;
+pub var add_remote_candidate_result: i32 = webrtc.result.err;
+pub var open_result: i32 = webrtc.result.would_block;
 pub var open_checks: usize = 0;
-pub var receive_result: isize = -2;
+pub var receive_result: isize = webrtc.result.would_block;
 
 /// Records the next `drain_driver_ready` hands the driver, then clears.
 var driver_events: [8]webrtc.ReadyEvent = undefined;
@@ -57,7 +56,7 @@ export fn glowcap_webrtc_sidecar_endpoint_driver_readiness_fd(_: *const anyopaqu
     return 0;
 }
 export fn glowcap_webrtc_sidecar_endpoint_drain_driver_ready(_: *const anyopaque, out: [*]webrtc.ReadyEvent, cap: usize) callconv(.c) isize {
-    if (drain_driver_fails) return -1;
+    if (drain_driver_fails) return webrtc.result.err;
     const n = @min(cap, driver_event_count);
     @memcpy(out[0..n], driver_events[0..n]);
     driver_event_count = 0;
@@ -95,12 +94,12 @@ export fn glowcap_webrtc_sidecar_peer_next_local_candidate(_: *anyopaque, out: [
     candidate_reads += 1;
     if (candidate_bytes_to_emit != 0) {
         out_len.* = candidate_bytes_to_emit;
-        if (candidate_bytes_to_emit > cap and !candidate_ok_past_cap) return -3;
+        if (candidate_bytes_to_emit > cap and !candidate_ok_past_cap) return webrtc.result.buffer_too_small;
         @memset(out[0..@min(cap, candidate_bytes_to_emit)], 'c');
         candidate_bytes_to_emit = 0;
-        return 0;
+        return webrtc.result.ok;
     }
-    return -2;
+    return webrtc.result.would_block;
 }
 export fn glowcap_webrtc_sidecar_peer_is_open(_: *const anyopaque) callconv(.c) i32 {
     open_checks += 1;
@@ -110,11 +109,11 @@ export fn glowcap_webrtc_sidecar_conn_try_receive_packet(_: *anyopaque, _: [*]u8
     return receive_result;
 }
 export fn glowcap_webrtc_sidecar_conn_try_send_packet(_: *anyopaque, _: [*]const u8, _: usize) callconv(.c) isize {
-    return -2;
+    return webrtc.result.would_block;
 }
 /// Closing publishes the peer's closed record, as the sidecar does.
 export fn glowcap_webrtc_sidecar_conn_close(peer: *anyopaque) callconv(.c) void {
-    pushDriverEvent(@intFromPtr(peer), webrtc.ev_closed);
+    pushDriverEvent(@intFromPtr(peer), webrtc.ev.closed);
 }
 export fn glowcap_webrtc_sidecar_peer_free(_: *anyopaque) callconv(.c) void {
     freed_peers += 1;

@@ -206,8 +206,8 @@ zig build gen-header-net-transport-onion        # Regenerate include/glowcap_net
 zig build gen-header-net-transport-onion-check  # Verify include/glowcap_net_transport_onion.h matches src/c_abi/net_transport/onion (fails if stale); part of check
 zig build gen-header-net-transport-iroh         # Regenerate include/glowcap_net_transport_iroh.h from src/c_abi/net_transport/iroh/mod.zig; part of gen-binding-racket-ffi, gen-binding-rust-ffi
 zig build gen-header-net-transport-iroh-check   # Verify include/glowcap_net_transport_iroh.h matches src/c_abi/net_transport/iroh/mod.zig (fails if stale); part of check
-zig build gen-iroh-sidecar-constants            # Regenerate the iroh sidecar's Rust constants from iroh transport policy and frame-stream policy; part of gen
-zig build gen-iroh-sidecar-constants-check      # Verify the iroh sidecar's generated Rust constants match iroh transport policy and frame-stream policy (fails if stale); part of check
+zig build gen-iroh-sidecar-constants            # Regenerate the iroh sidecar's Rust constants from iroh transport policy, the sidecar vocabulary, and frame-stream policy; part of gen
+zig build gen-iroh-sidecar-constants-check      # Verify the iroh sidecar's generated Rust constants match iroh transport policy, the sidecar vocabulary, and frame-stream policy (fails if stale); part of check
 zig build gen-header-net-transport-webrtc       # Regenerate include/glowcap_net_transport_webrtc.h from src/c_abi/net_transport/webrtc/mod.zig; part of gen-binding-racket-ffi, gen-binding-rust-ffi
 zig build gen-header-net-transport-webrtc-check # Verify include/glowcap_net_transport_webrtc.h matches src/c_abi/net_transport/webrtc/mod.zig (fails if stale); part of check
 zig build gen-webrtc-sidecar-constants          # Regenerate the WebRTC sidecar's Rust constants from src/net/transport/webrtc.zig; part of gen

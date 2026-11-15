@@ -145,23 +145,23 @@ pub fn routeEvent(payload: *NetlayerPayload, peer: *PeerPayload, events: u32) ?c
         // The application gave up and the peer is closing. Its closed record
         // carries the failure `fail_exchange` stored, and nothing else counts.
         .refused => {
-            if (events & webrtc.ev_closed == 0) return null;
+            if (events & webrtc.ev.closed == 0) return null;
             return failExchange(payload, peer, GLOWCAP_ERR_IO, error.SignalingFailed);
         },
         .open => {
             var mapped: u32 = 0;
-            if (events & webrtc.ev_readable != 0) mapped |= c.multiplexed_transport.GLOWCAP_MULTIPLEXED_EV_READABLE;
-            if (events & webrtc.ev_writable != 0) mapped |= c.multiplexed_transport.GLOWCAP_MULTIPLEXED_EV_WRITABLE;
-            if (events & webrtc.ev_closed != 0) mapped |= c.multiplexed_transport.GLOWCAP_MULTIPLEXED_EV_CLOSED;
+            if (events & webrtc.ev.readable != 0) mapped |= c.multiplexed_transport.GLOWCAP_MULTIPLEXED_EV_READABLE;
+            if (events & webrtc.ev.writable != 0) mapped |= c.multiplexed_transport.GLOWCAP_MULTIPLEXED_EV_WRITABLE;
+            if (events & webrtc.ev.closed != 0) mapped |= c.multiplexed_transport.GLOWCAP_MULTIPLEXED_EV_CLOSED;
             if (mapped == 0) return null;
             return .{ .subject = @backingInt(peer.peer.id()), .events = mapped };
         },
         .signaling => {},
     }
-    if (events & webrtc.ev_candidate != 0) {
+    if (events & webrtc.ev.candidate != 0) {
         pumpCandidates(payload, peer) catch |err| return failExchange(payload, peer, GLOWCAP_ERR_IO, err);
     }
-    if (events & webrtc.ev_open != 0) {
+    if (events & webrtc.ev.open != 0) {
         peer.peer.checkOpen() catch |err| return switch (err) {
             error.WouldBlock => null,
             error.Closed => failExchange(payload, peer, GLOWCAP_ERR_CLOSED, err),
@@ -177,7 +177,7 @@ pub fn routeEvent(payload: *NetlayerPayload, peer: *PeerPayload, events: u32) ?c
             },
         };
     }
-    if (events & webrtc.ev_closed != 0) return failExchange(payload, peer, GLOWCAP_ERR_CLOSED, error.Closed);
+    if (events & webrtc.ev.closed != 0) return failExchange(payload, peer, GLOWCAP_ERR_CLOSED, error.Closed);
     return null;
 }
 

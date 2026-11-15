@@ -85,11 +85,11 @@ pub const GlowcapWebrtcSendAnswerFn = exchange.GlowcapWebrtcSendAnswerFn;
 pub const GlowcapWebrtcSendCandidateFn = exchange.GlowcapWebrtcSendCandidateFn;
 pub const GlowcapWebrtcExchangeDoneFn = exchange.GlowcapWebrtcExchangeDoneFn;
 
-pub const GLOWCAP_WEBRTC_EV_OPEN: u32 = webrtc.ev_open;
-pub const GLOWCAP_WEBRTC_EV_CANDIDATE: u32 = webrtc.ev_candidate;
-pub const GLOWCAP_WEBRTC_EV_READABLE: u32 = webrtc.ev_readable;
-pub const GLOWCAP_WEBRTC_EV_WRITABLE: u32 = webrtc.ev_writable;
-pub const GLOWCAP_WEBRTC_EV_CLOSED: u32 = webrtc.ev_closed;
+pub const GLOWCAP_WEBRTC_EV_OPEN: u32 = webrtc.ev.open;
+pub const GLOWCAP_WEBRTC_EV_CANDIDATE: u32 = webrtc.ev.candidate;
+pub const GLOWCAP_WEBRTC_EV_READABLE: u32 = webrtc.ev.readable;
+pub const GLOWCAP_WEBRTC_EV_WRITABLE: u32 = webrtc.ev.writable;
+pub const GLOWCAP_WEBRTC_EV_CLOSED: u32 = webrtc.ev.closed;
 pub const GLOWCAP_WEBRTC_MAX_SIGNAL_BYTES: usize = webrtc.max_signal_bytes;
 pub const GLOWCAP_WEBRTC_MAX_ICE_CANDIDATE_BYTES: usize = webrtc.max_ice_candidate_bytes;
 pub const GLOWCAP_WEBRTC_MAX_ICE_SERVERS: usize = webrtc.max_ice_servers;

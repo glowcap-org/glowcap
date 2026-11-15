@@ -106,3 +106,86 @@ pub fn checkIrohBindingAggregatesComplete(
         }
     }
 }
+
+/// The sidecar header states the reachability postures, the readiness bits, the
+/// would-block sentinel, and the dial classification as `#define`s. Zig owns those values and
+/// `gen-iroh-sidecar-constants` mirrors them into `constants_gen.rs`, which its
+/// own check holds fresh. This holds the header's defines equal to that mirror,
+/// in both directions, so a number the header states cannot drift from the
+/// Zig declaration it names.
+pub fn checkIrohSidecarHeaderConstants(
+    io: std.Io,
+    gpa: std.mem.Allocator,
+    root: std.Io.Dir,
+    violations: *std.ArrayList([]const u8),
+) !void {
+    const rust_path = "transports/iroh/src/constants_gen.rs";
+    const header_path = "transports/iroh/include/glowcap_iroh_sidecar.h";
+    const rust = root.readFileAlloc(io, rust_path, gpa, .limited(1 << 20)) catch |err| {
+        try appendViolation(gpa, violations, "{s}: failed to read for the sidecar header constants check with {s}", .{ rust_path, @errorName(err) });
+        return;
+    };
+    defer gpa.free(rust);
+    const header = root.readFileAlloc(io, header_path, gpa, .limited(1 << 20)) catch |err| {
+        try appendViolation(gpa, violations, "{s}: failed to read for the sidecar header constants check with {s}", .{ header_path, @errorName(err) });
+        return;
+    };
+    defer gpa.free(header);
+
+    const const_prefix = "pub(crate) const ";
+    var rows = std.mem.splitScalar(u8, rust, '\n');
+    while (rows.next()) |row| {
+        if (!std.mem.startsWith(u8, row, const_prefix)) continue;
+        const colon = std.mem.find(u8, row, ": ") orelse continue;
+        const equals = std.mem.find(u8, row, " = ") orelse continue;
+        const name = row[const_prefix.len..colon];
+        if (!isSidecarHeaderName(name)) continue;
+        const rust_type = row[colon + 2 .. equals];
+        const value = std.mem.trimEnd(u8, row[equals + 3 ..], ";");
+        const expected = if (std.mem.eql(u8, rust_type, "i32"))
+            try gpa.print("#define GLOWCAP_IROH_{s} {s}", .{ name, value })
+        else if (std.mem.eql(u8, rust_type, "isize"))
+            try gpa.print("#define GLOWCAP_IROH_{s} ((intptr_t){s})", .{ name, value })
+        else
+            try gpa.print("#define GLOWCAP_IROH_{s} {s}u", .{ name, value });
+        defer gpa.free(expected);
+        const define = expected[0 .. "#define GLOWCAP_IROH_".len + name.len];
+        var stated: usize = 0;
+        var header_lines = std.mem.splitScalar(u8, header, '\n');
+        while (header_lines.next()) |line| {
+            if (!std.mem.startsWith(u8, line, define)) continue;
+            if (line.len > define.len and line[define.len] != ' ') continue;
+            stated += 1;
+            if (!std.mem.eql(u8, line, expected)) {
+                try appendViolation(gpa, violations, "{s}: `{s}` must read `{s}`, the value {s} holds (zig build gen-iroh-sidecar-constants owns it)", .{ header_path, line, expected, rust_path });
+            }
+        }
+        if (stated != 1) {
+            try appendViolation(gpa, violations, "{s}: {d} lines define GLOWCAP_IROH_{s}, and exactly one must read `{s}`", .{ header_path, stated, name, expected });
+        }
+    }
+
+    const define_prefix = "#define GLOWCAP_IROH_";
+    var lines = std.mem.splitScalar(u8, header, '\n');
+    while (lines.next()) |line| {
+        if (!std.mem.startsWith(u8, line, define_prefix)) continue;
+        const rest = line[define_prefix.len..];
+        const name = rest[0 .. std.mem.findScalar(u8, rest, ' ') orelse rest.len];
+        if (!isSidecarHeaderName(name)) continue;
+        const needle = try gpa.print("{s}{s}: ", .{ const_prefix, name });
+        defer gpa.free(needle);
+        if (std.mem.find(u8, rust, needle) == null) {
+            try appendViolation(gpa, violations, "{s}: `{s}` has no row in {s}, so no Zig declaration owns it", .{ header_path, std.mem.trimEnd(u8, line, " "), rust_path });
+        }
+    }
+}
+
+/// The header names the generated mirror covers: the reachability postures, the
+/// would-block sentinel, the readiness bits, and the dial classification with
+/// its text bound.
+fn isSidecarHeaderName(name: []const u8) bool {
+    return std.mem.eql(u8, name, "WOULD_BLOCK") or
+        std.mem.startsWith(u8, name, "REACH_") or
+        std.mem.startsWith(u8, name, "EV_") or
+        std.mem.startsWith(u8, name, "DIAL_");
+}

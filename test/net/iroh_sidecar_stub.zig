@@ -12,7 +12,7 @@ pub var admission_fails = false;
 pub var ready_records: usize = 0;
 pub var cancel_calls: usize = 0;
 pub var io_result: isize = iroh.loop_would_block;
-pub var dial_start_result: i32 = 0;
+pub var dial_start_result: i32 = @backingInt(iroh.DialCode.ok);
 pub var next_connect: ?*anyopaque = null;
 pub var next_accept: ?*anyopaque = null;
 pub var endpoint_closed = false;
@@ -32,7 +32,7 @@ pub fn reset() void {
     ready_records = 0;
     cancel_calls = 0;
     io_result = iroh.loop_would_block;
-    dial_start_result = 0;
+    dial_start_result = @backingInt(iroh.DialCode.ok);
     next_connect = null;
     next_accept = null;
     endpoint_closed = false;
@@ -59,7 +59,7 @@ export fn glowcap_iroh_sidecar_endpoint_direct_addrs(_: *const anyopaque, out: [
     return @intCast(direct_required);
 }
 export fn glowcap_iroh_sidecar_connect_blocking(_: *anyopaque, _: [*]const u8, _: usize, _: [*]const u8, _: usize, out_code: *i32) callconv(.c) ?*anyopaque {
-    out_code.* = 0;
+    out_code.* = @backingInt(iroh.DialCode.ok);
     const conn = next_connect;
     next_connect = null;
     return conn;
@@ -67,7 +67,7 @@ export fn glowcap_iroh_sidecar_connect_blocking(_: *anyopaque, _: [*]const u8, _
 export fn glowcap_iroh_sidecar_accept_timeout(_: *anyopaque, _: i32, out_code: *i32) callconv(.c) ?*anyopaque {
     const conn = next_accept;
     next_accept = null;
-    out_code.* = if (conn != null) 0 else if (endpoint_closed) 4 else 2;
+    out_code.* = @backingInt(if (conn != null) iroh.DialCode.ok else if (endpoint_closed) iroh.DialCode.lost else iroh.DialCode.timeout);
     return conn;
 }
 export fn glowcap_iroh_sidecar_conn_remote_node_id(_: *const anyopaque, out: [*]u8) callconv(.c) i32 {
@@ -115,7 +115,7 @@ export fn glowcap_iroh_sidecar_endpoint_finish_connect(_: *anyopaque, _: usize, 
     if (out_text_len) |slot| slot.* = 0;
     out_conn.* = next_connect;
     next_connect = null;
-    return if (out_conn.* != null) 0 else -1;
+    return if (out_conn.* != null) @backingInt(iroh.DialCode.ok) else -1;
 }
 export fn glowcap_iroh_sidecar_endpoint_cancel_connect(_: *anyopaque, _: usize) callconv(.c) i32 {
     cancel_calls += 1;

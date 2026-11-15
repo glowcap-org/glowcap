@@ -50,6 +50,7 @@ test "supported iroh facade and nested surfaces stay exact" {
         "CompletionBackend",
         "Backend",
         "DialText",
+        "DialCode",
         "dial_text_bytes",
     };
     try std.testing.expectEqual(root_names.len, @typeInfo(iroh).@"struct".decl_names.len);

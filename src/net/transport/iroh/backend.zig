@@ -21,11 +21,11 @@ const CConn = sidecar.CConn;
 const ReadyEvent = sidecar.ReadyEvent;
 const Resident = resident_owner.Resident;
 const would_block = sidecar.would_block;
-const ev_readable = sidecar.ev_readable;
-const ev_writable = sidecar.ev_writable;
-const ev_closed = sidecar.ev_closed;
-const ev_accept = sidecar.ev_accept;
-const ev_connect = sidecar.ev_connect;
+const ev_readable = sidecar.ev.readable;
+const ev_writable = sidecar.ev.writable;
+const ev_closed = sidecar.ev.closed;
+const ev_accept = sidecar.ev.accept;
+const ev_connect = sidecar.ev.connect;
 const connRemoteKey = sidecar.connRemoteKey;
 
 // ── Completion backend: many iroh connections on one `completion.Loop` (ADR-0019) ─
