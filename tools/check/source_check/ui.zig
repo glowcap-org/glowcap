@@ -47,8 +47,8 @@ pub fn forEachStylesheet(
         try visit(io, gpa, root, violations, path);
     }
     for (css_dirs) |dir_path| {
-        var dir = root.openDir(io, dir_path, .{ .iterate = true }) catch {
-            try appendViolation(gpa, violations, "{s}: could not be read", .{dir_path});
+        var dir = root.openDir(io, dir_path, .{ .iterate = true }) catch |err| {
+            try appendViolation(gpa, violations, "{s}: could not be opened with {s}", .{ dir_path, @errorName(err) });
             continue;
         };
         defer dir.close(io);

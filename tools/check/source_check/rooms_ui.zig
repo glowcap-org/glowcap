@@ -111,8 +111,8 @@ pub fn checkRoomsLayerBans(
     violations: *std.ArrayList([]const u8),
 ) !void {
     for (bans) |ban| {
-        const source = root.readFileAlloc(io, ban.file, gpa, .limited(1 << 20)) catch {
-            try appendViolation(gpa, violations, "{s}: could not read for the DOM ban", .{ban.file});
+        const source = root.readFileAlloc(io, ban.file, gpa, .limited(1 << 20)) catch |err| {
+            try appendViolation(gpa, violations, "{s}: could not read for the DOM ban with {s}", .{ ban.file, @errorName(err) });
             continue;
         };
         defer gpa.free(source);
@@ -120,8 +120,8 @@ pub fn checkRoomsLayerBans(
     }
 
     for (tree_bans) |ban| {
-        var dir = root.openDir(io, ban.file, .{ .iterate = true }) catch {
-            try appendViolation(gpa, violations, "{s}: could not open for the DOM ban", .{ban.file});
+        var dir = root.openDir(io, ban.file, .{ .iterate = true }) catch |err| {
+            try appendViolation(gpa, violations, "{s}: could not open for the DOM ban with {s}", .{ ban.file, @errorName(err) });
             continue;
         };
         defer dir.close(io);
@@ -131,8 +131,8 @@ pub fn checkRoomsLayerBans(
             if (entry.kind != .file or !std.mem.endsWith(u8, entry.path, ".ts")) continue;
             const path = try gpa.print("{s}/{s}", .{ ban.file, entry.path });
             defer gpa.free(path);
-            const source = root.readFileAlloc(io, path, gpa, .limited(1 << 20)) catch {
-                try appendViolation(gpa, violations, "{s}: could not read for the DOM ban", .{path});
+            const source = root.readFileAlloc(io, path, gpa, .limited(1 << 20)) catch |err| {
+                try appendViolation(gpa, violations, "{s}: could not read for the DOM ban with {s}", .{ path, @errorName(err) });
                 continue;
             };
             defer gpa.free(source);
@@ -172,8 +172,8 @@ pub fn checkRoomsControlSurfaces(
     root: std.Io.Dir,
     violations: *std.ArrayList([]const u8),
 ) !void {
-    var dir = root.openDir(io, ui_dir, .{ .iterate = true }) catch {
-        try appendViolation(gpa, violations, "{s}: could not open for the shared-control check", .{ui_dir});
+    var dir = root.openDir(io, ui_dir, .{ .iterate = true }) catch |err| {
+        try appendViolation(gpa, violations, "{s}: could not open for the shared-control check with {s}", .{ ui_dir, @errorName(err) });
         return;
     };
     defer dir.close(io);
@@ -183,8 +183,8 @@ pub fn checkRoomsControlSurfaces(
         if (entry.kind != .file or !std.mem.endsWith(u8, entry.path, ".tsx")) continue;
         const path = try gpa.print("{s}/{s}", .{ ui_dir, entry.path });
         defer gpa.free(path);
-        const source = root.readFileAlloc(io, path, gpa, .limited(1 << 20)) catch {
-            try appendViolation(gpa, violations, "{s}: could not read for the shared-control check", .{path});
+        const source = root.readFileAlloc(io, path, gpa, .limited(1 << 20)) catch |err| {
+            try appendViolation(gpa, violations, "{s}: could not read for the shared-control check with {s}", .{ path, @errorName(err) });
             continue;
         };
         defer gpa.free(source);
@@ -278,8 +278,8 @@ pub fn checkRoomsBootStates(
     var written: std.ArrayList(u8) = .empty;
     defer written.deinit(gpa);
     for (boot_writers) |writer| {
-        const source = root.readFileAlloc(io, writer, gpa, .limited(1 << 20)) catch {
-            try appendViolation(gpa, violations, "{s}: could not be read", .{writer});
+        const source = root.readFileAlloc(io, writer, gpa, .limited(1 << 20)) catch |err| {
+            try appendViolation(gpa, violations, "{s}: could not be read with {s}", .{ writer, @errorName(err) });
             continue;
         };
         defer gpa.free(source);
@@ -330,13 +330,13 @@ pub fn checkRoomsConfig(
     violations: *std.ArrayList([]const u8),
 ) !void {
     {
-        const page = root.readFileAlloc(io, ui_dir ++ "/page.css", gpa, .limited(1 << 20)) catch {
-            try appendViolation(gpa, violations, "{s}/page.css: could not be read", .{ui_dir});
+        const page = root.readFileAlloc(io, ui_dir ++ "/page.css", gpa, .limited(1 << 20)) catch |err| {
+            try appendViolation(gpa, violations, "{s}/page.css: could not be read with {s}", .{ ui_dir, @errorName(err) });
             return;
         };
         defer gpa.free(page);
-        var dir = root.openDir(io, ui_dir, .{ .iterate = true }) catch {
-            try appendViolation(gpa, violations, "{s}: could not be opened", .{ui_dir});
+        var dir = root.openDir(io, ui_dir, .{ .iterate = true }) catch |err| {
+            try appendViolation(gpa, violations, "{s}: could not be opened with {s}", .{ ui_dir, @errorName(err) });
             return;
         };
         defer dir.close(io);
@@ -410,8 +410,8 @@ fn checkLayoutBreakpoint(
         );
     }
     const narrow = in_store orelse return;
-    var dir = root.openDir(io, ui_dir, .{ .iterate = true }) catch {
-        try appendViolation(gpa, violations, "{s}: could not be opened", .{ui_dir});
+    var dir = root.openDir(io, ui_dir, .{ .iterate = true }) catch |err| {
+        try appendViolation(gpa, violations, "{s}: could not be opened with {s}", .{ ui_dir, @errorName(err) });
         return;
     };
     defer dir.close(io);

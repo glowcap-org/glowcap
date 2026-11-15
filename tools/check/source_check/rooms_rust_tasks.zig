@@ -79,8 +79,8 @@ fn checkTree(
     violations: *std.ArrayList([]const u8),
     tree: []const u8,
 ) !void {
-    var dir = root.openDir(io, tree, .{ .iterate = true }) catch {
-        try appendViolation(gpa, violations, "{s}: could not open for the task-ownership check", .{tree});
+    var dir = root.openDir(io, tree, .{ .iterate = true }) catch |err| {
+        try appendViolation(gpa, violations, "{s}: could not open for the task-ownership check with {s}", .{ tree, @errorName(err) });
         return;
     };
     defer dir.close(io);
@@ -90,8 +90,8 @@ fn checkTree(
         if (entry.kind != .file or !isProduction(entry.path)) continue;
         const path = try gpa.print("{s}/{s}", .{ tree, entry.path });
         defer gpa.free(path);
-        const source = root.readFileAlloc(io, path, gpa, .limited(1 << 20)) catch {
-            try appendViolation(gpa, violations, "{s}: could not read for the task-ownership check", .{path});
+        const source = root.readFileAlloc(io, path, gpa, .limited(1 << 20)) catch |err| {
+            try appendViolation(gpa, violations, "{s}: could not read for the task-ownership check with {s}", .{ path, @errorName(err) });
             continue;
         };
         defer gpa.free(source);

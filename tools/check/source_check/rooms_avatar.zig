@@ -28,8 +28,8 @@ pub fn checkAvatarRamp(
     root: std.Io.Dir,
     violations: *std.ArrayList([]const u8),
 ) !void {
-    const identity_ts = root.readFileAlloc(io, ui_dir ++ "/member_identity.ts", gpa, .limited(1 << 20)) catch {
-        try appendViolation(gpa, violations, "{s}/member_identity.ts: could not be read for the avatar-ramp check", .{ui_dir});
+    const identity_ts = root.readFileAlloc(io, ui_dir ++ "/member_identity.ts", gpa, .limited(1 << 20)) catch |err| {
+        try appendViolation(gpa, violations, "{s}/member_identity.ts: could not be read for the avatar-ramp check with {s}", .{ ui_dir, @errorName(err) });
         return;
     };
     defer gpa.free(identity_ts);

@@ -180,8 +180,8 @@ pub fn checkRoomsRequestDeadlines(
     violations: *std.ArrayList([]const u8),
 ) !void {
     const dir_path = "apps/rooms/lib";
-    var dir = root.openDir(io, dir_path, .{ .iterate = true }) catch {
-        try appendViolation(gpa, violations, "{s}: could not be opened", .{dir_path});
+    var dir = root.openDir(io, dir_path, .{ .iterate = true }) catch |err| {
+        try appendViolation(gpa, violations, "{s}: could not be opened with {s}", .{ dir_path, @errorName(err) });
         return;
     };
     defer dir.close(io);
@@ -195,8 +195,8 @@ pub fn checkRoomsRequestDeadlines(
         if (std.mem.eql(u8, entry.basename, "deadline.ts")) continue;
         const path = try gpa.print("{s}/{s}", .{ dir_path, entry.path });
         defer gpa.free(path);
-        const body = root.readFileAlloc(io, path, gpa, .limited(1 << 20)) catch {
-            try appendViolation(gpa, violations, "{s}: could not read {s}", .{ dir_path, entry.path });
+        const body = root.readFileAlloc(io, path, gpa, .limited(1 << 20)) catch |err| {
+            try appendViolation(gpa, violations, "{s}: could not read {s} with {s}", .{ dir_path, entry.path, @errorName(err) });
             return;
         };
         defer gpa.free(body);
@@ -561,12 +561,12 @@ pub fn checkRoomsCustomProperties(
             if (!ok) continue;
             const path = try gpa.print("{s}/{s}", .{ ui_dir, entry.path });
             defer gpa.free(path);
-            const body = root.readFileAlloc(io, path, gpa, .limited(1 << 20)) catch {
+            const body = root.readFileAlloc(io, path, gpa, .limited(1 << 20)) catch |err| {
                 // Not tolerable: a component this check could not read is one
                 // whose inline properties it did not collect, and the answer
                 // that follows would be a name reported as written by nobody.
                 // Say so instead of reporting that.
-                try appendViolation(gpa, violations, "{s}: could not read {s}", .{ ui_dir, entry.path });
+                try appendViolation(gpa, violations, "{s}: could not read {s} with {s}", .{ ui_dir, entry.path, @errorName(err) });
                 return;
             };
             try sources.append(gpa, body);

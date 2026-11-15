@@ -65,8 +65,8 @@ pub fn checkProseFileClaims(
         for (files) |path| {
             // The browser bundle is a build artifact that happens to sit in the tree.
             if (std.mem.endsWith(u8, path, "page.js")) continue;
-            const source = root.readFileAlloc(io, path, arena, .limited(4 << 20)) catch {
-                try appendViolation(gpa, violations, "{s}: could not read for the prose file-claim check", .{path});
+            const source = root.readFileAlloc(io, path, arena, .limited(4 << 20)) catch |err| {
+                try appendViolation(gpa, violations, "{s}: could not read for the prose file-claim check with {s}", .{ path, @errorName(err) });
                 continue;
             };
             var i: usize = 0;
