@@ -19,7 +19,7 @@ from ._constants_gen import IROH_EV_WRITABLE as _IROH_EV_WRITABLE
 from ._errors import GlowcapError
 from ._ffi_iroh import _IrohReadyEvent
 from ._host import Host
-from ._iroh_ffi import IrohConfig, IrohConnection, IrohNetlayer, Reachability, adopt_loop_provider
+from ._iroh_endpoint import IrohConfig, IrohConnection, IrohNetlayer, Reachability, adopt_loop_provider
 from ._server import DriverServer, _rollback_listener_construction, listener_seed, prepare_driver_loop
 from ._transport import Connector, _rollback_failed_transport
 
