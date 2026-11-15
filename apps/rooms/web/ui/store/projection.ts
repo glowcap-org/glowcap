@@ -35,9 +35,10 @@ import type { OperationsCapability } from "../application_data.ts";
 import type { MemberRef } from "../member_ref.ts";
 import type { ToastNotice } from "../toast.ts";
 
-// Must match the `@media (max-width: 820px)` block in the rooms stylesheets:
-// the grid into the list/conversation stack, and this decides which layout's
-// field a control writes. They are two files that have to agree.
+// CSS cannot read this number, so the stylesheets' layout queries repeat it, and
+// their wide layout queries sit one pixel above. `source-check` refuses a Rooms
+// stylesheet width query a few pixels from it that does not match. This query
+// decides which layout's field a control writes.
 const mobileQuery = matchMedia("(max-width: 820px)");
 
 /** How a browser's registration at its Rooms server's relay stands. */

@@ -63,6 +63,7 @@ fn main() -> Result<(), String> {
 		("MAX_LINE", room::line::MAX_LINE_BYTES),
 		("MAX_AWAY", room::membership::MAX_AWAY),
 		("MAX_MESSAGE_FILES", room::line::MAX_MESSAGE_FILES),
+		("ATTACHMENT_RECORD_SPAN", room::attachment::RECORD_SPAN),
 		("MAX_ROOM_MESSAGE_BACKLOG", room::inbox::queue::MAX_MESSAGES),
 		("MAX_SUBJECT_DESCRIPTION", room::subject::MAX_DESCRIPTION),
 		("MAX_SUBJECT_LINK", room::subject::MAX_LINK),

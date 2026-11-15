@@ -15,6 +15,7 @@ import { askRef } from "./ask.ts";
 import { answerWithin } from "./deadline.ts";
 import { releaseUnclaimedCapabilityArguments } from "./argument_custody.ts";
 import {
+	ATTACHMENT_RECORD_SPAN,
 	attachmentRefusal,
 	BLOB_CHUNK,
 	MAX_ATTACHMENT_BYTES,
@@ -66,9 +67,6 @@ function sourceSize(source: AttachmentSource): number {
 /** Where an attachment record normally sits in a room line's arguments: after
  * the sender and the caption, at the same place a presence change would be. */
 const ROOM_RECORD_AT = 2;
-
-/** How many arguments one file record spans. */
-export const ATTACHMENT_RECORD_SPAN = 7;
 
 /** Read the file records a message carries, one after another from `recordAt`,
  * each `"file", name, mime, size, blob, width, height`. Empty for an ordinary
