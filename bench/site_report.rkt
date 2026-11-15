@@ -349,10 +349,10 @@
                (for/list ([i (in-list impls)])
                  (list (car i) (cell one-core i "greet") (cell two-core i "greet") (cell one-core i "report") (cell two-core i "report"))))))
 
-;; Every core that shares the highest maximum clock, lowest number first. On a
-;; mixed-core machine the scheduler may place an unpinned bench on a slow core,
-;; and the figure follows the core it drew. Empty when the kernel reports no
-;; clocks or the cluster is one core, which cannot hold a two-thread row.
+;; The cores that share the highest maximum clock when two or more do, lowest
+;; number first, and empty otherwise. On a mixed-core machine the scheduler may
+;; place an unpinned bench on a slow core, and the figure follows the core it
+;; drew. One core cannot hold a two-thread row.
 (define (fast-cluster)
   (define cpus
     (for*/list ([d (in-list (directory-list "/sys/devices/system/cpu"))]
@@ -521,11 +521,10 @@
       (when (and load (>= load 2)) (sleep 20) (loop)))))
 
 ;; Run one bench command on the fast cluster and return what it printed.
-(define (run bench) (run-on-every-core (string-append (cluster-prefix) bench)))
+(define (run bench) (run-command (string-append (cluster-prefix) bench)))
 
-;; Run one command on every core the report itself may use and return what it
-;; printed.
-(define (run-on-every-core cmd)
+;; Run one command as given and return what it printed.
+(define (run-command cmd)
   (quiet)
   (printf "  $ ~a\n" cmd) (flush-output)
   (define out (open-output-string))
@@ -601,7 +600,7 @@
   (define fv (parse-frameview (run "zig build bench-frame-view -Doptimize=fast 2>&1")))
   (define peer (parse-peer (run "zig build bench-peer-scaling -Doptimize=fast 2>&1")))
   ;; Thirty-two serving shards and a load process are sized for every core.
-  (define live (parse-live (run-on-every-core "python3 tools/run-with-timeout.py --kill-after 5s --heartbeat 30s 10m unshare -Urn sh -eu -c 'ulimit -n 524288; ip link set lo up; exec zig build bench-peer-scaling -Doptimize=fast -- --live --live-max=500000' 2>&1")))
+  (define live (parse-live (run-command "python3 tools/run-with-timeout.py --kill-after 5s --heartbeat 30s 10m unshare -Urn sh -eu -c 'ulimit -n 524288; ip link set lo up; exec zig build bench-peer-scaling -Doptimize=fast -- --live --live-max=500000' 2>&1")))
   (define cores (fast-cores))
   (define each-core (format "~a,~a" (car cores) (cadr cores)))
   (define opens (parse-iroh (string-append

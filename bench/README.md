@@ -67,12 +67,14 @@ Rust calls and reports generation process costs separately.
 The [performance report](https://glowcap.org/performance/) and
 [comparison report](https://glowcap.org/performance/compared/) contain the
 generated figures, with their source revision and run environment.
-`zig build bench-site-report` regenerates both from live runs. It keeps every
-bench but the live-session run on the machine's fastest cores and pins a TCP
-row's client and server, because an unpinned row on a mixed-core machine
-reports the core it drew. Refreshing the figures is manual. CI checks the
-report code and builds the site from its committed snapshots. Keep numerical results in those reports instead of
+`zig build bench-site-report` regenerates both from live runs. Refreshing the
+figures is manual. CI checks the report code and builds the site from its
+committed snapshots. Keep numerical results in those reports instead of
 copying them into this index.
+
+The report pins a TCP row's client and server. On a machine with a cluster of
+faster cores it also keeps every bench but the live-session run on that
+cluster, because an unpinned row there reports the core it drew.
 
 ## Floors
 
