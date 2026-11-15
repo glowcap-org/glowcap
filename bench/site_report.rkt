@@ -520,7 +520,7 @@
       (define load (string->number (car (string-split (file->string "/proc/loadavg")))))
       (when (and load (>= load 2)) (sleep 20) (loop)))))
 
-;; Run one bench command on the fast cluster and return what it printed.
+;; Run one bench command under the cluster prefix and return what it printed.
 (define (run bench) (run-command (string-append (cluster-prefix) bench)))
 
 ;; Run one command as given and return what it printed.
@@ -614,7 +614,7 @@
   ;; one-core-each group, so the two pages report the same figure.
   (define tcp-greet-each (tcp-pinned "greet" each-core))
   ;; iroh's runtime starts its own threads, and a pin would confine them all
-  ;; to the pinned core. Its rows keep the fast cluster instead.
+  ;; to the pinned core.
   (define iroh (parse-iroh (string-append
     tcp-greet-each
     (run "zig build bench-transports -Doptimize=fast -- --transport=iroh --row=greet 2>&1")
