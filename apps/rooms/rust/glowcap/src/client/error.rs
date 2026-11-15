@@ -15,7 +15,6 @@ pub enum Error {
 	/// The peer proved that a stale workspace candidate installed no changes.
 	WorkspaceConflict,
 	/// A held management control explicitly rejected this revision or intent.
-	#[cfg(feature = "loam")]
 	ControlConflict(glowcap::loam::ControlConflict),
 	/// The original terminal observation failed. This proves no absence and
 	/// cannot authorize another dispatch of that effect.
@@ -78,7 +77,6 @@ impl Error {
 	pub fn known_absent(&self) -> bool {
 		match self {
 			Self::WorkspaceConflict | Self::Unsent(_) | Self::RefusedObservation(_) => true,
-			#[cfg(feature = "loam")]
 			Self::ControlConflict(_) => true,
 			_ => self.admission_refusal().is_some(),
 		}
@@ -319,7 +317,6 @@ impl core::fmt::Display for Error {
 			Self::PostedLine(error) => error.fmt(f),
 			Self::SourceRead(reason) => f.write_str(reason),
 			Self::WorkspaceConflict => f.write_str("workspace revision changed; this acquisition installed no changes"),
-			#[cfg(feature = "loam")]
 			Self::ControlConflict(conflict) => conflict.fmt(f),
 			Self::Observation(reason) | Self::RefusedObservation(reason) => f.write_str(reason),
 			Self::Binding(e) | Self::Unsent(e) => e.fmt(f),
@@ -411,7 +408,6 @@ mod tests {
 			assert!(error.admission_refusal().is_none());
 			assert_eq!(error.failure_code(), None, "{reason}");
 			// A local failure's diagnostic does not prove remote absence.
-			#[cfg(feature = "loam")]
 			assert!(binding_admission_refusal(&glowcap::loam::refusal(reason)).is_none());
 			let read = Error::SourceRead(reason.into());
 			assert!(!read.known_absent());

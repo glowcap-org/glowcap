@@ -1,6 +1,7 @@
 //! The runner for a test whose scenario spawns local tasks. Each call gives
 //! the future a fresh [`LocalSet`] and takes the future by value, so tasks
 //! spawned by one scenario are dropped with it and never leak into the next.
+//! [`AbortOnDrop`] is the task handle a fake task owner hands out there.
 
 use std::{future::Future, time::Duration};
 use tokio::{task::LocalSet, time::timeout};
@@ -16,6 +17,23 @@ pub async fn run_within<F: Future>(deadline: Duration, scenario: F) -> F::Output
 	match timeout(deadline, run(scenario)).await {
 		Ok(output) => output,
 		Err(_) => panic!("the scenario outlasted its {deadline:?} deadline"),
+	}
+}
+
+/// A spawned local task that is aborted when this handle drops, so a fake
+/// task owner ends its work with the owner rather than with the scenario.
+pub struct AbortOnDrop(tokio::task::JoinHandle<()>);
+
+impl AbortOnDrop {
+	/// Spawn `work` on the current local set.
+	pub fn spawn(work: impl Future<Output = ()> + 'static) -> Self {
+		Self(tokio::task::spawn_local(work))
+	}
+}
+
+impl Drop for AbortOnDrop {
+	fn drop(&mut self) {
+		self.0.abort();
 	}
 }
 
@@ -37,6 +55,21 @@ mod tests {
 		})
 		.await;
 		assert_eq!(output, 7);
+	}
+
+	#[tokio::test(flavor = "current_thread")]
+	async fn a_dropped_handle_aborts_its_task() {
+		run_within(Duration::from_secs(5), async {
+			let (held, observed) = tokio::sync::oneshot::channel::<()>();
+			let task = AbortOnDrop::spawn(async move {
+				let _held = held;
+				std::future::pending::<()>().await;
+			});
+			tokio::task::yield_now().await;
+			drop(task);
+			assert!(observed.await.is_err(), "the aborted task released what it held");
+		})
+		.await;
 	}
 
 	#[tokio::test(flavor = "current_thread")]

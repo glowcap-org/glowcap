@@ -8,7 +8,6 @@ use std::{
 };
 mod caller;
 pub(crate) use caller::Caller;
-#[cfg(feature = "loam")]
 pub mod access;
 pub mod archive;
 pub mod direct;
@@ -19,13 +18,11 @@ pub mod files;
 pub mod invitation;
 pub mod manager;
 pub mod posted_line;
-#[cfg(feature = "loam")]
 mod retained;
 pub mod room;
 pub mod session;
 pub mod sources;
 pub mod stewardship;
-#[cfg(feature = "loam")]
 pub mod workspace;
 
 /// Ending a deadline drops the pending observation. The binding retains and

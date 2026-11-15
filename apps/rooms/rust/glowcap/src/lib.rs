@@ -4,7 +4,6 @@
 pub mod archive;
 mod arguments;
 pub mod client;
-#[cfg(feature = "loam")]
 pub mod policy;
 pub mod routes;
 pub mod snapshot;

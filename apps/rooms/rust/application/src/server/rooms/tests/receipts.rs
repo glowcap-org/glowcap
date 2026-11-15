@@ -1,30 +1,11 @@
 //! Receipt delivery changes one subscriber's representation, never authority.
 use super::*;
 use crate::room::receipt;
-use alloc::string::String;
+use crate::room::test_value::ValueEncoder;
 
-#[derive(Debug, PartialEq)]
-enum Encoded {
-	Text(String),
-	Integer(u64),
-	Boolean(bool),
-}
-struct Encoder;
-impl crate::room::DataEncoder for Encoder {
-	type Value = Encoded;
-	fn text(&mut self, value: String) -> Encoded {
-		Encoded::Text(value)
-	}
-	fn integer(&mut self, value: u64) -> Encoded {
-		Encoded::Integer(value)
-	}
-	fn boolean(&mut self, value: bool) -> Encoded {
-		Encoded::Boolean(value)
-	}
-}
-impl wire::Encoder for Encoder {
+impl wire::Encoder for ValueEncoder {
 	type Error = core::convert::Infallible;
-	fn blob(&mut self, _: &crate::files::Blob) -> Result<Encoded, Self::Error> {
+	fn blob(&mut self, _: &crate::files::Blob) -> Result<Value, Self::Error> {
 		panic!("text receipt has no file")
 	}
 }
@@ -42,8 +23,8 @@ fn rejected_delivery_releases_only_the_calling_subscribers_request() {
 	let heard = notices(&effects, 1);
 	assert_eq!(wire::verb(heard[0]), receipt::REJECTED);
 	assert_eq!(
-		wire::arguments(heard[0], &mut Encoder).unwrap(),
-		vec![Encoded::Integer(7)]
+		wire::arguments(heard[0], &mut ValueEncoder).unwrap(),
+		vec![Value::Integer(7)]
 	);
 	assert!(
 		world
@@ -81,13 +62,13 @@ fn receipts_omit_text_only_for_the_subscriber_that_retained_it() {
 				panic!("sender receipt")
 			};
 			assert_eq!(
-				wire::arguments(heard[0], &mut Encoder).unwrap(),
+				wire::arguments(heard[0], &mut ValueEncoder).unwrap(),
 				vec![
-					Encoded::Integer(request),
-					Encoded::Integer(id.get()),
-					Encoded::Text("Alice".into()),
-					Encoded::Boolean(false),
-					Encoded::Boolean(false)
+					Value::Integer(request),
+					Value::Integer(id.get()),
+					Value::Text("Alice".into()),
+					Value::Boolean(false),
+					Value::Boolean(false)
 				]
 			);
 			assert!(matches!(notices(&mutation.effects, 2)[0], Notice::Line { line, .. } if line.text == text));
@@ -183,16 +164,16 @@ fn correlation_belongs_to_the_exact_calling_subscription_and_preserves_the_full_
 		let own = notices(&mutation.effects, 1);
 		assert!(matches!(own[0], Notice::CorrelatedLine { operation: id, .. } if id == operation));
 		assert!(matches!(notices(&mutation.effects, 2)[0], Notice::Line { .. }));
-		let wire = wire::arguments(own[0], &mut Encoder).unwrap();
+		let wire = wire::arguments(own[0], &mut ValueEncoder).unwrap();
 		assert_eq!(
 			&wire[..2],
-			&[Encoded::Text("Alice".into()), Encoded::Text("identical text".into())]
+			&[Value::Text("Alice".into()), Value::Text("identical text".into())]
 		);
 		assert_eq!(
 			&wire[wire.len() - 2..],
 			&[
-				Encoded::Text(crate::room::correlation::TAG.into()),
-				Encoded::Text(operation.into())
+				Value::Text(crate::room::correlation::TAG.into()),
+				Value::Text(operation.into())
 			]
 		);
 	}

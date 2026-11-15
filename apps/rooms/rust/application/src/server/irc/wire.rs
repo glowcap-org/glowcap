@@ -206,26 +206,7 @@ pub fn arguments<E: DataEncoder>(notice: &Notice, e: &mut E) -> Vec<E::Value> {
 #[cfg(test)]
 mod tests {
 	use super::*;
-
-	#[derive(Debug, PartialEq)]
-	enum V {
-		T(String),
-		I(u64),
-		B(bool),
-	}
-	struct E;
-	impl DataEncoder for E {
-		type Value = V;
-		fn text(&mut self, value: String) -> V {
-			V::T(value)
-		}
-		fn integer(&mut self, value: u64) -> V {
-			V::I(value)
-		}
-		fn boolean(&mut self, value: bool) -> V {
-			V::B(value)
-		}
-	}
+	use crate::room::test_value::{Value, ValueEncoder};
 
 	#[test]
 	fn seat_and_bridge_facts_take_the_shapes_the_inbox_reads() {
@@ -235,15 +216,20 @@ mod tests {
 				text: "hello".into(),
 				line: LineId::new(7).unwrap(),
 			},
-			&mut E,
+			&mut ValueEncoder,
 		);
 		assert_eq!(
 			line,
-			[V::T("alice".into()), V::T("hello".into()), V::T("line".into()), V::I(7),]
+			[
+				Value::Text("alice".into()),
+				Value::Text("hello".into()),
+				Value::Text("line".into()),
+				Value::Integer(7),
+			]
 		);
 		assert_eq!(
-			arguments(&Notice::room("maintenance"), &mut E),
-			[V::T(ROOM.into()), V::T("maintenance".into())]
+			arguments(&Notice::room("maintenance"), &mut ValueEncoder),
+			[Value::Text(ROOM.into()), Value::Text("maintenance".into())]
 		);
 		let seat = Notice::Seat {
 			nick: "alice".into(),
@@ -253,35 +239,35 @@ mod tests {
 				nick: "al".into(),
 			},
 		};
-		let args = arguments(&seat, &mut E);
-		assert_eq!(args[2], V::T("seat".into()));
-		assert_eq!(args[4], V::T("linked".into()));
-		assert_eq!(args[7], V::T("LINKED".into()));
-		assert_eq!(args[8], V::T("Rooms + libera as al".into()));
+		let args = arguments(&seat, &mut ValueEncoder);
+		assert_eq!(args[2], Value::Text("seat".into()));
+		assert_eq!(args[4], Value::Text("linked".into()));
+		assert_eq!(args[7], Value::Text("LINKED".into()));
+		assert_eq!(args[8], Value::Text("Rooms + libera as al".into()));
 		let bridge = arguments(
 			&Notice::Bridge {
 				network: "libera".into(),
 			},
-			&mut E,
+			&mut ValueEncoder,
 		);
-		assert_eq!(bridge[3], V::T("irc/".into()));
-		assert_eq!(bridge[6], V::T("libera".into()));
+		assert_eq!(bridge[3], Value::Text("irc/".into()));
+		assert_eq!(bridge[6], Value::Text("libera".into()));
 		let bytes = arguments(
 			&Notice::LineBytes {
 				said: "note".into(),
 				bytes: 400,
 			},
-			&mut E,
+			&mut ValueEncoder,
 		);
-		assert_eq!(bytes[3], V::I(400));
+		assert_eq!(bytes[3], Value::Integer(400));
 		let changed = arguments(
 			&Notice::AuthorityChanged {
 				kind: "steward",
 				token: "t".into(),
 			},
-			&mut E,
+			&mut ValueEncoder,
 		);
-		assert_eq!(changed[5], V::B(false));
+		assert_eq!(changed[5], Value::Boolean(false));
 		assert_eq!(
 			Notice::Away {
 				nick: "a".into(),
