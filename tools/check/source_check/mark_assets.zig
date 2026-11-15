@@ -109,8 +109,8 @@ pub fn checkMarkAssets(
     root: std.Io.Dir,
     violations: *std.ArrayList([]const u8),
 ) !void {
-    const svg = root.readFileAlloc(io, mark_svg, gpa, .limited(1 << 20)) catch {
-        try appendViolation(gpa, violations, "{s}: could not be read; it is the mark's artwork, and every other still picture is cut from it", .{mark_svg});
+    const svg = root.readFileAlloc(io, mark_svg, gpa, .limited(1 << 20)) catch |err| {
+        try appendViolation(gpa, violations, "{s}: could not be read with {s}; it is the mark's artwork, and every other still picture is cut from it", .{ mark_svg, @errorName(err) });
         return;
     };
     defer gpa.free(svg);
@@ -131,8 +131,8 @@ pub fn checkMarkAssets(
 
     // The favicon is the same drawing in a squarer frame, so it carries
     // mark.svg's own paths, tone for tone.
-    const favicon = root.readFileAlloc(io, favicon_svg, gpa, .limited(1 << 20)) catch {
-        try appendViolation(gpa, violations, "{s}: could not be read for the mark check", .{favicon_svg});
+    const favicon = root.readFileAlloc(io, favicon_svg, gpa, .limited(1 << 20)) catch |err| {
+        try appendViolation(gpa, violations, "{s}: could not be read for the mark check with {s}", .{ favicon_svg, @errorName(err) });
         return;
     };
     defer gpa.free(favicon);
@@ -151,8 +151,8 @@ pub fn checkMarkAssets(
     // the artwork's own three lower paths in order. Its tones differ, because
     // they are measured with the lamps burning, and its lamps are geometry the
     // unlit drawing does not have, so only the path data is held here.
-    const glowing = root.readFileAlloc(io, lit_svg, gpa, .limited(1 << 20)) catch {
-        try appendViolation(gpa, violations, "{s}: could not be read for the mark check", .{lit_svg});
+    const glowing = root.readFileAlloc(io, lit_svg, gpa, .limited(1 << 20)) catch |err| {
+        try appendViolation(gpa, violations, "{s}: could not be read for the mark check with {s}", .{ lit_svg, @errorName(err) });
         return;
     };
     defer gpa.free(glowing);
@@ -172,8 +172,8 @@ pub fn checkMarkAssets(
         }
     }
 
-    const tokens = root.readFileAlloc(io, tokens_css, gpa, .limited(1 << 20)) catch {
-        try appendViolation(gpa, violations, "{s}: could not be read for the mark check", .{tokens_css});
+    const tokens = root.readFileAlloc(io, tokens_css, gpa, .limited(1 << 20)) catch |err| {
+        try appendViolation(gpa, violations, "{s}: could not be read for the mark check with {s}", .{ tokens_css, @errorName(err) });
         return;
     };
     defer gpa.free(tokens);
@@ -213,8 +213,8 @@ pub fn checkMarkAssets(
         try appendViolation(gpa, violations, "{s}: its viewBox is unreadable; the placement in {s} is arithmetic on it", .{ mark_svg, mark_css });
         return;
     };
-    const css = root.readFileAlloc(io, mark_css, gpa, .limited(1 << 20)) catch {
-        try appendViolation(gpa, violations, "{s}: could not be read for the mark check", .{mark_css});
+    const css = root.readFileAlloc(io, mark_css, gpa, .limited(1 << 20)) catch |err| {
+        try appendViolation(gpa, violations, "{s}: could not be read for the mark check with {s}", .{ mark_css, @errorName(err) });
         return;
     };
     defer gpa.free(css);

@@ -59,8 +59,8 @@ pub fn checkRoomsSessionAccess(
     violations: *std.ArrayList([]const u8),
 ) !void {
     for (decided_in) |tree| {
-        var dir = root.openDir(io, tree, .{ .iterate = true }) catch {
-            try appendViolation(gpa, violations, "{s}: could not open for the session-access ban", .{tree});
+        var dir = root.openDir(io, tree, .{ .iterate = true }) catch |err| {
+            try appendViolation(gpa, violations, "{s}: could not open for the session-access ban with {s}", .{ tree, @errorName(err) });
             continue;
         };
         defer dir.close(io);
@@ -70,8 +70,8 @@ pub fn checkRoomsSessionAccess(
             if (entry.kind != .file or !source_tree.isTypeScriptPath(entry.path) or isGenerated(entry.path)) continue;
             const path = try gpa.print("{s}/{s}", .{ tree, entry.path });
             defer gpa.free(path);
-            const source = root.readFileAlloc(io, path, gpa, .limited(1 << 20)) catch {
-                try appendViolation(gpa, violations, "{s}: could not read for the session-access ban", .{path});
+            const source = root.readFileAlloc(io, path, gpa, .limited(1 << 20)) catch |err| {
+                try appendViolation(gpa, violations, "{s}: could not read for the session-access ban with {s}", .{ path, @errorName(err) });
                 continue;
             };
             defer gpa.free(source);

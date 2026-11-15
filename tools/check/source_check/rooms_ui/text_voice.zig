@@ -155,8 +155,8 @@ pub fn checkRoomsTextVoice(
     root: std.Io.Dir,
     violations: *std.ArrayList([]const u8),
 ) !void {
-    var dir = root.openDir(io, text_dir, .{ .iterate = true }) catch {
-        try appendViolation(gpa, violations, "{s}: could not be opened", .{text_dir});
+    var dir = root.openDir(io, text_dir, .{ .iterate = true }) catch |err| {
+        try appendViolation(gpa, violations, "{s}: could not be opened with {s}", .{ text_dir, @errorName(err) });
         return;
     };
     defer dir.close(io);
@@ -167,8 +167,8 @@ pub fn checkRoomsTextVoice(
         if (entry.kind != .file or !std.mem.endsWith(u8, entry.name, ".ts")) continue;
         const path = try gpa.print("{s}/{s}", .{ text_dir, entry.name });
         defer gpa.free(path);
-        const body = root.readFileAlloc(io, path, gpa, .limited(1 << 20)) catch {
-            try appendViolation(gpa, violations, "{s}: could not be read", .{path});
+        const body = root.readFileAlloc(io, path, gpa, .limited(1 << 20)) catch |err| {
+            try appendViolation(gpa, violations, "{s}: could not be read with {s}", .{ path, @errorName(err) });
             continue;
         };
         defer gpa.free(body);

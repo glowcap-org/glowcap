@@ -154,8 +154,8 @@ fn walk(
         try gpa.print("{s}/{s}", .{ base, rel });
     defer gpa.free(here);
 
-    var dir = root.openDir(io, here, .{ .iterate = true }) catch {
-        try appendViolation(gpa, violations, "{s}: could not be opened", .{here});
+    var dir = root.openDir(io, here, .{ .iterate = true }) catch |err| {
+        try appendViolation(gpa, violations, "{s}: could not be opened with {s}", .{ here, @errorName(err) });
         return;
     };
     defer dir.close(io);
@@ -177,8 +177,8 @@ fn walk(
 
         const path = try gpa.print("{s}/{s}", .{ base, child_rel });
         defer gpa.free(path);
-        const contents = root.readFileAlloc(io, path, gpa, .limited(2 << 20)) catch {
-            try appendViolation(gpa, violations, "{s}: could not be read", .{path});
+        const contents = root.readFileAlloc(io, path, gpa, .limited(2 << 20)) catch |err| {
+            try appendViolation(gpa, violations, "{s}: could not be read with {s}", .{ path, @errorName(err) });
             continue;
         };
         defer gpa.free(contents);
