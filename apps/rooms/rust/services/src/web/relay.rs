@@ -422,7 +422,8 @@ async fn connect_and_pump(
 				_ = super::stopped(&mut stopping) => return Ok(()),
 				result = tokio::time::timeout(Duration::from_millis(glowcap::BINDING_RELAY_TCP_DIAL_TIMEOUT_MS as u64), TcpStream::connect((host.as_str(), port))) => result.map_err(|_| "TCP relay dial timed out")?.map_err(|e| e.to_string())?,
 			};
-			tcp.set_nodelay(rooms_platform::serving::NO_DELAY).map_err(|e| format!("TCP relay setup failed: {e}"))?;
+			tcp.set_nodelay(rooms_platform::serving::NO_DELAY)
+				.map_err(|e| format!("TCP relay setup failed: {e}"))?;
 			pump(ws, &mut tcp, stop).await
 		}
 		Target::Local(Endpoint::Unix { path }) => {
