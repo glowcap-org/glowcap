@@ -149,7 +149,7 @@ async fn diagnostic(client: Client, row: Row, warmup: usize) -> wire::Counts {
 		row.name(),
 		frames,
 		bytes,
-		after.0 - before.0 + after.1 - before.1 + after.2 - before.2,
+		after.0 - before.0 + after.1 - before.1 + after.2 - before.2 + after.4 - before.4,
 		after.3 - before.3
 	);
 	for (arm, count) in &wire.arms {
@@ -174,6 +174,7 @@ fn phase(client: Client, row: Row) -> &'static CStr {
 		("generated", Row::Submission) => c"generated-submission",
 		("raw", Row::Replay) => c"raw-replay",
 		("generated", Row::Replay) => c"generated-replay",
+		("raw", Row::Wide) => c"raw-wide",
 		_ => unreachable!(),
 	}
 }
@@ -247,9 +248,11 @@ async fn main() {
 							))]
 							{
 								let raw = diagnostic(Client::Raw, row, options.warmup).await;
-								let generated = diagnostic(Client::Generated, row, options.warmup).await;
-								assert_eq!(raw.frames, generated.frames, "generated call added wire frames");
-								assert_eq!(raw.arms, generated.arms, "generated call changed protocol arm counts");
+								if row.has_generated_call() {
+									let generated = diagnostic(Client::Generated, row, options.warmup).await;
+									assert_eq!(raw.frames, generated.frames, "generated call added wire frames");
+									assert_eq!(raw.arms, generated.arms, "generated call changed protocol arm counts");
+								}
 							}
 						} else {
 							for pair in 0..options.pairs {
@@ -259,7 +262,11 @@ async fn main() {
 									} else {
 										Client::ALL.len() - 1 - index
 									};
-									timed(&options, Client::ALL[index], row, pair).await;
+									let client = Client::ALL[index];
+									if client.name() == "generated" && !row.has_generated_call() {
+										continue;
+									}
+									timed(&options, client, row, pair).await;
 								}
 							}
 						}

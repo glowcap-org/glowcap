@@ -11,6 +11,7 @@ pub struct Effects {
 	pub submissions: usize,
 	pub effects: usize,
 	pub ordinary: usize,
+	pub wide: usize,
 	last: Option<(i64, String)>,
 }
 pub struct Pair {
@@ -64,6 +65,11 @@ impl Pair {
 						state.effects += 1;
 						state.last = Some((sequence, args[2].as_str().unwrap().to_owned()));
 						Ok((&child).into())
+					}
+					Some("wide") => {
+						crate::workflow::check_wide(args);
+						state.wide += 1;
+						Ok(Argument::Void)
 					}
 					_ => panic!("unexpected benchmark call"),
 				}

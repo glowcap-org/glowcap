@@ -80,9 +80,9 @@ pub const Delivery = struct {
     verb: ?[]const u8 = null,
     args: model.view.Args = .fromOwnedSlice(&.{}),
     /// How many reference and handoff slots `args` holds at every depth,
-    /// when session validation counted them for a wire deliver, or null
-    /// when nothing counted (a near call, a forward). The Host reads zero
-    /// as leave to hand its handler the views as they are.
+    /// when session validation counted them for a wire deliver or the sender
+    /// counted them for a far send, or null when nothing counted (a near
+    /// call, a forward). Zero tells a reader the views hold nothing to lift.
     reference_slots: ?u32 = null,
 
     /// What an argument accessor refuses. A handler returns these like any

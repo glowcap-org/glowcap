@@ -106,6 +106,12 @@ custody costs.
   capability rows under rollback receipts. **The lift aliases the settle
   capture instead of re-cloning, which is why `Reply` is arena-only and carries
   no `deinit`.**
+- **C bridge argument spine**: `viewsToC` in `c_abi/shared/value_to_c.zig`,
+  called from `hosted_behavior.handleOwned`. A C-hosted object's callback
+  arguments for a capability-free deliver are one `GlowcapArgument` array per
+  container in the turn arena, built straight from the wire views with no Host
+  value tree. Byte leaves stay lent from the frame. A deliver that carries a
+  capability takes the lift instead.
 - **Integers copied for a handler**: `driver.Args.integers` (ADR-0010). A
   list of integers the Cap'n Proto codec left on the wire as a word run is
   lent to the handler as a typed slice with no copy. On Syrup, on a lifted or

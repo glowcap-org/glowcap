@@ -127,6 +127,10 @@ Releases before 0.1.7 are in the
 - A delivery lent as views and sent on to a local actor, from a handler turn
   or through a Port, has its text and bytes copied once, by the queue. They
   were copied twice.
+- A call that carries no capability reaches a behavior served through the C
+  library, and so through every binding, with its arguments projected once,
+  from the received frame onto the C argument arrays. They were first lifted
+  into a Host value tree in the turn arena.
 
 ### Fixed
 

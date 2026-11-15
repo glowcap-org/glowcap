@@ -468,6 +468,7 @@ comptime {
         _ = @import("c_abi/archive_contract_test.zig");
         _ = @import("c_abi/locator_adapter_test.zig");
         _ = @import("c_abi/uri_test.zig");
+        _ = @import("c_abi/views_to_c_test.zig");
         _ = @import("c_abi/designator_test.zig");
         _ = @import("c_abi/host/close_test.zig");
         _ = @import("c_abi/host/authority_test.zig");
@@ -483,6 +484,7 @@ comptime {
         _ = @import("c_abi/host/thread_affinity_test.zig");
         _ = @import("c_abi/host/callback_test.zig");
         _ = @import("c_abi/host/last_error_cause_test.zig");
+        _ = @import("c_abi/host/capability_free_deliver_test.zig");
         _ = @import("c_abi/last_error_test.zig");
         _ = @import("c_abi/failure_diagnostics_test.zig");
         _ = @import("c_abi/foreign_call_barrier_test.zig");

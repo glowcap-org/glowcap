@@ -66,11 +66,12 @@ declaration under `src/`.
     deliver's argument tree is parsed once and validation, the Vat, and the
     Host's lift walk views: a handler's `actors.Delivery` reads the frame's
     bytes where they lie (ADR-0063), and a Host handler's `driver.Args` does
-    too when validation counted no reference or handoff slot in the deliver,
-    so the lift runs only for a deliver that carries a capability
-    (ADR-0063). `inbound_head_budget_bytes` pins the
-    fixed head, the cap pins the views, and the cost is transient, freed
-    with the frame. A Syrup list of integers is parsed into words in the
+    too, as do a C behavior's arguments
+    ([Host inventory](references/host.md)), when validation counted no
+    reference or handoff slot in the deliver, so the lift runs only for a
+    deliver that carries a capability (ADR-0063). `inbound_head_budget_bytes`
+    pins the fixed head, the cap pins the views, and the cost is transient,
+    freed with the frame. A Syrup list of integers is parsed into words in the
     head's unused room instead (`ValueSlab.beginIntegers`, ADR-0063),
     committed only when every element fits `i64`, so it costs no view
     per element, no turn copy, and no allocation of its own. The same bytes

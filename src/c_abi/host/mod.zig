@@ -110,40 +110,7 @@ pub const embedding = @import("embedding.zig");
 
 /// Zig-only seams for exercising C-boundary transactions without exporting
 /// another ABI symbol. Production consumers cannot name this through a header.
-pub const testing = if (builtin.is_test) struct {
-    pub const error_projection = @import("error.zig");
-
-    pub fn importObject(raw: ?*GlowcapHostSession, position: u64) !void {
-        const session_ptr = instance.sessionFrom(raw) orelse return error.NullPointer;
-        try session_ptr.served.port.peer.importObject(position);
-    }
-
-    pub fn projectArgs(
-        host_handle: ?*GlowcapHost,
-        raw: ?*GlowcapHostSession,
-        allocator: @import("std").mem.Allocator,
-        args: []const model.Argument,
-    ) !void {
-        const inst = instance.instanceFrom(host_handle) orelse return error.NullPointer;
-        const session_ptr = instance.sessionFrom(raw) orelse return error.NullPointer;
-        _ = try inst.core.projectValues(session_ptr, allocator, .fromOwnedSlice(args), allocator, marshal.valuesToC);
-    }
-
-    pub fn liveCapabilityCount(host_handle: ?*GlowcapHost) !usize {
-        const inst = instance.instanceFrom(host_handle) orelse return error.NullPointer;
-        return inst.core.capabilities.liveCount();
-    }
-
-    pub fn configuredSessionLimits(host_handle: ?*GlowcapHost) !engine.SessionLimits {
-        const inst = instance.instanceFrom(host_handle) orelse return error.NullPointer;
-        return inst.core.opts.limits;
-    }
-
-    pub fn importRefcount(raw: ?*GlowcapHostSession, position: u64) !u64 {
-        const session_ptr = instance.sessionFrom(raw) orelse return error.NullPointer;
-        return session_ptr.served.port.peer.session_state.importRefcount(.from(position));
-    }
-} else struct {};
+pub const testing = if (builtin.is_test) @import("test_seams.zig") else struct {};
 
 // ── Shared value vocabulary (by layout, from c_abi_shared) ────────────────────
 
