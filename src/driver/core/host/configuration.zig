@@ -21,7 +21,7 @@ const Host = host_mod.Host;
 /// Construction refusals happen before a Host is published. Embedders decide
 /// whether they are process-fatal. The core never makes that policy choice with
 /// a panic.
-pub const InitError = error{ InvalidHostWorkQuantum, InvalidSessionLimit };
+pub const InitError = error{ InvalidHostWorkQuantum, InvalidSessionLimit, InvalidOutboundHighWater };
 
 /// Live sessions a Host holds by default. A shell lives from mint to close,
 /// so this bounds the memory partners can hold open together.
@@ -99,7 +99,8 @@ pub const Options = struct {
     /// Retained outbound-work waterline for one byte-fed session. A producer
     /// that starts below it commits atomically and may cross it by one bounded
     /// operation. The next host-driving producer refuses `OutboundBackpressure`
-    /// until frames drain. Null derives from `max_frame_bytes`.
+    /// until frames drain. Null derives from `max_frame_bytes`. Zero is
+    /// refused at construction.
     outbound_high_water_bytes: ?usize = null,
     /// Every embedder chooses its thread-ownership policy. The core reads no
     /// threads. Checked owners supply a reader. HostRuntime and the OS C Host
@@ -141,7 +142,8 @@ pub fn setReleaseOnDrop(self: *Host, enabled: bool) error{ ReenteredHost, WrongT
 /// Override selective session limits before minting peers (ADR-0008). `null`
 /// leaves that field unchanged. Already-open sessions keep the limits they
 /// were minted with. `max_sessions` is the Host-wide cap and takes effect at
-/// the next mint.
+/// the next mint. A zero outbound high water refuses
+/// `error.InvalidOutboundHighWater`.
 pub fn setSessionLimits(
     self: *Host,
     max_frame_bytes: ?usize,
@@ -149,8 +151,9 @@ pub fn setSessionLimits(
     outbound_high_water_bytes: ?usize,
     max_retained_sent_answer_bytes: ?u32,
     max_sessions: ?usize,
-) error{ ReenteredHost, WrongThread, HostClosing, InvalidSessionLimit }!void {
+) error{ ReenteredHost, WrongThread, HostClosing, InvalidSessionLimit, InvalidOutboundHighWater }!void {
     try admission.admitConfigurationMutation(self);
+    if (outbound_high_water_bytes) |value| if (value == 0) return error.InvalidOutboundHighWater;
     if (max_sessions) |cap| {
         if (cap == 0) return error.InvalidSessionLimit;
         self.opts.max_sessions = cap;

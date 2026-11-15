@@ -52,6 +52,20 @@ test "Host initialization returns invalid option failures before publication" {
     );
 }
 
+test "a zero outbound waterline is refused at construction and by the limit setter" {
+    try std.testing.expectError(
+        error.InvalidOutboundHighWater,
+        Host.init(std.testing.allocator, @as([32]u8, @splat(0x35)), @as([32]u8, @splat(0x36)), .{
+            .thread_policy = .unchecked,
+            .outbound_high_water_bytes = 0,
+        }),
+    );
+    var host = test_host.init(std.testing.allocator, @as([32]u8, @splat(0x37)), .{ .thread_policy = .unchecked });
+    defer host.deinit();
+    try std.testing.expectError(error.InvalidOutboundHighWater, host.setSessionLimits(null, null, 0, null, null));
+    try host.setSessionLimits(null, null, 1, null, null);
+}
+
 test "Host mint projects full SessionLimits onto an adopted peer" {
     const allocator = std.testing.allocator;
     var limits = engine.SessionLimits{};

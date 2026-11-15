@@ -108,6 +108,7 @@ pub const HostFailure = struct {
                 error.NoPendingAction,
                 error.InvalidHostWorkQuantum,
                 error.InvalidSessionLimit,
+                error.InvalidOutboundHighWater,
                 error.ReservedDurableNamespace,
                 error.NotDurableName,
                 error.DurableNameCollision,

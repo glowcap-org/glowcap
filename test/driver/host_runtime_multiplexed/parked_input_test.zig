@@ -31,6 +31,33 @@ test "a message-framed wire hands back its parked packets whole and in order" {
     try std.testing.expectEqual(@as(?[]const u8, null), packets.next());
 }
 
+test "dropping the packets the core took leaves the rest parked, whole and in order" {
+    const allocator = std.testing.allocator;
+    var link: Link = .{ .index = 0, .conn = 0 };
+    defer link.parked.deinit(allocator);
+
+    const sent = [_][]const u8{ "first", "second packet", "third" };
+    for (sent) |packet| try link.park(allocator, .message, packet);
+
+    var packets = link.parkedPackets();
+    _ = packets.next().?;
+    _ = packets.next().?;
+    link.dropParked(allocator, link.parked.items.len - packets.rest.len);
+    var left = link.parkedPackets();
+    try std.testing.expectEqualSlices(u8, "third", left.next().?);
+    try std.testing.expectEqual(@as(?[]const u8, null), left.next());
+
+    // The buffer a later park refills is the one the drop kept.
+    try link.park(allocator, .message, "fourth");
+    left = link.parkedPackets();
+    try std.testing.expectEqualSlices(u8, "third", left.next().?);
+    try std.testing.expectEqualSlices(u8, "fourth", left.next().?);
+
+    link.dropParked(allocator, link.parked.items.len);
+    try std.testing.expectEqual(@as(usize, 0), link.parked.items.len);
+    try std.testing.expectEqual(@as(usize, 0), link.parked.capacity);
+}
+
 test "a byte-stream wire parks the bytes as they arrived" {
     const allocator = std.testing.allocator;
     var link: Link = .{ .index = 0, .conn = 0 };

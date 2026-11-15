@@ -156,7 +156,7 @@ pub(crate) async fn serve_loop(shared: Rc<SessionShared>) -> Result<()> {
 /// actions the dispatch queued drain. The library owns the unconsumed tail,
 /// a partial frame straddling two reads stays buffered in the session, so
 /// one borrowed call moves the whole chunk. The serve loop resumes any
-/// handshake-held tail through `resume_feed`.
+/// retained tail through `resume_feed`.
 pub(crate) async fn feed(shared: &Rc<SessionShared>, chunk: &[u8]) -> Result<()> {
 	loop {
 		if shared.released.get() {
@@ -209,6 +209,9 @@ async fn await_outbound_room(shared: &Rc<SessionShared>) -> Result<()> {
 	writer::written(shared, covering).await
 }
 
+/// Resume input the Host retained: frames held behind the handshake open, or
+/// input held while the session sat at its outbound high-water mark (a
+/// would-block waits for outbound room and retries).
 async fn resume_feed(shared: &Rc<SessionShared>) -> Result<()> {
 	loop {
 		if shared.released.get() {

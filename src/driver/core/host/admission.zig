@@ -252,9 +252,7 @@ pub fn checkSession(self: *const Host, session: *const HostSession) HostError!vo
 /// bypass it so a full queue cannot pin authority or prevent closure.
 pub fn checkOutboundAdmission(self: *Host, session: *HostSession) HostError!void {
     try checkOwnedSession(self, session);
-    if (!session.sessionOpen()) return;
-    if (session.served.queuedOutboundBytes() >= session.outbound_high_water_bytes)
-        return error.OutboundBackpressure;
+    if (session.outboundPressured()) return error.OutboundBackpressure;
 }
 
 /// Admit application work on one session. Protocol ingress and teardown

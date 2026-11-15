@@ -53,6 +53,7 @@ pub fn init(
     if (opts.host_work_quantum == 0)
         return error.InvalidHostWorkQuantum;
     if (opts.max_sessions) |cap| if (cap == 0) return error.InvalidSessionLimit;
+    if (opts.outbound_high_water_bytes) |bytes| if (bytes == 0) return error.InvalidOutboundHighWater;
     const node = engine.Node.init(allocator, seed);
     return .{
         .allocator = allocator,

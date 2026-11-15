@@ -63,10 +63,20 @@ pub const Wire = struct {
         /// packet behind its length, so `parkedPackets` hands back the same
         /// packets in order.
         parked: std.ArrayList(u8) = .empty,
-        /// The read loop stopped at the chunk that opened the session, so the
-        /// embedder's post-open setup runs before later chunks dispatch.
-        /// `resumeFeedTails` finishes the read once the open commits.
+        /// The read loop stopped with input left in the resident. It stops at
+        /// the chunk that opened the session, so the embedder's post-open
+        /// setup runs before later chunks dispatch, and before a read the
+        /// session cannot take yet (`holdRead`). `resumeFeedTails` finishes
+        /// the read.
         read_deferred: bool = false,
+        /// The resident reported the partner's departure with a readable
+        /// record: its buffered bytes stay readable, and the read that
+        /// reaches the end closes the wire. A read that answers would-block
+        /// is that end. The runtime counts on no further event from the
+        /// connection after the closed edge, so a wire still pressured after
+        /// its pending write is offered once more closes instead of holding
+        /// input (`pressuredAfterOffer`).
+        resident_closed: bool = false,
 
         pub const PendingOut = struct {
             frame: foundation.Frame,
@@ -111,6 +121,16 @@ pub const Wire = struct {
         /// borrows the parked buffer.
         pub fn parkedPackets(link: *const Link) ParkedPackets {
             return .{ .rest = link.parked.items };
+        }
+
+        /// Remove the first `bytes` of the parked input, which the core took.
+        /// An emptied buffer returns its capacity.
+        pub fn dropParked(link: *Link, allocator: std.mem.Allocator, bytes: usize) void {
+            std.debug.assert(bytes <= link.parked.items.len);
+            const rest = link.parked.items.len - bytes;
+            if (rest == 0) return link.parked.clearAndFree(allocator);
+            @memmove(link.parked.items[0..rest], link.parked.items[bytes..]);
+            link.parked.shrinkRetainingCapacity(rest);
         }
 
         pub const ParkedPackets = struct {

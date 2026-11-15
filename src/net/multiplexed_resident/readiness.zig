@@ -17,6 +17,11 @@ pub const ContractError = error{ProviderContract};
 /// several at once.
 pub const ev_readable: u32 = 1;
 pub const ev_writable: u32 = 2;
+/// The connection ended. A provider reports two readings. With `ev_readable`,
+/// the partner ended the stream and buffered input remains to read: the read
+/// that follows that input ends the stream whether it answers `0` or
+/// `would_block`. Alone, a fault, and the retirement signal after a local
+/// close: the runtime closes the connection at once.
 pub const ev_closed: u32 = 4;
 pub const ev_accept: u32 = 8;
 pub const ev_connect: u32 = 16;

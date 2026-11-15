@@ -99,10 +99,16 @@ static int drain_actions(GlowcapHost *host, BytePipe *pipe, GlowcapHostSession *
 static int feed_pipe(GlowcapHostSession *to, BytePipe *pipe) {
     /* The library owns framing and the unconsumed tail, so one call moves
        the whole pipe; the resume verb dispatches frames the session held
-       behind its handshake open. */
+       behind its handshake open. WOULD_BLOCK means the session is at its
+       outbound high-water mark and took nothing: the pipe stays as it is,
+       the next shuttle drains outbound first, and the caller's bounded round
+       loop retries. */
     int32_t rc = pipe->len == 0
         ? glowcap_host_session_resume_feed(to)
         : glowcap_host_session_feed_bytes(to, pipe->buf, pipe->len);
+    if (rc == GLOWCAP_ERR_WOULD_BLOCK) {
+        return GLOWCAP_OK;
+    }
     if (rc != GLOWCAP_OK) {
         return rc;
     }
@@ -238,6 +244,8 @@ static int scene_handshake(void) {
 
     BytePipe ab = {0};
     BytePipe ba = {0};
+    /* At most 64 rounds, which also bounds the retries of a pipe a pressured
+       session has not taken. */
     for (int round = 0; round < 64; round++) {
         if (shuttle(client, dialed, &ab, server, accepted, &ba) != GLOWCAP_OK) {
             (void)fail("handshake shuttle");

@@ -75,6 +75,8 @@ fn startWire(self: *HostRuntime, session: *driver_core.HostSession, own: ?*drive
         return;
     };
     if (!wire.closed) _ = try Internal.feedReadable(self, wire, own);
+    // The read can leave input held after the sweep that precedes this wait.
+    if (!wire.closed) self.held_input_possible = self.held_input_possible or Internal.holdsInput(wire);
 }
 
 /// Start the wire of a staged adoption. No caller awaits the session, so a

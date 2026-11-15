@@ -262,11 +262,17 @@ pub const HostSession = struct {
 
     /// Resume input already retained by a previous feed, without treating an
     /// empty transport packet as new input. Byte streams may have a held tail.
-    /// Message-framed transports never do.
+    /// Message-framed transports never do. A pressured session
+    /// (`outboundPressured`) that holds input a resume could move refuses
+    /// `error.OutboundBackpressure` before moving anything, as `feedBytes`
+    /// does for new bytes, so the caller calls again once the outbound drains
+    /// below the waterline. A resume that itself brings the session to the
+    /// waterline succeeds and keeps the rest of its input held for that call.
     pub fn resumeFeed(self: *HostSession) !void {
         try self.host.refuseReentry();
         try self.host.checkSession(self);
         if (self.wire_framing != .byte_stream) return;
+        if (self.inboundResumable() and self.outboundPressured()) return error.OutboundBackpressure;
 
         const was_open = self.served.port.peer.sessionIsOpen();
         if (self.feed_tail.isActive() or self.feed_resume_pending) {
@@ -274,10 +280,12 @@ pub const HostSession = struct {
             if (!was_open and self.served.port.peer.sessionIsOpen()) return;
         }
         if (self.sealed) |channel| {
+            if (self.outboundPressured()) return;
             if (channel.hasStagedInbound()) {
                 try self.host.feedBytes(self, &.{});
                 if (!was_open and self.served.port.peer.sessionIsOpen()) return;
             }
+            if (self.outboundPressured()) return;
             if (was_open and self.feed_tail.isActive())
                 try stream_feed.resumeFeedTail(self.host, self);
         }
@@ -301,6 +309,19 @@ pub const HostSession = struct {
         // best-effort: the same observation-only skip as the decode above.
         const delivery = actors.Delivery.fromArgs(body.deliver.args) catch return;
         host.traceMessage(self, true, delivery.verb, frame.bytes());
+    }
+
+    /// Whether queued outbound has reached this session's waterline, open or
+    /// not. The one spelling of the comparison.
+    pub fn outboundAtWaterline(self: *const HostSession) bool {
+        return self.served.queuedOutboundBytes() >= self.outbound_high_water_bytes;
+    }
+
+    /// Whether the session is open and its queued outbound is at its
+    /// waterline. New input is refused `OutboundBackpressure` until the
+    /// outbound drains.
+    pub fn outboundPressured(self: *const HostSession) bool {
+        return self.sessionOpen() and self.outboundAtWaterline();
     }
 
     /// Whether the keyed handshake has completed and the session is open.
@@ -337,15 +358,17 @@ pub const HostSession = struct {
         return secret.publicKey();
     }
 
-    /// Whether `resumeFeed` has input it can move now: the front of
-    /// `feed_tail` is a whole, malformed, or oversize outer frame, which a
-    /// resume dispatches or refuses, or a sealed session holds an opened
-    /// record or a whole staged unit (ADR-0041). Such bytes already left the
-    /// kernel, so no readiness wait reports them. The front of a frame whose
-    /// rest has not arrived is not resumable, because the bytes that complete
-    /// it raise readiness themselves. A message-framed session holds no such
-    /// input. Every byte-fed pump asks this one question instead of reaching
-    /// into the two owners separately.
+    /// Whether the session holds input whole enough for `resumeFeed` to move:
+    /// the front of `feed_tail` is a whole, malformed, or oversize outer
+    /// frame, which a resume dispatches or refuses, or a sealed session holds
+    /// an opened record or a whole staged unit (ADR-0041). Such bytes already
+    /// left the kernel, so no readiness wait reports them. The front of a
+    /// frame whose rest has not arrived is not resumable, because the bytes
+    /// that complete it raise readiness themselves. A message-framed session
+    /// holds no such input. The answer comes from the session's own fields
+    /// and disregards the waterline, so `resumeFeed` still refuses
+    /// `error.OutboundBackpressure` while the session is pressured. The
+    /// stepped runtime's sweep and its end-of-read ask this.
     pub fn inboundResumable(self: *const HostSession) bool {
         if (self.wire_framing != .byte_stream) return false;
         if (self.feed_tail.isActive()) {

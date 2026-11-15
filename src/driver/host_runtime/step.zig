@@ -44,7 +44,9 @@ pub fn pumpUntilFlag(self: *HostRuntime, session: *driver_core.HostSession, flag
 
 /// One bounded pump step for a view's `stepReadable`/`serve` loops: drain
 /// actions, wait up to `timeout_ms`, feed one readable wire. Reports progress
-/// from `session`'s perspective.
+/// from `session`'s perspective. Null means the wait ended with nothing to
+/// service. The wait polls instead of parking while the sweep has work
+/// (`parkBoundMs`).
 pub fn stepSession(self: *HostRuntime, session: *driver_core.HostSession, timeout_ms: i32) !?net.Progress {
     try self.refuseReentry();
     self.enterDriver();
@@ -59,7 +61,7 @@ pub fn stepSession(self: *HostRuntime, session: *driver_core.HostSession, timeou
     Internal.advancePendingListeners(self);
     const session_wire = self.wires.get(session.peer_handle) orelse return .closed;
     if (session_wire.closed) return .closed;
-    const index = try Internal.waitAnySource(self, timeout_ms, false) orelse return null;
+    const index = try Internal.waitAnySource(self, Internal.parkBoundMs(self, timeout_ms, null), false) orelse return null;
     const fed = try Internal.serviceResident(self, index, session);
     try self.drainActions();
     if (session_wire.closed) return .closed;
@@ -114,7 +116,7 @@ pub fn stepAnyOwned(self: *HostRuntime, timeout_ms: i32, goal: StepGoal) !?net.P
         nudgeIfWorkRemains(self);
         return unserviced;
     }
-    const index = try Internal.waitAnySource(self, timeout_ms, true) orelse {
+    const index = try Internal.waitAnySource(self, Internal.parkBoundMs(self, timeout_ms, null), true) orelse {
         // The park may have ended on a staged operation's clamped deadline;
         // settle it now rather than a step later.
         self.readTurnClock();
@@ -205,7 +207,7 @@ pub fn terminalCleanupPending(self: *HostRuntime) bool {
 }
 
 /// Preserve readiness when work already left the kernel's observable buffers
-/// and the next step's sweep can move it (`sweepCanMove`). Input that cannot
+/// and the next step's sweep can move it (`sweepWorkRemains`). Input that cannot
 /// move until more bytes arrive is not such work, because those bytes raise
 /// the descriptor themselves. Only a parked embedder can be stranded by such
 /// work. The blocking face re-derives its wait set on every entry.
@@ -222,13 +224,7 @@ pub fn nudgeIfWorkRemains(self: *HostRuntime) void {
             return;
         }
     }
-    var it = self.wires.valueIterator();
-    while (it.next()) |wire| {
-        if (Internal.sweepCanMove(self, wire.*)) {
-            rs.postWake() catch |err| self.noteTerminalFailure(err);
-            return;
-        }
-    }
+    if (Internal.sweepWorkRemains(self, null)) rs.postWake() catch |err| self.noteTerminalFailure(err);
 }
 
 /// The turn is ending: every resident hands its staged sends to the kernel
