@@ -9,9 +9,10 @@
 ;; committed file" pattern as gen-header. glowcap's own costs go to
 ;; site/content/performance.smd and the comparisons with Cap'n Proto RPC and
 ;; Goblins to site/content/performance/compared.smd, both stamped with the
-;; same run. Surrounding prose is left untouched. There is no stale-check:
-;; bench numbers vary by machine, so the pages are a dated snapshot you
-;; refresh, not a gated invariant.
+;; same run. bench/README.md says which cores the benches keep. Surrounding
+;; prose is left untouched. There is no stale-check: bench numbers vary by
+;; machine, so the pages are a dated snapshot you refresh, not a gated
+;; invariant.
 ;;
 ;; Parsers and renderers are pure and exercised by site_report-test.rkt; only
 ;; `main` runs benches and writes the file.
@@ -348,9 +349,11 @@
                (for/list ([i (in-list impls)])
                  (list (car i) (cell one-core i "greet") (cell two-core i "greet") (cell one-core i "report") (cell two-core i "report"))))))
 
-;; The two fastest cores by maximum clock, so a pinned run stays off the slow
-;; cluster on a mixed-core machine. Falls back to cores 0 and 1.
-(define (fast-cores)
+;; The cores that share the highest maximum clock when two or more do, lowest
+;; number first, and empty otherwise. On a mixed-core machine the scheduler may
+;; place an unpinned bench on a slow core, and the figure follows the core it
+;; drew. One core cannot hold a two-thread row.
+(define (fast-cluster)
   (define cpus
     (for*/list ([d (in-list (directory-list "/sys/devices/system/cpu"))]
                 [m (in-value (regexp-match #px"^cpu(\\d+)$" (path->string d)))]
@@ -358,8 +361,21 @@
                 [f (in-value (build-path "/sys/devices/system/cpu" d "cpufreq/cpuinfo_max_freq"))]
                 #:when (file-exists? f))
       (cons (n (cadr m)) (n (string-trim (file->string f))))))
-  (define fast (sort (sort cpus < #:key car) > #:key cdr))
-  (if (>= (length fast) 2) (list (car (car fast)) (car (cadr fast))) (list 0 1)))
+  (define top (if (null? cpus) 0 (apply max (map cdr cpus))))
+  (define fast (sort (for/list ([c (in-list cpus)] #:when (= (cdr c) top)) (car c)) <))
+  (if (>= (length fast) 2) fast '()))
+
+;; The two cores a pinned row names: the first two of the fast cluster, or
+;; cores 0 and 1 when there is no cluster.
+(define (fast-cores)
+  (define fast (fast-cluster))
+  (if (null? fast) (list 0 1) (list (car fast) (cadr fast))))
+
+;; The prefix that keeps a bench and the build that runs it on the fast
+;; cluster. Empty when there is no cluster.
+(define (cluster-prefix)
+  (define fast (fast-cluster))
+  (if (null? fast) "" (format "taskset -c ~a " (string-join (map number->string fast) ","))))
 
 (define (frameview-region fv)
   (html-table '("metric" "value")
@@ -504,7 +520,11 @@
       (define load (string->number (car (string-split (file->string "/proc/loadavg")))))
       (when (and load (>= load 2)) (sleep 20) (loop)))))
 
-(define (run cmd)
+;; Run one bench command under the cluster prefix and return what it printed.
+(define (run bench) (run-command (string-append (cluster-prefix) bench)))
+
+;; Run one command as given and return what it printed.
+(define (run-command cmd)
   (quiet)
   (printf "  $ ~a\n" cmd) (flush-output)
   (define out (open-output-string))
@@ -562,7 +582,7 @@
   ;; Every tool a bench needs, checked before the first bench, so a missing one
   ;; fails in a second instead of after twenty minutes of runs. A container
   ;; older than the Dockerfile is the usual cause, and rebuilding it is the fix.
-  (for ([tool '("cargo" "capnp" "g++" "pkg-config" "python3" "unshare" "ip")])
+  (for ([tool '("cargo" "capnp" "g++" "pkg-config" "python3" "unshare" "ip" "taskset")])
     (unless (find-executable-path tool)
       (error 'site-report "~a is not on PATH; rebuild the devcontainer (.devcontainer/bin/up.sh --rebuild)" tool)))
   (unless (system "pkg-config --exists capnp-rpc")
@@ -579,25 +599,36 @@
   (define codec (parse-codec (run "zig build bench-codec -Doptimize=fast 2>&1")))
   (define fv (parse-frameview (run "zig build bench-frame-view -Doptimize=fast 2>&1")))
   (define peer (parse-peer (run "zig build bench-peer-scaling -Doptimize=fast 2>&1")))
-  (define live (parse-live (run "python3 tools/run-with-timeout.py --kill-after 5s --heartbeat 30s 10m unshare -Urn sh -eu -c 'ulimit -n 524288; ip link set lo up; exec zig build bench-peer-scaling -Doptimize=fast -- --live --live-max=500000' 2>&1")))
+  ;; Thirty-two serving shards and a load process are sized for every core.
+  (define live (parse-live (run-command "python3 tools/run-with-timeout.py --kill-after 5s --heartbeat 30s 10m unshare -Urn sh -eu -c 'ulimit -n 524288; ip link set lo up; exec zig build bench-peer-scaling -Doptimize=fast -- --live --live-max=500000' 2>&1")))
+  (define cores (fast-cores))
+  (define each-core (format "~a,~a" (car cores) (cadr cores)))
   (define opens (parse-iroh (string-append
-    (run "zig build bench-transports -Doptimize=fast -- --transport=tcp --row=session-open 2>&1")
-    (run "zig build bench-transports -Doptimize=fast -- --transport=noise-tcp --row=session-open 2>&1"))))
+    (run (format "zig build bench-transports -Doptimize=fast -- --transport=tcp --row=session-open --pin=~a 2>&1" each-core))
+    (run (format "zig build bench-transports -Doptimize=fast -- --transport=noise-tcp --row=session-open --pin=~a 2>&1" each-core)))))
   (define snap-p (parse-snapshot (run "zig build bench-snapshot -Doptimize=fast 2>&1")))
   (define snap-g (parse-goblins-snapshot (run "racket bench/goblins/snapshot.rkt 2>&1")))
-  (define iroh (parse-iroh (run "zig build bench-transports -Doptimize=fast 2>&1")))
+  (define (tcp-pinned row pin)
+    (run (format "zig build bench-transports -Doptimize=fast -- --transport=tcp --row=~a --pin=~a 2>&1" row pin)))
+  ;; One measurement serves the transport table and the comparison's
+  ;; one-core-each group, so the two pages report the same figure.
+  (define tcp-greet-each (tcp-pinned "greet" each-core))
+  ;; iroh's runtime starts its own threads, and a pin would confine them all
+  ;; to the pinned core.
+  (define iroh (parse-iroh (string-append
+    tcp-greet-each
+    (run "zig build bench-transports -Doptimize=fast -- --transport=iroh --row=greet 2>&1")
+    (run "zig build bench-transports -Doptimize=fast -- --transport=iroh-loop 2>&1"))))
   (define loam (parse-loam (run "zig build bench-loam -Doptimize=fast -- --ordinary-only 2>&1")))
-  (define cores (fast-cores))
   (define capnp
-    (let* ([a (car cores)] [b (cadr cores)])
-      (for/list ([pin (list (format "~a,~a" a a) (format "~a,~a" a b))])
-        (parse-iroh (string-append
-                     (run (format "zig build bench-capnp -Doptimize=fast -- --pin=~a 2>&1" pin))
-                     (run (format "zig build bench-transports -Doptimize=fast -- --transport=tcp --row=greet --pin=~a 2>&1" pin))
-                     (run (format "zig build bench-transports -Doptimize=fast -- --transport=tcp --row=report --pin=~a 2>&1" pin))
-                     (run (format "zig build bench-transports -Doptimize=fast -- --transport=tcp --row=greet --codec=capnp --pin=~a 2>&1" pin))
-                     (run (format "zig build bench-transports -Doptimize=fast -- --transport=tcp --row=report --codec=capnp --pin=~a 2>&1" pin)))))))
-  (run (format "zig build bench-langs -Doptimize=fast -- --pin=~a,~a 2>&1" (car cores) (cadr cores)))
+    (for/list ([pin (list (format "~a,~a" (car cores) (car cores)) each-core)])
+      (parse-iroh (string-append
+                   (run (format "zig build bench-capnp -Doptimize=fast -- --pin=~a 2>&1" pin))
+                   (if (equal? pin each-core) tcp-greet-each (tcp-pinned "greet" pin))
+                   (tcp-pinned "report" pin)
+                   (tcp-pinned "greet --codec=capnp" pin)
+                   (tcp-pinned "report --codec=capnp" pin)))))
+  (run (format "zig build bench-langs -Doptimize=fast -- --pin=~a 2>&1" each-core))
   (define langs (parse-langs-md (latest-langs-md)))
   (printf "rendering + splicing into ~a and ~a...\n" PERF COMPARED) (flush-output)
   (define stamp (stamp-region))

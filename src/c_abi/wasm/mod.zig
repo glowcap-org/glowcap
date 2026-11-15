@@ -171,9 +171,11 @@ export fn glowcap_wasm_loam_archive_fingerprint() u64 {
 /// mirrors `GlowcapHostBehavior`. On wasm32 every pointer and `usize`
 /// is an `i32`, so the seven parameters and the `i32` result are all `i32` on
 /// the wire. The vat calls it through the same fn-pointer path a Zig host
-/// uses. The vat borrows `verb`/`args` for the call and copies `out_reply`'s
-/// payload the instant the trampoline returns, so the adapter keeps those bytes
-/// valid across the return. Any non-OK return settles the answer broken.
+/// uses. The vat borrows `verb`/`args` for the call and reads `out_reply`'s
+/// payload after you return: before the library call that ran the trampoline
+/// returns, and before the trampoline is entered again. The adapter keeps
+/// those bytes valid and unchanged until whichever comes first. Any non-OK
+/// return settles the answer broken.
 extern "env" fn glowcap_behavior_trampoline(
     ctx: ?*anyopaque,
     turn: ?*driver.GlowcapHostTurn,

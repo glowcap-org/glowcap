@@ -33,8 +33,9 @@ pub const HostedBehavior = struct {
 
     /// The vat calls this on each deliver. It marshals the message into C,
     /// invokes the consumer's callback with the turn, and materializes its
-    /// reply into `turn.arena`. The consumer lends its reply storage across
-    /// callback return. The copied reply then borrows the whole turn.
+    /// reply into `turn.arena`. The reply's byte leaves are copied into the
+    /// arena, or for a served turn lent from the consumer's storage (see
+    /// `callAndReply`).
     pub fn handle(erased: *anyopaque, turn: *actors.Turn, msg: actors.Delivery) actors.HostedActor.Result {
         return .{ .returned = handleOwned(erased, turn, msg) catch |err| return .{ .refused = failure(err) } };
     }
@@ -45,27 +46,69 @@ pub const HostedBehavior = struct {
         return if (err == error.ForeignBehaviorBroke) .behavior(err) else .adapter(err);
     }
 
+    /// A deliver that session validation counted no reference or handoff in
+    /// (`msg.reference_slots == 0`) projects its views straight onto the C
+    /// arguments, one `GlowcapArgument` array per container in the turn arena,
+    /// with no lift, no receipts, and no lease. A refusal on that route breaks
+    /// this turn. Any other count, or none, is lifted through the ingress
+    /// session first, so every capability arrives as one opaque id under one
+    /// lift transaction, and that transaction's lease holds them until the
+    /// reply is consumed.
     fn handleOwned(erased: *anyopaque, turn: *actors.Turn, msg: actors.Delivery) anyerror!model.Argument {
         const self: *HostedBehavior = @ptrCast(@alignCast(erased));
         const arena = turn.arena;
         var host_turn = try driver_core.HostTurn.fromActorTurn(turn);
         const session = host_turn.session orelse return error.OwningReplyRequired;
         const inst = instance.instOf(host_turn.host);
+        if (msg.reference_slots == 0) {
+            const c_args = try shared.viewsToC(arena, msg.args);
+            return self.callAndReply(inst, session, turn, msg.verb, c_args);
+        }
         const input = try inst.core.projectValues(session, arena, msg.args, &host_turn, projectCallbackArguments);
         errdefer if (input.lease) |held| held.release();
-        const c_args = input.args;
+        return self.callAndReply(inst, session, turn, msg.verb, input.args);
+    }
+
+    /// Run the foreign callback over `c_args` and read its reply into the turn
+    /// arena. Both argument routes end here. A turn that forwarded its answer
+    /// reads nothing: the answer rides the forwarded vow and `out_reply` is
+    /// ignored. A `.local` or `.eventual` turn hands the value to a caller
+    /// that keeps it, so its leaves are copied.
+    ///
+    /// A `.served` turn lends the reply's byte leaves to the answer store's
+    /// copy in `serve`'s `fulfillServed`. The consumer keeps that storage
+    /// valid and unchanged until the library call that ran this callback
+    /// returns or a behavior callback is entered again, whichever comes
+    /// first. Nothing between the return and the copy runs a behavior or
+    /// release callback: `TurnParticipant` forbids one in a commit,
+    /// `ResolveInterceptor` forbids one for any value but a bare reference,
+    /// which holds no bytes, and a C behavior stages no `become`, so the
+    /// commit releases no state. The copy allocates, so a consumer's own
+    /// allocator (`glowcap_context_new_with_allocator`) can run in that span.
+    fn callAndReply(
+        self: *HostedBehavior,
+        inst: *instance.Instance,
+        session: *driver_core.HostSession,
+        turn: *actors.Turn,
+        verb: ?[]const u8,
+        c_args: []shared.GlowcapArgument,
+    ) anyerror!model.Argument {
         var reply = shared.zero_argument;
         const code = self.behavior(
             self.ctx,
             @ptrCast(turn),
-            if (msg.verb) |method| method.ptr else null,
-            if (msg.verb) |method| method.len else 0,
+            if (verb) |method| method.ptr else null,
+            if (verb) |method| method.len else 0,
             if (c_args.len > 0) c_args.ptr else null,
             c_args.len,
             &reply,
         );
         if (code != shared.GLOWCAP_OK) return error.ForeignBehaviorBroke;
-        return try marshal.hostArgumentFromCOwned(inst, session, arena, reply, 0);
+        if (turn.forwarded) return .{ .void = {} };
+        return switch (turn.origin) {
+            .served => try marshal.hostArgumentFromCLent(inst, session, turn.arena, reply, 0),
+            .local, .eventual => try marshal.hostArgumentFromCOwned(inst, session, turn.arena, reply, 0),
+        };
     }
 
     /// The same foreign callback receives owning values on a trusted local

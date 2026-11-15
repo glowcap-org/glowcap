@@ -72,6 +72,10 @@ figures is manual. CI checks the report code and builds the site from its
 committed snapshots. Keep numerical results in those reports instead of
 copying them into this index.
 
+The report pins a TCP row's client and server. On a machine with a cluster of
+faster cores it also keeps every bench but the live-session run on that
+cluster, because an unpinned row there reports the core it drew.
+
 ## Floors
 
 `zig build bench-floors` times each primitive alone: signing, verification,

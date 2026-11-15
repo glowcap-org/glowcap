@@ -9,10 +9,11 @@
 //! no leak. Settlements never cross the C boundary as callbacks. They ride the
 //! action queue (SETTLE/FAIL, `crate::host`).
 //!
-//! Reply discipline: the vat copies `out_reply`'s payload the instant the
+//! Reply discipline: the vat reads `out_reply`'s payload after the
 //! trampoline returns, so the marshalled reply and its owning value are
-//! retained in the module's one keep slot across the return (overwritten by
-//! the next reply: the previous one has long been copied). A panic must NEVER
+//! retained in the module's one keep slot until the next reply on this
+//! thread replaces it, which happens inside a later callback, so the reply
+//! outlives the library call that ran this one. A panic must NEVER
 //! cross the extern "C" frame (that is undefined behavior), so the body runs
 //! under `catch_unwind` and every failure, a panicking behavior, an
 //! attenuator's `Attenuated`, a revoked caretaker's `Revoked`, an
@@ -261,11 +262,11 @@ impl Drop for TurnGuard {
 }
 
 // The most recent reply's owning value and its marshalled C tree's child
-// arrays, retained across the trampoline's return so the host's immediate copy
-// reads live memory. One slot suffices: the host copies before any other Rust
-// code can run, so by the time this is overwritten the previous reply is long
-// copied. The `Argument`'s heap payloads are address-stable when the value
-// moves into the slot, so the pointers taken before the move stay valid.
+// arrays, retained across the trampoline's return so the host's read of the
+// reply sees live memory. One slot suffices: the host reads a reply before it
+// enters another behavior, and only a later reply overwrites this slot. The
+// `Argument`'s heap payloads are address-stable when the value moves into the
+// slot, so the pointers taken before the move stay valid.
 thread_local! {
 	static LAST_REPLY_KEEP: RefCell<Option<(Argument, SendArena)>> = const { RefCell::new(None) };
 }
@@ -321,8 +322,8 @@ fn settle_reply(turn: *mut ffi::GlowcapHostTurn, outcome: TurnOutcome, out_reply
 		}
 		TurnOutcome::Value(value) => {
 			// The keep slot pins the reply's owning value and the marshalled
-			// tree's child arrays across the return; the host copies the
-			// payload the instant the trampoline returns.
+			// tree's child arrays across the return; the host reads the
+			// payload after the trampoline returns.
 			let mut arena = SendArena::default();
 			let c = match arena.one(&value) {
 				Ok(c) => c,

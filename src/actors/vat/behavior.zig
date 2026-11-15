@@ -39,10 +39,15 @@ pub const HandlerFailure = struct {
         return @errorFromInt(self.ordinal);
     }
 };
-/// A reply borrows the active turn in either representation. `returned`
-/// carries model containers and `viewed` lends a sequence backing. A near
-/// call materializes views into the turn arena. A served reply remains a
-/// view through interception and is copied once into the retained answer.
+/// A reply borrows storage that stays valid and unchanged until the vat has
+/// read it: the active turn's arena, or bytes the handler's owner holds, in
+/// either representation. `returned` carries model containers and `viewed` lends a
+/// sequence backing. A near call materializes views into the turn arena. A
+/// served reply remains a view through interception and is copied once into
+/// the retained answer before the vat runs another behavior. The turn's
+/// commit comes first and may release a staged state that a later `become`
+/// superseded. The actor's running state is released when its frame closes,
+/// after that copy.
 pub const HandlerResult = union(enum) {
     returned: model.Argument,
     viewed: model.view.Argument,
@@ -80,9 +85,9 @@ pub const Delivery = struct {
     verb: ?[]const u8 = null,
     args: model.view.Args = .fromOwnedSlice(&.{}),
     /// How many reference and handoff slots `args` holds at every depth,
-    /// when session validation counted them for a wire deliver, or null
-    /// when nothing counted (a near call, a forward). The Host reads zero
-    /// as leave to hand its handler the views as they are.
+    /// when session validation counted them for a wire deliver or the sender
+    /// counted them for a far send, or null when nothing counted (a near
+    /// call, a forward). Zero tells a reader the views hold nothing to lift.
     reference_slots: ?u32 = null,
 
     /// What an argument accessor refuses. A handler returns these like any

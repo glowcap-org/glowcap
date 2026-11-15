@@ -85,10 +85,13 @@ pub fn glowcap_host_turn_defer_if_answer(
 /// caretaker/attenuator primitive. `target` is an opaque Host-scoped
 /// capability. The Host resolves local and remote delivery itself (and refuses
 /// stale or foreign-Host identities rather than reading them as wire names).
-/// In an eventual or wire-served turn the real answer rides the forwarded vow and
-/// `*out_reply` gets a void placeholder. Pass your behavior's own `out_reply`
-/// and return `GLOWCAP_OK`. The written reply is BORROWED, valid until the
-/// next turn verb or drive on this host.
+/// In an eventual or wire-served turn the real answer rides the forwarded vow,
+/// `*out_reply` gets a void placeholder, and the vat ignores `*out_reply` after
+/// you return: whatever it holds then neither fails the turn nor lowers a
+/// reference. In a near-call turn `*out_reply` gets the target's real reply,
+/// which the vat reads as this behavior's own. Pass your behavior's own
+/// `out_reply` and return `GLOWCAP_OK`. The written reply is BORROWED, valid
+/// until the next turn verb or drive on this host.
 pub fn glowcap_host_turn_forward(
     turn: ?*GlowcapHostTurn,
     target: ?*const shared.GlowcapReference,

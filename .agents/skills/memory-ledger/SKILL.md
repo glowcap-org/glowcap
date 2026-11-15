@@ -36,7 +36,9 @@ declaration under `src/`.
   (ADR-0063). A served Host reply with no capability stays a view through
   interception, then copies directly into the answer store. The store serves
   later listeners and pipelined operations after the turn and frame retire.
-  The Host builds no temporary model containers for this reply. A near
+  The Host builds no temporary model containers for this reply. A C-hosted
+  object's reply lends its byte leaves to that same copy (see "C bridge reply
+  spine" in `references/host.md` for its containers). A near
   caller receiving explicit views materializes them in `callWithOrigin`
   before actor replacement, which also removes the need for a sever copy.
 - **Outbound tree inventory**: `session.inventory.ofMessage` and
@@ -66,11 +68,12 @@ declaration under `src/`.
     deliver's argument tree is parsed once and validation, the Vat, and the
     Host's lift walk views: a handler's `actors.Delivery` reads the frame's
     bytes where they lie (ADR-0063), and a Host handler's `driver.Args` does
-    too when validation counted no reference or handoff slot in the deliver,
-    so the lift runs only for a deliver that carries a capability
-    (ADR-0063). `inbound_head_budget_bytes` pins the
-    fixed head, the cap pins the views, and the cost is transient, freed
-    with the frame. A Syrup list of integers is parsed into words in the
+    too, as do a C behavior's arguments
+    ([Host inventory](references/host.md)), when validation counted no
+    reference or handoff slot in the deliver, so the lift runs only for a
+    deliver that carries a capability (ADR-0063). `inbound_head_budget_bytes`
+    pins the fixed head, the cap pins the views, and the cost is transient,
+    freed with the frame. A Syrup list of integers is parsed into words in the
     head's unused room instead (`ValueSlab.beginIntegers`, ADR-0063),
     committed only when every element fits `i64`, so it costs no view
     per element, no turn copy, and no allocation of its own. The same bytes

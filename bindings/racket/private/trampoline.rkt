@@ -9,10 +9,11 @@
 ;; `vat-restore!` retarget wire delivers with zero host verbs (the time-travel
 ;; contract).
 ;;
-;; Reply discipline: the host copies `out_reply`'s payload the instant the
+;; Reply discipline: the host reads `out_reply`'s payload after the
 ;; trampoline returns, so the marshalled reply's buffers are retained in
-;; `last-reply-keep` across the return (overwritten by the next reply: the
-;; previous one has long been copied). A raised error crosses the boundary
+;; `last-reply-keep` until the next reply replaces it, which happens inside a
+;; later callback, so the reply outlives the library call that ran this one.
+;; A raised error crosses the boundary
 ;; through `glowcap_host_turn_break`, which settles the answer broken with the
 ;; actor's own words. A bare non-OK return would flatten "Revoked" into a
 ;; generic reason. A `forward` return maps onto `glowcap_host_turn_forward`
@@ -67,9 +68,9 @@
 (define (inside-turn?) (and (current-turn) #t))
 
 ;; The most recent reply's marshalled argument and its pinned buffers, retained
-;; across the trampoline's return so the host's immediate copy reads live
-;; memory. One slot suffices: the host copies before any other Racket code can
-;; run, so by the time this is overwritten the previous reply is long copied.
+;; across the trampoline's return so the host's read of the reply sees live
+;; memory. One slot suffices: the host reads a reply before it enters another
+;; behavior, and only a later reply overwrites this slot.
 (define last-reply-keep (box #f))
 
 ;; Marshal `value` into the host's out-reply slot and return GLOWCAP_OK.

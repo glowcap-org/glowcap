@@ -27,7 +27,7 @@
             (list (commas (car r)) (commas (list-ref r 3)) (commas (list-ref r 4))
                   (~r (/ (list-ref r 5) (car r)) #:precision 2)
                   (commas (list-ref r 6)) (~r (/ (list-ref r 7) 1000) #:precision 3))))
-   "\n<p class=\"bench-note\">Session opening includes connect, handshake, bootstrap fetch, and close. Each transport runs separately without CPU pinning. The table reports measured latency, without treating signing and handshake primitives as a complete cost model.</p>\n"
+   "\n<p class=\"bench-note\">Session opening includes connect, handshake, bootstrap fetch, and close. Each transport runs separately, with the client and the server each pinned to a core. The table reports measured latency, without treating signing and handshake primitives as a complete cost model.</p>\n"
    (table '("transport" "open p50 µs" "open p99 µs" "open mean µs")
           (for/list ([transport '("tcp" "noise-tcp")])
             (define r (hash-ref opens (string-append transport ":session-open")))

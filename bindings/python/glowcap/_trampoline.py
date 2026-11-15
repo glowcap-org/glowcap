@@ -10,10 +10,11 @@ Host closes.
 Settlements never cross the C boundary as callbacks. They ride the action
 queue (SETTLE/FAIL, :mod:`glowcap._host`).
 
-Reply discipline: the vat copies ``out_reply``'s payload the instant the
+Reply discipline: the vat reads ``out_reply``'s payload after the
 trampoline returns, so the marshalled reply's buffers are retained in the
-module's one keep slot across the return (overwritten by the next reply: the
-previous one has long been copied). A raised exception must NEVER cross the
+module's one keep slot until the next reply on this thread replaces it, which
+happens inside a later callback, so the reply outlives the library call that
+ran this one. A raised exception must NEVER cross the
 ``CFUNCTYPE`` boundary (ctypes would print it and return garbage), so every
 raise, an attenuator's ``Attenuated``, a revoked caretaker's ``Revoked``, an
 unknown-method error, crosses as ``glowcap_host_turn_break`` carrying the
@@ -284,9 +285,9 @@ def _inside_turn() -> bool:
 
 
 # The most recent reply's marshalled argument and its pinned buffers, retained
-# across the trampoline's return so the host's immediate copy reads live
-# memory. One slot suffices: the host copies before any other Python code can
-# run, so by the time this is overwritten the previous reply is long copied.
+# across the trampoline's return so the host's read of the reply sees live
+# memory. One slot suffices: the host reads a reply before it enters another
+# behavior, and only a later reply overwrites this slot.
 _reply_state = threading.local()
 
 

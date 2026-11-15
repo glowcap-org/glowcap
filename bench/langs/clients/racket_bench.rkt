@@ -45,12 +45,17 @@
 
 (define WARMUP (min N 500))
 
+;; Every row dials plain TCP, and the provider registers that cleartext
+;; profile only when asked.
+(define (cleartext-tcp-provider)
+  (tcp-provider (make-tcp-config #:profiles (list TCP-PROFILE-TCP))))
+
 (define (warm+settle c root [unit run-unit])
   (for ([_ (in-range WARMUP)]) (assert-ok (unit c root)))
   (collect-garbage) (collect-garbage) (collect-garbage))
 
 (define (run-latency)
-  (define runtime (open-runtime #:providers (list (tcp-provider))))
+  (define runtime (open-runtime #:providers (list (cleartext-tcp-provider))))
   (define c (runtime-connect runtime (tcp-locator host port)))
   (define root (session-fetch c "root"))
   (warm+settle c root)
@@ -70,7 +75,7 @@
           RUNTIME WARMUP))
 
 (define (run-throughput)
-  (define runtime (open-runtime #:providers (list (tcp-provider))))
+  (define runtime (open-runtime #:providers (list (cleartext-tcp-provider))))
   (define c (runtime-connect runtime (tcp-locator host port)))
   (define root (session-fetch c "root"))
   (warm+settle c root run-unit-pipelined)
@@ -88,7 +93,7 @@
 (define CONN-WARMUP (min N 5))
 
 (define (open-held-connection)
-  (define runtime (open-runtime #:providers (list (tcp-provider))))
+  (define runtime (open-runtime #:providers (list (cleartext-tcp-provider))))
   (with-handlers ([(lambda (_) #t)
                    (lambda (failure)
                      (runtime-close! runtime)
@@ -123,7 +128,7 @@
   (for ([held (in-list warm)]) (close-held-connection held)))
 
 (define (run-cold)
-  (define runtime (open-runtime #:providers (list (tcp-provider))))
+  (define runtime (open-runtime #:providers (list (cleartext-tcp-provider))))
   (define c (runtime-connect runtime (tcp-locator host port)))
   (define root (session-fetch c "root"))
   (assert-ok (run-unit c root))
@@ -181,7 +186,7 @@
          (session-publish conn "counter" ^counter)
          conn))
      (with-handlers ([(lambda (_) #t) void]) (session-serve conn))))
-  (define runtime (open-runtime #:providers (list (tcp-provider))))
+  (define runtime (open-runtime #:providers (list (cleartext-tcp-provider))))
   (define c (runtime-connect runtime
                              (tcp-locator "127.0.0.1" (server-port srv))))
 

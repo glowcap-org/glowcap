@@ -286,7 +286,7 @@ fn valueFromCImpl(
         },
         GLOWCAP_ARG_INTEGERS => blk: {
             if (c_arg.bytes_len != 0 and depth == max_marshal_depth) return error.UnsupportedValue;
-            const words = try integersFromC(arena, c_arg, own_bytes);
+            const words = try integersFromC(arena, c_arg, own_bytes and @hasField(Output, "integers"));
             if (comptime @hasField(Output, "integers")) break :blk .{ .integers = words };
             // The model has no run arm: the words become the list they mean.
             const items = try arena.alloc(Output, words.len);
@@ -310,15 +310,17 @@ fn valueFromCImpl(
 }
 
 /// The `int64_t` words behind an `_INTEGERS` value, 8-aligned and a whole
-/// number of words, or the value is refused before anything is queued.
-fn integersFromC(arena: std.mem.Allocator, c_arg: GlowcapArgument, comptime own_bytes: bool) MarshalError![]const i64 {
+/// number of words, or the value is refused before anything is queued. The
+/// words are a view of the caller's bytes, or a copy in `arena` when
+/// `copy_words` is set.
+fn integersFromC(arena: std.mem.Allocator, c_arg: GlowcapArgument, comptime copy_words: bool) MarshalError![]const i64 {
     const bytes = try sliceFromC(c_arg.bytes, c_arg.bytes_len);
     if (bytes.len % model.run_word_bytes != 0) return error.UnsupportedValue;
     if (bytes.len == 0) return &.{};
     if (!std.mem.isAligned(@intFromPtr(bytes.ptr), 8)) return error.UnsupportedValue;
     const aligned: []align(@alignOf(i64)) const u8 = @alignCast(bytes);
     const words = std.mem.bytesAsSlice(i64, aligned);
-    return if (own_bytes) try arena.dupe(i64, words) else words;
+    return if (copy_words) try arena.dupe(i64, words) else words;
 }
 
 fn structFromCImpl(
@@ -417,135 +419,4 @@ fn valuesFromCImpl(
     const out = try arena.alloc(Output, len);
     for (0..len) |i| out[i] = try valueFromCImpl(Output, reference_field, RefError, ref_ctx, ref_from_c, arena, p[i], depth, own_bytes);
     return out;
-}
-
-/// One recursive C-value encoder parameterized only by the reference leaf,
-/// the mirror of `argumentFromCWith`: the archive supplies the reference
-/// projection without cloning the pass-by-copy value algebra. Children land
-/// in `arena`, and byte leaves are lent where they lie.
-pub fn argumentToCWith(
-    comptime RefError: type,
-    ref_ctx: anytype,
-    comptime ref_to_c: anytype,
-    arena: std.mem.Allocator,
-    arg: model.Argument,
-) (MarshalError || RefError)!GlowcapArgument {
-    return valueToCWith(model.Argument, RefError, ref_ctx, ref_to_c, arena, arg);
-}
-
-pub fn argsToCWith(
-    comptime RefError: type,
-    ref_ctx: anytype,
-    comptime ref_to_c: anytype,
-    arena: std.mem.Allocator,
-    args: []const model.Argument,
-) (MarshalError || RefError)![]GlowcapArgument {
-    return valuesToCWith(model.Argument, RefError, ref_ctx, ref_to_c, arena, args);
-}
-
-/// Encode the Host's opaque-capability value, the mirror of `valuesFromCWith`.
-/// `Value` carries the data arms above, a `capability` arm the callback
-/// projects, and an `integers` run that leaves as one `_INTEGERS` value with
-/// its words lent where they lie (ADR-0064).
-/// The one encoding recursion behind both application value forms. The data
-/// arms are spelled once. The arms whose C form depends on `Input` are
-/// resolved at compile time below them, and an arm neither names stops the
-/// build at this boundary, which must decide how (or whether) the typed
-/// surface carries it, instead of degrading silently to the opaque-frame
-/// fallback.
-pub fn valueToCWith(
-    comptime Input: type,
-    comptime RefError: type,
-    ref_ctx: anytype,
-    comptime ref_to_c: anytype,
-    arena: std.mem.Allocator,
-    value: Input,
-) (MarshalError || RefError)!GlowcapArgument {
-    var c_arg = zero_argument;
-    switch (value) {
-        .integer => |v| {
-            c_arg.kind = GLOWCAP_ARG_INTEGER;
-            c_arg.integer = v;
-        },
-        .float64 => |v| {
-            c_arg.kind = GLOWCAP_ARG_FLOAT64;
-            c_arg.float64 = v;
-        },
-        .boolean => |v| {
-            c_arg.kind = GLOWCAP_ARG_BOOLEAN;
-            c_arg.boolean = @intFromBool(v);
-        },
-        .bytes => |b| c_arg = leafToC(GLOWCAP_ARG_BYTES, b),
-        .string => |b| c_arg = leafToC(GLOWCAP_ARG_STRING, b),
-        .symbol => |b| c_arg = leafToC(GLOWCAP_ARG_SYMBOL, b),
-        .keyword => |b| c_arg = leafToC(GLOWCAP_ARG_KEYWORD, b),
-        .@"error" => |reason| c_arg = leafToC(GLOWCAP_ARG_ERROR, reason.message),
-        .void => c_arg.kind = GLOWCAP_ARG_VOID,
-        .list => |items| {
-            c_arg.kind = GLOWCAP_ARG_LIST;
-            setItems(&c_arg, try valuesToCWith(Input, RefError, ref_ctx, ref_to_c, arena, items));
-        },
-        .set => |items| {
-            c_arg.kind = GLOWCAP_ARG_SET;
-            setItems(&c_arg, try valuesToCWith(Input, RefError, ref_ctx, ref_to_c, arena, items));
-        },
-        .tagged => |tagged| {
-            c_arg = leafToC(GLOWCAP_ARG_TAGGED, tagged.tag);
-            setItems(&c_arg, try valuesToCWith(Input, RefError, ref_ctx, ref_to_c, arena, tagged.value));
-        },
-        .big_integer => |big| {
-            c_arg = leafToC(GLOWCAP_ARG_BIG_INTEGER, big.digits);
-            c_arg.boolean = @intFromBool(big.negative);
-        },
-        .@"struct" => |entries| {
-            c_arg.kind = GLOWCAP_ARG_STRUCT;
-            const arr = try arena.alloc(GlowcapArgument, entries.len * 2);
-            for (entries, 0..) |entry, i| {
-                arr[i * 2] = leafToC(GLOWCAP_ARG_STRING, entry.key);
-                arr[i * 2 + 1] = try valueToCWith(Input, RefError, ref_ctx, ref_to_c, arena, entry.value);
-            }
-            setItems(&c_arg, arr);
-        },
-        inline else => |payload, tag| {
-            const name = @tagName(tag);
-            if (comptime std.mem.eql(u8, name, "reference") or std.mem.eql(u8, name, "capability")) {
-                c_arg.kind = GLOWCAP_ARG_REFERENCE;
-                c_arg.reference = try ref_to_c(ref_ctx, payload);
-            } else if (comptime std.mem.eql(u8, name, "integers")) {
-                c_arg = leafToC(GLOWCAP_ARG_INTEGERS, std.mem.sliceAsBytes(payload));
-            } else if (comptime std.mem.eql(u8, name, "handoff")) {
-                return error.UnsupportedValue;
-            } else {
-                @compileError("no C form for " ++ @typeName(Input) ++ "." ++ name);
-            }
-        },
-    }
-    return c_arg;
-}
-
-pub fn valuesToCWith(
-    comptime Input: type,
-    comptime RefError: type,
-    ref_ctx: anytype,
-    comptime ref_to_c: anytype,
-    arena: std.mem.Allocator,
-    values: []const Input,
-) (MarshalError || RefError)![]GlowcapArgument {
-    const out = try arena.alloc(GlowcapArgument, values.len);
-    for (values, out) |value, *slot| slot.* = try valueToCWith(Input, RefError, ref_ctx, ref_to_c, arena, value);
-    return out;
-}
-
-/// A value whose payload is one byte view, lent where it lies.
-fn leafToC(kind: u32, bytes: []const u8) GlowcapArgument {
-    var c_arg = zero_argument;
-    c_arg.kind = kind;
-    c_arg.bytes = bytes.ptr;
-    c_arg.bytes_len = bytes.len;
-    return c_arg;
-}
-
-fn setItems(c_arg: *GlowcapArgument, items: []GlowcapArgument) void {
-    c_arg.items = items.ptr;
-    c_arg.items_len = items.len;
 }

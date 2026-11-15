@@ -35,8 +35,11 @@
 
 (struct pclient (runtime conn))
 
+;; The suite compares plain TCP on both substrates, and the provider registers
+;; that cleartext profile only when asked.
 (define (client-connect host port)
-  (define runtime (open-runtime #:providers (list (tcp-provider))))
+  (define runtime
+    (open-runtime #:providers (list (tcp-provider (make-tcp-config #:profiles (list TCP-PROFILE-TCP))))))
   (pclient runtime (runtime-connect runtime (tcp-locator host port))))
 
 (define (client-fetch handle name) (session-fetch (pclient-conn handle) name))

@@ -34,7 +34,7 @@ pub fn answerTarget(
     );
 }
 
-/// Copy a turn-borrowed resolution directly into the answer store's owner.
+/// Copy a borrowed resolution directly into the answer store's owner.
 /// The views may borrow handler state or the inbound frame. Admission can
 /// queue the answer past both lifetimes, so the retained tree owns its bytes.
 pub fn answerTargetView(

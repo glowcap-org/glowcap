@@ -29,6 +29,10 @@ order between pairs. Keep each pair's values beside any aggregate.
 `interface-bench-smoke`, part of `runtime-check`, checks effects, traffic,
 output and both build selections without a timing threshold.
 
+The profile step runs callgrind with `--fair-sched=yes` on every profiled row.
+Without it a profiled run intermittently spins at full CPU until the bench's
+workload deadline panics.
+
 ## Timed operations
 
 | Row | Measured work | Actor checks |
@@ -37,6 +41,11 @@ output and both build selections without a timing threshold.
 | Preparation | Snapshot input, query sequence, validate and retain mutation arguments | One query and no mutation |
 | Submission | Send retained mutation, await and decode capability | One submission and one effect |
 | Replay | Send the same retained mutation, await and decode capability | One submission and no additional effect |
+| Wide | Send one call whose arguments carry no capability: a 256-element list with one string among integers, a 16-field string struct, and a list nested three deep | One call and no other effect |
+| Wide reply | Send one call with no arguments to a served behavior that returns a capability-free reply: a list holding one 64 KiB bytes leaf and a 16-field string struct | One call and no other effect |
+
+The wide rows have no generated wrapper, so only the raw client runs them. The
+served behavior is the cost under test.
 
 Preparation runs before submission and replay timing. Replay also submits once
 before timing. Both clients retain the target, sequence, input string and

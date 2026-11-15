@@ -49,6 +49,14 @@ Releases before 0.1.7 are in the
   member could hold a reserved upload without sending it. A client of
   another implementation writes whole chunks, or at least one chunk's worth
   of bytes in each window.
+- The reply a C behavior callback writes to `out_reply` stays valid and
+  unchanged until the library call that ran the callback returns or a
+  behavior callback is entered again, whichever comes first. It needed to
+  last only across the callback's return. The bundled bindings already keep
+  it that long. A C consumer that frees or reuses reply storage as soon as
+  its callback returns keeps it for that span. A turn that forwarded its
+  answer has its `out_reply` ignored: a value there that would not convert
+  does not fail the turn.
 
 ### Added
 
@@ -127,6 +135,13 @@ Releases before 0.1.7 are in the
 - A delivery lent as views and sent on to a local actor, from a handler turn
   or through a Port, has its text and bytes copied once, by the queue. They
   were copied twice.
+- A call that carries no capability reaches a behavior served through the C
+  library, and so through every binding, with its arguments projected once,
+  from the received frame onto the C argument arrays. They were first lifted
+  into a Host value tree in the turn arena.
+- A reply from a behavior served through the C library, and so through
+  every binding, has its text and bytes copied once, into the stored answer.
+  They were copied into the turn arena first.
 
 ### Fixed
 

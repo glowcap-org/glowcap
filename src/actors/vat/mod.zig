@@ -182,7 +182,9 @@ pub const Port = port_mod.Port;
 /// Abort restores state without notifying observers. Optional `abort_notify`
 /// runs after every participant has aborted, when listeners may reenter. Both
 /// receive the failed turn's break: a behavior's own refusal as a local
-/// application break, any other failure with no cause.
+/// application break, any other failure with no cause. `commit` runs no
+/// behavior and no release callback, because `serve` copies a served reply's
+/// borrowed bytes only after the turn's commit.
 pub const TurnParticipant = struct {
     ctx: *anyopaque,
     commit: *const fn (ctx: *anyopaque, vat: *Vat) void,

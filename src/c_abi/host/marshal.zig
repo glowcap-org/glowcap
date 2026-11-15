@@ -134,6 +134,8 @@ pub fn plainArgumentFromC(inst: *instance.Instance, arg: shared.GlowcapArgument)
     return shared.argumentFromCWith(anyerror, {}, refusePlainReference, inst.arg_scratch.allocator(), arg, 0, false);
 }
 
+/// A reply whose byte leaves are copied into `arena`, so the result outlives
+/// the consumer's reply storage.
 pub fn hostArgumentFromCOwned(
     inst: *instance.Instance,
     session: *driver_core.HostSession,
@@ -142,6 +144,20 @@ pub fn hostArgumentFromCOwned(
     depth: usize,
 ) !model.Argument {
     return shared.argumentFromCWith(anyerror, HostRefContext{ .inst = inst, .session = session }, decodeHostReference, arena, arg, depth, true);
+}
+
+/// A reply whose byte leaves point into the consumer's reply storage. The
+/// result is valid only until that storage changes, so a caller uses it
+/// only where its next reader copies it before a behavior or release
+/// callback can run.
+pub fn hostArgumentFromCLent(
+    inst: *instance.Instance,
+    session: *driver_core.HostSession,
+    arena: std.mem.Allocator,
+    arg: shared.GlowcapArgument,
+    depth: usize,
+) !model.Argument {
+    return shared.argumentFromCWith(anyerror, HostRefContext{ .inst = inst, .session = session }, decodeHostReference, arena, arg, depth, false);
 }
 
 /// Argument leaves borrow their owner. Every struct value is already counted

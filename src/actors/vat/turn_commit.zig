@@ -16,7 +16,8 @@ const Vat = vat_mod.Vat;
 
 /// Commit the running outermost turn's staged sends. Called inside that turn's
 /// frame, before its reply leaves it. Splicing runs no application code and
-/// cannot fail.
+/// cannot fail, and no `TurnParticipant.commit` runs a behavior or release
+/// callback (see that declaration), which `serve` relies on.
 pub fn commit(vat: *Vat) void {
     std.debug.assert(vat.turn_depth == 1);
     for (vat.staged.items) |entry| ingress_mod.commitStaged(vat, entry);
