@@ -36,16 +36,19 @@ export interface FailureView {
 }
 
 /** A local refusal has one catalog key for its code, sentence and retry advice.
- * Internal invariants remain plain errors. A cause is diagnostic detail only. */
+ * Internal invariants remain plain errors. A cause is diagnostic detail only.
+ * A stage names the step that failed, and the detail leads with it. */
 export class LocalRefusal extends Error {
 	readonly code: LocalRefusalCode;
 	readonly retry: RoomsFailureRetry;
-	constructor(key: LocalRefusalKey, options?: ErrorOptions) {
+	readonly stage: string | null;
+	constructor(key: LocalRefusalKey, options?: ErrorOptions & { stage?: string | null }) {
 		const definition = LOCAL_REFUSALS[key];
 		super(definition.summary, options);
 		this.name = "LocalRefusal";
 		this.code = `local-${key}`;
 		this.retry = definition.retry;
+		this.stage = options?.stage ?? null;
 	}
 }
 
@@ -70,7 +73,7 @@ export function failureView(err: unknown): FailureView {
 			retry: err.retry,
 			summary: err.message,
 			action: null,
-			detail: cause,
+			detail: err.stage == null ? cause : cause === "" ? err.stage : `${err.stage}: ${cause}`,
 		};
 	}
 	const typed = roomsErrorIn(err);

@@ -39,10 +39,34 @@ function heldReason(cause: unknown): (typeof HELD_REASONS)[number] | "result-nee
 	return HELD_REASONS.find((key) => cause.code === `local-${key}`) ?? "result-needs-recovery";
 }
 
-/** The effect committed. Failure while acquiring its result cannot undo it. */
+/** The page step that was running when a committed result failed. A step is
+ * one call into the session client, and its name is the session verb that step
+ * ends in. A step can send more than that verb first, so a session log line
+ * for an earlier verb belongs to the same stage:
+ * - When the result maps a room authority, `acquire-result-workspace` and
+ *   `acquire-created-room` can first send `effect-adopted`, `effect-result`
+ *   and `room-identity-reader`, then `roomIdentity` or `managedRoomIdentity`.
+ * - `managedRoomIdentity` first sends `room-identity-reader`.
+ * The session logs no refusal of the two identity verbs. A failure with no
+ * stage is a refusal the page raised on its own while no session step was
+ * running. */
+export type AcquisitionStage =
+	| "effect-status"
+	| "effect-result"
+	| "effect-adopted"
+	| "addressed-snapshot"
+	| "acquire-result-workspace"
+	| "acquire-created-room"
+	| "resume-effect"
+	| "managedRoomIdentity";
+
+/** The effect committed. Failure while acquiring its result cannot undo it.
+ * The stage names the step that failed, and the failure text renders it. A
+ * null stage means the page refused on its own, and the cause stands alone. */
 export class ResultAcquisitionError extends LocalRefusal {
-	constructor(readonly result: unknown, cause: unknown) {
-		super(heldReason(cause), { cause });
+	declare readonly stage: AcquisitionStage | null;
+	constructor(readonly result: unknown, cause: unknown, stage: AcquisitionStage | null) {
+		super(heldReason(cause), { cause, stage });
 	}
 }
 
@@ -120,13 +144,13 @@ export class ManagedOperation {
 			this.observeStatus(status);
 			return status;
 		} catch (error) {
-			throw this.completionError(error);
+			throw this.completionError(error, "effect-status");
 		}
 	}
-	completionError(error: unknown, result?: unknown): unknown {
+	completionError(error: unknown, stage: AcquisitionStage, result?: unknown): unknown {
 		return !this.#committed || error instanceof ResultExpired || error instanceof ResultAcquisitionError
 			? error
-			: new ResultAcquisitionError(result, error);
+			: new ResultAcquisitionError(result, error, stage);
 	}
 	async result(): Promise<unknown> {
 		try {
@@ -135,7 +159,7 @@ export class ManagedOperation {
 			return result;
 		} catch (error) {
 			if (error instanceof ResultExpired) this.#committed = true;
-			const failure = this.completionError(error);
+			const failure = this.completionError(error, "effect-result");
 			this.orphan(failure);
 			throw failure;
 		}

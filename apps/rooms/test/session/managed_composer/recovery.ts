@@ -188,14 +188,22 @@ for (const stage of ["admission observation", "acquisition"] as const) {
 			await complete(await prepare());
 		};
 		f.session.actions.acquireLine = async (_id, command) => {
-			throw new ResultAcquisitionError(await command.result(), new Error("original membership was replaced"));
+			throw new ResultAcquisitionError(
+				await command.result(),
+				new Error("original membership was replaced"),
+				"acquire-result-workspace",
+			);
 		};
 		if (stage === "admission observation") {
 			const command = f.session.command.bind(f.session);
 			f.session.command = async (...args) => {
 				const operation = await command(...args);
 				await operation.result();
-				throw new ResultAcquisitionError(undefined, new Error("snapshot unavailable after commit"));
+				throw new ResultAcquisitionError(
+					undefined,
+					new Error("snapshot unavailable after commit"),
+					"addressed-snapshot",
+				);
 			};
 		}
 		try {

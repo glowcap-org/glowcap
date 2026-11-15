@@ -42,7 +42,7 @@ export async function resumeEffect(
 				if (diagnostic instanceof TerminalObservationError) throw diagnostic;
 			}
 		}
-		throw status === "committed" ? new ResultAcquisitionError(undefined, error) : error;
+		throw status === "committed" ? new ResultAcquisitionError(undefined, error, "resume-effect") : error;
 	}
 }
 

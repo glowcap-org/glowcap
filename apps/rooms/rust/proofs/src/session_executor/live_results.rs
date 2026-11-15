@@ -2,6 +2,7 @@
 //! at actual lifetime restart, including a target with a durable local recipe.
 use super::*;
 mod acquisition;
+mod refusals;
 const SEAT: Schema = Schema {
 	id: 0x534c495645303031,
 	version: 1,
@@ -180,6 +181,13 @@ async fn run_case(external: bool) {
 					platform.clone(),
 					std::num::NonZeroUsize::new(4096).unwrap(),
 				);
+				let reports = refusals::Reports::default();
+				owner
+					.on_trouble({
+						let reports = reports.clone();
+						move |operation, cause| reports.borrow_mut().push((operation.to_owned(), cause.to_string()))
+					})
+					.unwrap();
 				let refuse = Rc::new(Cell::new(true));
 				let mut content = owner.registration();
 				content.content = Box::new(AbortAfterAdmission {
@@ -368,6 +376,7 @@ async fn run_case(external: bool) {
 				);
 				let (replacement, _) = environment::restore(&attachment, replacement_resource).await;
 				acquisition::run(&host, &owner, &root, &source, &canonical, seat, replacement).await;
+				refusals::run(&host, &root, &source, &reports, &canonical).await;
 				assert_ne!(actual, line, "public result is the saved dependent facet");
 				assert_eq!(
 					disclosed(&host, &source, &canonical).await.1,
@@ -535,6 +544,7 @@ async fn run_case(external: bool) {
 				assert_eq!(edits.get(), 2);
 				let marker = attachment.live_marker().unwrap().unwrap();
 				owner.close().await.unwrap();
+				refusals::closing(&host, &source, &reports).await;
 				attachment.close().await.unwrap();
 				if let Some(upstream) = &mut upstream_attachment {
 					upstream.close().await.unwrap();

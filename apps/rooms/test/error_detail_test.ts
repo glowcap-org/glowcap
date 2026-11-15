@@ -383,7 +383,7 @@ Deno.test("known managed failures retain their recovery type and catalog project
 			[new ReceiptRetired(), "local-receipt-retired"],
 			[new OperationsAcquisitionRefused([]), "local-operations-acquisition-refused"],
 			[
-				new ResultAcquisitionError(undefined, new Error("publication unavailable")),
+				new ResultAcquisitionError(undefined, new Error("publication unavailable"), "effect-adopted"),
 				"local-result-needs-recovery",
 			],
 		] as const

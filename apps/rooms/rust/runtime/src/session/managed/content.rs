@@ -85,6 +85,133 @@ impl<P: Tasks + Deadline + Clone + 'static> SessionContent<P> {
 		}
 		Ok(owner)
 	}
+	/// The session tells its failure reporter about a refused callback the
+	/// caller reads only as a bare refusal. `Refusals` owns what is reported.
+	fn report_refusal(&self, verb: &str, error: &glowcap::Error) {
+		let Some(owner) = self.0.upgrade() else { return };
+		// A closing session refuses these verbs as part of shutdown.
+		if owner.closing.get() {
+			return;
+		}
+		let reporting = owner.writer.trouble.borrow().is_some();
+		owner.refusals.report(verb, error, reporting, &|scope, error| {
+			owner.writer.report(scope, error)
+		});
+	}
+	fn declared_requirement(&self, input: Invocation<'_>) -> Result<Requirement> {
+		let owner = self.owner(input.verb)?;
+		let input = continuing::input(self, input)?;
+		// Forwarding bypasses invoke; application lifetime belongs to admission
+		// too, including the fresh source check after every upstream wait.
+		if matches!(
+			input.verb,
+			"restore-custody" | "settle-history-erasure" | "retention-intent"
+		) {
+			super::retained::authorize(input, &owner.writer.root()?)?;
+		}
+		use Permission::*;
+		match input.verb {
+			"retire-room-authority" => authority::requirement(input, &owner.writer.root()?),
+			"observe-direct-connection" => connection::requirement(input, &owner.writer.root()?),
+			"observe-archive-connection" => archive_connection::requirement(input, &owner.writer.root()?),
+			"record-inbox" => {
+				recording::authorize(input, &owner.writer.root()?)?;
+				inbox::selection(recording::callback(input)?)?;
+				Requirement::new(&[ObserveWorkspace.key()], &[])
+			}
+			"workspace-history-reader" => {
+				let (device, files) = reads::history_source(input.args)?;
+				let keys = [if device { History.key() } else { ReadArchive.key() }, ReadFile.key()];
+				Requirement::new(&keys[..if files { 2 } else { 1 }], &[])
+			}
+			"activity-reader" | "activity-file" | "activity-recipe" | "retain-incoming" | "acquire-activity" => {
+				activity::requirement(input)
+			}
+			"typing-sender" => presence::requirement(input),
+			"signaling-route" => signaling::requirement(input),
+			"signaling-selected" => signaling::selected_requirement(input),
+			"directory-reader" => discovery::requirement(input),
+			"resynchronize-discovery" => {
+				if !input.args.is_empty() {
+					return Err(refuse("discovery resynchronization takes no arguments"));
+				}
+				Requirement::new(&[ObserveWorkspace.key()], &[])
+			}
+			"check-discovery" | "discovery-selected" => discovery::admission_requirement(input),
+			"archive-reader"
+			| "history-reader"
+			| "bridge-form-reader"
+			| "file-reader"
+			| "custody-recipe"
+			| "direct-route"
+			| "export-configuration"
+			| "archive-issuer-reader"
+			| "operations-reader"
+			| "trace-snapshot"
+			| "room-identity-reader" => reads::requirement(input),
+			"sendFiles" | "refileLine" => {
+				uploads::Request::read(input.verb, input.args)?;
+				Requirement::new(&[InteractWorkspace.key()], &[])
+			}
+			"submit-bridge" => {
+				bridge::request(input.args)?;
+				Requirement::new(&[InteractWorkspace.key()], &[])
+			}
+			"bridge-reapplication" => Requirement::new(&[InteractWorkspace.key()], &[]),
+			"forget-bridge" => Requirement::new(&[InteractWorkspace.key(), ManageCustody.key()], &[]),
+			"command" => command_requirement(input.args, &[]),
+			"effect-result" => {
+				let [_, intent] = input.args else {
+					return Err(refuse("effect-result takes id and original intent"));
+				};
+				effect_requirement(intent, &[])
+			}
+			"effect-status" | "effect-intent" | "effect-adopted" | "resume-effect" | "release-effect"
+			| "effect-inventory" => receipts::requirement(input),
+			"import-result" | "acquire-result-workspace" | "acquire-created-room" => {
+				let request = imports::Request::parse(input.verb, input.args)?;
+				let additional: &[Permission] =
+					if input.verb == "acquire-result-workspace" && request.participation(input)? {
+						&[]
+					} else if input.verb != "import-result" {
+						&[ManageCustody, ReplaceWorkspace]
+					} else {
+						&[ManageCustody]
+					};
+				effect_requirement(request.intent, additional)
+			}
+			"effect-reader" => {
+				let [_, intent] = input.args else {
+					return Err(refuse("effect-reader takes operation id and original intent"));
+				};
+				effect_requirement(intent, &[])
+			}
+			"snapshot" | "addressed-snapshot" => {
+				snapshot::requirement(input)?;
+				Requirement::new(&[ObserveWorkspace.key()], &[])
+			}
+			"resource-key" | "bridge-witnesses" => Requirement::new(&[ObserveWorkspace.key()], &[]),
+			"check-inbox" => {
+				inbox::selection(input)?;
+				Requirement::new(&[ObserveWorkspace.key()], &[])
+			}
+			"check-outgoing-line" => {
+				outgoing_line::selection(input)?;
+				Requirement::new(&[ObserveWorkspace.key()], &[])
+			}
+			"accept-direct-introduction" | "adopt-direct-route" => Requirement::new(&[InteractWorkspace.key()], &[]),
+			"restore-custody" | "settle-history-erasure" | "retention-intent" => {
+				Requirement::new(&[ManageCustody.key()], &[])
+			}
+			"replaceWorkspace" => Requirement::new(&[ReplaceWorkspace.key()], &[]),
+			"release" => Requirement::new(&[ManageCustody.key(), ReplaceWorkspace.key()], &[]),
+			"acquire-workspace" => Requirement::new(&[ManageCustody.key(), ReplaceWorkspace.key()], &[]),
+			"import" | "import-bundle" | "initialize" | "retire-host-registrations" | "settle-effect" => {
+				Requirement::new(&[ManageCustody.key()], &[])
+			}
+			_ => Err(refuse("unknown session method")),
+		}
+	}
 }
 impl<P: Tasks + Deadline + Clone + 'static> loam::ForwardAdmission for SessionContent<P> {
 	fn admit_forward(&self, call: &mut Call<'_>, input: loam::ForwardWork<'_>) -> Result<()> {
@@ -210,121 +337,14 @@ impl<P: Tasks + Deadline + Clone + 'static> Content for SessionContent<P> {
 		}
 	}
 	fn requirement(&self, input: Invocation<'_>) -> Result<Requirement> {
-		let owner = self.owner(input.verb)?;
-		let input = continuing::input(self, input)?;
-		// Forwarding bypasses invoke; application lifetime belongs to admission
-		// too, including the fresh source check after every upstream wait.
-		if matches!(
-			input.verb,
-			"restore-custody" | "settle-history-erasure" | "retention-intent"
-		) {
-			super::retained::authorize(input, &owner.writer.root()?)?;
-		}
-		use Permission::*;
-		match input.verb {
-			"retire-room-authority" => authority::requirement(input, &owner.writer.root()?),
-			"observe-direct-connection" => connection::requirement(input, &owner.writer.root()?),
-			"observe-archive-connection" => archive_connection::requirement(input, &owner.writer.root()?),
-			"record-inbox" => {
-				recording::authorize(input, &owner.writer.root()?)?;
-				inbox::selection(recording::callback(input)?)?;
-				Requirement::new(&[ObserveWorkspace.key()], &[])
-			}
-			"workspace-history-reader" => {
-				let (device, files) = reads::history_source(input.args)?;
-				let keys = [if device { History.key() } else { ReadArchive.key() }, ReadFile.key()];
-				Requirement::new(&keys[..if files { 2 } else { 1 }], &[])
-			}
-			"activity-reader" | "activity-file" | "activity-recipe" | "retain-incoming" | "acquire-activity" => {
-				activity::requirement(input)
-			}
-			"typing-sender" => presence::requirement(input),
-			"signaling-route" => signaling::requirement(input),
-			"signaling-selected" => signaling::selected_requirement(input),
-			"directory-reader" => discovery::requirement(input),
-			"resynchronize-discovery" => {
-				if !input.args.is_empty() {
-					return Err(refuse("discovery resynchronization takes no arguments"));
-				}
-				Requirement::new(&[ObserveWorkspace.key()], &[])
-			}
-			"check-discovery" | "discovery-selected" => discovery::admission_requirement(input),
-			"archive-reader"
-			| "history-reader"
-			| "bridge-form-reader"
-			| "file-reader"
-			| "custody-recipe"
-			| "direct-route"
-			| "export-configuration"
-			| "archive-issuer-reader"
-			| "operations-reader"
-			| "trace-snapshot"
-			| "room-identity-reader" => reads::requirement(input),
-			"sendFiles" | "refileLine" => {
-				uploads::Request::read(input.verb, input.args)?;
-				Requirement::new(&[InteractWorkspace.key()], &[])
-			}
-			"submit-bridge" => {
-				bridge::request(input.args)?;
-				Requirement::new(&[InteractWorkspace.key()], &[])
-			}
-			"bridge-reapplication" => Requirement::new(&[InteractWorkspace.key()], &[]),
-			"forget-bridge" => Requirement::new(&[InteractWorkspace.key(), ManageCustody.key()], &[]),
-			"command" => command_requirement(input.args, &[]),
-			"effect-result" => {
-				let [_, intent] = input.args else {
-					return Err(refuse("effect-result takes id and original intent"));
-				};
-				effect_requirement(intent, &[])
-			}
-			"effect-status" | "effect-intent" | "effect-adopted" | "resume-effect" | "release-effect"
-			| "effect-inventory" => receipts::requirement(input),
-			"import-result" | "acquire-result-workspace" | "acquire-created-room" => {
-				let request = imports::Request::parse(input.verb, input.args)?;
-				let additional: &[Permission] =
-					if input.verb == "acquire-result-workspace" && request.participation(input)? {
-						&[]
-					} else if input.verb != "import-result" {
-						&[ManageCustody, ReplaceWorkspace]
-					} else {
-						&[ManageCustody]
-					};
-				effect_requirement(request.intent, additional)
-			}
-			"effect-reader" => {
-				let [_, intent] = input.args else {
-					return Err(refuse("effect-reader takes operation id and original intent"));
-				};
-				effect_requirement(intent, &[])
-			}
-			"snapshot" | "addressed-snapshot" => {
-				snapshot::requirement(input)?;
-				Requirement::new(&[ObserveWorkspace.key()], &[])
-			}
-			"resource-key" | "bridge-witnesses" => Requirement::new(&[ObserveWorkspace.key()], &[]),
-			"check-inbox" => {
-				inbox::selection(input)?;
-				Requirement::new(&[ObserveWorkspace.key()], &[])
-			}
-			"check-outgoing-line" => {
-				outgoing_line::selection(input)?;
-				Requirement::new(&[ObserveWorkspace.key()], &[])
-			}
-			"accept-direct-introduction" | "adopt-direct-route" => Requirement::new(&[InteractWorkspace.key()], &[]),
-			"restore-custody" | "settle-history-erasure" | "retention-intent" => {
-				Requirement::new(&[ManageCustody.key()], &[])
-			}
-			"replaceWorkspace" => Requirement::new(&[ReplaceWorkspace.key()], &[]),
-			"release" => Requirement::new(&[ManageCustody.key(), ReplaceWorkspace.key()], &[]),
-			"acquire-workspace" => Requirement::new(&[ManageCustody.key(), ReplaceWorkspace.key()], &[]),
-			"import" | "import-bundle" | "initialize" | "retire-host-registrations" | "settle-effect" => {
-				Requirement::new(&[ManageCustody.key()], &[])
-			}
-			_ => Err(refuse("unknown session method")),
-		}
+		let verb = input.verb;
+		self.declared_requirement(input)
+			.inspect_err(|error| self.report_refusal(verb, error))
 	}
 	fn references(&self, input: Invocation<'_>) -> Result<Vec<ReferenceRequest>> {
+		let verb = input.verb;
 		self.reference_requests(input)
+			.inspect_err(|error| self.report_refusal(verb, error))
 	}
 	fn invoke(&self, call: &mut Call<'_>, input: Invocation<'_>) -> Result<Argument> {
 		let owner = self.owner(input.verb)?;

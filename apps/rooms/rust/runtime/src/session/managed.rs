@@ -40,6 +40,7 @@ pub use supervision::Membership;
 pub use watching::WorkspaceActivity;
 mod introductions;
 mod records;
+mod refusals;
 mod results;
 mod uploads;
 pub use bootstrap::{Bootstrap, BootstrapOptions};
@@ -90,6 +91,7 @@ struct State<P: Tasks + Deadline + Clone + 'static> {
 	credential_retention: RefCell<Option<Rc<bridge::retention::Owner<P>>>>,
 	introductions: RefCell<introductions::PendingCalls<P>>,
 	trace: RefCell<Option<Rc<dyn crate::trace::Status>>>,
+	refusals: refusals::Refusals,
 }
 impl<P: Tasks + Deadline + Clone + 'static> State<P> {
 	fn running(&self, id: &str) -> bool {
@@ -162,6 +164,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Session<P> {
 				lines: Rc::new(supervision::Budget::default()),
 				line_bytes: Rc::new(Cell::new(0)),
 				next_line: Cell::new(1),
+				refusals: refusals::Refusals::default(),
 			}),
 		}
 	}
@@ -171,6 +174,15 @@ impl<P: Tasks + Deadline + Clone + 'static> Session<P> {
 	/// Install the embedding's failure owner before starting effects or callbacks.
 	/// The reporter borrows terminal evidence and must not retain this session.
 	/// Reporting cannot settle a receipt or authorize retry.
+	///
+	/// The reporter also receives `refused <verb>` with the refusal as the
+	/// session holds it, when a callback refuses before invocation a verb that a
+	/// post-commit page step sends: reading or resuming an effect, reading the
+	/// workspace, acquiring a result, or asking for a room's identity reader.
+	/// Those callers read only a bare refusal. Each distinct verb and cause is
+	/// reported once, up to a bounded number per session. The next distinct one
+	/// reports a final line saying further ones are not reported, and later ones
+	/// report nothing. A closing session reports none of them.
 	pub fn on_trouble(&self, report: impl Fn(&str, &crate::Error) + 'static) -> Result<()> {
 		let mut reporter = self.state.writer.trouble.borrow_mut();
 		if reporter.is_some()
