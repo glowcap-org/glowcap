@@ -31,11 +31,13 @@ const resolveConnectTarget = locators.resolveConnectTarget;
 const validateListenerLocator = locators.validateListenerLocator;
 const connRemoteKey = sidecar.connRemoteKey;
 const would_block = sidecar.would_block;
-const ev_readable = sidecar.ev_readable;
-const ev_writable = sidecar.ev_writable;
-const ev_closed = sidecar.ev_closed;
-const ev_accept = sidecar.ev_accept;
-const ev_connect = sidecar.ev_connect;
+const DialCode = sidecar.DialCode;
+const dial_ok: i32 = @backingInt(DialCode.ok);
+const ev_readable = sidecar.ev.readable;
+const ev_writable = sidecar.ev.writable;
+const ev_closed = sidecar.ev.closed;
+const ev_accept = sidecar.ev.accept;
+const ev_connect = sidecar.ev.connect;
 
 // ── The resident ─────────────────────────────────────────────────────────────
 
@@ -125,7 +127,7 @@ pub const Resident = struct {
         // address for, so a hint-less dial is a caller defect, refused before
         // the network. A discovery endpoint resolves the partner by id.
         if (direct_addrs.len == 0 and !locators.resolvesById(self.reachability)) return error.InvalidAddress;
-        var code: i32 = 0;
+        var code: i32 = dial_ok;
         const sink = TextSink.of(text);
         if (sidecar.glowcap_iroh_sidecar_connect_blocking(
             self.endpoint,
@@ -257,23 +259,17 @@ pub const Resident = struct {
     pub fn loopStartConnectResolved(self: *Resident, request_id: usize, designator: []const u8, direct_addrs: []const u8) net.netlayer.DialError!void {
         if (request_id == 0) return error.InvalidAddress;
         if (direct_addrs.len == 0 and !locators.resolvesById(self.reachability)) return error.InvalidAddress;
-        return switch (sidecar.glowcap_iroh_sidecar_endpoint_start_connect(
+        const code = sidecar.glowcap_iroh_sidecar_endpoint_start_connect(
             self.endpoint,
             request_id,
             designator.ptr,
             designator.len,
             direct_addrs.ptr,
             direct_addrs.len,
-        )) {
-            0 => {},
-            1 => error.InvalidAddress,
-            2 => error.TimedOut,
-            3 => error.NetworkUnreachable,
-            7 => error.WouldBlock,
-            8 => error.InvalidOptions,
-            9 => error.ConnectionRefused,
-            else => error.ConnectionLost,
-        };
+        );
+        if (code == dial_ok) return;
+        if (code == @backingInt(DialCode.busy)) return error.WouldBlock;
+        return dialErrorFromCode(code);
     }
 
     /// Consume one terminal evented dial and move the connection onto the
@@ -287,7 +283,7 @@ pub const Resident = struct {
         var conn: ?*CConn = null;
         const sink = TextSink.of(text);
         const code = sidecar.glowcap_iroh_sidecar_endpoint_finish_connect(self.endpoint, request_id, &conn, sink.ptr, sink.cap, sink.len);
-        if (code != 0) return dialErrorFromCode(code);
+        if (code != dial_ok) return dialErrorFromCode(code);
         const ready_conn = conn orelse return error.ConnectionLost;
         if (sidecar.glowcap_iroh_sidecar_conn_set_nonblocking(self.endpoint, ready_conn) != 0) {
             sidecar.glowcap_iroh_sidecar_conn_free(ready_conn);
@@ -370,25 +366,25 @@ const TextSink = struct {
     }
 };
 
-/// Project a sidecar dial code onto the `DialError` retry axis (ADR-0030).
-/// The codes: 1 invalid, 2 timeout, 3 unreachable, 4 lost, 5 canceled, 8
-/// endpoint closed, 9 refused. A malformed id or hint is `InvalidAddress`, a
-/// deadline is `TimedOut`, a connection that could not be established is
-/// `NetworkUnreachable`, and one that came up then failed is
-/// `ConnectionLost`. A closed endpoint is a permanent local fault, so it
-/// lands on the permanent `InvalidOptions` arm rather than on the transient
-/// path fault it once wore. A refused handshake is permanent on that axis
-/// too (`ConnectionRefused`). At the C surface it still projects to the I/O
-/// code, so an embedder's own retry policy has only the last-error text to
-/// tell them apart, which is why the sidecar's text rides beside the code.
+/// Project a sidecar `DialCode` onto the `DialError` retry axis (ADR-0030). A
+/// malformed id or hint is `InvalidAddress`, a deadline is `TimedOut`, a
+/// connection that could not be established is `NetworkUnreachable`, and one
+/// that came up then failed is `ConnectionLost`. A closed endpoint is a
+/// permanent local fault, so it lands on the permanent `InvalidOptions` arm. A
+/// refused handshake is permanent on that axis too (`ConnectionRefused`). A
+/// code outside the vocabulary is `ConnectionLost`. At the C surface the
+/// error projects to the I/O code, so an embedder's own retry policy has
+/// only the last-error text to tell them apart, which is why the sidecar's text
+/// rides beside the code.
 fn dialErrorFromCode(code: i32) net.netlayer.DialError {
-    return switch (code) {
-        1 => error.InvalidAddress,
-        2 => error.TimedOut,
-        3 => error.NetworkUnreachable,
-        8 => error.InvalidOptions,
-        9 => error.ConnectionRefused,
-        else => error.ConnectionLost,
+    const known = std.enums.fromInt(DialCode, code) orelse return error.ConnectionLost;
+    return switch (known) {
+        .invalid => error.InvalidAddress,
+        .timeout => error.TimedOut,
+        .@"unreachable" => error.NetworkUnreachable,
+        .closed => error.InvalidOptions,
+        .refused => error.ConnectionRefused,
+        .ok, .lost, .canceled, .pending, .busy => error.ConnectionLost,
     };
 }
 
@@ -541,13 +537,13 @@ fn waitForConnection(box: *ListenerBox, timeout_ms: i32) net.netlayer.AcceptErro
             if (elapsed >= timeout_ms) return false;
             break :blk @intCast(@min(@as(i64, accept_cancel_poll_ms), @as(i64, timeout_ms) - elapsed));
         };
-        var code: i32 = 0;
+        var code: i32 = dial_ok;
         box.stashed = sidecar.glowcap_iroh_sidecar_accept_timeout(box.resident.endpoint, slice_ms, &code);
         if (box.stashed != null) return true;
         // Only a completed bounded wait is retryable. Endpoint close and every
         // other sidecar failure are terminal; treating their null handle as a
         // timeout would spin this unbounded listener forever after `close`.
-        if (code != 2) return error.ConnectionLost;
+        if (code != @backingInt(DialCode.timeout)) return error.ConnectionLost;
         if (timeout_ms == 0) return false;
     }
 }

@@ -144,7 +144,7 @@ test "an inbound offer is answered under a minted id and becomes the listener's 
     try std.testing.expectEqual(@as(usize, 1), stub.add_remote_candidate_calls);
     var records: [4]c.GlowcapMultiplexedReadyEvent = undefined;
     stub.candidate_bytes_to_emit = 100;
-    stub.pushDriverEvent(stub.lastPeer(), webrtc.ev_candidate);
+    stub.pushDriverEvent(stub.lastPeer(), webrtc.ev.candidate);
     try std.testing.expectEqual(@as(usize, 0), (try fx.drain(&records)).len);
     try std.testing.expectEqual(@as(?u64, exchange), fixture.signals.candidate_exchange);
     try std.testing.expectEqual(@as(usize, 100), fixture.signals.candidate_len);
@@ -153,15 +153,15 @@ test "an inbound offer is answered under a minted id and becomes the listener's 
     try expectLastErrorContains("is an accept");
 
     // The channel opening is the listener's accept record, on the listener's route.
-    stub.open_result = 0;
-    stub.pushDriverEvent(stub.lastPeer(), webrtc.ev_open);
+    stub.open_result = webrtc.result.ok;
+    stub.pushDriverEvent(stub.lastPeer(), webrtc.ev.open);
     const accepted = try fx.drain(&records);
     try std.testing.expectEqual(@as(usize, 1), accepted.len);
     try std.testing.expectEqual(route_id, accepted[0].subject);
     try std.testing.expectEqual(EV_ACCEPT, accepted[0].events);
 
     // A hello that arrives before the claim still reaches the driver under the peer id.
-    stub.pushDriverEvent(stub.lastPeer(), webrtc.ev_readable);
+    stub.pushDriverEvent(stub.lastPeer(), webrtc.ev.readable);
     const readable = try fx.drain(&records);
     try std.testing.expectEqual(@as(usize, 1), readable.len);
     try std.testing.expectEqual(stub_peer_id, readable[0].subject);
@@ -218,12 +218,12 @@ test "an offer the netlayer cannot answer commits nothing" {
     try std.testing.expectEqual(@as(usize, 0), stub.freed_peers);
 
     // The sidecar refuses the offer.
-    stub.set_remote_result = -1;
+    stub.set_remote_result = webrtc.result.err;
     try std.testing.expectEqual(c.GLOWCAP_ERR_IO, provideOffer(&fx, &exchange));
     try expectLastErrorContains("refused the offer");
     try std.testing.expectEqual(@as(usize, 1), stub.freed_peers);
     try std.testing.expectEqual(@as(?u64, null), fixture.signals.answer_exchange);
-    stub.set_remote_result = 0;
+    stub.set_remote_result = webrtc.result.ok;
 
     // The application cannot carry the answer.
     fixture.signals.refuse_answer = true;
@@ -278,7 +278,7 @@ test "an accept that ends before opening is quiet, and stop_listen closes the re
     // The offerer went away: the closed record ends the exchange with done
     // and nothing for the driver.
     try std.testing.expectEqual(c.GLOWCAP_OK, provideOffer(&fx, &exchange));
-    stub.pushDriverEvent(stub.lastPeer(), webrtc.ev_closed);
+    stub.pushDriverEvent(stub.lastPeer(), webrtc.ev.closed);
     try std.testing.expectEqual(@as(usize, 0), (try fx.drain(&records)).len);
     try std.testing.expectEqual(@as(usize, 1), stub.freed_peers);
     try std.testing.expectEqual(@as(?u64, exchange), fixture.signals.done_exchange);
@@ -288,15 +288,15 @@ test "an accept that ends before opening is quiet, and stop_listen closes the re
     try std.testing.expectEqual(c.GLOWCAP_OK, webrtc_archive.glowcap_webrtc_netlayer_fail_exchange(fx.netlayer, exchange));
     try std.testing.expectEqual(c.GLOWCAP_ERR_INVALID_ARGUMENT, webrtc_archive.glowcap_webrtc_netlayer_provide_candidate(fx.netlayer, exchange, offer.ptr, offer.len));
     try expectLastErrorContains("is past signaling");
-    stub.pushDriverEvent(stub.lastPeer(), webrtc.ev_closed);
+    stub.pushDriverEvent(stub.lastPeer(), webrtc.ev.closed);
     try std.testing.expectEqual(@as(usize, 0), (try fx.drain(&records)).len);
     try std.testing.expectEqual(@as(usize, 2), stub.freed_peers);
     try std.testing.expectEqual(@as(usize, 2), fixture.signals.done_calls);
 
     // An accept the driver never claimed, and one still signaling, both end with stop_listen.
     try std.testing.expectEqual(c.GLOWCAP_OK, provideOffer(&fx, &exchange));
-    stub.open_result = 0;
-    stub.pushDriverEvent(stub.lastPeer(), webrtc.ev_open);
+    stub.open_result = webrtc.result.ok;
+    stub.pushDriverEvent(stub.lastPeer(), webrtc.ev.open);
     try std.testing.expectEqual(@as(usize, 1), (try fx.drain(&records)).len);
     try std.testing.expectEqual(c.GLOWCAP_OK, t.stop_listen.?(listener, &fx.failure));
     try std.testing.expectEqual(@as(usize, 3), stub.freed_peers);

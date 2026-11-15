@@ -55,19 +55,32 @@ extern fn glowcap_webrtc_sidecar_conn_try_send_packet(peer: *CPeer, buf: [*]cons
 extern fn glowcap_webrtc_sidecar_conn_close(peer: *CPeer) void;
 extern fn glowcap_webrtc_sidecar_peer_free(peer: *CPeer) void;
 
-/// Sidecar return codes, kept in lockstep with the constants in
-/// `transports/webrtc/src/lib.rs`.
-const rc_ok: i32 = 0;
-const rc_would_block: i32 = -2;
-const rc_buffer_too_small: i32 = -3;
-const rc_signal_too_large: i32 = -4;
-const rc_closed: i32 = -5;
+/// Sidecar return codes. `ok` is success and every other value is a failure
+/// family. The Rust crate's constants of the same names are generated from these
+/// declarations (`zig build gen-webrtc-sidecar-constants`). A negative code
+/// outside this set is a failure no caller distinguishes.
+pub const result = struct {
+    pub const ok: i32 = 0;
+    pub const err: i32 = -1;
+    /// A non-blocking call cannot make progress yet.
+    pub const would_block: i32 = -2;
+    /// A string out-parameter whose buffer was too small.
+    pub const buffer_too_small: i32 = -3;
+    /// A signaling string exceeded the hard signaling cap.
+    pub const signal_too_large: i32 = -4;
+    /// A peer reached an orderly terminal state before opening.
+    pub const closed: i32 = -5;
+};
 
-pub const ev_open: u32 = 1;
-pub const ev_candidate: u32 = 2;
-pub const ev_readable: u32 = 4;
-pub const ev_writable: u32 = 8;
-pub const ev_closed: u32 = 16;
+/// Readiness bits in `ReadyEvent.events`. One drained record may carry several.
+/// The Rust crate's `EV_*` constants are generated from these declarations.
+pub const ev = struct {
+    pub const open: u32 = 1;
+    pub const candidate: u32 = 2;
+    pub const readable: u32 = 4;
+    pub const writable: u32 = 8;
+    pub const closed: u32 = 16;
+};
 pub const max_signal_bytes: usize = 16 * 1024;
 pub const max_ice_candidate_bytes: usize = max_signal_bytes;
 pub const max_ice_servers: usize = 16;
@@ -229,9 +242,9 @@ pub const Peer = struct {
         const capped = out[0..@min(out.len, max_signal_bytes)];
         return switch (glowcap_webrtc_sidecar_peer_create_offer(self.peer, capped.ptr, capped.len, out_len)) {
             // A length past the buffer offered is the sidecar breaking its contract.
-            rc_ok => if (out_len.* > capped.len) error.SignalFailed else out[0..out_len.*],
-            rc_signal_too_large => error.SignalTooLarge,
-            rc_buffer_too_small => if (out_len.* > max_signal_bytes) error.SignalTooLarge else error.BufferTooSmall,
+            result.ok => if (out_len.* > capped.len) error.SignalFailed else out[0..out_len.*],
+            result.signal_too_large => error.SignalTooLarge,
+            result.buffer_too_small => if (out_len.* > max_signal_bytes) error.SignalTooLarge else error.BufferTooSmall,
             else => error.SignalFailed,
         };
     }
@@ -243,9 +256,9 @@ pub const Peer = struct {
         const capped = out[0..@min(out.len, max_signal_bytes)];
         return switch (glowcap_webrtc_sidecar_peer_create_answer(self.peer, capped.ptr, capped.len, out_len)) {
             // A length past the buffer offered is the sidecar breaking its contract.
-            rc_ok => if (out_len.* > capped.len) error.SignalFailed else out[0..out_len.*],
-            rc_signal_too_large => error.SignalTooLarge,
-            rc_buffer_too_small => if (out_len.* > max_signal_bytes) error.SignalTooLarge else error.BufferTooSmall,
+            result.ok => if (out_len.* > capped.len) error.SignalFailed else out[0..out_len.*],
+            result.signal_too_large => error.SignalTooLarge,
+            result.buffer_too_small => if (out_len.* > max_signal_bytes) error.SignalTooLarge else error.BufferTooSmall,
             else => error.SignalFailed,
         };
     }
@@ -253,13 +266,13 @@ pub const Peer = struct {
     /// Set the far offerer's SDP offer as the remote description. Answerer side.
     pub fn setRemoteOffer(self: *Peer, sdp: []const u8) SignalError!void {
         if (sdp.len > max_signal_bytes) return error.SignalTooLarge;
-        if (glowcap_webrtc_sidecar_peer_set_remote(self.peer, sdp.ptr, sdp.len, 1) != rc_ok) return error.SignalFailed;
+        if (glowcap_webrtc_sidecar_peer_set_remote(self.peer, sdp.ptr, sdp.len, 1) != result.ok) return error.SignalFailed;
     }
 
     /// Set the far answerer's SDP answer as the remote description. Offerer side.
     pub fn setRemoteAnswer(self: *Peer, sdp: []const u8) SignalError!void {
         if (sdp.len > max_signal_bytes) return error.SignalTooLarge;
-        if (glowcap_webrtc_sidecar_peer_set_remote(self.peer, sdp.ptr, sdp.len, 0) != rc_ok) return error.SignalFailed;
+        if (glowcap_webrtc_sidecar_peer_set_remote(self.peer, sdp.ptr, sdp.len, 0) != result.ok) return error.SignalFailed;
     }
 
     /// Add one ICE candidate the far peer gathered, as the JSON its
@@ -267,7 +280,7 @@ pub const Peer = struct {
     /// description is held and added once that description is set.
     pub fn addRemoteCandidate(self: *Peer, candidate: []const u8) SignalError!void {
         if (candidate.len > max_ice_candidate_bytes) return error.SignalTooLarge;
-        if (glowcap_webrtc_sidecar_peer_add_remote_candidate(self.peer, candidate.ptr, candidate.len) != rc_ok) return error.SignalFailed;
+        if (glowcap_webrtc_sidecar_peer_add_remote_candidate(self.peer, candidate.ptr, candidate.len) != result.ok) return error.SignalFailed;
     }
 
     /// Drain the next locally gathered ICE candidate into `out` as JSON, writing
@@ -278,24 +291,24 @@ pub const Peer = struct {
         const capped = out[0..@min(out.len, max_ice_candidate_bytes)];
         return switch (glowcap_webrtc_sidecar_peer_next_local_candidate(self.peer, capped.ptr, capped.len, out_len)) {
             // A length past the buffer offered is the sidecar breaking its contract.
-            rc_ok => if (out_len.* > capped.len) error.SignalFailed else out[0..out_len.*],
-            rc_would_block => null,
-            rc_signal_too_large => error.SignalTooLarge,
-            rc_buffer_too_small => if (out_len.* > max_ice_candidate_bytes) error.SignalTooLarge else error.BufferTooSmall,
+            result.ok => if (out_len.* > capped.len) error.SignalFailed else out[0..out_len.*],
+            result.would_block => null,
+            result.signal_too_large => error.SignalTooLarge,
+            result.buffer_too_small => if (out_len.* > max_ice_candidate_bytes) error.SignalTooLarge else error.BufferTooSmall,
             else => error.SignalFailed,
         };
     }
 
-    /// Non-blocking channel-open check. `WouldBlock` means wait for an `ev_open`
-    /// or `ev_closed` readiness record and retry. `Failed` is terminal setup
+    /// Non-blocking channel-open check. `WouldBlock` means wait for an `ev.open`
+    /// or `ev.closed` readiness record and retry. `Failed` is terminal setup
     /// failure.
     pub const OpenError = error{ WouldBlock, Closed, Failed };
 
     pub fn checkOpen(self: *const Peer) OpenError!void {
         return switch (glowcap_webrtc_sidecar_peer_is_open(self.peer)) {
-            rc_ok => {},
-            rc_would_block => error.WouldBlock,
-            rc_closed => error.Closed,
+            result.ok => {},
+            result.would_block => error.WouldBlock,
+            result.closed => error.Closed,
             else => error.Failed,
         };
     }
@@ -303,26 +316,26 @@ pub const Peer = struct {
     pub const TryPacketError = error{ WouldBlock, Closed, Failed, BufferTooSmall };
 
     /// Non-blocking packet receive for readiness owners. `WouldBlock` means
-    /// re-arm on `ev_readable`. `Closed` is clean end of stream.
+    /// re-arm on `ev.readable`. `Closed` is clean end of stream.
     pub fn tryReceivePacket(self: *Peer, buf: []u8) TryPacketError!usize {
         const n = glowcap_webrtc_sidecar_conn_try_receive_packet(self.peer, buf.ptr, buf.len);
         if (n == 0) return error.Closed;
-        if (n == rc_would_block) return error.WouldBlock;
-        if (n == rc_buffer_too_small) return error.BufferTooSmall;
+        if (n == result.would_block) return error.WouldBlock;
+        if (n == result.buffer_too_small) return error.BufferTooSmall;
         // A count past the buffer is the sidecar breaking its contract.
         if (n < 0 or n > buf.len) return error.Failed;
         return @intCast(n);
     }
 
     /// Hand one whole packet to the sidecar's outbound staging buffer and return
-    /// immediately. `WouldBlock` means re-arm on `ev_writable` and retry the
+    /// immediately. `WouldBlock` means re-arm on `ev.writable` and retry the
     /// same packet. `Closed` means the channel ended cleanly first, and
     /// `Failed` that it faulted.
     pub fn trySendPacket(self: *Peer, bytes: []const u8) TryPacketError!usize {
         const n = glowcap_webrtc_sidecar_conn_try_send_packet(self.peer, bytes.ptr, bytes.len);
-        if (n == rc_closed) return error.Closed;
-        if (n == rc_would_block) return error.WouldBlock;
-        if (n == rc_buffer_too_small) return error.BufferTooSmall;
+        if (n == result.closed) return error.Closed;
+        if (n == result.would_block) return error.WouldBlock;
+        if (n == result.buffer_too_small) return error.BufferTooSmall;
         if (n < 0 or n > bytes.len) return error.Failed;
         return @intCast(n);
     }

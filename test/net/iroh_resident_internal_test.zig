@@ -329,7 +329,7 @@ test "managed iroh: dial admission pressure retains its retry classification" {
     var endpoint = resident(threaded.io());
     var adapter = try iroh.MultiplexedAdapter.init(std.testing.allocator, &endpoint);
     defer std.debug.assert(adapter.deinit() == null);
-    stub.dial_start_result = 7;
+    stub.dial_start_result = @backingInt(iroh.DialCode.busy);
     const outcome = adapter.multiplexed().dialer().?.startDial(1, iroh.locator("node"), .inherit, .application);
     const failure = outcome.failed;
     try std.testing.expectEqual(error.WouldBlock, failure.classification);

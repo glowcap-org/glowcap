@@ -76,31 +76,12 @@ const WORKER_THREADS: usize = 2;
 /// sidecar and is ample for SCTP/DTLS shutdown without licensing a stuck task.
 const PEER_CLOSE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
 
-/// Return codes shared with the Zig resident and the header. `0` is success.
-/// Negatives name the failure family the resident maps to a Zig error.
-const OK: i32 = 0;
-const ERR: i32 = -1;
-
-/// A non-blocking call that cannot make progress yet: no candidate has gathered,
-/// the channel is not open, or a bounded queue has no room. The resident re-arms
-/// and retries, distinct from a hard error.
-const WOULD_BLOCK: i32 = -2;
-/// A string out-parameter whose buffer was too small. `*out_len` is set to the
-/// length the caller must provide, and nothing is written.
-const BUFFER_TOO_SMALL: i32 = -3;
-/// A signaling string exceeded Glowcap's hard signaling cap. Retrying with a
-/// larger caller buffer cannot make it valid.
-const SIGNAL_TOO_LARGE: i32 = -4;
-/// A peer reached an orderly terminal state before opening.
-const CLOSED: i32 = -5;
-
-/// Readiness bits shared with the Zig resident and public C ABI. One drained
-/// record may carry several bits for the same stable endpoint-scoped peer id.
-const EV_OPEN: u32 = 1;
-const EV_CANDIDATE: u32 = 2;
-const EV_READABLE: u32 = 4;
-const EV_WRITABLE: u32 = 8;
-const EV_CLOSED: u32 = 16;
+// The wire vocabulary shared with the Zig resident, which owns it in
+// `src/net/transport/webrtc/sidecar.zig`: the return codes `OK`, `ERR`,
+// `WOULD_BLOCK`, `BUFFER_TOO_SMALL`, `SIGNAL_TOO_LARGE`, and `CLOSED`, and the
+// readiness bits `EV_*` of one drained record.
+// `zig build gen-webrtc-sidecar-constants` writes them into `constants_gen.rs`.
+use constants_gen::*;
 
 /// Borrowed UTF-8 text in the sidecar ABI.
 #[repr(C)]

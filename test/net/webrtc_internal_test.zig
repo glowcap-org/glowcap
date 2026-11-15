@@ -14,7 +14,7 @@ const stub = @import("webrtc_sidecar_stub.zig");
 const webrtc_connection_state_bytes: usize = 104;
 
 test "supported WebRTC type surfaces and footprints stay exact" {
-    const root_names = .{ "transport_name", "max_packet_bytes", "max_signal_bytes", "max_ice_candidate_bytes", "max_ice_servers", "max_ice_urls_per_server", "max_ice_url_bytes", "max_ice_credential_bytes", "max_pending_ice_candidates", "max_accepts_in_flight", "pending_ice_candidate_queue_bytes", "data_channel_queue_bytes", "sctp_receive_buffer_bytes", "designator_scheme", "designator_len", "locator", "ev_open", "ev_candidate", "ev_readable", "ev_writable", "ev_closed", "ReadyEvent", "PeerId", "StringView", "IceServerConfig", "SignalError", "Peer", "Resident", "DialResolver", "SignalingAuthority", "Backend", "ResidentPolicy", "transport_profile", "CompletionResident" };
+    const root_names = .{ "transport_name", "max_packet_bytes", "max_signal_bytes", "max_ice_candidate_bytes", "max_ice_servers", "max_ice_urls_per_server", "max_ice_url_bytes", "max_ice_credential_bytes", "max_pending_ice_candidates", "max_accepts_in_flight", "pending_ice_candidate_queue_bytes", "data_channel_queue_bytes", "sctp_receive_buffer_bytes", "designator_scheme", "designator_len", "locator", "ev", "result", "ReadyEvent", "PeerId", "StringView", "IceServerConfig", "SignalError", "Peer", "Resident", "DialResolver", "SignalingAuthority", "Backend", "ResidentPolicy", "transport_profile", "CompletionResident" };
     try std.testing.expectEqual(root_names.len, @typeInfo(webrtc).@"struct".decl_names.len);
     inline for (root_names) |name| try std.testing.expect(@hasDecl(webrtc, name));
 
@@ -150,13 +150,13 @@ test "public webrtc signaling inputs are bounded before entering the sidecar" {
 }
 
 test "public webrtc generated signaling too large is not a retryable output buffer miss" {
-    stub.create_offer_result = -4;
-    stub.create_answer_result = -4;
+    stub.create_offer_result = webrtc.result.signal_too_large;
+    stub.create_answer_result = webrtc.result.signal_too_large;
     stub.create_signal_len = webrtc.max_signal_bytes + 1;
     stub.candidate_bytes_to_emit = webrtc.max_signal_bytes + 1;
     defer {
-        stub.create_offer_result = -2;
-        stub.create_answer_result = -2;
+        stub.create_offer_result = webrtc.result.would_block;
+        stub.create_answer_result = webrtc.result.would_block;
         stub.create_signal_len = 0;
         stub.candidate_bytes_to_emit = 0;
     }
@@ -181,10 +181,10 @@ test "public webrtc generated signaling too large is not a retryable output buff
 }
 
 test "public webrtc remote authorization validates key designator before sidecar state" {
-    stub.open_result = 0;
+    stub.open_result = webrtc.result.ok;
     stub.open_checks = 0;
     defer {
-        stub.open_result = -2;
+        stub.open_result = webrtc.result.would_block;
         stub.open_checks = 0;
     }
 
@@ -209,16 +209,16 @@ test "public webrtc remote authorization validates key designator before sidecar
 test "webrtc open failure stays distinct from clean close" {
     var peer: webrtc.Peer = .{ .peer = @ptrFromInt(104) };
 
-    stub.open_result = -5;
+    stub.open_result = webrtc.result.closed;
     stub.open_checks = 0;
     try std.testing.expectError(error.Closed, peer.checkOpen());
     try std.testing.expectEqual(@as(usize, 1), stub.open_checks);
 
-    stub.open_result = -1;
+    stub.open_result = webrtc.result.err;
     try std.testing.expectError(error.Failed, peer.checkOpen());
 
     defer {
-        stub.open_result = -2;
+        stub.open_result = webrtc.result.would_block;
         stub.open_checks = 0;
     }
 
@@ -234,7 +234,7 @@ test "webrtc open failure stays distinct from clean close" {
     try std.testing.expectEqual(c.GLOWCAP_ERR_IO, webrtc_archive.glowcap_webrtc_peer_is_open(public_peer));
     try expectWebrtcLastErrorContains("channel faulted");
 
-    stub.open_result = -5;
+    stub.open_result = webrtc.result.closed;
     try std.testing.expectEqual(c.GLOWCAP_ERR_CLOSED, webrtc_archive.glowcap_webrtc_peer_is_open(public_peer));
 }
 
@@ -312,11 +312,11 @@ fn expectWebrtcConfigRefusal(
 }
 
 test "provider maps a clean WebRTC close to EOF" {
-    stub.open_result = -2;
+    stub.open_result = webrtc.result.would_block;
     stub.receive_result = 0;
     defer {
-        stub.open_result = -2;
-        stub.receive_result = -2;
+        stub.open_result = webrtc.result.would_block;
+        stub.receive_result = webrtc.result.would_block;
     }
 
     var config: webrtc_archive.GlowcapWebrtcConfig = std.mem.zeroes(webrtc_archive.GlowcapWebrtcConfig);
@@ -332,7 +332,7 @@ test "provider maps a clean WebRTC close to EOF" {
     const designator = key.toDesignator();
     try std.testing.expectEqual(c.GLOWCAP_OK, webrtc_archive.glowcap_webrtc_peer_authorize_remote(peer, &designator, designator.len));
 
-    stub.open_result = 0;
+    stub.open_result = webrtc.result.ok;
     const subject = webrtc_archive.glowcap_webrtc_peer_id(peer);
     var package: c.GlowcapTransportProvider = undefined;
     try std.testing.expectEqual(c.GLOWCAP_OK, webrtc_archive.glowcap_webrtc_transport_provider(netlayer, &package));
@@ -350,9 +350,9 @@ test "provider maps a clean WebRTC close to EOF" {
 }
 
 test "provider maps failed WebRTC open to transport failure" {
-    stub.open_result = -2;
+    stub.open_result = webrtc.result.would_block;
     defer {
-        stub.open_result = -2;
+        stub.open_result = webrtc.result.would_block;
     }
 
     var config: webrtc_archive.GlowcapWebrtcConfig = std.mem.zeroes(webrtc_archive.GlowcapWebrtcConfig);
@@ -373,7 +373,7 @@ test "provider maps failed WebRTC open to transport failure" {
     try std.testing.expectEqual(c.GLOWCAP_OK, webrtc_archive.glowcap_webrtc_transport_provider(netlayer, &package));
     const transport = webrtcProviderTable(package);
 
-    stub.open_result = -1;
+    stub.open_result = webrtc.result.err;
     var failure = c.transport_provider.emptyProviderFailure();
     var conn: u64 = 0;
     try std.testing.expectEqual(c.GLOWCAP_ERR_IO, transport.claim_external.?(transport.ctx, subject, &conn, &failure));
@@ -410,10 +410,10 @@ test "candidate pump carries one candidate above 4 KiB" {
 }
 
 test "backend maps failed pre-open WebRTC peer distinctly from clean close" {
-    stub.open_result = -1;
+    stub.open_result = webrtc.result.err;
     stub.freed_peers = 0;
     defer {
-        stub.open_result = -2;
+        stub.open_result = webrtc.result.would_block;
         stub.freed_peers = 0;
     }
 
@@ -440,15 +440,15 @@ test "backend maps failed pre-open WebRTC peer distinctly from clean close" {
 
 test "the backend answers an offer, sends the answer under the exchange fd, and adopts the answerer" {
     stub.set_remote_calls = 0;
-    stub.set_remote_result = 0;
-    stub.create_answer_result = 0;
+    stub.set_remote_result = webrtc.result.ok;
+    stub.create_answer_result = webrtc.result.ok;
     stub.create_signal_len = 64;
     stub.freed_peers = 0;
     answered = .{};
     defer {
         stub.set_remote_calls = 0;
-        stub.set_remote_result = -1;
-        stub.create_answer_result = -2;
+        stub.set_remote_result = webrtc.result.err;
+        stub.create_answer_result = webrtc.result.would_block;
         stub.create_signal_len = 0;
         stub.freed_peers = 0;
     }
@@ -482,15 +482,15 @@ test "the backend answers an offer, sends the answer under the exchange fd, and 
 
 test "an offer the backend cannot answer commits nothing" {
     stub.set_remote_calls = 0;
-    stub.set_remote_result = -1;
-    stub.create_answer_result = 0;
+    stub.set_remote_result = webrtc.result.err;
+    stub.create_answer_result = webrtc.result.ok;
     stub.create_signal_len = 64;
     stub.freed_peers = 0;
     answered = .{};
     defer {
         stub.set_remote_calls = 0;
-        stub.set_remote_result = -1;
-        stub.create_answer_result = -2;
+        stub.set_remote_result = webrtc.result.err;
+        stub.create_answer_result = webrtc.result.would_block;
         stub.create_signal_len = 0;
         stub.freed_peers = 0;
         answered = .{};
@@ -518,7 +518,7 @@ test "an offer the backend cannot answer commits nothing" {
 
     // An answer the authority cannot carry closes the peer, and the inbox
     // seat it had reserved is free again.
-    stub.set_remote_result = 0;
+    stub.set_remote_result = webrtc.result.ok;
     answered.refuse = true;
     try std.testing.expectError(error.NoCarrier, backend.startAnswer(&designator, "v=0 offer"));
     try std.testing.expectEqual(@as(usize, 2), stub.freed_peers);

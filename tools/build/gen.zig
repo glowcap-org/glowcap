@@ -73,6 +73,7 @@ pub const Support = struct {
     reflect: *std.Build.Module,
     c_abi_shared: *std.Build.Module,
     iroh_policy: *std.Build.Module,
+    iroh_sidecar: *std.Build.Module,
     frame_stream: *std.Build.Module,
     binding_policy: *std.Build.Module,
 };
@@ -88,6 +89,12 @@ pub fn createSupport(
         .target = tgt,
         .optimize = opt,
     });
+    const iroh_sidecar = bb.createModule(.{
+        .root_source_file = bb.path("src/net/transport/iroh/sidecar.zig"),
+        .target = tgt,
+        .optimize = opt,
+    });
+    iroh_sidecar.addImport("foundation", host_mods[layerIndex("foundation")]);
     const frame_stream = bb.createModule(.{
         .root_source_file = bb.path("src/net/frame_stream.zig"),
         .target = tgt,
@@ -121,6 +128,7 @@ pub fn createSupport(
             .optimize = opt,
         }),
         .iroh_policy = iroh_policy,
+        .iroh_sidecar = iroh_sidecar,
         .frame_stream = frame_stream,
         .binding_policy = bb.createModule(.{
             .root_source_file = bb.path("tools/gen/binding/policy.zig"),
@@ -492,12 +500,13 @@ pub fn registerMirrors(
     });
     addHeaderGen(b, check_step, target, optimize, support, .{
         .name = "gen-iroh-sidecar-constants",
-        .check_desc = "Verify the iroh sidecar's generated Rust constants match iroh transport policy and frame-stream policy (fails if stale)",
-        .write_desc = "Regenerate the iroh sidecar's Rust constants from iroh transport policy and frame-stream policy",
+        .check_desc = "Verify the iroh sidecar's generated Rust constants match iroh transport policy, the sidecar vocabulary, and frame-stream policy (fails if stale)",
+        .write_desc = "Regenerate the iroh sidecar's Rust constants from iroh transport policy, the sidecar vocabulary, and frame-stream policy",
         .generator = "tools/gen/iroh_sidecar_constants.zig",
         .reflects = .{ .name = "iroh_policy", .module = support.iroh_policy },
         .extra_imports = &.{
             .{ .name = "frame_stream", .module = support.frame_stream },
+            .{ .name = "iroh_sidecar", .module = support.iroh_sidecar },
         },
     });
     addHeaderGen(b, check_step, target, optimize, support, .{

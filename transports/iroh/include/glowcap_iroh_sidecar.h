@@ -77,7 +77,29 @@ extern "C" {
  * reason was, not only "unreachable". The sidecar keeps at most this many
  * bytes per failed dial, cut at the last whole UTF-8 sequence that fits. A
  * caller buffer of this size never sees a truncated copy. */
-#define GLOWCAP_IROH_SIDECAR_DIAL_TEXT_BYTES 256u
+#define GLOWCAP_IROH_DIAL_TEXT_BYTES 256u
+
+/* The dial classification, in `out_code` and the return of the evented start
+ * and finish calls. A dial that succeeds reports OK. A failure reports one of:
+ *   INVALID      a malformed node id or address hint, or a refused argument
+ *   TIMEOUT      a bounded deadline passed
+ *   UNREACHABLE  the QUIC connection could not be established
+ *   LOST         the connection came up, then the stream failed
+ *   CANCELED     the dial was canceled before it finished
+ *   PENDING      the terminal result was requested before the dial completed
+ *   BUSY         the dial admission table is full, and the start owes no event
+ *   CLOSED       the endpoint is already closed (permanent for the endpoint)
+ *   REFUSED      the partner or this endpoint rejected the handshake */
+#define GLOWCAP_IROH_DIAL_OK 0
+#define GLOWCAP_IROH_DIAL_INVALID 1
+#define GLOWCAP_IROH_DIAL_TIMEOUT 2
+#define GLOWCAP_IROH_DIAL_UNREACHABLE 3
+#define GLOWCAP_IROH_DIAL_LOST 4
+#define GLOWCAP_IROH_DIAL_CANCELED 5
+#define GLOWCAP_IROH_DIAL_PENDING 6
+#define GLOWCAP_IROH_DIAL_BUSY 7
+#define GLOWCAP_IROH_DIAL_CLOSED 8
+#define GLOWCAP_IROH_DIAL_REFUSED 9
 
 /* One drained readiness record. subject is 0 for EV_ACCEPT, the caller request
  * id for EV_CONNECT, and otherwise glowcap_iroh_sidecar_conn_id(conn). The Zig
@@ -165,12 +187,10 @@ intptr_t glowcap_iroh_sidecar_endpoint_direct_addrs(const glowcap_iroh_sidecar_e
  * guarantees (the dialer sends op:start-session). Returns an owned handle,
  * or NULL on failure. The endpoint must outlive the connection.
  *
- * `out_code` (when non-NULL) receives a dial classification: 0 on success,
- * then on failure 1 = invalid (malformed id/hint), 2 = timed out, 3 =
- * unreachable (the QUIC connection could not be established), 4 = lost (up,
- * then the stream failed), 8 = endpoint closed, 9 = refused (the partner or
- * this endpoint rejected the handshake). iroh has no connection-refused for
- * a dead port: it never answers, so the dial times out.
+ * `out_code` (when non-NULL) receives a GLOWCAP_IROH_DIAL_* classification:
+ * OK on success, else INVALID, TIMEOUT, UNREACHABLE, LOST, CLOSED, or
+ * REFUSED. iroh has no connection-refused for a dead port: it never answers,
+ * so the dial times out.
  *
  * `out_text` / `out_text_cap` / `out_text_len` carry the failure's text, the
  * same bytes the evented finish call reports: on failure the longest whole
@@ -178,7 +198,7 @@ intptr_t glowcap_iroh_sidecar_endpoint_direct_addrs(const glowcap_iroh_sidecar_e
  * byte count written to `out_text_len` (no terminator). On success the count
  * is 0. A NULL `out_text` with a zero capacity declines the text, and a NULL
  * `out_text_len` declines the count. Size the buffer by
- * GLOWCAP_IROH_SIDECAR_DIAL_TEXT_BYTES to receive every retained byte. The
+ * GLOWCAP_IROH_DIAL_TEXT_BYTES to receive every retained byte. The
  * text may be empty when the code is the whole fact. Nothing is retained
  * after this call returns. */
 glowcap_iroh_sidecar_conn *glowcap_iroh_sidecar_connect_blocking(
@@ -192,8 +212,9 @@ glowcap_iroh_sidecar_conn *glowcap_iroh_sidecar_connect_blocking(
  * stream. Returns only after the dialer has written its first bytes (QUIC bi
  * streams are lazy. OCapN's dialer writes op:start-session immediately), or
  * NULL with out_code set to the same classification connect_blocking uses:
- * 2 for a bounded timeout, 1 for a null endpoint or negative timeout, and 4
- * for endpoint close, panic, or stream-handle construction failure. out_code
+ * GLOWCAP_IROH_DIAL_TIMEOUT for a bounded timeout, GLOWCAP_IROH_DIAL_INVALID
+ * for a null endpoint or negative timeout, and GLOWCAP_IROH_DIAL_LOST for
+ * endpoint close, panic, or stream-handle construction failure. out_code
  * is mandatory. Private resident-listener primitive. Does not arm or drain
  * readiness. */
 glowcap_iroh_sidecar_conn *glowcap_iroh_sidecar_accept_timeout(
@@ -252,18 +273,16 @@ intptr_t glowcap_iroh_sidecar_endpoint_drain_ready(const glowcap_iroh_sidecar_en
 
 /* Admit one outbound dial without blocking. request_id is nonzero and unique
  * among this endpoint's live requests. The borrowed target is parsed before
- * return. A zero result promises exactly one EV_CONNECT carrying request_id.
- * A nonzero rejection owes no event. */
+ * return. GLOWCAP_IROH_DIAL_OK promises exactly one EV_CONNECT carrying
+ * request_id. Any other classification is a rejection that owes no event. */
 int32_t glowcap_iroh_sidecar_endpoint_start_connect(
     glowcap_iroh_sidecar_endpoint *ep, size_t request_id,
     const uint8_t *node_id, size_t node_id_len,
     const uint8_t *addr_hints, size_t addr_hints_len);
 
 /* Consume one terminal dial result after EV_CONNECT. On success, writes one
- * owned connection to out_conn. Returns 0 on success, 1 invalid, 2 timed out,
- * 3 unreachable, 4 lost, 5 canceled, 6 if called before completion, 8 if the
- * endpoint is already closed, or 9 if the partner or this endpoint refused the
- * handshake.
+ * owned connection to out_conn. Returns GLOWCAP_IROH_DIAL_OK on success, else
+ * the failure's GLOWCAP_IROH_DIAL_* classification.
  *
  * `out_text` / `out_text_cap` / `out_text_len` receive the failure's text,
  * which the endpoint retained beside the code from the moment the dial
@@ -274,7 +293,7 @@ int32_t glowcap_iroh_sidecar_endpoint_start_connect(
  * success, for a pending request, and for an unknown request the count is 0.
  * A NULL `out_text` with a zero capacity declines the text, and a NULL
  * `out_text_len` declines the count. Size the buffer by
- * GLOWCAP_IROH_SIDECAR_DIAL_TEXT_BYTES to receive every retained byte. The
+ * GLOWCAP_IROH_DIAL_TEXT_BYTES to receive every retained byte. The
  * text may be empty when the code is the whole fact (a canceled dial). The
  * retained text dies with the request's row, on this call or on endpoint
  * release, whether or not the caller took it. */

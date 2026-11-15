@@ -61,7 +61,7 @@ pub const MultiplexedAdapter = struct {
         if (got < 0 or got > room.len) return error.ReadinessFailed;
         var total: usize = 0;
         for (room[0..@intCast(got)]) |event| {
-            if (event.events & sidecar.ev_accept != 0) {
+            if (event.events & sidecar.ev.accept != 0) {
                 const listener = self.listener orelse continue;
                 out[total] = .{ .subject = listener.route, .events = event.events };
             } else {

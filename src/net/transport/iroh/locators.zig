@@ -5,6 +5,7 @@
 const foundation = @import("foundation");
 const model = @import("model");
 const net = @import("net");
+const policy = @import("policy.zig");
 
 const crypto = foundation.crypto;
 
@@ -14,26 +15,7 @@ pub const known_transport = model.transport.Known.iroh;
 pub const transport_profile = known_transport.metadata();
 pub const transport_name = transport_profile.symbol;
 
-/// How an endpoint becomes reachable, chosen explicitly when the resident is
-/// created. There is no default, so enabling relays or a discovery service is
-/// always the host's visible decision, never a hidden implementation detail.
-/// The values mirror `GLOWCAP_IROH_REACH_*` in the sidecar header.
-pub const Reachability = enum(u32) {
-    /// Relay-less and lookup-less: a dial needs the partner's direct-address
-    /// hints, and a hint-less dial refuses as `error.InvalidAddress`. The
-    /// loopback/LAN posture.
-    direct = 0,
-    /// The number-0 relays plus DNS/pkarr discovery: a peer is dialable by id
-    /// alone over the public internet, with hole-punching and NAT traversal.
-    discovery = 1,
-    /// DNS/pkarr discovery without relays, direct addresses are published and
-    /// resolved, but there is no relay fallback.
-    discovery_no_relay = 2,
-    /// An in-process shared address book: endpoints publish and resolve by id
-    /// alone with no relay, DNS, or hints. For tests and same-process
-    /// embeddings, never the public internet.
-    local_discovery = 3,
-};
+pub const Reachability = policy.Reachability;
 
 /// Whether a dial may omit the partner's direct-address hints because the
 /// endpoint can resolve the partner by id. Only `direct` cannot.

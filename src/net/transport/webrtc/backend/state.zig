@@ -24,7 +24,7 @@ pub const max_signal_bytes = signaling.signaling_frame_bytes;
 ///
 /// Construct with `initBound`, then pass this value to
 /// `completion.Loop(Backend, DialResolver).initWithBackend`. Outbound dials
-/// create an offerer and complete only on `ev_open`. Inbound answerers exist
+/// create an offerer and complete only on `ev.open`. Inbound answerers exist
 /// because `startAnswer` built one from an offer the signaling owner handed
 /// in, or because that owner built one by hand and transferred it through
 /// `adoptAnswerer`. They join the ordinary accept completion only after open.

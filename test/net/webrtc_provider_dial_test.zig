@@ -105,13 +105,13 @@ test "a dial sends the offer, takes the answer, pumps candidates, and becomes th
     // the driver. The channel opening is the connect record.
     var records: [4]c.GlowcapMultiplexedReadyEvent = undefined;
     stub.candidate_bytes_to_emit = 100;
-    stub.pushDriverEvent(stub.lastPeer(), webrtc.ev_candidate);
+    stub.pushDriverEvent(stub.lastPeer(), webrtc.ev.candidate);
     try std.testing.expectEqual(@as(usize, 0), (try fx.drain(&records)).len);
     try std.testing.expectEqual(@as(?u64, 7), fixture.signals.candidate_exchange);
     try std.testing.expectEqual(@as(usize, 100), fixture.signals.candidate_len);
 
-    stub.open_result = 0;
-    stub.pushDriverEvent(stub.lastPeer(), webrtc.ev_open);
+    stub.open_result = webrtc.result.ok;
+    stub.pushDriverEvent(stub.lastPeer(), webrtc.ev.open);
     const connect = try fx.drain(&records);
     try std.testing.expectEqual(@as(usize, 1), connect.len);
     try std.testing.expectEqual(@as(u64, 7), connect[0].subject);
@@ -119,7 +119,7 @@ test "a dial sends the offer, takes the answer, pumps candidates, and becomes th
 
     // A hello that arrives before the claim still reaches the driver, under
     // the peer id the connection will carry.
-    stub.pushDriverEvent(stub.lastPeer(), webrtc.ev_readable);
+    stub.pushDriverEvent(stub.lastPeer(), webrtc.ev.readable);
     const readable = try fx.drain(&records);
     try std.testing.expectEqual(@as(usize, 1), readable.len);
     try std.testing.expectEqual(stub_peer_id, readable[0].subject);
@@ -181,13 +181,13 @@ test "a channel that fails or closes before opening fails the dial with its own 
     var conn: u64 = 0;
 
     try std.testing.expectEqual(c.GLOWCAP_OK, start(&fx, 9));
-    stub.open_result = -1;
-    stub.pushDriverEvent(stub.lastPeer(), webrtc.ev_open);
+    stub.open_result = webrtc.result.err;
+    stub.pushDriverEvent(stub.lastPeer(), webrtc.ev.open);
     const failed = try fx.drain(&records);
     try std.testing.expectEqual(@as(usize, 1), failed.len);
     try std.testing.expectEqual(c.multiplexed_transport.GLOWCAP_MULTIPLEXED_EV_CONNECT, failed[0].events);
     // Nothing more is reported for a failed exchange.
-    stub.pushDriverEvent(stub.lastPeer(), webrtc.ev_closed);
+    stub.pushDriverEvent(stub.lastPeer(), webrtc.ev.closed);
     try std.testing.expectEqual(@as(usize, 0), (try fx.drain(&records)).len);
     try std.testing.expectEqual(c.GLOWCAP_ERR_IO, t.finish_connect.?(t.ctx, 9, &conn, &fx.failure));
     try std.testing.expectEqual(c.GLOWCAP_ERR_IO, fx.failure.result);
@@ -196,7 +196,7 @@ test "a channel that fails or closes before opening fails the dial with its own 
 
     fx.failure = c.transport_provider.emptyProviderFailure();
     try std.testing.expectEqual(c.GLOWCAP_OK, start(&fx, 10));
-    stub.pushDriverEvent(stub.lastPeer(), webrtc.ev_closed);
+    stub.pushDriverEvent(stub.lastPeer(), webrtc.ev.closed);
     try std.testing.expectEqual(@as(usize, 1), (try fx.drain(&records)).len);
     try std.testing.expectEqual(c.GLOWCAP_ERR_CLOSED, t.finish_connect.?(t.ctx, 10, &conn, &fx.failure));
     try std.testing.expectEqual(c.GLOWCAP_ERR_CLOSED, fx.failure.result);
@@ -221,7 +221,7 @@ test "a candidate the application cannot carry fails the dial with the refusal c
     try std.testing.expectEqual(c.GLOWCAP_OK, start(&fx, 14));
     fixture.signals.refuse_candidate = true;
     stub.candidate_bytes_to_emit = 100;
-    stub.pushDriverEvent(stub.lastPeer(), webrtc.ev_candidate);
+    stub.pushDriverEvent(stub.lastPeer(), webrtc.ev.candidate);
     // The refusal fails the exchange in the same drain, as its connect record.
     const failed = try fx.drain(&records);
     try std.testing.expectEqual(@as(usize, 1), failed.len);
@@ -265,8 +265,8 @@ test "giving up on an exchange fails the dial at the next drain with the signali
     // A channel that has already opened is past giving up.
     fx.failure = c.transport_provider.emptyProviderFailure();
     try std.testing.expectEqual(c.GLOWCAP_OK, start(&fx, 13));
-    stub.open_result = 0;
-    stub.pushDriverEvent(stub.lastPeer(), webrtc.ev_open);
+    stub.open_result = webrtc.result.ok;
+    stub.pushDriverEvent(stub.lastPeer(), webrtc.ev.open);
     try std.testing.expectEqual(@as(usize, 1), (try fx.drain(&records)).len);
     try std.testing.expectEqual(c.GLOWCAP_ERR_INVALID_ARGUMENT, webrtc_archive.glowcap_webrtc_netlayer_fail_exchange(fx.netlayer, 13));
     try expectLastErrorContains("already opened");
@@ -298,8 +298,8 @@ test "finish_connect with no slot releases an opened channel nobody claimed" {
     var conn: u64 = 0;
 
     try std.testing.expectEqual(c.GLOWCAP_OK, start(&fx, 14));
-    stub.open_result = 0;
-    stub.pushDriverEvent(stub.lastPeer(), webrtc.ev_open);
+    stub.open_result = webrtc.result.ok;
+    stub.pushDriverEvent(stub.lastPeer(), webrtc.ev.open);
     try std.testing.expectEqual(@as(usize, 1), (try fx.drain(&records)).len);
 
     try std.testing.expectEqual(c.GLOWCAP_ERR_NULL_POINTER, t.finish_connect.?(t.ctx, 14, null, &fx.failure));
@@ -316,8 +316,8 @@ test "conn_remote_key with no destination answers 0 for an open connection" {
     var conn: u64 = 0;
 
     try std.testing.expectEqual(c.GLOWCAP_OK, start(&fx, 13));
-    stub.open_result = 0;
-    stub.pushDriverEvent(stub.lastPeer(), webrtc.ev_open);
+    stub.open_result = webrtc.result.ok;
+    stub.pushDriverEvent(stub.lastPeer(), webrtc.ev.open);
     try std.testing.expectEqual(@as(usize, 1), (try fx.drain(&records)).len);
     try std.testing.expectEqual(c.GLOWCAP_OK, t.finish_connect.?(t.ctx, 13, &conn, &fx.failure));
 
