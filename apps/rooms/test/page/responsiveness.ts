@@ -157,13 +157,14 @@ export async function run(browser: Browser, port: number, transport: "TCP" | "ir
 					nameSize: parseFloat(getComputedStyle(row.querySelector(".rname")!).fontSize),
 					ringWidth: parseFloat(ring.width),
 					ringHeight: parseFloat(ring.height),
+					ringSide: parseFloat(getComputedStyle(row).getPropertyValue("--progress-ring")),
 					overflow: document.documentElement.scrollWidth > innerWidth,
 				};
 			});
 			if (
 				!geometry.contained || Math.abs(geometry.captionOffset) > 1 || geometry.overflow ||
 				geometry.captionSize >= geometry.nameSize || geometry.ringWidth !== geometry.ringHeight ||
-				geometry.ringWidth !== 13
+				geometry.ringWidth !== geometry.ringSide
 			) {
 				fail(`pending room bounds at ${width}px: ${JSON.stringify(geometry)}`);
 			}

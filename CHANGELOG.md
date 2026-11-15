@@ -238,6 +238,8 @@ Releases before 0.1.7 are in the
   and the unread rest cannot be kept, the session closes with a
   resource-exhausted abort. It returned a retryable error, and the retry
   applied that frame twice.
+- The progress ring on a busy Rooms icon button stands in the exact middle of
+  the button. It sat half a pixel to one side.
 
 ## [0.1.7] - 2026-11-11
 

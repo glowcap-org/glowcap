@@ -120,7 +120,7 @@
 	border-radius: 50%;
 	border: 3px solid rgba(255, 255, 255, 0.25);
 	border-top-color: #fff;
-	animation: attach-spin 720ms linear infinite;
+	animation: turn .75s linear infinite;
 }
 .viewer-failure {
 	display: flex;
@@ -133,16 +133,6 @@
 	line-height: 1.5;
 	text-align: center;
 	overflow-wrap: anywhere;
-}
-@keyframes attach-spin {
-	to {
-		transform: rotate(360deg);
-	}
-}
-@media (prefers-reduced-motion: reduce) {
-	.viewer-wait {
-		animation: none;
-	}
 }
 .viewer-bar {
 	position: fixed;

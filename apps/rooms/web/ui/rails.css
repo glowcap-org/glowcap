@@ -457,15 +457,10 @@
 	   is what distinguishes this from connecting, so a reader who has asked for
 	   less motion loses the spin and keeps the fact. */
 	border-top-color: transparent;
-	animation: dot-turn 900ms linear infinite;
+	animation: turn 900ms linear infinite;
 }
 .dot.disconnected {
 	background: var(--danger);
 	border-radius: 2px;
 	box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger) 22%, transparent);
-}
-@keyframes dot-turn {
-	to {
-		rotate: 360deg;
-	}
 }

@@ -24,6 +24,16 @@ import { proveOpeningFaces } from "./opening_faces.ts";
 import { establishTestSession } from "./session_establishment.ts";
 import * as settingsForms from "./settings_forms.ts";
 
+/** Every part the catalog shows turning: the element, then the mark on it that turns. */
+const TURNING_PARTS: readonly (readonly [selector: string, mark: string])[] = [
+	["#kitchenBusyButton", "::before"],
+	["#kitchenBusyIcon", "::after"],
+	[".working-action .button", "::before"],
+	[".link-preview-card.loading", "::before"],
+	[".dot.reconnecting", ""],
+	[".viewer-wait", ""],
+];
+
 export async function run(tab: Page, httpPort: number, browser: Browser): Promise<void> {
 	// ── The opening screen ───────────────────────────────────────────────
 	// The page draws itself, so page.html holds a screen up until it has, and
@@ -412,15 +422,48 @@ export async function run(tab: Page, httpPort: number, browser: Browser): Promis
 			button: button.dataset.busy === "true" && parseFloat(buttonMark.width) > 0,
 			icon: icon.dataset.busy === "true" && parseFloat(iconMark.width) > 0,
 			iconHidden: getComputedStyle(icon.querySelector("svg")!).visibility === "hidden",
-			rings: [buttonMark, iconMark].flatMap((mark) => [parseFloat(mark.width), parseFloat(mark.height)]),
+			iconSide: icon.clientWidth,
+			iconRing: parseFloat(iconMark.width),
 		};
 	});
 	if (waits === null || !waits.button || !waits.icon || !waits.iconHidden) {
 		fail(`a busy control did not replace its idle mark with visible progress: ${JSON.stringify(waits)}`);
 	}
-	// A ring of a fractional size turns about a point beside its drawn centre.
-	if (!waits.rings.every((side) => Number.isInteger(side))) {
-		fail(`a progress ring is not whole pixels across, so it wobbles as it turns: ${JSON.stringify(waits.rings)}`);
+	// Every part the catalog shows turning is a square of whole pixels. A box
+	// of a fractional size turns about a point beside its drawn center.
+	const turns = await tab.evaluate((shown) => {
+		const sink = document.getElementById("kitchenSink");
+		if (sink === null) return null;
+		const parts: { part: string; width: number; height: number }[] = [];
+		const seen = new Set<string>();
+		for (const el of sink.querySelectorAll("*")) {
+			for (const pseudo of ["", "::before", "::after"]) {
+				const drawn = getComputedStyle(el, pseudo === "" ? null : pseudo);
+				if (drawn.animationName !== "turn" || drawn.display === "none") continue;
+				const known = shown.find(([selector, mark]) => mark === pseudo && el.matches(selector));
+				if (known !== undefined) seen.add(known.join(""));
+				parts.push({
+					part: known === undefined
+						? `${el.tagName.toLowerCase()}.${el.getAttribute("class")}${pseudo}`
+						: known.join(""),
+					width: parseFloat(drawn.width),
+					height: parseFloat(drawn.height),
+				});
+			}
+		}
+		return { parts, missing: shown.map((known) => known.join("")).filter((part) => !seen.has(part)) };
+	}, TURNING_PARTS);
+	if (turns === null || turns.missing.length > 0) {
+		fail(`the parts catalog does not show every part that turns: ${JSON.stringify(turns)}`);
+	}
+	const wobbling = turns.parts.filter((found) => found.width !== found.height || !Number.isInteger(found.width));
+	if (wobbling.length > 0) {
+		fail(`a turning part is not a square of whole pixels, so it wobbles as it turns: ${JSON.stringify(wobbling)}`);
+	}
+	// The ring stands in the middle of an icon button, which is a whole pixel
+	// only when the two sides differ by an even number.
+	if ((waits.iconSide - waits.iconRing) % 2 !== 0) {
+		fail(`a busy icon button's ring sits half a pixel off its center: ${JSON.stringify(waits)}`);
 	}
 	await tab.click("#kitchenBack");
 	await tab.waitForFunction(() => document.getElementById("kitchenSink") === null)

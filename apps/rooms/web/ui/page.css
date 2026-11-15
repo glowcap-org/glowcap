@@ -292,6 +292,10 @@ pre > code {
 	--icon-button-small: 26px;
 	--icon-button-normal: 36px;
 	--icon-button-large: 42px;
+	/* The progress ring's side, wherever a control waits. It is even, like the
+	   icon buttons and control heights the ring stands in, so the ring centers
+	   on a whole pixel in each. An odd side leaves it half a pixel to one side. */
+	--progress-ring: 14px;
 	--control-h: 36px;
 	/* The touch-primary height: a single-line field on the card plane, the
 	   button beside one, and a card's own commitment. In-row buttons stay at
