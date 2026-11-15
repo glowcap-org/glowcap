@@ -3,13 +3,13 @@
 use crate::GlowcapIrohEndpoint;
 use crate::tests::{direct_endpoint, free_endpoint, handle};
 
-fn set_nonblocking(endpoint: &GlowcapIrohEndpoint, conn: *mut crate::GlowcapIrohConn) -> i32 {
+pub(crate) fn set_nonblocking(endpoint: &GlowcapIrohEndpoint, conn: *mut crate::GlowcapIrohConn) -> i32 {
 	// SAFETY: `endpoint` is borrowed for the call, and the callers pass a connection `make_conn` minted from it, freed
 	// only after the call.
 	unsafe { crate::nonblocking::calls::glowcap_iroh_sidecar_conn_set_nonblocking(handle(endpoint), conn) }
 }
 
-fn try_write(conn: *mut crate::GlowcapIrohConn, bytes: &[u8]) -> isize {
+pub(crate) fn try_write(conn: *mut crate::GlowcapIrohConn, bytes: &[u8]) -> isize {
 	// SAFETY: the wrapper forwards `conn` unchanged, which its callers take from `make_conn` and free only after the
 	// call; `bytes` is a borrowed slice, so its pointer and length are live for the call, and the callee copies the
 	// admitted prefix into its own outbound buffer.
@@ -17,11 +17,20 @@ fn try_write(conn: *mut crate::GlowcapIrohConn, bytes: &[u8]) -> isize {
 }
 
 /// A partner that stopped this stream or closed the connection takes no more
-/// bytes, which is backpressure rather than a fault: no write fails and no bare
-/// `EV_CLOSED` reports a lost connection. The departure is the reader's to
-/// report, after the partner's last bytes.
-fn assert_departure_left_to_reader(endpoint: &GlowcapIrohEndpoint, conn: *mut crate::GlowcapIrohConn) {
-	assert_eq!(try_write(conn, b"x"), crate::WOULD_BLOCK);
+/// bytes, which is no fault: a write is accepted and discarded, the writer
+/// signals `EV_WRITABLE`, and no bare `EV_CLOSED` reports a lost connection.
+/// The departure is the reader's to report, after the partner's last bytes.
+fn assert_departure_accepts_writes(endpoint: &GlowcapIrohEndpoint, conn: *mut crate::GlowcapIrohConn) {
+	assert_eq!(try_write(conn, b"x"), 1);
+	let records = drain_ready_events(endpoint);
+	assert!(records.iter().any(|events| events & crate::EV_WRITABLE != 0));
+	for events in records {
+		assert!(events & crate::EV_CLOSED == 0 || events & crate::EV_READABLE != 0);
+	}
+}
+
+/// Drain the endpoint's ready records.
+pub(crate) fn drain_ready_records(endpoint: &GlowcapIrohEndpoint) -> Vec<crate::GlowcapIrohReadyEvent> {
 	let mut ready = [crate::GlowcapIrohReadyEvent::from((0, 0)); 16];
 	// SAFETY: `endpoint` is borrowed for the call, and `ready` is a writable array of the capacity passed.
 	let drained = unsafe {
@@ -32,9 +41,11 @@ fn assert_departure_left_to_reader(endpoint: &GlowcapIrohEndpoint, conn: *mut cr
 		)
 	};
 	assert!(drained >= 0);
-	for event in &ready[..drained as usize] {
-		assert!(event.events & crate::EV_CLOSED == 0 || event.events & crate::EV_READABLE != 0);
-	}
+	ready[..drained as usize].to_vec()
+}
+
+fn drain_ready_events(endpoint: &GlowcapIrohEndpoint) -> Vec<u32> {
+	drain_ready_records(endpoint).iter().map(|event| event.events).collect()
 }
 
 #[test]
@@ -79,9 +90,11 @@ fn peer_close_before_writer_observes_local_close_does_not_fail_endpoint_release(
 	assert_eq!(set_nonblocking(&client, conn), 0);
 	// The application has not closed its handle yet. This write observes the
 	// remote close first, exactly the ordering a runtime/session race permits.
+	// The record `set_nonblocking` signalled is not the departure's.
+	drain_ready_events(&client);
 	assert_eq!(try_write(conn, b"late"), 4);
 	let writer_result = client.writers.wait();
-	assert_departure_left_to_reader(&client, conn);
+	assert_departure_accepts_writes(&client, conn);
 	// SAFETY: `conn` is the owned handle `make_conn` returned for this endpoint; nothing has freed it, and it is not
 	// used after this call, which runs before either endpoint is freed.
 	unsafe { glowcap_iroh_sidecar_conn_free(conn) };
@@ -125,9 +138,11 @@ fn peer_stop_before_writer_observes_local_close_does_not_fail_endpoint_release()
 	assert_eq!(set_nonblocking(&client, conn), 0);
 	// The application has not closed its handle yet. This write observes the
 	// partner's stop first, exactly the ordering a loaded server permits.
+	// The record `set_nonblocking` signalled is not the departure's.
+	drain_ready_events(&client);
 	assert_eq!(try_write(conn, b"late"), 4);
 	let writer_result = client.writers.wait();
-	assert_departure_left_to_reader(&client, conn);
+	assert_departure_accepts_writes(&client, conn);
 	// SAFETY: `conn` is the owned handle `make_conn` returned for this endpoint; nothing has freed it, and it is not
 	// used after this call, which runs before either endpoint is freed.
 	unsafe { glowcap_iroh_sidecar_conn_free(conn) };

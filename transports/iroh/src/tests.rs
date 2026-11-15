@@ -338,6 +338,19 @@ fn outbound_bound_admits_a_prefix_and_blocks_only_when_full() {
 }
 
 #[test]
+fn a_write_after_the_partner_stopped_is_accepted_whole_and_stores_nothing() {
+	let mut outbound = Outbound {
+		partner_stopped: true,
+		closed: true,
+		in_flight: NB_BUFFER_BOUND,
+		..Outbound::default()
+	};
+
+	assert_eq!(enqueue_outbound(&mut outbound, &[9u8; 16]), 16);
+	assert!(outbound.buf.is_empty());
+}
+
+#[test]
 fn inbound_read_budget_never_exceeds_remaining_capacity() {
 	let mut inbound = Inbound::default();
 	assert_eq!(inbound.read_budget(), READ_CHUNK_BYTES);

@@ -26,6 +26,14 @@ pub(crate) struct NbConn {
 	pub(crate) close_work: Notify,
 }
 
+#[cfg(test)]
+impl NbConn {
+	/// The inbound bytes buffered and not yet read, for tests.
+	pub(crate) fn inbound_pending(&self) -> usize {
+		self.inbound.lock().unwrap().pending()
+	}
+}
+
 /// The inbound bytes as the Zig side treats them: one contiguous buffer with a
 /// consumed prefix, `buf[off..]` unread. The reader appends whole QUIC chunks
 /// with a memcpy. `conn_try_read` drains by advancing `off`. Draining to empty
@@ -64,13 +72,18 @@ pub(crate) struct Outbound {
 	/// Bytes borrowed by the QUIC write future. Queue admission counts
 	/// these too, so staging plus in-flight work share one `NB_BUFFER_BOUND`.
 	pub(crate) in_flight: usize,
-	/// Set by `conn_close` / `conn_free`: the writer finishes the send stream
-	/// and exits once the buffer drains.
+	/// Set by `conn_close` / `conn_free`, after which a writer still running
+	/// drains the buffer, finishes the send stream, and exits. Also set by
+	/// `finish_batch` on a failed batch, after which the writer exits without
+	/// draining.
 	pub(crate) closed: bool,
-	/// Set when the partner stopped this stream or closed the connection before
-	/// the application closed it. The partner takes no more bytes, so the buffer
-	/// stays full, and the reader reports the departure once it has delivered
-	/// the partner's last bytes.
+	/// Set by the writer when a failed batch is a clean departure while `closed`
+	/// is unset: the partner stopped this stream or closed the connection, or
+	/// this endpoint closed the connection under a live write (`LocallyClosed`).
+	/// The writer releases the queued bytes as it sets this, and from then on
+	/// `enqueue_outbound` accepts and discards every write. The reader reports
+	/// the end of the partner's stream or the closed connection once it has
+	/// delivered the partner's last bytes.
 	pub(crate) partner_stopped: bool,
 }
 
@@ -107,9 +120,14 @@ impl Outbound {
 	}
 }
 
+/// Admit the prefix of `src` that fits, refuse with `WOULD_BLOCK` when no room
+/// remains, or answer -1 once `closed` is set. Once the writer has set
+/// `partner_stopped`, every byte is accepted and none is stored: a host holding
+/// its reads behind a refused write retries it, drains its queue, and resumes
+/// reading. That check precedes `closed`, which a failed batch also sets.
 pub(crate) fn enqueue_outbound(out: &mut Outbound, src: &[u8]) -> isize {
 	if out.partner_stopped {
-		return WOULD_BLOCK;
+		return src.len() as isize;
 	}
 	if out.closed {
 		return -1;
@@ -140,7 +158,10 @@ pub(crate) fn endpoint_readiness(ep: &GlowcapIrohEndpoint) -> Option<&Arc<Readin
 /// The reader half of one non-blocking connection: drain the QUIC recv stream
 /// into the bounded inbound buffer, signalling `EV_READABLE` as bytes land and
 /// `EV_CLOSED` at end of stream or on error. Parks on `read_room` when the
-/// buffer is full so a slow loop applies QUIC flow control to the partner.
+/// buffer is full so a slow loop applies QUIC flow control to the partner. It
+/// is the only reporter of a closed connection after a clean departure: it
+/// keeps delivering the bytes the QUIC stack holds, in order, as the loop
+/// drains room, and reports the end after them.
 async fn nb_reader(nb: Arc<NbConn>, mut recv: RecvStream) {
 	use iroh::endpoint::{ConnectionError, ReadError};
 	loop {
@@ -232,16 +253,21 @@ async fn nb_writer(nb: Arc<NbConn>, mut send: SendStream) -> Result<(), ()> {
 				let mut out = nb.outbound.lock().unwrap();
 				let closed_before_completion = out.finish_batch(chunk, succeeded);
 				out.partner_stopped = clean_close && !closed_before_completion;
+				if out.partner_stopped {
+					// The partner takes none of the queued bytes: release them.
+					out.buf.clear();
+					out.buf.shrink_to(NB_STEADY_BYTES);
+				}
 				(closed_before_completion, out.partner_stopped)
 			};
 			if !succeeded {
-				// The partner's close, or its stop of this stream (its reader
-				// abort at connection release), can reach this writer before the
-				// reader has delivered the partner's last bytes. That departure
-				// is no fault: `EV_CLOSED` alone would tell the loop the
-				// connection was lost, and the bytes still in flight are often
-				// the partner's own abort. The reader reports it, in order.
+				// A departure is no fault. A bare `EV_CLOSED` would tell the loop
+				// the connection was lost while the reader may still be holding
+				// the partner's last bytes, often its own abort, so the reader
+				// reports the end in order. This writer signals `EV_WRITABLE`
+				// instead, for a host holding a refused write.
 				if partner_stopped {
+					nb.readiness.signal(nb.id, EV_WRITABLE);
 					return Ok(());
 				}
 				nb.readiness.signal(nb.id, EV_CLOSED);

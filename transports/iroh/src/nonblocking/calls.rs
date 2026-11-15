@@ -282,8 +282,11 @@ pub unsafe extern "C" fn glowcap_iroh_sidecar_conn_try_read(
 /// Non-blocking write: copy the prefix that fits into the bounded outbound
 /// buffer and wake the writer task. Returns the admitted byte count,
 /// `GLOWCAP_IROH_WOULD_BLOCK` (-2) when no outbound room remains, and -1 on
-/// error. The connection must have been moved to the readiness surface with
-/// `conn_set_nonblocking`. Borrows the handle.
+/// error. After the writer observes that the partner stopped reading this
+/// stream or closed the connection, every write is accepted in full and
+/// discarded. The reader reports the end of the partner's stream or the closed
+/// connection. The connection must have been moved to the readiness surface
+/// with `conn_set_nonblocking`. Borrows the handle.
 ///
 /// # Safety
 /// `conn` must be null or a live connection handle. For nonzero `len`, `buf` must
