@@ -545,6 +545,11 @@ impl Registry {
 		}
 		Ok(())
 	}
+	/// Whether any attachment is alive on this Host.
+	#[cfg(not(target_arch = "wasm32"))]
+	pub(crate) fn attached(&self) -> bool {
+		self.entries.borrow().iter().any(|entry| entry.strong_count() != 0)
+	}
 	#[cfg(not(target_arch = "wasm32"))]
 	pub(crate) fn pending(&self) -> Result<bool> {
 		for owner in self.entries.borrow().iter().filter_map(Weak::upgrade) {

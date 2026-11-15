@@ -515,9 +515,16 @@ impl LoopShared {
 		// Serving releases application frames parked behind the handshake and
 		// may invoke a hosted behavior before the FFI call returns.
 		let host = self.wrapper.borrow().as_ref().and_then(Weak::upgrade);
-		let _deliver = host.as_ref().map(DeliverGuard::enter_host);
-		self.driver.session_serve(session)?;
-		self.schedule_step();
+		{
+			let _deliver = host.as_ref().map(DeliverGuard::enter_host);
+			self.driver.session_serve(session)?;
+		}
+		// The session is served from here on, so a kick that cannot be
+		// scheduled is the Host's to report, not a refusal of this call.
+		match host {
+			Some(host) => host.schedule_served_kick(),
+			None => self.schedule_step(),
+		}
 		Ok(())
 	}
 }

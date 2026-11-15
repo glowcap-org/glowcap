@@ -18,6 +18,8 @@ mod release;
 #[cfg(feature = "tcp")]
 mod restore;
 #[cfg(feature = "tcp")]
+mod unserved;
+#[cfg(feature = "tcp")]
 mod volatile;
 #[cfg(feature = "tcp")]
 use crate::ListenerIdentity;
