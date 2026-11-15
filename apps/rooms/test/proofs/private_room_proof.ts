@@ -251,11 +251,13 @@ try {
 		const take = document.querySelector(".inviterow .room-open");
 		if (take == null) return null;
 		take.setAttribute("data-busy", "");
-		const drawn = getComputedStyle(take, "::after").width;
+		const drawn = getComputedStyle(take, "::after");
+		const side = getComputedStyle(take).getPropertyValue("--progress-ring").trim();
+		const turning = drawn.animationName === "turn" && drawn.width === side && drawn.height === side;
 		take.removeAttribute("data-busy");
-		return drawn;
+		return turning;
 	});
-	if (ring !== "13px") fail(`a busy invitation row draws no progress ring: ${JSON.stringify(ring)}`);
+	if (ring !== true) fail(`a busy invitation row draws no progress ring: ${JSON.stringify(ring)}`);
 	await bo.click(".inviterow .room-open");
 	await bo.waitForFunction(
 		() => document.querySelector("#roomList li.held.here") !== null,

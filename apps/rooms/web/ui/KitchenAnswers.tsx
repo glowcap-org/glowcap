@@ -1,6 +1,7 @@
 // The kitchen sink's second half: what the window says back. A page notice
 // that leaves on its own, a reply that stays beside its control, a failure on
-// the thing itself, an answer in the log, and the four words for a connection.
+// the thing itself, an answer in the log, a wait where the thing will stand,
+// and the four words for a connection.
 
 import { Button } from "./Button.tsx";
 import {
@@ -13,6 +14,8 @@ import {
 	kitchenRetryPicture,
 	kitchenTryPictureAgain,
 } from "../../lib/text/kitchen.ts";
+import { viewerLoading } from "../../lib/text/controls.ts";
+import { linkPreviewLoading } from "../../lib/text/link_preview.ts";
 import { CrashCard } from "./ErrorBoundary.tsx";
 import { Field } from "./Field.tsx";
 import { Icon } from "./icons.tsx";
@@ -201,6 +204,19 @@ export function KitchenAnswers() {
 							</div>
 						</div>
 					</div>
+				</div>
+			</Sample>
+			<Sample
+				label="Waiting"
+				note="A ring turns where something is on its way: beside the words that say what is coming, or alone where a picture will stand."
+			>
+				<div className="link-preview-list message-link-previews">
+					<article className="link-preview-card loading">
+						<span>{linkPreviewLoading}</span>
+					</article>
+				</div>
+				<div className="kitchen-viewer">
+					<span className="viewer-wait" aria-label={viewerLoading} />
 				</div>
 			</Sample>
 			<Sample

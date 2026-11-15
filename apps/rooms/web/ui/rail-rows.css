@@ -103,7 +103,7 @@
 }
 .room-progress {
 	box-sizing: border-box;
-	height: 13px;
+	height: var(--progress-ring);
 	/* The element is still the room mark's full-width slot. The ring belongs
 	   inside it so the rail's mark column cannot stretch the circle sideways. */
 	border: 0;
