@@ -69,9 +69,9 @@ The [performance report](https://glowcap.org/performance/) and
 generated figures, with their source revision and run environment.
 `zig build bench-site-report` regenerates both from live runs. It keeps every
 bench but the live-session run on the machine's fastest cores and pins a TCP
-row's client and server to one core each, because an unpinned row on a
-mixed-core machine reports the core it drew. Refreshing the figures is manual. CI checks the report code and builds the site from its
-committed snapshots. Keep numerical results in those reports instead of
+row's client and server, because an unpinned row on a mixed-core machine
+reports the core it drew. Refreshing the figures is manual. CI checks the
+report code and builds the site from its committed snapshots. Keep numerical results in those reports instead of
 copying them into this index.
 
 ## Floors

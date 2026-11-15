@@ -9,11 +9,10 @@
 ;; committed file" pattern as gen-header. glowcap's own costs go to
 ;; site/content/performance.smd and the comparisons with Cap'n Proto RPC and
 ;; Goblins to site/content/performance/compared.smd, both stamped with the
-;; same run. Every bench but the live-session run keeps the machine's fastest
-;; cores, and a TCP row pins its client and its server to one of them each, so
-;; a mixed-core machine repeats its figures. Surrounding prose is left untouched. There is no stale-check:
-;; bench numbers vary by machine, so the pages are a dated snapshot you
-;; refresh, not a gated invariant.
+;; same run. bench/README.md says which cores the benches keep. Surrounding
+;; prose is left untouched. There is no stale-check: bench numbers vary by
+;; machine, so the pages are a dated snapshot you refresh, not a gated
+;; invariant.
 ;;
 ;; Parsers and renderers are pure and exercised by site_report-test.rkt; only
 ;; `main` runs benches and writes the file.
@@ -353,7 +352,7 @@
 ;; Every core that shares the highest maximum clock, lowest number first. On a
 ;; mixed-core machine the scheduler may place an unpinned bench on a slow core,
 ;; and the figure follows the core it drew. Empty when the kernel reports no
-;; clocks.
+;; clocks or the cluster is one core, which cannot hold a two-thread row.
 (define (fast-cluster)
   (define cpus
     (for*/list ([d (in-list (directory-list "/sys/devices/system/cpu"))]
@@ -363,16 +362,17 @@
                 #:when (file-exists? f))
       (cons (n (cadr m)) (n (string-trim (file->string f))))))
   (define top (if (null? cpus) 0 (apply max (map cdr cpus))))
-  (sort (for/list ([c (in-list cpus)] #:when (= (cdr c) top)) (car c)) <))
+  (define fast (sort (for/list ([c (in-list cpus)] #:when (= (cdr c) top)) (car c)) <))
+  (if (>= (length fast) 2) fast '()))
 
-;; The two cores a pinned row names: the first two of the fast cluster. Falls
-;; back to cores 0 and 1.
+;; The two cores a pinned row names: the first two of the fast cluster, or
+;; cores 0 and 1 when there is no cluster.
 (define (fast-cores)
   (define fast (fast-cluster))
-  (if (>= (length fast) 2) (list (car fast) (cadr fast)) (list 0 1)))
+  (if (null? fast) (list 0 1) (list (car fast) (cadr fast))))
 
 ;; The prefix that keeps a bench and the build that runs it on the fast
-;; cluster. Empty when the kernel reports no clocks.
+;; cluster. Empty when there is no cluster.
 (define (cluster-prefix)
   (define fast (fast-cluster))
   (if (null? fast) "" (format "taskset -c ~a " (string-join (map number->string fast) ","))))
@@ -523,7 +523,8 @@
 ;; Run one bench command on the fast cluster and return what it printed.
 (define (run bench) (run-on-every-core (string-append (cluster-prefix) bench)))
 
-;; Run one command where the scheduler places it and return what it printed.
+;; Run one command on every core the report itself may use and return what it
+;; printed.
 (define (run-on-every-core cmd)
   (quiet)
   (printf "  $ ~a\n" cmd) (flush-output)
