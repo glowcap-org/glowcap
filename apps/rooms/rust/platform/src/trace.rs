@@ -24,7 +24,7 @@ impl Transport for HostPlatform {
 		let config = tokio_tungstenite::tungstenite::protocol::WebSocketConfig::default()
 			.max_message_size(Some(1024))
 			.max_frame_size(Some(1024));
-		let (socket, _) = tokio_tungstenite::connect_async_tls_with_config(target, Some(config), false, tls)
+		let (socket, _) = tokio_tungstenite::connect_async_tls_with_config(target, Some(config), crate::serving::NO_DELAY, tls)
 			.await
 			.map_err(|error| Error::storage_message(error.to_string()))?;
 		Ok(Connection { socket, closing: false })

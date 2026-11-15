@@ -26,6 +26,14 @@ pub const CONNECTION_LIMIT: usize = 128;
 /// refusal that persists is a slow loop and not a hot one.
 pub const ACCEPT_RETRY: Duration = Duration::from_millis(250);
 
+/// Whether a TCP stream a Rooms process owns sends each write at once. Left
+/// to coalesce, the kernel holds a small write while an earlier one is
+/// unacknowledged, and a far end with nothing to send delays that
+/// acknowledgment by tens of milliseconds. A page's frames are small and it
+/// waits on their answers, so the wait lands on what a person is doing.
+/// glowcap sets the same on its own TCP sockets.
+pub const NO_DELAY: bool = true;
+
 /// The wait after a refused accept, for a listener to back off on its own
 /// while the peer keeps serving everyone already in. A refusal sets the
 /// deadline. `wait` sleeps toward it and clears it. `ready` says whether the

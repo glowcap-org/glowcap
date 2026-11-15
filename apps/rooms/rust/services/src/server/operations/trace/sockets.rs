@@ -91,6 +91,13 @@ impl tokio_tungstenite::tungstenite::handshake::server::Callback for Asked {
 /// where fetching the trace object takes the swiss. `/publish` is a producer,
 /// admitted once its first message is the swiss.
 async fn connection(mut stream: TcpStream, feed: Shared, trace_host: Host, swiss: String, address: SocketAddr) {
+	if let Err(error) = stream.set_nodelay(rooms_platform::serving::NO_DELAY) {
+		feed.borrow().report.clone()(Notice::Trouble {
+			source: "a trace socket could not be set up".into(),
+			reason: error.to_string(),
+		});
+		return;
+	}
 	let (head, prefix) = match tokio::time::timeout(HEAD_DEADLINE, connection_head(&mut stream)).await {
 		Ok(Ok(head)) => head,
 		_ => return,

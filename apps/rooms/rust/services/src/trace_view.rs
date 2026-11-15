@@ -109,7 +109,7 @@ async fn follow(
 ) -> Result<(), String> {
 	let opened = async {
 		let config = rooms_platform::websocket::config(rooms_application::server::trace::MAX_SOCKET_MESSAGE_BYTES);
-		let (socket, _) = tokio_tungstenite::connect_async_with_config(endpoint, Some(config), false)
+		let (socket, _) = tokio_tungstenite::connect_async_with_config(endpoint, Some(config), rooms_platform::serving::NO_DELAY)
 			.await
 			.map_err(|e| e.to_string())?;
 		Session::dial_channel(

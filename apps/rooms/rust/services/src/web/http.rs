@@ -49,6 +49,7 @@ pub(super) async fn serve(
 					let environment = environment.clone();
 					let mut stopping = stop.clone();
 					connections.spawn_local(async move {
+						socket.set_nodelay(rooms_platform::serving::NO_DELAY).map_err(|e| format!("TCP setup failed: {e}"))?;
 						let service = service_fn(move |mut request| {
 							let source = super::client_address::source_address(address.ip(), request.headers(), &environment.trusted_proxies);
 							request.extensions_mut().insert(source);
