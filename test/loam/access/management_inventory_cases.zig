@@ -26,14 +26,7 @@ pub fn run(store: *m.h.loam.core.Store, backend: anytype) !void {
         const revision = (try operation.describeControl()).revision;
         var request = f.vocabulary.issue(if (index % 2 == 0) selected else wide, 0);
         request.label = try c.core.GrantLedger.Label.init("terminal viewer");
-        for (0..128) |_| {
-            operation.prepareIssueCopying(request, .{}, revision) catch |err| {
-                if (err != error.RecordUnloaded) return err;
-                _ = try f.pump(operation, backend);
-                continue;
-            };
-            break;
-        } else return error.NoProgress;
+        try f.loaded(operation, backend, c.storage.Operation.prepareIssueCopying, .{ operation, request, .{}, revision });
         _ = try f.pump(operation, backend);
         try store.begin();
         const result = try caps.stage(operation, .rooted);

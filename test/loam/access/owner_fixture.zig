@@ -42,6 +42,34 @@ pub fn pump(operation: anytype, backend: anytype) !usize {
     return error.NoProgress;
 }
 
+/// Most tries a loaded call gets before it fails with `error.NoProgress`.
+pub const max_loaded_tries = 256;
+
+/// The payload `call` returns when it succeeds.
+pub fn Loaded(comptime call: anytype) type {
+    return @typeInfo(@typeInfo(@TypeOf(call)).@"fn".return_type.?).error_union.payload;
+}
+
+/// Calls `call` with `args` until it stops refusing with `error.RecordUnloaded`
+/// and returns its payload. Each refusal pumps `operation` against `backend`
+/// with `pumpFn` before the next try. Any other error returns unchanged, and
+/// `max_loaded_tries` refusals fail with `error.NoProgress`.
+pub fn loadedWith(comptime pumpFn: anytype, operation: anytype, backend: anytype, comptime call: anytype, args: std.meta.ArgsTuple(@TypeOf(call))) !Loaded(call) {
+    for (0..max_loaded_tries) |_| {
+        return @call(.auto, call, args) catch |err| {
+            if (err != error.RecordUnloaded) return err;
+            _ = try pumpFn(operation, backend);
+            continue;
+        };
+    }
+    return error.NoProgress;
+}
+
+/// `loadedWith` pumping through this fixture's `pump`.
+pub fn loaded(operation: anytype, backend: anytype, comptime call: anytype, args: std.meta.ArgsTuple(@TypeOf(call))) !Loaded(call) {
+    return loadedWith(pump, operation, backend, call, args);
+}
+
 pub fn create(store: *loam.core.Store, backend: anytype, owner: core.OwnerId) !loam.core.ObjectId {
     const policy = try core.Policy.init(vocabulary.descriptor);
     try store.begin();
@@ -78,32 +106,16 @@ pub fn resource(store: *loam.core.Store, backend: anytype, owner: loam.core.Obje
     try prepareResource(&append, &read, backend, parent);
     try store.begin();
     errdefer if (store.phase == .staging or store.phase == .prepared) store.abort() catch unreachable;
-    for (0..128) |_| {
-        const id = storage.stage.appendResource(&append, vocabulary.kind, parent) catch |err| {
-            if (err != error.RecordUnloaded) return err;
-            _ = try pump(&read, backend);
-            continue;
-        };
-        try commit(store, backend);
-        return id;
-    }
-    return error.NoProgress;
+    const id = try loaded(&read, backend, storage.stage.appendResource, .{ &append, vocabulary.kind, parent });
+    try commit(store, backend);
+    return id;
 }
 
 /// Stages one resource append inside the caller's transaction, completing any
 /// record demand the parent lookup raises before it can stage.
 pub fn stageResource(append: *storage.Append, read: *storage.Read, backend: anytype, kind: core.KindId, parent: ?core.ResourceId) !core.ResourceId {
     try prepareResource(append, read, backend, parent);
-    var result: ?core.ResourceId = null;
-    for (0..128) |_| {
-        result = storage.stage.appendResource(append, kind, parent) catch |err| {
-            if (err != error.RecordUnloaded) return err;
-            _ = try pump(read, backend);
-            continue;
-        };
-        break;
-    }
-    return result orelse error.NoProgress;
+    return loaded(read, backend, storage.stage.appendResource, .{ append, kind, parent });
 }
 
 pub fn prepare(read: *storage.Read, backend: anytype, command: core.GrantPlan.Command) !?core.GrantPlan {

@@ -22,17 +22,12 @@ pub fn descriptor(caps: *storage.Capabilities, backend: anytype, owner: f.loam.c
     _ = try f.pump(&read, backend);
     try caps.store.begin();
     errdefer if (caps.store.phase == .staging) caps.store.abort() catch unreachable;
-    for (0..128) |_| {
-        const result = if (powers) |value| caps.stageControl(&read, grant, value, rooting) else caps.stageUse(&read, grant, rooting);
-        const id = result catch |err| {
-            if (err != error.RecordUnloaded) return err;
-            _ = try f.pump(&read, backend);
-            continue;
-        };
-        try f.commit(caps.store, backend);
-        return id;
-    }
-    return error.NoProgress;
+    const id = if (powers) |value|
+        try f.loaded(&read, backend, storage.Capabilities.stageControl, .{ caps, &read, grant, value, rooting })
+    else
+        try f.loaded(&read, backend, storage.Capabilities.stageUse, .{ caps, &read, grant, rooting });
+    try f.commit(caps.store, backend);
+    return id;
 }
 
 pub fn use(caps: *storage.Capabilities, backend: anytype, id: f.loam.core.ObjectId) !*storage.Use {
@@ -47,35 +42,12 @@ pub fn control(caps: *storage.Capabilities, backend: anytype, id: f.loam.core.Ob
 }
 
 pub fn require(operation: *storage.Operation, backend: anytype, target: core.ResourceId, requirement: core.Policy.Requirement) !void {
-    for (0..128) |_| {
-        operation.require(target, requirement) catch |err| {
-            if (err != error.RecordUnloaded) return err;
-            _ = try f.pump(operation, backend);
-            continue;
-        };
-        return;
-    }
-    return error.NoProgress;
+    try f.loaded(operation, backend, storage.Operation.require, .{ operation, target, requirement });
 }
 pub fn edit(operation: *storage.Operation, backend: anytype, value: core.Control.Edit) !bool {
-    for (0..128) |_| {
-        return operation.prepareEditCopying(value) catch |err| {
-            if (err != error.RecordUnloaded) return err;
-            _ = try f.pump(operation, backend);
-            continue;
-        };
-    }
-    return error.NoProgress;
+    return f.loaded(operation, backend, storage.Operation.prepareEditCopying, .{ operation, value });
 }
 pub fn derive(operation: *storage.Operation, backend: anytype, request: core.GrantLedger.Issue) !void {
-    for (0..128) |_| {
-        operation.prepareDeriveCopying(request) catch |err| {
-            if (err != error.RecordUnloaded) return err;
-            _ = try f.pump(operation, backend);
-            continue;
-        };
-        _ = try f.pump(operation, backend);
-        return;
-    }
-    return error.NoProgress;
+    try f.loaded(operation, backend, storage.Operation.prepareDeriveCopying, .{ operation, request });
+    _ = try f.pump(operation, backend);
 }

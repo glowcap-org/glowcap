@@ -53,14 +53,7 @@ pub fn configure(server: *h.Hosted) void {
 pub fn attenuation(caps: *c.storage.Capabilities, backend: anytype, control: *c.storage.Control, powers_: core.Control.Powers) !h.loam.core.ObjectId {
     const op = try control.begin(8);
     defer op.deinit() catch unreachable;
-    for (0..128) |_| {
-        op.prepareAttenuationCopying(powers_) catch |err| {
-            if (err != error.RecordUnloaded) return err;
-            _ = try f.pump(op, backend);
-            continue;
-        };
-        break;
-    } else return error.NoProgress;
+    try f.loaded(op, backend, c.storage.Operation.prepareAttenuationCopying, .{ op, powers_ });
     try caps.store.begin();
     const result = try caps.stageAttenuatedControl(op, .rooted);
     try f.commit(caps.store, backend);
@@ -78,12 +71,5 @@ pub fn revoke(caps: *c.storage.Capabilities, backend: anytype, control: *c.stora
 }
 
 pub fn prepareRevocation(op: *c.storage.Operation, backend: anytype) !bool {
-    return for (0..128) |_| {
-        const changed = op.prepareControlRevocation() catch |err| {
-            if (err != error.RecordUnloaded) return err;
-            _ = try f.pump(op, backend);
-            continue;
-        };
-        break changed;
-    } else return error.NoProgress;
+    return f.loaded(op, backend, c.storage.Operation.prepareControlRevocation, .{op});
 }

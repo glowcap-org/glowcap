@@ -224,15 +224,7 @@ fn seedConfigured(store: *loam.core.Store, backend: anytype, depth: u16, policy:
 
 pub fn prepareEndpointOwner(read: *c.storage.Read, backend: anytype, count: usize) !void {
     _ = try f.pump(read, backend);
-    for (0..128) |_| {
-        read.prepareIdentities(count) catch |err| {
-            if (err != error.RecordUnloaded) return err;
-            _ = try f.pump(read, backend);
-            continue;
-        };
-        return;
-    }
-    return error.NoProgress;
+    try f.loaded(read, backend, c.storage.Read.prepareIdentities, .{ read, count });
 }
 
 pub const Hosted = struct {
