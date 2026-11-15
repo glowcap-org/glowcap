@@ -9,8 +9,8 @@
 ;; committed file" pattern as gen-header. glowcap's own costs go to
 ;; site/content/performance.smd and the comparisons with Cap'n Proto RPC and
 ;; Goblins to site/content/performance/compared.smd, both stamped with the
-;; same run. Every bench runs on the machine's fastest cores, and a row with a
-;; client and a server pins each to one of them, so a mixed-core machine
+;; same run. Every bench runs on the machine's fastest cores, and a TCP row
+;; pins its client and its server to one of them each, so a mixed-core machine
 ;; repeats its figures. Surrounding prose is left untouched. There is no stale-check:
 ;; bench numbers vary by machine, so the pages are a dated snapshot you
 ;; refresh, not a gated invariant.
@@ -605,17 +605,26 @@
     (run (format "zig build bench-transports -Doptimize=fast -- --transport=noise-tcp --row=session-open --pin=~a 2>&1" each-core)))))
   (define snap-p (parse-snapshot (run "zig build bench-snapshot -Doptimize=fast 2>&1")))
   (define snap-g (parse-goblins-snapshot (run "racket bench/goblins/snapshot.rkt 2>&1")))
-  (define iroh (parse-iroh (run (format "zig build bench-transports -Doptimize=fast -- --pin=~a 2>&1" each-core))))
+  (define (tcp-pinned row pin)
+    (run (format "zig build bench-transports -Doptimize=fast -- --transport=tcp --row=~a --pin=~a 2>&1" row pin)))
+  ;; One measurement serves the transport table and the comparison's
+  ;; one-core-each group, so the two pages report the same figure.
+  (define tcp-greet-each (tcp-pinned "greet" each-core))
+  ;; iroh's runtime starts its own threads, and a pin would confine them all
+  ;; to the pinned core. Its rows keep the fast cluster instead.
+  (define iroh (parse-iroh (string-append
+    tcp-greet-each
+    (run "zig build bench-transports -Doptimize=fast -- --transport=iroh --row=greet 2>&1")
+    (run "zig build bench-transports -Doptimize=fast -- --transport=iroh-loop 2>&1"))))
   (define loam (parse-loam (run "zig build bench-loam -Doptimize=fast -- --ordinary-only 2>&1")))
   (define capnp
-    (let ([a (car cores)])
-      (for/list ([pin (list (format "~a,~a" a a) each-core)])
-        (parse-iroh (string-append
-                     (run (format "zig build bench-capnp -Doptimize=fast -- --pin=~a 2>&1" pin))
-                     (run (format "zig build bench-transports -Doptimize=fast -- --transport=tcp --row=greet --pin=~a 2>&1" pin))
-                     (run (format "zig build bench-transports -Doptimize=fast -- --transport=tcp --row=report --pin=~a 2>&1" pin))
-                     (run (format "zig build bench-transports -Doptimize=fast -- --transport=tcp --row=greet --codec=capnp --pin=~a 2>&1" pin))
-                     (run (format "zig build bench-transports -Doptimize=fast -- --transport=tcp --row=report --codec=capnp --pin=~a 2>&1" pin)))))))
+    (for/list ([pin (list (format "~a,~a" (car cores) (car cores)) each-core)])
+      (parse-iroh (string-append
+                   (run (format "zig build bench-capnp -Doptimize=fast -- --pin=~a 2>&1" pin))
+                   (if (equal? pin each-core) tcp-greet-each (tcp-pinned "greet" pin))
+                   (tcp-pinned "report" pin)
+                   (tcp-pinned "greet --codec=capnp" pin)
+                   (tcp-pinned "report --codec=capnp" pin)))))
   (run (format "zig build bench-langs -Doptimize=fast -- --pin=~a 2>&1" each-core))
   (define langs (parse-langs-md (latest-langs-md)))
   (printf "rendering + splicing into ~a and ~a...\n" PERF COMPARED) (flush-output)
