@@ -3,7 +3,7 @@
 import { invariant } from "../../../../lib/invariant.ts";
 import { LocalRefusal } from "../../../../lib/text/failure.ts";
 import type { ManagedRoomsSession } from "./session.ts";
-import { type ManagedOperation, ResultAcquisitionError } from "./operation.ts";
+import { type AcquisitionStage, type ManagedOperation, ResultAcquisitionError } from "./operation.ts";
 import { conversationIdentity, type Coordinate, type DirectIntent, isCoordinate, type RoomIntent } from "./model.ts";
 import { isRetainedCommandIntent } from "./admission.ts";
 import { AcquisitionConflict, MAX_CONFLICT_REPREPARATIONS } from "./acquisition.ts";
@@ -85,7 +85,7 @@ export function completeResult(session: ManagedRoomsSession, operation: ManagedO
 		try {
 			completion = prepareCompletion(operation.request.originalIntent(), result);
 		} catch (error) {
-			throw new ResultAcquisitionError(result, error);
+			throw new ResultAcquisitionError(result, error, null);
 		}
 		for (let attempt = 0; attempt < MAX_CONFLICT_REPREPARATIONS; attempt++) {
 			try {
@@ -95,11 +95,32 @@ export function completeResult(session: ManagedRoomsSession, operation: ManagedO
 				// delta, keeping the original receipt, targets and destination keys.
 				const canRetry = error instanceof AcquisitionConflict &&
 					attempt + 1 < MAX_CONFLICT_REPREPARATIONS;
-				if (!canRetry) throw new ResultAcquisitionError(result, error);
+				if (!canRetry) {
+					throw error instanceof ResultAcquisitionError ? error : new ResultAcquisitionError(
+						result,
+						error,
+						error instanceof AcquisitionConflict ? acquireStage(completion.name) : null,
+					);
+				}
 			}
 		}
 		throw new LocalRefusal("conflict");
 	});
+}
+
+function acquireStage(name: string): AcquisitionStage {
+	return name === "openManagedRoom" ? "acquire-created-room" : "acquire-result-workspace";
+}
+
+/** A call after the commit names itself when it fails. A conflict proves that
+ * no custody moved, so it stays plain for the caller's retry. */
+async function during<T>(stage: AcquisitionStage, result: unknown, call: Promise<T>): Promise<T> {
+	try {
+		return await call;
+	} catch (error) {
+		if (error instanceof AcquisitionConflict || error instanceof ResultAcquisitionError) throw error;
+		throw new ResultAcquisitionError(result, error, stage);
+	}
 }
 
 async function completeOnce(
@@ -113,12 +134,12 @@ async function completeOnce(
 		completion.kind === "line"
 			? new CompletedLine(completion.result, operation.acquired ? recipe.line : undefined)
 			: result;
-	if (operation.acquired || await operation.request.adopted()) {
-		await session.refresh();
+	if (operation.acquired || await during("effect-adopted", result, operation.request.adopted())) {
+		await during("addressed-snapshot", result, session.refresh());
 		return completed();
 	}
 	let lineAdoption: LineAdoption | undefined;
-	const snapshot = await session.candidate();
+	const snapshot = await during("addressed-snapshot", result, session.candidate());
 	const mappings: { result: Coordinate; destination: Coordinate }[] = [];
 	const releases: Coordinate[] = [];
 	let source: string | undefined;
@@ -309,8 +330,12 @@ async function completeOnce(
 					// failure is kept so that no match reports why, rather than
 					// reading a lost route as a missing room.
 					try {
-						const identity = await session.workspace.roomManagementIdentity(
-							JSON.stringify({ role: "roomSeat", key: row.seat }),
+						const identity = await during(
+							"managedRoomIdentity",
+							result,
+							session.workspace.roomManagementIdentity(
+								JSON.stringify({ role: "roomSeat", key: row.seat }),
+							),
 						);
 						if (identity === args[2]) matches.push(row);
 					} catch (error) {
@@ -348,7 +373,11 @@ async function completeOnce(
 	// Retain the candidate's scalar witness through an uncertain acquisition.
 	// It becomes usable only after that exact acquisition is confirmed.
 	if (lineAdoption != null) recipe.line = lineAdoption;
-	await operation.acquire(snapshot, mappings, releases, source, name === "openManagedRoom");
-	await session.refresh();
+	await during(
+		acquireStage(name),
+		result,
+		operation.acquire(snapshot, mappings, releases, source, name === "openManagedRoom"),
+	);
+	await during("addressed-snapshot", result, session.refresh());
 	return completed();
 }

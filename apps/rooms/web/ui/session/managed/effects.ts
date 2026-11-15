@@ -417,7 +417,7 @@ export class ManagedEffects {
 					await this.refresh();
 				} catch (error) {
 					this.environment.changed();
-					throw operation.completionError(error);
+					throw operation.completionError(error, "addressed-snapshot");
 				}
 				return operation;
 			}

@@ -425,6 +425,7 @@ for (const stage of ["status", "refresh", "result"] as const) {
 			else {
 				assert(outcome.reason instanceof ResultAcquisitionError, "observed commit survives later failure");
 				assert(outcome.reason.cause === reason, "the interruption retains its cause");
+				assertEquals(outcome.reason.stage, stage === "refresh" ? "addressed-snapshot" : "effect-result");
 			}
 			assertEquals(session.pending, ["known"], "recovery retains the original operation");
 		} finally {
