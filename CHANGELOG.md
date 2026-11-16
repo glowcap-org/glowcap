@@ -95,9 +95,10 @@ Releases before 0.1.7 are in the
 
 ### Changed
 
-- A Rooms server sends the page's files gzip-compressed to a browser that
-  accepts it, and builds the browser module for size. A first visit
-  downloads about 3 MB where it downloaded about 13 MB.
+- The Rooms page draws text field edges at three to one against their
+  ground. An offline member, an idle entry, or a session choice that is not
+  open yet steps back by its avatar, mark, or a quieter ink, and its text
+  keeps reading contrast.
 - A Rooms timeline socket reads no message larger than one record line, at
   the endpoint, through the web address, and in the viewer. A timeline
   producer that sends a longer message is closed with code 1009 and the
@@ -108,6 +109,9 @@ Releases before 0.1.7 are in the
 - The terminal Rooms client prints a name, a room name, and an error on one
   line with control and text-direction characters written out, and marks
   each further line of a message that has several.
+- A Rooms server sends the page's files gzip-compressed to a browser that
+  accepts it, and builds the browser module for size. A first visit
+  downloads about 3 MB where it downloaded about 13 MB.
 - ocapnviz serves the Inter typeface itself, so the page asks no other site
   for a font. Its build names every file relative to the entry document, so
   it works from any directory, and carries no service worker.
@@ -172,6 +176,10 @@ Releases before 0.1.7 are in the
 
 ### Fixed
 
+- A Rooms session saves a moderator it issued while it holds no seat in the
+  room, as a session does between a link rotation and the rejoin. The save
+  read the room's live seat and failed without one. A joined room keeps
+  asking to reconnect when it creates a new link.
 - A stream provider's failed listen reaches the driver's listener-failed
   event under the provider's own cause name. A TCP listen on a busy port
   reports `AddressInUse`. It reported `ProviderIo`, so a Rooms server never
