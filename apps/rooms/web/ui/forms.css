@@ -103,7 +103,6 @@
 	color: var(--ink-soft);
 }
 .card-plane .field-label .optional {
-	margin-left: 4px;
 	font-weight: 500;
 }
 .card-plane .hint {

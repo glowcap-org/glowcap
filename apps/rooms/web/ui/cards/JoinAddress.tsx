@@ -11,12 +11,13 @@ import { MenuLayer, useMenu } from "../Menu.tsx";
 import type { DirId, DirView } from "../directory.ts";
 
 export function JoinAddress(
-	{ address, dirs, defaultAddress, directoryContext, invalid, onPick, onType }: {
+	{ address, dirs, defaultAddress, directoryContext, invalid, describedBy, onPick, onType }: {
 		address: string;
 		dirs: ReadonlyMap<DirId, DirView>;
 		defaultAddress: string | null;
 		directoryContext: DirectoryDestinationContext;
 		invalid?: boolean;
+		describedBy?: string;
 		onPick: (address: string) => void;
 		onType: (address: string) => void;
 	},
@@ -42,7 +43,7 @@ export function JoinAddress(
 					enterKeyHint="next"
 					placeholder={joinAddressPlaceholder(defaultAddress)}
 					value={address}
-					aria-describedby={invalid === true ? "joinError" : undefined}
+					aria-describedby={describedBy}
 					aria-invalid={invalid === true}
 					onChange={(e) => onType(e.target.value)}
 					{...addressField}

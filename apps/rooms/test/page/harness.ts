@@ -247,7 +247,8 @@ export async function reachDirectoryOnCard(
 						const room = document.getElementById("room") as HTMLInputElement | null;
 						return {
 							button: document.getElementById("joinBtn")?.textContent?.trim() ?? "",
-							refused: document.getElementById("joinError")?.textContent?.trim() ?? "",
+							refused:
+								document.querySelector("#joinForm .said[data-kind=failure]")?.textContent?.trim() ?? "",
 							path: location.pathname + location.search + location.hash,
 							appClass: document.getElementById("app")?.className ?? "",
 							screenHidden: screen?.hidden ?? null,

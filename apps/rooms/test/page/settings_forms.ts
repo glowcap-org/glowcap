@@ -85,7 +85,7 @@ export async function run(browser: Browser, httpPort: number): Promise<void> {
 				disabled: (document.getElementById("joinBtn") as HTMLButtonElement | null)?.disabled,
 				room: (document.getElementById("room") as HTMLInputElement | null)?.value,
 				nick: (document.getElementById("nick") as HTMLInputElement | null)?.value,
-				error: document.getElementById("joinError")?.textContent,
+				error: document.querySelector("#joinForm .said[data-kind=failure]")?.textContent,
 				setup: document.getElementById("sessionSetup") !== null,
 				rooms: [...document.querySelectorAll("#roomList .rname")].map((row) => ({
 					text: row.textContent,

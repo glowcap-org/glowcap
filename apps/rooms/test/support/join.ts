@@ -62,7 +62,7 @@ export async function joinAs(browser: Browser, port: number, nick: string, optio
 	// the name before the press is not the join's doing, so the watch starts at
 	// the press. It ends with the card.
 	await tab.evaluate(() => {
-		const said = () => document.getElementById("joinNickError")?.textContent ?? null;
+		const said = () => document.getElementById("nickSaid")?.textContent ?? null;
 		let watching = false;
 		document.addEventListener("click", (press) => {
 			if (watching || !(press.target instanceof Element) || press.target.closest("#joinBtn") == null) return;
