@@ -1,17 +1,14 @@
 # Rooms
 
-Rooms is a chat application built on glowcap. Everyone in a room is a peer:
-a browser tab, a terminal, a program, a
-[Spritely Goblins](https://spritely.institute/goblins/) vat (a Goblins container
-of objects). Members
-message each other directly with the room out of the way, send files, edit
-what they said, and carry their session from one device to the next. There
-are no accounts. A member holds references to the rooms and conversations it
-is in, and holding a reference is what lets it act.
+Rooms is a chat application built on glowcap. Members can join from a browser,
+a terminal, a program, or a [Spritely Goblins](https://spritely.institute/goblins/)
+vat (a container of objects). They can send direct messages and files, edit
+messages, and carry their session between devices. Access comes from held
+references to rooms and conversations, without accounts. Direct messages
+travel between members without passing through the room.
 
-The [Rooms pages on the site](https://glowcap.org/rooms/)
-show what it is like to use. The [host guide](host.md) explains installing
-glowcap on Linux or macOS, running Rooms, and letting an AI agent join a room
+The [Rooms site](https://glowcap.org/rooms/) shows the application.
+The [host guide](host.md) explains installing glowcap on Linux or macOS, running Rooms, and letting an AI agent join a room
 as one peer or as a team.
 
 ## Run it
@@ -23,8 +20,9 @@ glowcap apps rooms serve
 ```
 
 Open the link it prints under **open the page**: the
-[Rooms page](https://glowcap.org/rooms/app/) with your server filled in. The installation includes the prepared browser application
-and its services, so startup needs no checkout or build tools.
+[Rooms page](https://glowcap.org/rooms/app/) with your server filled in.
+The installation includes the prepared browser application and its services,
+so startup needs no checkout or build tools.
 Use `glowcap apps rooms session` to participate in an existing deployment and
 `glowcap apps rooms team` to coordinate several such peers.
 
@@ -41,11 +39,10 @@ That builds the services and the browser page, then serves the page at
 `http://localhost:8080` (`-Dport=<port>` moves it). Open the **web ui** address
 it prints, choose **Use this browser**,
 pick a room name and a nickname, then open the same address in a private window
-and join the same room as somebody else. Peers reach the
-server over [iroh](https://www.iroh.computer/)'s encrypted QUIC, so the build
-needs Zig, Cargo, and Deno.
+and join the same room as somebody else. The build needs Zig, Cargo, and Deno.
+Peers reach the server over [iroh](https://www.iroh.computer/)'s encrypted QUIC.
 
-Two other transports exist for particular situations:
+For local TCP testing or Tor, choose a transport:
 
 ```sh
 zig build rooms-web -Dtransport=tcp     # cleartext loopback, for local testing
@@ -54,8 +51,8 @@ zig build rooms-web -Dtransport=onion   # a Tor onion service; needs tor
 
 TCP sends everything in the clear and cannot tell you who answered. Use it to look
 around or to reach a peer that speaks nothing else, and only on a network you
-trust. `-Dport=` pins the HTTP port, and server flags
-such as `--history` or `--capabilities=diagnostics` follow `--`.
+trust. Server flags such as `--history` or `--capabilities=diagnostics`
+follow `--`.
 
 For day-to-day development, start with every operator capability turned on
 and the state kept between runs:
@@ -142,8 +139,7 @@ peers connect, such as the relay, ICE servers, and link previews.
 [The Rooms protocol](https://glowcap.org/rooms/protocol/)
 lists each object. [Developing Rooms](developing.md) covers the build steps,
 the scenarios, and the source map.
-[What Rooms ships](shipped.md) describes each part of the implementation as
-it stands.
+[What Rooms ships](shipped.md) lists the implemented features.
 
 ## Prerelease
 
@@ -151,7 +147,7 @@ Rooms ships with the [glowcap product](host.md) and as a
 [container image](web/deploy/README.md). Its storage formats follow the
 [alpha release policy](../../docs/maintaining.md#release-status).
 The server, session, and archive refuse unsupported schemas. Read the
-release notes and back up stopped state directories before upgrading.
+release notes, stop the services, and back up their state directories before upgrading.
 
 Project provenance and upstream-contact policy live in
 [`PROVENANCE.md`](../../PROVENANCE.md).

@@ -6,27 +6,26 @@
 .draft = false,
 ---
 
-glowcap is a low-level [Zig](https://ziglang.org/) library for capability-based
-communication and durable application state. It combines
-[OCapN](https://github.com/ocapn/ocapn) and CapTP networking with
-[Loam]($link.page('loam')), its transactional storage and durable actor system.
-Applications control memory, I/O, and scheduling.
+glowcap implements [OCapN](https://github.com/ocapn/ocapn) and CapTP in
+[Zig](https://ziglang.org/). [Loam]($link.page('loam')) provides transactional
+storage and durable actors. Your application controls memory, I/O, and
+scheduling.
 
 [Their program hands yours a reference to an object called "greeter." Holding that reference is what lets you call it.]($image.siteAsset('diagram-capability.svg'))
 
 [Why OCapN]($link.page('why')) compares capabilities with bearer tokens and
-login tables. [What about identity?]($link.page('identity')) covers where
-people, bots, and AI agents fit, and what keys can and cannot answer.
+login tables. [What about identity?]($link.page('identity')) covers how
+access, identity, and responsibility differ for people and agents.
 
 APIs, ABIs, and storage formats can change before 1.0. Read
 [Project & status]($link.page('project')) before depending on it.
 
 # Try it
 
-[Rooms]($link.page('rooms')) is a chat app built on glowcap. The app is
-[a page on this site]($link.siteAsset('rooms/app/index.html')). The
-server runs on your machine: it lists your rooms and hands out nicknames, and
-starting it is one command:
+[Rooms]($link.page('rooms')) is a chat app built on glowcap. Its
+[browser app]($link.siteAsset('rooms/app/index.html')) uses a server on your
+machine to list rooms and hand out nicknames. Install and start the server
+with:
 
 ```sh
 curl -fsSL https://glowcap.org/install.sh | sh
@@ -34,21 +33,22 @@ export PATH="$HOME/.local/bin:$PATH"
 glowcap apps rooms serve
 ```
 
-Open the link it prints. It is the Rooms page on this site with your server's
-address filled in. Your session stays in your browser, and the server stays on
-your machine. Pick a member in a room and press **Message *name* directly** to
-talk without the room in the middle. [Run Rooms]($link.page('rooms/start'))
-takes it from there, and the [CapTP CLI]($link.page('cli')) calls and hosts capabilities from your shell,
-with a REPL and MCP tools.
+Open the printed link. It includes your server's address, and your session
+stays in your browser. Pick a member in a room and press **Message *name*
+directly** to talk without the room in the middle. [Run Rooms]($link.page('rooms/start'))
+covers joining and direct messages. The [CapTP CLI]($link.page('cli')) calls
+and hosts capabilities from your shell, with a REPL and MCP tools.
 
-The install command verifies the release checksum before anything runs.
+The install script verifies the archive against the release checksum before
+running the installer inside the archive.
 [GitHub Releases](https://github.com/glowcap-org/glowcap/releases) lists the
 downloads and their provenance.
 
 # Build with it
 
 A Zig program dials a peer over encrypted TCP, fetches a capability it published,
-and calls it:
+and calls it. The caller supplies `io`, `allocator`, the server's public key,
+and its socket address:
 
 ```zig
 var hint_storage: [1]glowcap.ocapn.model.HintEntry = undefined;

@@ -202,8 +202,8 @@ object references part of the protocol, including introductions between peers.
 
 # How a reference travels
 
-Inside a CapTP session, a reference travels as a position in a table, say
-slot 3. Each side records which objects it has shared with the other. Slot 3
+CapTP is OCapN's protocol for calls between peers. Within a session, a
+reference travels as a position in a table, say slot 3. Each side records which objects it has shared with the other. Slot 3
 names your album in this session, but carries no authority in another one.
 
 A leaked bearer token can be reused at the service that accepts it, within
@@ -291,11 +291,23 @@ protects a session and establishes peer identity.
 </figure>
 ```
 
-You still need a first reference, and you get it the usual way. You sign in
-once, or you redeem a durable link called a sturdyref, an unguessable address
-that names one published object. After that, access moves by passing
-references inside sessions. A sturdyref does work like a bearer secret, and
+You get your first reference by signing in or redeeming a saved link
+called a sturdyref, an unguessable address that names one published object.
+After that, access moves by passing references inside sessions. A sturdyref is a bearer secret, and
 the methods of the object it names determine how much access it grants.
+
+# What OCapN is
+
+OCapN is one message model over a choice of wire encodings and transports, so
+the same references travel over encrypted QUIC, a sealed TCP stream, or a
+browser DataChannel. Calls return promises you can keep calling through, so a
+chain of dependent calls crosses the network once instead of once per call.
+glowcap checks that it works with Spritely Goblins over CapTP 1.0, encoded in
+[Syrup](https://github.com/ocapn/syrup).
+
+You can watch a three-party introduction in [Rooms]($link.page('rooms')):
+choosing **Message *name* directly** gives you a direct reference to that
+member, and the exchange bypasses the room.
 
 # Where the idea comes from
 
@@ -326,32 +338,18 @@ current application languages, and OCapN is the standard
 [that community](https://spritely.institute/) is writing so the implementations
 can reach each other.
 
-# What OCapN is
-
-OCapN is one message model over a choice of wire encodings and transports, so
-the same references travel over encrypted QUIC, a sealed TCP stream, or a
-browser DataChannel. Calls return promises you can keep calling through, so a
-chain of dependent calls crosses the network once instead of once per call.
-glowcap checks that it works with Spritely Goblins over CapTP 1.0, encoded in
-[Syrup](https://github.com/ocapn/syrup), OCapN's wire format.
-
-You can watch a three-party introduction in [Rooms]($link.page('rooms')):
-choosing **Message *name* directly** gives you a direct reference to that
-member, and the exchange bypasses the room.
-
 # Keep going
 
 - [Concepts]($link.page('concepts')) explains the mechanisms one level down:
   locators and sturdyrefs, pipelining on the wire, the handoff stages, and
   how two peers agree on a wire format.
-- [What about identity?]($link.page('identity')) covers what keys cannot
-  answer: who a person is, and whether ten thousand visitors are one.
+- [What about identity?]($link.page('identity')) covers how access, identity,
+  and responsibility differ for people and agents.
 - The [CapTP CLI]($link.page('cli')) ships a REPL with a guided mode: run
   `glowcap repl`, then type `guide`, and it walks these ideas against a live
   session while you type the verbs.
 - [Start building]($link.page('start')) runs a complete example, then shows
   dialing and listening on each transport, with a guide for the C ABI and
   every binding.
-- The glossary in
-  [capabilities](https://github.com/glowcap-org/glowcap/blob/main/docs/capabilities.md)
-  gives every term here a one-line definition.
+- The [capabilities glossary](https://github.com/glowcap-org/glowcap/blob/main/docs/capabilities.md)
+  defines the terms.

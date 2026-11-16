@@ -17,18 +17,16 @@ A capability lets one program give another access to an object.
 If you hold a capability to an object, you may call it. If you do not, you
 cannot forge or guess one. Passing the reference passes that permission.
 
-Capability systems can still use roles or policy where an application needs
-them, but at the object boundary permission arrives as a reference.
-
-This avoids *ambient authority*, where a program and every library it loads can
-draw from one shared pool of permissions. In a capability design, permission
-arrives one reference at a time from someone who chose to grant it.
+Applications can use roles and policies to decide which references to grant.
+Permission then arrives one reference at a time from someone who chose to
+grant it. This avoids *ambient authority*, where a program and every library
+it loads can draw from one shared pool of permissions.
 
 For example, a file object might offer reading and writing. A wrapper that
 exposes only reading lets another program read that file without getting
 write access or access to the rest of the filesystem.
 
-Three common patterns follow:
+Programs share and restrict access in three common ways:
 
 - **Delegation:** pass a capability to someone else.
 - **Attenuation:** wrap it with an object that exposes fewer operations.
@@ -38,8 +36,8 @@ These are ordinary object-reference patterns. CapTP carries them across a
 network.
 
 A capability decides what its holder may do, not who the holder is.
-[What about identity?](https://glowcap.org/identity/) covers how a service tells people
-from bots and hands each one its own key.
+[What about identity?](https://glowcap.org/identity/) explains how capabilities
+limit access and why they cannot identify people or distinguish them from bots.
 
 ## CapTP carries references between programs
 
@@ -47,10 +45,11 @@ from bots and hands each one its own key.
 Protocol. Two programs open a session, export local objects, and pass references
 to each other.
 
-The session assigns wire positions to those references and rejects positions
-the other peer was never given. A new session begins with one bootstrap
-capability. Any directory or lookup service is reached through that object, not
-through a global object namespace.
+The session gives each reference a numbered table slot, called a position,
+and sends that number across the wire. It rejects numbers the other peer was
+never given. A new session begins with one bootstrap capability. Any
+directory or lookup service is reached through that object, not through a
+global object namespace.
 
 Remote calls return promises. A caller may send the next operation to a promise
 before its answer arrives. CapTP forwards that operation when the promise
@@ -62,8 +61,8 @@ object and wants Bob to have it, Alice introduces them. Bob redeems that
 introduction with Carol and receives a direct capability. Alice does not remain
 as a proxy.
 
-glowcap handles this under its session API. The call awaiting the introduced
-object settles to the live capability after redemption. Run
+glowcap's session API redeems the introduction before returning the live
+capability to the awaiting caller. Run
 [`examples/zig/02_introduce_and_redeem.zig`](../examples/zig/02_introduce_and_redeem.zig)
 to see the whole exchange.
 
@@ -85,9 +84,9 @@ TypeScript, Python, and Racket. It speaks
 [Syrup](https://github.com/ocapn/syrup), the canonical OCapN encoding, and can
 also use Cap'n Proto between glowcap peers.
 
-For the implementation, read [Architecture](architecture.md). For exact
-outside-peer coverage, read [Community review](community-review.md). The
-[protocol diagrams](protocol-diagrams/README.md) show the conversations on the
+[Architecture](architecture.md) explains the implementation.
+[Community review](community-review.md) lists checks against other implementations.
+The [protocol diagrams](protocol-diagrams/README.md) show the conversations on the
 wire.
 
 ## Glossary

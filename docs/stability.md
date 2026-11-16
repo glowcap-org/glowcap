@@ -17,7 +17,7 @@ upgrades.
 
 | Area | Evidence | What remains |
 | --- | --- | --- |
-| Protocol core | The upstream OCapN suite and live Goblins peers exercise the V1.0 model, session, engine, calls, promises, and all three handoff roles. [Community review](community-review.md) lists each check. The next conformance lane adapts upstream assertions to the merged operation shapes and adds draft wire cases with the retained hello. | No independent production peer exercises the next profile. The crypto transition remains deferred. Community review lists the other exact gaps. |
+| Protocol core | The upstream OCapN suite and live Goblins peers exercise the 1.0 model, session, engine, calls, promises, and all three handoff roles. [Community review](community-review.md) lists each check. The next conformance lane adapts upstream assertions to the merged operation shapes and adds draft wire cases with the retained hello. | No independent production peer exercises the next profile. The crypto transition remains deferred. Community review lists the other exact gaps. |
 | Syrup | Fixtures are regenerated with upstream Syrup encoders and compared byte for byte. | None known in the supported message set. |
 | Cap'n Proto | In-tree golden frames and cross-codec tests run under `zig build check`. | No check uses an outside Cap'n Proto implementation to validate the wire format. |
 | `tcp` | Live Goblins interoperability runs over glowcap's cleartext TCP adapter. | Goblins ships onion rather than TCP. The channel is cleartext and the peer proves no identity. |
@@ -35,7 +35,7 @@ upgrades.
 | Zig package | `consumer-check` builds core-only and every public module from a Zig-fetched source archive on Linux. The core build blocks Cargo, Bash, and curl. | Zig still resolves LMDB and SQLite sources for core-only use. Optional-module cross-compilation is unchecked. |
 | Zig driver and actor layer | Session, Host, handoff, turn-loop, hosting, and snapshot tests run under `check`. | These are glowcap's own APIs with no outside implementation to compare. |
 | Loam storage | Shared storage scenarios run on SQLite and LMDB. Crash and I/O-fault probes check recovery, and C, Rust, and browser tests exercise the foreign interfaces. [Storage failure coverage](#storage-failure-coverage) details their scope. | Power loss and arbitrary corruption are untested. Some managed-access failure cases lack evidence, as detailed below. |
-| Distributed GC | Live Goblins checks prove release in both directions from Zig and every binding, as community review details. | Automatic capability finalizers have in-tree checks. The live binding checks finalize answer wrappers and release capability handles explicitly. |
+| Distributed GC | Live Goblins checks prove release in both directions from Zig and every binding, as community review details. | Automatic capability finalizers lack live Goblins coverage. They have in-tree checks only. Live binding checks finalize answer wrappers and release capability handles explicitly. |
 | Relay | Every runtime runs TCP, backpressure, idle-reclaim, and iroh checks. The TypeScript relay also carries a live Goblins session. | The Goblins interoperability check does not run through the Python, Rust, or Racket relays. |
 | Rooms | `goblins-rooms` and `goblins-rooms-irc` put a real Goblins vat in a room, as community review details. The recurring `demo-rooms` tour puts every one-shot client in one room. `rooms-web-proofs` runs every shipped-page journey in Chromium. In-tree checks cover room authority, operator revocation, the bounded browser state bundle, archives, and a durable session peer with two attached OCapN clients. | None beyond the transport rows above. |
 | CLI and MCP | In-tree command, exit-code, deadline, and listen/call tests run under `check`. | No independent tool drives the CLI as a compatibility test. |
@@ -45,10 +45,9 @@ upgrades.
 | Windows | Nothing. | Windows and an IOCP completion backend are not implemented. |
 | Untrusted-input and mutation tests | Bounded malformed-input tests and coverage-guided mutation runs cover codecs, framing, the Noise handshake and sealed channel, sessions, handoff, locators, the host, actors, and persistent collections. The protocol core and actors tests also run under valgrind, and the whole suite runs in ReleaseSafe. | The per-push fuzz budget is shallow and the nightly search is one machine for a few hours, and most assertions are written by glowcap. |
 
-An outside check covers only the boundary it crosses. A live iroh endpoint
-tests the transport stack and says nothing about agreeing with another CapTP
-implementation. A live Goblins session tests protocol interop and says nothing
-about API stability.
+Each check establishes a specific result. A live iroh endpoint tests transport
+behavior. A live Goblins session tests agreement between CapTP implementations.
+Neither establishes API stability.
 
 These results hold only when the
 [checks workflow](https://github.com/glowcap-org/glowcap/actions/workflows/check.yml)
@@ -92,5 +91,5 @@ missing measurements. No managed-owner 500,000-session result is established.
 The [CI guide](../CONTRIBUTING.md#continuous-integration) explains when the
 workflow runs the full sequence and how development runs select checks by
 changed files. A successful development run covers only its selected jobs.
-A check outside the full sequence is manual. It may still be useful, but a
-regression can survive until somebody runs it.
+Checks outside the full sequence run manually, so regressions can survive
+until somebody runs them.

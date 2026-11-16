@@ -1,8 +1,8 @@
 # glowcap for Rust
 
-The `glowcap` crate connects a Rust program to [OCapN](https://glowcap.org/protocol/) peers. It
-calls their objects, hosts objects of its own, and passes references between peers, with glowcap's
-C libraries doing the protocol work and Cargo features selecting the transports. The
+Use the `glowcap` crate to call [OCapN](https://glowcap.org/protocol/) objects,
+host your own, and pass references between peers. glowcap's C libraries
+handle the protocol, and Cargo features select the transports. The
 [Rust guide](https://glowcap.org/bindings/rust/) walks through the round trip, listening, and
 actors. Terms such as locator, Host, and sturdyref are defined in the
 [glossary](https://github.com/glowcap-org/glowcap/blob/main/docs/capabilities.md#glossary).
@@ -63,7 +63,7 @@ async fn main() -> glowcap::Result<()> {
 }
 ```
 
-A provider registers `noise-tcp` alone. Plain `tcp` and `keyed-tcp` send cleartext with no
+The TCP provider registers `noise-tcp` alone. Plain `tcp` and `keyed-tcp` send cleartext with no
 peer proof, so each is an explicit opt-in:
 `tcp::Config { profiles: tcp::Profiles::TCP.with(tcp::Profiles::KEYED_TCP), ..Default::default() }`.
 A runtime without a locator's profile refuses the dial with `ErrorKind::InvalidArgument` and the
@@ -105,12 +105,12 @@ async fn main() -> glowcap::Result<()> {
 }
 ```
 
-`Runtime` holds the Host (the object that owns your identity and published objects) and the
-transport for all of its sessions. Call `Runtime::close` when you are done with it. The handshake
-time limit applies to the whole Runtime. Set it with `RuntimeConfig::with_handshake_timeout`.
+`Runtime` owns the Host, which holds your identity and published objects, and
+the transports for its sessions. Close it with `Runtime::close`. Set the
+Runtime-wide handshake limit with `RuntimeConfig::with_handshake_timeout`.
 
-An `iroh`, `noise-tcp`, `keyed-tcp`, `tcp`, or routed relay dial or listener runs on glowcap's
-driver loop, the event loop in the `libglowcap_driver` C library that owns the sockets. A `Host`
+Dialing or listening over `iroh`, `noise-tcp`, `keyed-tcp`, `tcp`, or a routed
+relay uses the socket-owning event loop in `libglowcap_driver`. A `Host`
 you supply must be idle, and it moves to that loop before its first network operation. If your
 code feeds bytes itself, install connectors instead.
 
@@ -161,13 +161,13 @@ explicit release.
 ### Hosting sessions
 
 Each transport module's `listen` and `Server::accept` provide the hosting side.
-An accepted session delivers its partner's inbound only once you serve it:
+An accepted session delivers incoming calls once you serve it:
 
 1. Publish whatever that session should answer.
 2. Call `session.serve()`, then spawn the returned future or await it to
    observe the close.
 
-A session held without serving parks its partner's first message. Actor
+Until then, the partner's first message waits. Actor
 behaviors are ordinary Rust closures, and a panic in one breaks the answer
 instead of unwinding through C.
 
@@ -201,7 +201,7 @@ continued across a local hop. Keep the returned view to send replies. It returns
 callback and for work the application itself originated. A local call can carry a session too, so
 a `Some` does not prove the caller is remote.
 
-`Host::defer_turn` lets a behavior reply later. It returns the one resolver that settles the reply.
+`Host::defer_turn` returns a resolver so a behavior can reply later.
 
 - Dropping the resolver before settling it schedules a broken answer, so the caller never waits for
   an answer whose owner is gone. Cleanup also succeeds if session shutdown already retired that
@@ -244,7 +244,7 @@ releases on final drop. It refuses foreign, released, or closed-Host inputs.
 cleanup, including references nested in copied values. It applies even when
 `Host::set_release_on_drop(false)` leaves raw Session replies under manual
 release. Generated Rust calls choose owned outcomes before observation, so
-discarded replies and failed decoding can release their references.
+references are released when replies are discarded or decoding fails.
 
 Until you observe a reply, the binding owns it. A reply evicted unobserved, an
 abandoned handle, or a cancelled observation releases every capability in that
@@ -314,7 +314,7 @@ Host dials too: build a `Runtime` with no providers that adopts
 `server.host()`. Drive
 the `Runtime` from a tokio `LocalSet`, because the signaling callbacks run on the
 thread that steps the loop. A dial whose answer never arrives fails at the
-handshake deadline, and one whose signaling fails is given up at the driver's
+handshake deadline, and failed signaling ends the dial at the driver's
 next step.
 
 The wire codec belongs to the host. `Host::with_codec(Codec::Capnp)?` creates a
@@ -401,7 +401,7 @@ The `browser` feature supplies `browser::open_websocket`, `websocket`, and
 locator-carried rendezvous hints. `dial_url` validates and renders the route
 without opening a socket. `accept` holds one registration for the supplied Host
 identity, then accepts a paired caller within its finite budget. The application
-owns seat replenishment and advertised reachability. The relay supplies no key
+opens a replacement registration after each accept and advertises reachable routes. The relay supplies no key
 proof, and the linked Host runs Noise for the sealed profile.
 
 `browser::RtcPeer` owns the peer connection, one reliable ordered `ocapn` data

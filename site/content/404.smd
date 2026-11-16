@@ -9,7 +9,7 @@
 The address you followed does not name a page on this site. The link may be
 stale, or the page may have moved.
 
-Browse documentation lists every page. The likeliest destinations:
+Use **Browse documentation** for the full page list, or try:
 
 - [Start building]($link.page('start')) makes a first call in each language.
 - [Why OCapN]($link.page('why')) compares the ideas with the protocols you
@@ -19,8 +19,8 @@ Browse documentation lists every page. The likeliest destinations:
   transports side by side.
 - [Rooms]($link.page('rooms')) is a chat app built on glowcap.
 
-If a link on this site brought you here, that is a defect worth reporting:
-[open an issue](https://github.com/glowcap-org/glowcap/issues).
+If a link on this site brought you here,
+[report the broken link](https://github.com/glowcap-org/glowcap/issues).
 
 ```=html
 <script>

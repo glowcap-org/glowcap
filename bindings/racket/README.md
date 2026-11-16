@@ -1,8 +1,8 @@
 # glowcap for Racket
 
-The `glowcap` package connects a Racket program to [OCapN](https://glowcap.org/protocol/) peers. It
-calls their objects, hosts objects of its own, and passes references between peers, with glowcap's
-C libraries doing the protocol work and Racket threads and ports carrying the program. The
+Use the `glowcap` package to call [OCapN](https://glowcap.org/protocol/) objects,
+host your own, and pass references between peers. glowcap's C libraries
+handle the protocol, with Racket threads and ports handling execution and I/O. The
 [Racket guide](https://glowcap.org/bindings/racket/) walks through the round trip, listening, and
 the Goblins-style actor API. Terms such as locator and sturdyref are defined in the
 [glossary](https://github.com/glowcap-org/glowcap/blob/main/docs/capabilities.md#glossary).
@@ -13,8 +13,8 @@ the Goblins-style actor API. Terms such as locator and sturdyref are defined in 
 raco pkg install glowcap
 ```
 
-The package installs the `glowcap` collection. On first load it downloads the
-C libraries of its version from its
+The package installs the `glowcap` collection. On first load, it downloads
+matching C libraries from its
 [GitHub release](https://github.com/glowcap-org/glowcap/releases) and verifies
 them against its checksum file. Automatic downloads need `curl`, GNU or BSD
 `tar`, and `sha256sum` or `shasum` on `PATH`. Set `GLOWCAP_LIB_DIR` to an extracted C SDK's `lib/`
@@ -119,10 +119,9 @@ certificate. They also take `#:options`, with the refusal rule under
 
 ## The driver loop
 
-Every `runtime-connect` and `listen` that uses a transport provider runs on
-glowcap's driver loop, one event loop in the C library that owns the sockets
-and moves bytes for every accepted session. The binding parks one green thread
-until the loop has work, then steps it.
+Provider-backed `runtime-connect` and `listen` calls use glowcap's driver
+loop. This C library event loop owns the sockets and moves bytes for every
+accepted session. One Racket green thread waits for work, then steps the loop.
 
 - A bare `iroh`, `noise-tcp`, `keyed-tcp`, `tcp`, or routed relay dial creates
   one loop per connection. `listen` binds the loop's listener, and a dial that
@@ -143,7 +142,7 @@ until the loop has work, then steps it.
 `open-runtime` takes `#:seed`, `#:profile`, `#:codec`, `#:captp-version`,
 `#:features`, and `#:local-turn-budget` to configure the Host it creates.
 `#:adopt-host` transfers an existing Host into the Runtime instead and refuses
-every one of those options, matching or not. `runtime-close!` then shuts that
+all of those options, even if their values match. `runtime-close!` then shuts that
 Host down and waits.
 
 `listen`, `listen-keyed-tcp`, and `listen-noise-tcp` return the same kind of
@@ -182,8 +181,8 @@ answer, so a behavior's call to either is refused before it queues anything.
 A behavior that needs an answer defers its turn instead.
 
 `(break-far-vows! (session-vat s) message)` breaks every vow still waiting on
-the partner and keeps the session open. A session the driver loop owns refuses
-it. `session-partner-abort` returns the `partner-abort` the partner sent
+the partner and keeps the session open. Driver-owned sessions refuse this
+operation. `session-partner-abort` returns the `partner-abort` the partner sent
 before ending the session, or `#f`, and stays readable after close.
 
 `host-retain-reference` returns an independent occurrence of a held reference.

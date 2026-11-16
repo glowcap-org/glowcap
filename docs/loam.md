@@ -12,8 +12,8 @@ sources:
 
 # Loam storage and durable actors
 
-Loam is glowcap's optional storage module. It stores objects, their state,
-and the references they hold, and restores them after a restart. The
+Loam is glowcap's optional storage module. It saves object state and
+references and restores them after a restart. The
 [Loam page](https://glowcap.org/loam/) explains the model with a task board
 and diagrams. This guide covers the Zig integration.
 
@@ -47,8 +47,8 @@ flowchart TB
 **Records and edges.** Loam stores each object as a record: its data, in a
 schema the application declares, plus edges to other records. "This column
 holds that card" is an edge. A strong edge keeps its target alive, and a weak
-edge only points at it. A record marked as a root, such as the board, is kept
-with nothing pointing at it. A record unreachable from roots can be
+edge only points at it. A root record, such as the board, stays alive
+even when nothing points to it. A record unreachable from roots can be
 collected once the running program releases its holds.
 [Collection](loam/collection.md) removes those records.
 
@@ -99,8 +99,8 @@ moves it, shuts everything down, opens the same directory in a fresh Host,
 and finds the move still there.
 
 **A schema and a behavior.** The card's payload is one integer, how many
-times it has moved. Its behavior reads the saved record and proposes new
-state, which counts only once Loam commits it.
+times it has moved. Its behavior reads the saved record and proposes a change
+that takes effect when Loam commits it.
 
 ```zig
 fn card(call_state: *hosting.Call, state: core.RecordView, verb: []const u8, args: []const driver.Value) !driver.Value {
@@ -134,11 +134,11 @@ store to the Host and registers the behavior. `attachment.restore` turns the
 record back into an ordinary Host capability that can be called locally or
 handed to a peer.
 
-**A call, with its storage work.** This Zig example sends `move` and drives
-the integration loop: drive the Vat, call `attachment.advance()`, and let a
-`hosting.Worker` carry out each item from `attachment.nextWork()`. The read
-wakes the card, the write saves its new state, and the reply is released after
-the write commits.
+**A call, with its storage work.** This Zig example sends `move` and runs
+a loop that drives the Vat, calls `attachment.advance()`, and runs a
+`hosting.Worker`. The worker pulls requests from `attachment.nextWork()`.
+Reads wake the card. Writes save its new state, and the reply waits for commit.
+This is the loop's storage step:
 
 ```zig
 var slot: [1]hosting.Worker.Slot = undefined;
@@ -148,7 +148,7 @@ try worker.drive(attachment, db);
 
 **A restart.** The second run reopens the directory with the same store
 identity, restores the card, and asks how many moves it has made. The answer
-is the one the first run committed. A real program would publish the card
+matches the first run's committed state. A real program would publish the card
 under a [durable name](loam/publications.md) so peers can fetch it after a
 restart. Run the example with `zig build examples`.
 
@@ -199,8 +199,8 @@ setup, call memory, reference arguments, storage work, and shutdown.
 | `"glowcap_loam_lmdb"` | Optional module exposing `Lmdb`, the same engine contract over LMDB ([LMDB operations](loam/lmdb.md)). |
 | `glowcap.loam.access` | Managed access: resources, grants, use and control references, their storage and hosting, scoped change feeds, and owner cleanup. |
 
-The collections are persistent in the data-structure sense: old versions stay
-available because new ones share their structure. Disk storage saves explicit
+The collections are persistent data structures: new versions share structure
+with old versions, which remain available. Disk storage saves explicit
 records, never process pointers or allocator state.
 
 ## Limits
@@ -215,12 +215,14 @@ actor must make its own methods safe to retry.
 **What can be saved.** A saved field can hold a local capability, a checked
 reference into another attachment, or an established remote sturdyref.
 Timers, unresolved promises, subscriptions, and outside handles cannot be
-saved. Loam has no general durable inbox or outbox, and C, Rust, and the
-browser reach only the fixed resource model, not general record graphs.
+saved. Loam has no general durable inbox or outbox. C, Rust, and the browser
+expose one managed resource with registered content graphs, not arbitrary
+record graphs.
 
-**One process per store.** Collection traces only the store this process has
-open. Deleting a record that is not a root leaves references to it resolving
-as gone, and Loam never reuses an object's identity.
+**One process per store.** One process owns a store at a time. Collection
+traces only the store that process has open. Deleting a record that is not a
+root leaves references to it resolving as gone, and Loam never reuses an
+object's identity.
 
 **Managed history.** A managed owner keeps a fixed window of its recent
 change batches ([known limitations](boundaries.md#managed-access)), and

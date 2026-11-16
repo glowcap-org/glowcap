@@ -75,7 +75,7 @@ pub fn checkSiteTransportTabs(
         .{ .path = "site/content/bindings/ts.smd", .groups = 2 },
     };
     const tab_marker = "> []($block.attrs('code-tabs'))";
-    const common_marker = "From here, the CapTP workflow is the same for every transport:";
+    const common_marker = "<!-- site-example-common -->";
 
     for (pages) |page| {
         const contents = root.readFileAlloc(io, page.path, gpa, .limited(2 << 20)) catch |err| {

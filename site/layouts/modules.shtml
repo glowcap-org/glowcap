@@ -4,13 +4,9 @@
 <main id="content">
 	<article class="prose">
 		<h1 :text="$page.title"></h1>
-		<p>glowcap is one library, but it reads as a stack of small modules. Each
-		one rests on the modules below it and may import only downward, so a
-		layer's name tells you what it owns before you open the file. Teal is the
-		sans-io protocol core. Neutral layers rest on the core without being part
-		of it and do no I/O: the local actors, the Host that serves them, and Loam,
-		which keeps them across restarts. Amber is where I/O, the C boundary, and
-		the other languages live.</p>
+		<p>Modules depend on the layers below them. Teal marks the protocol core,
+		which performs no I/O. The neutral layers manage local objects, sessions,
+		and durable state. Amber marks the I/O adapters, C ABI, and language bindings.</p>
 		<div class="stack" aria-hidden="true">
 			<div class="layer is-adapter"><strong>Bindings</strong> <span class="tag tag-adapter">consumers</span><small>Rust, TypeScript, Python, Racket, the same library in four idioms</small></div>
 			<div class="layer is-adapter"><strong>c_abi</strong> <span class="tag tag-adapter">surface</span><small>the C ABI every binding wraps</small></div>

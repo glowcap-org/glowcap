@@ -131,7 +131,7 @@
 					<div class="nav-sub">
 						<a class="$site.page('performance/compared').isCurrent().then('is-current', '')" aria-current="$site.page('performance/compared').isCurrent().then('page', 'false')" href="$site.page('performance/compared').link()">Beside other systems</a>
 					</div>
-					<a class="$site.page('protocol').isCurrent().then('nav-link is-current', 'nav-link')" aria-current="$site.page('protocol').isCurrent().then('page', 'false')" href="$site.page('protocol').link()">Protocol cheatsheet</a>
+					<a class="$site.page('protocol').isCurrent().then('nav-link is-current', 'nav-link')" aria-current="$site.page('protocol').isCurrent().then('page', 'false')" href="$site.page('protocol').link()">Protocol vocabulary</a>
 					<a class="$site.page('reference').isCurrent().then('nav-link is-current', 'nav-link')" aria-current="$site.page('reference').isCurrent().then('page', 'false')" href="$site.page('reference').link()">API reference</a>
 					<div class="nav-sub">
 						<a class="$site.page('reference/api').isCurrent().then('is-current', '')" aria-current="$site.page('reference/api').isCurrent().then('page', 'false')" href="$site.page('reference/api').link()">Zig API</a>
@@ -166,7 +166,7 @@
 					<span class="icon-mark" aria-hidden="true"><i class="mark-piece mark-rim"></i><i class="mark-piece mark-flesh"></i><i class="mark-piece mark-shade"></i><i class="mark-piece mark-windows"></i></span>
 					<span class="wordmark"><span>glowcap</span></span>
 				</a>
-				<p>OCapN and CapTP networking with Loam transactional storage and durable actors. A low-level Zig library with explicit control over memory, I/O, and scheduling.</p>
+				<p>glowcap is a Zig library for calling methods on remote objects and storing object state across restarts.</p>
 			</div>
 			<div class="footer-cols">
 				<nav aria-label="Understand">
@@ -195,7 +195,7 @@
 					<a href="$site.page('project').link()">Project &amp; status</a>
 					<a href="$site.page('stability').link()">What you can depend on</a>
 					<a href="$site.page('performance').link()">Performance</a>
-					<a href="$site.page('protocol').link()">Protocol cheatsheet</a>
+					<a href="$site.page('protocol').link()">Protocol vocabulary</a>
 					<a href="$site.page('reference').link()">API reference</a>
 					<a href="https://github.com/glowcap-org/glowcap">Source</a>
 					<a href="https://github.com/glowcap-org/glowcap/blob/main/SECURITY.md">Security policy</a>

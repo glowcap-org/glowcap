@@ -1,13 +1,13 @@
 ---
 .title = "Performance",
-.description = "What glowcap costs, as dated measurements you can repeat: wire-path allocation and footprint budgets the build pins, plus benchmark charts.",
+.description = "Repeatable measurements of glowcap throughput, latency, and memory use, alongside checked allocation and copy budgets.",
 .date = .date("2026-06-12T00:00:00"),
 .layout = "performance.shtml",
 .draft = false,
 ---
 
-These charts measure glowcap's costs on one machine. Each dated snapshot
-names its source and environment. [Beside other systems]($link.page('performance/compared'))
+These charts report throughput, latency, and memory use on one machine. Each
+dated snapshot names its source and environment. [Beside other systems]($link.page('performance/compared'))
 compares the same calls in Cap'n Proto RPC and Spritely Goblins.
 
 ```=html

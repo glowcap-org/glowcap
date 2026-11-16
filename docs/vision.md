@@ -15,11 +15,10 @@ work in Zig, C, or any language with a binding.
 
 A glowcap peer should hold a complete, correct conversation with any conforming
 OCapN peer, including [Spritely Goblins](https://spritely.institute/goblins/).
-That holds whether the application uses Zig, the C ABI, or a language binding.
+This applies to Zig, the C ABI, and every language binding.
 
-Correctness comes first. Once the protocol is correct, performance and
-ease of use are both requirements: the library should show what its work costs
-without making ordinary applications manage protocol details.
+Correctness comes first. Performance and ease of use are also requirements.
+Applications should see what the library costs without managing protocol details.
 
 An independent implementation also tests whether the specification can be
 built from its own words. Differences between the draft, Goblins, and glowcap
@@ -49,7 +48,7 @@ The goal is 500,000 live CapTP sessions on one node.
 Per-session memory and allocation budgets constrain the cost of the core.
 Capacity also depends on the transport, event loop, operating system, and
 application workload. The [performance report](https://glowcap.org/performance/#live-sessions)
-records measured configurations, rather than a capacity guarantee for every
+records measured configurations. They do not guarantee capacity for every
 application.
 
 ## What applications see
@@ -84,7 +83,7 @@ access. Applications define their own operations and content. Ordinary
 objects need no resource-management state, and both kinds can take part in the
 same persistence transaction.
 
-The [Loam design](loam/architecture.md) describes it in full. Database I/O is
+The [Loam design](loam/architecture.md) defines these contracts. Database I/O is
 optional, local persistence needs no network, and plain networking allocates no
 store or grant state. Stored graph size, loaded actor count, and live
 session count have separate budgets.
@@ -99,9 +98,8 @@ development socket.
 
 The goal includes reaching peers across the internet: authenticated peer
 identity, encryption, NAT traversal, and relays, without folding those concerns
-into CapTP. When Alice passes Bob a reference to Carol's object, Bob should end up
-talking to Carol directly, not through Alice forever, and the transport has
-to make that connection possible.
+into CapTP. When Alice passes Bob a reference to Carol's object, the transport should
+let Bob connect directly to Carol.
 
 Browsers are peers too. Once they have a channel, they should be able to host
 objects, answer calls, pass capabilities, and take part in handoff without

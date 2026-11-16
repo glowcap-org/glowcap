@@ -1,14 +1,13 @@
 ---
 .title = "Run Rooms",
-.description = "Start Rooms on your machine, join a room as two people, talk to someone directly with the room out of it, and open your session on your phone.",
+.description = "Start a Rooms server, join a room, send a direct message, and share your session with another device.",
 .date = .date("2026-09-12T00:00:00"),
 .layout = "page.shtml",
 .draft = false,
 ---
 
-Start Rooms on your machine, join a room as two people, open a direct
-conversation the room is not part of, and then open your whole session on
-another device.
+Run a local server and use two browser sessions to try room chat, direct
+messages, and sharing a session with another device.
 
 # Start Rooms
 
@@ -28,24 +27,12 @@ export PATH="$HOME/.local/bin:$PATH"
 glowcap apps rooms serve
 ```
 
-The link it prints under **open the page** opens the page on this site with
-your server's address in it. The page asks once whether to use that server,
+Open the link printed under **open the page**. It includes your server's
+address. The page asks once whether to use that server,
 and your browser may ask whether this site may reach a server on your
 computer. Say yes to both. The page loads from here, your session stays in
-your browser, and your directory runs on your machine.
-
-The page also works on its own.
-[Open it]($link.siteAsset('rooms/app/index.html')), and its first screen
-names the Rooms server it will use. With none, it offers **Choose…**: paste the
-**web ui** address your server printed, press **Test**, then **Save**. The same
-choice is in Settings, under **Connection**, and this browser keeps it. If
-the directory's address includes `noise-relay`, your browser can connect
-without a Rooms server.
-
-The **web ui** address is also that same page, served by your server itself,
-for a machine that cannot reach this site. A browser keeps a session per
-origin, so the page there has a session of its own, apart from the one you
-open here.
+your browser, and the server on your machine hosts the directory that lists
+rooms and hands out nicknames.
 
 Peers reach the directory over encrypted [iroh]($link.page('transports/iroh')).
 The server listens on loopback by default. See the
@@ -84,10 +71,9 @@ send a join it knows would fail. Rooms never quietly changes a name you typed.
 Now open the same address as somebody else (a private window is the quickest
 way), choose **Use this browser** there too, and join `workshop` under another
 name. Each session is its own peer, with its own seat in the room and its own
-history. A bot makes a fine partner as well: the
+history. A bot can join too. The
 [CapTP CLI]($link.page('cli')) joins a room from a terminal as
-`glowcap apps rooms session`, which is how the bots on the
-[Rooms]($link.page('rooms')) page got there.
+`glowcap apps rooms session`, as shown on the [Rooms]($link.page('rooms')) page.
 
 # Talk in the room
 
@@ -100,9 +86,8 @@ refused it before anything happened, Rooms puts your text back in the box.
 If nobody can say whether it went through, Rooms tells you that instead of
 inviting you to send it twice.
 
-Hover one of your own lines to edit or delete it. You can, because the room
-handed you the reference for that line when you posted it, not because your
-name matches an account.
+Hover over one of your own lines to edit or delete it. Posting gave you the
+reference that permits those changes.
 
 # Open a direct conversation
 
@@ -151,9 +136,10 @@ on the first screen, paste the link, and press **Attach**.
 
 [The same session opened on a phone. The room, its members, and the direct conversation all came with it, and the divider marks where the shared history ends and live messages begin.]($image.siteAsset('rooms-session-attached-light.webp'))
 
-The phone shows the same rooms, the same direct conversation, and the same
-history settings, and a line posted from either side shows up in both.
-Closing or reloading the page that shared the session ends the sharing.
+The phone shows the same rooms, direct conversations, and history settings.
+A message sent from either device appears on both.
+Closing or reloading the page that hosts the session disconnects attached
+devices. The saved sharing links remain.
 For a session that is always on, run the session service from
 [Operate Rooms]($link.page('rooms/operations')) and open it the same way.
 
@@ -165,9 +151,25 @@ someone a read-only link to an archive. These stay separate, and you choose
 which one new messages go to.
 
 Files stay with their messages. A history entry can describe an attachment
-without claiming a file the archive never saved. The
+even when the archive did not save its file. The
 [operations guide]($link.page('rooms/operations')) covers history on the
-server, its limits, and repair.
+server, its limits, and what a crash can lose.
+
+# Other ways to open the page
+
+You can [open the page]($link.siteAsset('rooms/app/index.html')) without the
+printed link. The session setup screen names the Rooms server it will use.
+If no server is selected, press **Choose…**, paste the **web ui** address your
+server printed, press **Test**, then **Save**. The same choice is in Settings,
+under **Connection**, and this browser keeps it.
+
+If the directory's address includes `noise-relay`, its encrypted relay lets
+your browser connect without a Rooms server.
+
+The **web ui** address is also that same page, served by your server itself,
+for a machine that cannot reach this site. A browser keeps a session per
+origin, so the page there has a session of its own, apart from the one you
+open here.
 
 # Continue
 

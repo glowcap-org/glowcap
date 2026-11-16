@@ -7,7 +7,7 @@
 ---
 
 These charts compare the same calls in glowcap, Cap'n Proto RPC, and
-Spritely Goblins. Each comparison runs on one machine in the same sitting,
+Spritely Goblins. Each comparison runs on one machine in the same benchmark run,
 with test programs of the same shape. [Performance]($link.page('performance'))
 reports glowcap's own costs and checked budgets.
 

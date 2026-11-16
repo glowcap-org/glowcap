@@ -11,7 +11,7 @@ matches your language and runtime.
 
 [The Zig package, C ABI, and language bindings share one protocol implementation.]($image.siteAsset('diagram-surfaces.svg'))
 
-| API | You write | Reach for it when |
+| API | You write | Use it when |
 | --- | --- | --- |
 | [Zig package]($link.page('start')) | Zig | You own allocators and I/O, and you want the engine types in the same language. |
 | [C ABI](https://github.com/glowcap-org/glowcap/blob/main/docs/consuming-from-c.md) | C / any FFI | You are wrapping a language with no binding, or you already own the event loop and sockets. |
@@ -23,5 +23,6 @@ WebAssembly ([In the browser]($link.page('bindings/browser'))).
 
 # One engine
 
-Peers negotiate their CapTP version and codec ([Concepts]($link.page('concepts'))). The API you choose
-determines how your program supplies I/O and manages lifetimes.
+Every API runs the same protocol engine. Peers negotiate a CapTP version and
+codec ([Concepts]($link.page('concepts'))), while your API determines how
+your program supplies I/O and manages lifetimes.

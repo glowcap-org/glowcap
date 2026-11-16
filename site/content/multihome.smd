@@ -1,6 +1,6 @@
 ---
 .title = "Multi-home peers",
-.description = "One program reachable over several transports, under one durable name. The id locator names a peer by key and carries its routes as hints, so the routes can change without the peer changing.",
+.description = "Reach one peer over several transports. An id locator names its durable key and carries routes as hints.",
 .date = .date("2026-08-24T00:00:00"),
 .layout = "page.shtml",
 .draft = false,
@@ -20,11 +20,9 @@ This is a `glowcap-next` extension. OCapN does not define these wire names.
 
 # One peer, several routes
 
-An `id` locator puts the peer's durable public key in the designator. `id` is
-not a transport itself. It bundles routes, and each route is a real transport.
-Dialing it tries the routes in order. A route does not identify the peer. The
-peer is whoever proves, over the route's channel, that it holds the key the
-locator names.
+An `id` locator puts the peer's durable public key in the designator and
+bundles routes over actual transports. Dialing tries those routes in order.
+The channel must prove that the peer holds the key named by the locator.
 
 [Dialing one multi-home peer: the first route is down, so the dial moves on, and the next route's channel proves the key. The peer is whoever proves the key. The weak fallback can carry a signed gift, never the identity.]($image.siteAsset('diagram-multihome-dial.svg'))
 
@@ -62,10 +60,10 @@ locator cannot cause unbounded work or slip in a second identity.
 
 # What the other peer sees
 
-Routes are a negotiated feature called `multi_location`. glowcap offers it
-under its own `glowcap-next` version, and both sides must record it in their
-signed hellos (`op:start-session`, the message that opens a session) before
-either may use it. A first hello never includes it.
+Peers offer `multi_location` in the signed location hints of
+`op:start-session`, the message that opens a session. Both must offer it and
+agree on `glowcap-next` before using `id` locators. The first hello uses one
+concrete transport address because the peer's support is not yet known.
 
 The decision is made per session. One process can use routes with another
 glowcap host while its session with a
@@ -99,7 +97,7 @@ opted into `multi_location`, redemption works like this:
 
 The
 [multi-home route diagrams](https://github.com/glowcap-org/glowcap/blob/main/docs/protocol-diagrams/08-multihome-routes.md)
-draw each of these flows.
+show route selection, handoffs, and redemption.
 
 # Rooms uses it
 
