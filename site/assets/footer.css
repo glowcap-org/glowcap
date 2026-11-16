@@ -12,9 +12,7 @@
   color: var(--ink-soft);
 }
 
-/* The foot of every page. A reader who has finished a page is at a decision
-   point, so this offers the three directions the site actually goes rather than
-   a single line of legal text. */
+/* The brand sits before this grid so it does not keep empty columns alive. */
 .footer-cols {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 8rem), 1fr));
@@ -23,7 +21,7 @@
 }
 
 .footer-brand {
-  grid-column: 1 / -1;
+  margin-bottom: 1.5rem;
   display: flex;
   flex-direction: column;
   gap: 0.7rem;
