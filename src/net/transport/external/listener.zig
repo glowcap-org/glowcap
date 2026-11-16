@@ -7,6 +7,7 @@
 
 const std = @import("std");
 
+const foundation = @import("foundation");
 const model = @import("model");
 const completion = @import("../../completion/loop.zig");
 const netlayer = @import("../../netlayer.zig");
@@ -33,9 +34,25 @@ pub fn Machine(comptime Backend: type) type {
                         return err;
                     };
                 },
-                .failed => |err| return err,
+                .failed => |chain| {
+                    backend.refused_listen = chain;
+                    return chain.cause;
+                },
             }
             return Backend.listen_fd;
+        }
+
+        /// The provider's exact chain behind a failed listen. `fd` names the
+        /// listener whose setup failed, and null names the `openListener`
+        /// that just refused. Null when the failure was not the provider's.
+        pub fn failure(backend: *const Backend, fd: ?Fd) ?foundation.FailureChain {
+            const failed = fd orelse return backend.refused_listen;
+            if (failed != Backend.listen_fd) return null;
+            const row = backend.listener orelse return null;
+            return switch (row.phase) {
+                .failed => |chain| chain,
+                .starting, .listening => null,
+            };
         }
 
         /// Whether the served listener is still finishing its setup. A
@@ -60,14 +77,18 @@ pub fn Machine(comptime Backend: type) type {
             if (row.closing) return error.ListenerClosed;
             if (row.ready_ud != null) return error.AlreadyAccepting;
             try backend.ready.reserve(backend.allocator, 1);
-            if (row.phase == .listening) return backend.ready.appendReserved(.{ .user_data = user_data, .result = 0 });
-            row.ready_ud = user_data;
+            switch (row.phase) {
+                .starting => row.ready_ud = user_data,
+                .listening => backend.ready.appendReserved(.{ .user_data = user_data, .result = 0 }),
+                .failed => |chain| backend.ready.appendReserved(.{ .user_data = user_data, .result = -1, .failure = chain.cause }),
+            }
         }
 
         pub fn submitAccept(backend: *Backend, user_data: u64) !void {
             const row = &(backend.listener orelse return error.ListenerClosed);
             if (row.closing) return error.ListenerClosed;
             if (row.accept_ud != null) return error.AlreadyAccepting;
+            if (row.phase == .failed) return error.ListenerClosed;
             try backend.ready.reserve(backend.allocator, 1);
             errdefer backend.ready.release(1);
             if (row.phase == .listening and !row.poll) try armPoll(backend);
@@ -100,6 +121,7 @@ pub fn Machine(comptime Backend: type) type {
             return switch (row.phase) {
                 .listening => |listener| .{ row, listener },
                 .starting => error.ListenerPending,
+                .failed => error.ListenerClosed,
             };
         }
 
@@ -129,14 +151,16 @@ pub fn Machine(comptime Backend: type) type {
                             backend.ready.appendReserved(.{ .user_data = ud, .result = 0 });
                         }
                     },
-                    .failed => |err| {
-                        // The attempt is consumed, so the listener is gone;
-                        // whoever waits learns why.
-                        failSetup(backend, err);
-                        backend.listener = null;
+                    .failed => |chain| {
+                        // The attempt is consumed. The row keeps the seat
+                        // and the chain until the waiter closes it.
+                        failSetup(backend, chain.cause);
+                        row.phase = .{ .failed = chain };
                         return;
                     },
                 },
+                // Nothing arms a poll for a failed listener.
+                .failed => unreachable,
                 .listening => |listener| if (row.accept_ud) |ud| {
                     row.accept_ud = null;
                     switch (row.provider.vtable.accept.?(row.provider.ctx, listener)) {
@@ -208,6 +232,8 @@ pub fn Machine(comptime Backend: type) type {
             switch (row.phase) {
                 .starting => |attempt| row.provider.vtable.cancel_listen.?(row.provider.ctx, attempt),
                 .listening => |listener| row.provider.vtable.listener_close.?(row.provider.ctx, listener),
+                // The provider consumed the attempt when it refused.
+                .failed => {},
             }
             backend.listener = null;
             if (row.close_ud) |ud| backend.ready.appendReserved(.{ .user_data = ud, .result = 0 });

@@ -26,7 +26,7 @@ pub const Handle = struct {
     fd: i32,
 };
 
-/// A dial or listen that has started.
+/// A dial that has started.
 pub const Started = union(enum) {
     /// Finished at once.
     ready: Handle,
@@ -35,10 +35,26 @@ pub const Started = union(enum) {
     failed: anyerror,
 };
 
-/// A dial, listen, or accept that has finished.
+/// A dial or accept that has finished.
 pub const Finished = union(enum) {
     ready: Handle,
     failed: anyerror,
+};
+
+/// A listen that has started. A failure carries the provider's exact chain,
+/// because the listener's caller reports its cause by name.
+pub const ListenStarted = union(enum) {
+    /// Finished at once.
+    ready: Handle,
+    /// Call `finish_listen` once `fd` turns readable.
+    pending: Handle,
+    failed: foundation.FailureChain,
+};
+
+/// A listen that has finished.
+pub const ListenFinished = union(enum) {
+    ready: Handle,
+    failed: foundation.FailureChain,
 };
 
 /// Provider implementors are unknown at this declaration, so the listener
@@ -51,8 +67,8 @@ pub const VTable = struct {
     /// Null when the provider cannot listen. The listener verbs below are then
     /// null too. `identity` is the durable key of the Host the listener
     /// serves, which a key-designated profile publishes.
-    listen: ?*const fn (ctx: *anyopaque, designator: []const u8, identity: ?PeerKey) Started = null,
-    finish_listen: ?*const fn (ctx: *anyopaque, attempt: *anyopaque) Finished = null,
+    listen: ?*const fn (ctx: *anyopaque, designator: []const u8, identity: ?PeerKey) ListenStarted = null,
+    finish_listen: ?*const fn (ctx: *anyopaque, attempt: *anyopaque) ListenFinished = null,
     cancel_listen: ?*const fn (ctx: *anyopaque, attempt: *anyopaque) void = null,
     /// Called after the listener's descriptor turns readable.
     accept: ?*const fn (ctx: *anyopaque, listener: *anyopaque) Finished = null,

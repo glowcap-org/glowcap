@@ -3,6 +3,7 @@
 //! connection row with its armed polls, the provider listener row, and the
 //! dial, listen, and address unions.
 
+const foundation = @import("foundation");
 const model = @import("model");
 const completion = @import("../../completion/loop.zig");
 const provider_mod = @import("provider.zig");
@@ -56,7 +57,10 @@ pub fn Types(comptime Platform: type, comptime Namespace: type) type {
 
         pub const ListenerRow = struct {
             provider: *const Provider,
-            phase: union(enum) { starting: *anyopaque, listening: *anyopaque },
+            /// A finish the provider refused keeps its exact chain here. The
+            /// row holds the listener seat until its caller closes it, so the
+            /// chain cannot describe another listener.
+            phase: union(enum) { starting: *anyopaque, listening: *anyopaque, failed: foundation.FailureChain },
             fd: i32,
             accept_ud: ?u64 = null,
             /// Waiting for a starting listener to finish its setup.

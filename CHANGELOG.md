@@ -169,6 +169,10 @@ Releases before 0.1.7 are in the
 
 ### Fixed
 
+- A stream provider's failed listen reaches the driver's listener-failed
+  event under the provider's own cause name. A TCP listen on a busy port
+  reports `AddressInUse`. It reported `ProviderIo`, so a Rooms server never
+  said that its address was already in use.
 - A Rust Host with a Loam attachment answers a fetch of a durable name
   that arrived before `Session::serve`. The lookup was never started, so
   the fetch stayed unanswered until the caller gave up.

@@ -118,7 +118,7 @@ pub const StreamProvider = struct {
         self.released(self.table.cancel_connect.?(attempt, &report), report, "stream connect cancel");
     }
 
-    fn listen(ctx: *anyopaque, designator: []const u8, identity: ?crypto.PeerKey) external.Started {
+    fn listen(ctx: *anyopaque, designator: []const u8, identity: ?crypto.PeerKey) external.ListenStarted {
         const self = of(ctx);
         var identity_storage: [crypto.PeerKey.designator_len]u8 = undefined;
         const identity_designator: []const u8 = if (identity) |key| blk: {
@@ -140,39 +140,39 @@ pub const StreamProvider = struct {
         if (code != GLOWCAP_OK) {
             if (!validation.listenResultUntouched(result))
                 self.sink.violation(self.sink.ctx, "stream listen published outputs on failure");
-            return .{ .failed = self.cause(code, report, "stream listen") };
+            return .{ .failed = self.chainOf(code, report, "stream listen") };
         }
         switch (result.state) {
             shared.GLOWCAP_LISTEN_READY => {
                 const listener = self.checkedHandle(report, result.listener, null, "stream listen") orelse
-                    return .{ .failed = error.ProviderContract };
-                return .{ .ready = self.listening(listener.ptr) orelse return .{ .failed = error.ProviderContract } };
+                    return .{ .failed = .init(error.ProviderContract) };
+                return .{ .ready = self.listening(listener.ptr) orelse return .{ .failed = .init(error.ProviderContract) } };
             },
             shared.GLOWCAP_LISTEN_PENDING => {
                 if (self.table.finish_listen == null) {
                     self.sink.violation(self.sink.ctx, "stream listen returned PENDING without a completion pair");
-                    return .{ .failed = error.ProviderContract };
+                    return .{ .failed = .init(error.ProviderContract) };
                 }
                 const attempt = self.checkedHandle(report, result.attempt, result.readiness_fd, "stream listen") orelse
-                    return .{ .failed = error.ProviderContract };
+                    return .{ .failed = .init(error.ProviderContract) };
                 return .{ .pending = attempt };
             },
             else => {
                 self.sink.violation(self.sink.ctx, "stream listen returned an unknown state");
-                return .{ .failed = error.ProviderContract };
+                return .{ .failed = .init(error.ProviderContract) };
             },
         }
     }
 
-    fn finishListen(ctx: *anyopaque, attempt: *anyopaque) external.Finished {
+    fn finishListen(ctx: *anyopaque, attempt: *anyopaque) external.ListenFinished {
         const self = of(ctx);
         var listener: ?*anyopaque = null;
         var report = shared.transport_provider.emptyProviderFailure();
         const code = self.table.finish_listen.?(attempt, &listener, &report);
-        if (code != GLOWCAP_OK) return .{ .failed = self.cause(code, report, "stream listen finish") };
+        if (code != GLOWCAP_OK) return .{ .failed = self.chainOf(code, report, "stream listen finish") };
         const handle = self.checkedHandle(report, listener, null, "stream listen finish") orelse
-            return .{ .failed = error.ProviderContract };
-        return .{ .ready = self.listening(handle.ptr) orelse return .{ .failed = error.ProviderContract } };
+            return .{ .failed = .init(error.ProviderContract) };
+        return .{ .ready = self.listening(handle.ptr) orelse return .{ .failed = .init(error.ProviderContract) } };
     }
 
     fn cancelListen(ctx: *anyopaque, attempt: *anyopaque) void {
@@ -187,7 +187,7 @@ pub const StreamProvider = struct {
         var fd: i32 = -1;
         var report = shared.transport_provider.emptyProviderFailure();
         const code = self.table.accept.?(self.table.ctx, listener, &conn, &fd, &report);
-        if (code != GLOWCAP_OK) return .{ .failed = self.cause(code, report, "stream accept") };
+        if (code != GLOWCAP_OK) return .{ .failed = self.chainOf(code, report, "stream accept").cause };
         const handle = self.checkedHandle(report, conn, fd, "stream accept") orelse {
             if (conn) |orphan| connClose(ctx, orphan);
             return .{ .failed = error.ProviderContract };
@@ -328,17 +328,18 @@ pub const StreamProvider = struct {
         return null;
     }
 
-    fn cause(
+    /// A provider verb's exact failure chain. A report outside the structured
+    /// failure contract is a violation and reads as `ProviderContract`.
+    fn chainOf(
         self: *StreamProvider,
         code: i32,
         report: shared.GlowcapProviderFailure,
         comptime what: []const u8,
-    ) anyerror {
-        const chain = owner_mod.failureChainFromProvider(code, report) catch {
+    ) foundation.FailureChain {
+        return owner_mod.failureChainFromProvider(code, report) catch {
             self.sink.violation(self.sink.ctx, what ++ " returned an invalid structured failure");
-            return error.ProviderContract;
+            return .init(error.ProviderContract);
         };
-        return chain.cause;
     }
 
     /// A dial verb's failure reaches the completion resident as one scalar
