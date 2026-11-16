@@ -161,16 +161,22 @@ if [[ ${run_locally} == true ]]; then
 fi
 
 # A service's lifetime belongs to the terminal that launched it. Agent runners
-# must request a PTY explicitly. Without one, interrupting the Docker client
-# disconnects it and leaves the service tree running in the container.
+# must request a PTY explicitly. Without one nobody can press Ctrl-C, and a
+# runner that kills this front outright leaves the service tree running in the
+# container.
 if [[ ${service_build:-false} == true && ! -t 0 ]]; then
     echo "glowcap-dev: a host-side service build requires a terminal so Ctrl-C reaches its container process tree" >&2
     exit 2
 fi
 
+# With a terminal, docker exec makes the command the foreground process group
+# of the container's terminal, where Ctrl-C reaches it. Without one, setsid
+# gives the command a group of its own.
 tty_args=(-i)
+own_group=(setsid --wait)
 if [[ -t 0 ]]; then
     tty_args=(-it)
+    own_group=()
 fi
 
 # The lease runs inside the container, so a caller's choice to wait for it
@@ -185,34 +191,47 @@ done
 
 exec_args=("${tty_args[@]}" ${env_args[@]+"${env_args[@]}"} --user "$user" --workdir "$workdir" "$container_id")
 
-# A terminal carries Ctrl-C to the container process tree itself.
-if [[ -t 0 ]]; then
-    exec docker exec "${exec_args[@]}" "$@"
-fi
-
-# Without a terminal, docker exec does not forward signals: stopping this
-# front would leave the build running in the container, holding the lease. Run
-# the command in its own container process group, record the group, and signal
-# that group when this front is stopped.
+# docker exec forwards no signal, and its command outlives the client: stopping
+# this front or closing its terminal would leave the command running in the
+# container, holding its lease or its ports. Record the command's container
+# process group and signal that group when this front is stopped. The recording
+# shell traps Ctrl-C so it outlives the command and removes its record. A stop
+# removes the record itself.
 group_file="/tmp/glowcap-dev-front-$$-${RANDOM}.pgid"
-# shellcheck disable=SC2016 # expanded by the container shell
-docker exec "${exec_args[@]}" setsid --wait sh -c \
-    'echo "$$" > "$0"; "$@"; status=$?; rm -f "$0"; exit "$status"' "$group_file" "$@" <&0 &
-client=$!
+client=""
 
 # shellcheck disable=SC2317 # Signal traps invoke this while finish_client waits.
 stop_group() {
     trap - TERM INT HUP
-    # The group may already be gone; the client's exit status still reports it.
+    # A stop can arrive before the command records its group. Ask again while
+    # the client that starts the command lives, for a shorter time once that
+    # client is gone, and never without end.
+    local asks=300 grace=20
     # shellcheck disable=SC2016 # expanded by the container shell
-    docker exec "$container_id" sh -c \
-        'group=$(cat "$0" 2>/dev/null) && kill -TERM "-$group"; rm -f "$0"' "$group_file" || true
-    wait "$client"
+    until docker exec "$container_id" sh -c \
+        'group=$(cat "$0" 2>/dev/null) && [ -n "$group" ] || exit 1; kill -TERM "-$group"; rm -f "$0"' "$group_file"; do
+        asks=$((asks - 1))
+        if [[ -z ${client} ]] || ! kill -0 "$client" 2>/dev/null; then
+            grace=$((grace - 1))
+        fi
+        [[ ${asks} -gt 0 && ${grace} -gt 0 ]] || break
+        sleep 0.1
+    done
+    # The client ends with a status of its own; this front reports the signal.
+    if [[ -n ${client} ]]; then
+        wait "$client" || true
+    fi
     exit "$1"
 }
 trap 'stop_group 143' TERM
 trap 'stop_group 130' INT
 trap 'stop_group 129' HUP
+
+# shellcheck disable=SC2016 # expanded by the container shell
+docker exec "${exec_args[@]}" ${own_group[@]+"${own_group[@]}"} sh -c \
+    'trap : INT; echo "$$" > "$0"; "$@"; status=$?; rm -f "$0"; exit "$status"' "$group_file" "$@" <&0 &
+client=$!
+
 finish_client() {
     # Bash parses the complete function before waiting. Checkout edits cannot
     # change a later read offset or replace the actual child status on return.

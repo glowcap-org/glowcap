@@ -42,7 +42,7 @@ printf '%s\n' \
     'if [[ "$1" == ps ]]; then printf "abc123\\n"; exit 0; fi' \
     'if [[ "$*" == "exec abc123 uname -m" ]]; then printf "%s\\n" "${FAKE_CONTAINER_ARCH:-$(uname -m)}"; exit 0; fi' \
     'if [[ "$*" == *"kill -TERM"* && -n "${FAKE_DOCKER_LOG:-}" ]]; then printf "%s\\n" "$*" >> "${FAKE_DOCKER_LOG}"; kill "$(cat "${FAKE_DOCKER_LOG}.client")"; exit 0; fi' \
-    'if [[ "$*" == *setsid* && -n "${FAKE_DOCKER_HANG:-}" ]]; then echo "$$" > "${FAKE_DOCKER_LOG}.client"; exec sleep 30; fi' \
+    'if [[ ( "$*" == *setsid* || "$*" == "exec -it "* ) && -n "${FAKE_DOCKER_HANG:-}" ]]; then echo "$$" > "${FAKE_DOCKER_LOG}.client"; exec sleep 30; fi' \
     'if [[ "$*" == *setsid* && -n "${FAKE_DOCKER_READY:-}" ]]; then touch "$FAKE_DOCKER_READY"; for _ in {1..200}; do [[ -f "$FAKE_DOCKER_READY.release" ]] && break; sleep 0.01; done; [[ -f "$FAKE_DOCKER_READY.release" ]] || exit 37; fi' \
     'printf "%s\\n" "$*"' > "${scratch}/bin/docker"
 # shellcheck disable=SC2016
@@ -131,6 +131,37 @@ front_status=0
 wait "${front_pid}" || front_status=$?
 [[ ${front_status} -eq 143 ]]
 grep -F "kill -TERM" "${docker_log}" >/dev/null
+
+# Closing a service's terminal stops its container process group too.
+terminal_log="${scratch}/docker-terminal-log"
+PATH="${scratch}/bin:${PATH}" GLOWCAP_DEV_CONTAINER=test-container FAKE_DOCKER_HANG=1 FAKE_DOCKER_LOG="${terminal_log}" \
+    python3 - "${front}" "${terminal_log}.client" <<'PY'
+import os, pty, signal, sys, time
+
+front, client = sys.argv[1], sys.argv[2]
+child, terminal = pty.fork()
+if child == 0:
+    os.chdir("/")
+    os.execv(front, [front, "zig", "build", "rooms-dev"])
+deadline = time.monotonic() + 10
+while not os.path.exists(client):
+    if time.monotonic() > deadline:
+        sys.exit("test/build-front: a service front with a terminal never reached its container command")
+    time.sleep(0.05)
+os.close(terminal)
+deadline = time.monotonic() + 10
+while True:
+    ended, status = os.waitpid(child, os.WNOHANG)
+    if ended:
+        break
+    if time.monotonic() > deadline:
+        os.kill(child, signal.SIGKILL)
+        sys.exit("test/build-front: a service front whose terminal closed kept running")
+    time.sleep(0.05)
+if not os.WIFEXITED(status) or os.WEXITSTATUS(status) != 129:
+    sys.exit(f"test/build-front: a service front whose terminal closed ended with wait status {status}")
+PY
+grep -F "kill -TERM" "${terminal_log}" >/dev/null
 
 build_exec="$(cd / && PATH="${scratch}/bin:${PATH}" GLOWCAP_DEV_CONTAINER=test-container "${front}" zig build test)"
 [[ "${build_exec}" == *"/workspaces/glowcap/.devcontainer/bin/build-lease zig build --test-timeout 30s test"* ]]
