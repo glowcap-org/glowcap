@@ -61,7 +61,6 @@ fn Walk(comptime Meter: type) type {
         /// container included, so a borrowed tree and an owned tree refuse at
         /// the same depth.
         fn items(self: *Self, args: model.view.Args, depth: usize) FreightError!void {
-            if (depth > self.session.limits.max_nesting_depth) return error.NestingTooDeep;
             // A run may come from a Host caller as well as a bounded wire frame.
             if (args.wordRun()) |run| {
                 // A run whose charge saturates is refused before a word is read.
@@ -92,9 +91,9 @@ fn Walk(comptime Meter: type) type {
                 // caller that vouched for a tree it did not scan, refused before
                 // any authority is touched.
                 .reference, .handoff => return error.MalformedMessage,
-                .list => |list| try self.items(list, depth + 1),
+                .list => |list| try self.items(list, try passable.itemsDepth(depth)),
                 .set => |set| {
-                    try self.items(set, depth + 1);
+                    try self.items(set, try passable.itemsDepth(depth));
                     // A duplicate refuses here, pre-commit, as the owned path's
                     // fold does after shortening (`passable.certifySent`).
                     // Nothing in freight is shortened, so the fold runs on the
@@ -104,10 +103,10 @@ fn Walk(comptime Meter: type) type {
                 },
                 .tagged => |tagged| {
                     self.bytes +|= tagged.tag.len;
-                    try self.items(tagged.value, depth + 1);
+                    try self.items(tagged.value, try passable.itemsDepth(depth));
                 },
                 .@"struct" => |entries| {
-                    if (depth + 1 > self.session.limits.max_nesting_depth) return error.NestingTooDeep;
+                    const items_depth = try passable.itemsDepth(depth);
                     const count = try entries.len();
                     var visited: usize = 0;
                     var it = entries.iterator();
@@ -116,7 +115,7 @@ fn Walk(comptime Meter: type) type {
                         visited += 1;
                         self.bytes +|= @sizeOf(model.StructEntry) +| entry.key.len;
                         self.wire +|= Meter.key(entry.key);
-                        try self.argument(&entry.value, depth + 1);
+                        try self.argument(&entry.value, items_depth);
                     }
                     if (visited != count) return error.MalformedView;
                     try passable.checkSentStructKeyUniqueness(self.session.allocator, entries);

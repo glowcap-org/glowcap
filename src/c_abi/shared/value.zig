@@ -205,12 +205,14 @@ pub fn sliceFromC(ptr: ?[*]const u8, len: usize) error{NullPointer}![]const u8 {
     return itemsFromC(u8, ptr, len);
 }
 
-/// Depth bound on a host-supplied argument tree. A foreign caller could nest
-/// `GlowcapArgument` lists/sets/tagged values arbitrarily deep and overflow the
-/// Zig stack inside `argumentFromCWith`, exactly as an untrusted wire frame could in
-/// the codec. Derived from the session's default `max_nesting_depth`, so the
-/// marshal boundary and the codec refuse at the same depth by construction.
-pub const max_marshal_depth: usize = (engine.SessionLimits{}).max_nesting_depth;
+/// The depth of the items of a container at `depth`. A foreign caller could
+/// nest `GlowcapArgument` lists, sets and tagged values arbitrarily deep and
+/// overflow the Zig stack inside `argumentFromCWith`, so the marshal refuses at
+/// the model's ceiling (`model.mayHoldItems`), where the session does.
+inline fn itemsDepth(depth: usize) MarshalError!usize {
+    if (!model.mayHoldItems(depth)) return error.UnsupportedValue;
+    return depth + 1;
+}
 
 /// One recursive C-value decoder parameterized only by the reference leaf.
 /// The Host supplies opaque-id lift/lower policy without cloning the
@@ -244,8 +246,6 @@ fn valueFromCImpl(
     depth: usize,
     comptime own_bytes: bool,
 ) (MarshalError || RefError)!Output {
-    if (depth > max_marshal_depth) return error.UnsupportedValue;
-    const next = depth + 1;
     return switch (c_arg.kind) {
         GLOWCAP_ARG_INTEGER => .{ .integer = c_arg.integer },
         GLOWCAP_ARG_FLOAT64 => .{ .float64 = c_arg.float64 },
@@ -259,11 +259,11 @@ fn valueFromCImpl(
             .reference => .{ .reference = try ref_from_c(ref_ctx, c_arg.reference) },
             .capability => .{ .capability = try ref_from_c(ref_ctx, c_arg.reference) },
         },
-        GLOWCAP_ARG_LIST => .{ .list = try valuesFromCImpl(Output, reference_field, RefError, ref_ctx, ref_from_c, arena, c_arg.items, c_arg.items_len, next, own_bytes) },
-        GLOWCAP_ARG_SET => .{ .set = try valuesFromCImpl(Output, reference_field, RefError, ref_ctx, ref_from_c, arena, c_arg.items, c_arg.items_len, next, own_bytes) },
+        GLOWCAP_ARG_LIST => .{ .list = try valuesFromCImpl(Output, reference_field, RefError, ref_ctx, ref_from_c, arena, c_arg.items, c_arg.items_len, try itemsDepth(depth), own_bytes) },
+        GLOWCAP_ARG_SET => .{ .set = try valuesFromCImpl(Output, reference_field, RefError, ref_ctx, ref_from_c, arena, c_arg.items, c_arg.items_len, try itemsDepth(depth), own_bytes) },
         GLOWCAP_ARG_TAGGED => .{ .tagged = .{
             .tag = try leafFromC(arena, c_arg, own_bytes),
-            .value = try valuesFromCImpl(Output, reference_field, RefError, ref_ctx, ref_from_c, arena, c_arg.items, c_arg.items_len, next, own_bytes),
+            .value = try valuesFromCImpl(Output, reference_field, RefError, ref_ctx, ref_from_c, arena, c_arg.items, c_arg.items_len, try itemsDepth(depth), own_bytes),
         } },
         GLOWCAP_ARG_KEYWORD => .{ .keyword = try leafFromC(arena, c_arg, own_bytes) },
         GLOWCAP_ARG_BIG_INTEGER => blk: {
@@ -277,7 +277,7 @@ fn valueFromCImpl(
             break :blk .{ .big_integer = big };
         },
         GLOWCAP_ARG_INTEGERS => blk: {
-            if (c_arg.bytes_len != 0 and depth == max_marshal_depth) return error.UnsupportedValue;
+            _ = try itemsDepth(depth);
             const words = try integersFromC(arena, c_arg, own_bytes and @hasField(Output, "integers"));
             if (comptime @hasField(Output, "integers")) break :blk .{ .integers = words };
             // The model has no run arm: the words become the list they mean.
@@ -294,7 +294,7 @@ fn valueFromCImpl(
             arena,
             c_arg.items,
             c_arg.items_len,
-            next,
+            try itemsDepth(depth),
             own_bytes,
         ) },
         else => error.UnsupportedValue,

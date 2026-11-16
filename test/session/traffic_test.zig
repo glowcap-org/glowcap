@@ -217,7 +217,7 @@ test "inbound deliver reusing a live answer position is UnexpectedMessage" {
     try std.testing.expectError(session.Error.UnexpectedMessage, s.recordRecv(replay));
 }
 
-test "inbound deliver nested past max_nesting_depth fails closed" {
+test "inbound deliver nested far past the ceiling fails closed" {
     const allocator = std.testing.allocator;
     var s = session.Session.init(allocator);
     defer s.deinit();
@@ -229,7 +229,7 @@ test "inbound deliver nested past max_nesting_depth fails closed" {
     defer arena.deinit();
     const a = arena.allocator();
 
-    const cap = (session.SessionLimits{}).max_nesting_depth;
+    const cap = model.max_value_depth;
     var node = try a.alloc(model.Argument, 1);
     node[0] = .{ .integer = 1 };
     var level: usize = 0;
@@ -423,75 +423,6 @@ test "a reference inside a Struct argument crosses every session walk" {
         try s.recordRecvView(model.view.Body.fromOwned(&message));
         try std.testing.expect(s.hasImport(.from(9)));
     }
-}
-
-test "send-side deliver nested past max_nesting_depth is refused before any export retain" {
-    const allocator = std.testing.allocator;
-    var s = session.Session.initWith(allocator, .{
-        .captp_version = model.CaptpVersion.next,
-        .limits = .{ .max_nesting_depth = 1 },
-    });
-    defer s.deinit();
-    try s.registerImport(.from(2));
-    try s.registerExport(.from(1));
-    const before = s.exportRefcount(.from(1));
-
-    // args = [ near(1), list(list([])) ]. The walk validates the shallow near
-    // first (which apply would retain), then the over-deep list. Deciding
-    // `NestingTooDeep` in validate, before apply mutates, keeps the retain
-    // walk all-or-nothing: export 1's refcount must be untouched.
-    const too_deep = model.Message{ .deliver = .{
-        .target = .{ .far = model.FarRef.object(2) },
-        .args = &.{
-            .{ .reference = .{ .near = .{ .export_position = .from(1) } } },
-            .{ .list = &.{.{ .list = &.{} }} },
-        },
-        .answer = null,
-    } };
-    try std.testing.expectError(session.Error.NestingTooDeep, s.recordSend(too_deep));
-    try std.testing.expectEqual(before, s.exportRefcount(.from(1)));
-}
-
-test "send-side resolve fulfill nested past max_nesting_depth is refused before any export retain" {
-    const allocator = std.testing.allocator;
-    var s = session.Session.initWith(allocator, .{
-        .captp_version = model.CaptpVersion.next,
-        .limits = .{ .max_nesting_depth = 1 },
-    });
-    defer s.deinit();
-    try s.registerExport(.from(1));
-    const before = s.exportRefcount(.from(1));
-
-    // A partner asks a question, giving us a pending inbound answer to resolve.
-    try s.recordRecv(.{ .deliver = .{
-        .target = .{ .near = .{ .export_position = .from(1) } },
-        .args = &.{},
-        .answer = .from(11),
-        .resolve_me_desc = .{ .far = model.FarRef.object(0) },
-    } });
-
-    // We resolve it with fulfill = list([ near(1), list(list([])) ]). The retain
-    // walk would descend the list, retain the shallow near (export 1), then hit
-    // the over-deep sublist and trip NestingTooDeep, mid-mutation. Deciding the
-    // depth in validate, before apply retains, keeps it all-or-nothing: export
-    // 1's refcount must be untouched. This is the resolve twin of the deliver
-    // depth guard; the fix that closed the deliver path had left this one open.
-    // The payload is heap-built with the session allocator: `recordSend`
-    // consumes a resolve's resolution (moved into the store on success, freed
-    // on refusal), so a comptime literal would be freed as if it were heap.
-    const inner_empty = try allocator.alloc(model.Argument, 0);
-    const inner = try allocator.alloc(model.Argument, 1);
-    inner[0] = .{ .list = inner_empty };
-    const top = try allocator.alloc(model.Argument, 2);
-    top[0] = .{ .reference = .{ .near = .{ .export_position = .from(1) } } };
-    top[1] = .{ .list = inner };
-    const too_deep = model.Message{ .resolve = .{
-        .answer = .from(11),
-        .resolution = .{ .fulfill = .{ .list = top } },
-    } };
-    // recordSend frees the resolution on this refusal; the test does not.
-    try std.testing.expectError(session.Error.NestingTooDeep, s.recordSend(too_deep));
-    try std.testing.expectEqual(before, s.exportRefcount(.from(1)));
 }
 
 test "session rejects unknown references at authority boundary" {

@@ -62,6 +62,7 @@ comptime {
         _ = @import("loam/access/sharing_test.zig");
         _ = @import("loam/access/tree_hosted_test.zig");
         _ = @import("loam/access/mutation_test.zig");
+        _ = @import("loam/access/mutation_depth_test.zig");
         _ = @import("loam/access/management_test.zig");
         _ = @import("loam/access/value_record_test.zig");
         _ = @import("loam/access/resource_lifecycle_test.zig");
@@ -268,6 +269,8 @@ comptime {
         _ = @import("driver/served_byte_fed_test.zig");
         _ = @import("driver/host_runtime_handoff_test.zig");
         _ = @import("driver/core_host/close_test.zig");
+        _ = @import("driver/core_host/depth_boundary_test.zig");
+        _ = @import("driver/core_host/local_depth_boundary_test.zig");
         _ = @import("driver/core_host/finish_test.zig");
         _ = @import("driver/core_host/pressure_test.zig");
         _ = @import("driver/core_host/stream_tail_test.zig");
@@ -424,6 +427,7 @@ comptime {
         _ = @import("session/fuzz_test.zig");
         _ = @import("session/lifecycle_test.zig");
         _ = @import("session/traffic_test.zig");
+        _ = @import("session/depth_boundary_test.zig");
         _ = @import("session/set_uniqueness_test.zig");
         _ = @import("session/answer_test.zig");
         _ = @import("session/answer_notification_test.zig");
@@ -448,6 +452,7 @@ comptime {
     }
     if (wanted(.actors)) {
         _ = @import("actors/break_cause_test.zig");
+        _ = @import("actors/depth_boundary_test.zig");
         _ = @import("actors/fuzz_test.zig");
         _ = @import("actors/vat/turn_test.zig");
         _ = @import("actors/vat/turn_commit_test.zig");
@@ -494,6 +499,8 @@ comptime {
         _ = @import("c_abi/host/callback_test.zig");
         _ = @import("c_abi/host/last_error_cause_test.zig");
         _ = @import("c_abi/host/capability_free_deliver_test.zig");
+        _ = @import("c_abi/host/depth_boundary_test.zig");
+        _ = @import("c_abi/host/settled_depth_test.zig");
         _ = @import("c_abi/host/reply_lend_test.zig");
         _ = @import("c_abi/last_error_test.zig");
         _ = @import("c_abi/failure_diagnostics_test.zig");

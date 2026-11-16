@@ -7,6 +7,7 @@ const glowcap = @import("glowcap");
 const model = glowcap.ocapn.model;
 const session = glowcap.ocapn.session;
 const NoMeter = session.inventory.NoMeter;
+const shapes = @import("../support/depth_shapes.zig");
 
 const near = struct {
     fn ref(position: u64) model.Argument {
@@ -63,20 +64,19 @@ test "an inventory lists references, handoffs, and sets in tree order" {
     try std.testing.expect(root_only.slots[0] == .root);
 }
 
-test "an inventory refuses nesting past the limit, an empty container included" {
+test "an inventory refuses nesting past the ceiling, an empty container included" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
     var s = session.Session.init(std.testing.allocator);
     defer s.deinit();
-    s.limits.max_nesting_depth = 2;
-    var empty = [_]model.Argument{};
-    var inner = [_]model.Argument{.{ .list = &empty }};
-    var outer = [_]model.Argument{.{ .list = &inner }};
-    var deeper = [_]model.Argument{.{ .list = &outer }};
-
-    // Two containers deep fits, and the third refuses even though it is empty.
-    const fits = try s.inventoryArguments(&outer, NoMeter);
-    defer fits.deinit(std.testing.allocator);
-    try std.testing.expectError(session.Error.NestingTooDeep, s.inventoryArguments(&deeper, NoMeter));
-    try std.testing.expectError(session.Error.NestingTooDeep, s.inventoryResolution(.{ .fulfill = .{ .list = &outer } }, NoMeter));
+    // A chain of lists ending in an empty list: the last container sits at
+    // depth `containers - 1` and the empty one's items would sit at `containers`.
+    const fits = try shapes.ownedArgs(arena.allocator(), model.max_value_depth - 1, .empty_list);
+    const fits_inventory = try s.inventoryArguments(fits, NoMeter);
+    defer fits_inventory.deinit(std.testing.allocator);
+    const deeper = try shapes.ownedArgs(arena.allocator(), model.max_value_depth, .empty_list);
+    try std.testing.expectError(session.Error.NestingTooDeep, s.inventoryArguments(deeper, NoMeter));
+    try std.testing.expectError(session.Error.NestingTooDeep, s.inventoryResolution(.{ .fulfill = deeper[0] }, NoMeter));
 }
 
 test "an inventory refuses a duplicate struct key" {

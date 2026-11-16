@@ -12,6 +12,7 @@ const glowcap = @import("glowcap");
 const h = @import("harness.zig");
 const behaviors = @import("behaviors.zig");
 const fixtures = @import("../../support/view_fixtures.zig");
+const depth_support = @import("../../support/depth_shapes.zig");
 const shared = @import("c_abi_shared");
 const FailingOnce = @import("../../support/failing_once.zig").FailingOnce;
 
@@ -170,7 +171,7 @@ fn countNodes(args: []const Arg) usize {
 
 /// One client and one server host over a wired pair, with a tap published on
 /// the server and fetched by the client.
-const Rig = struct {
+pub const Rig = struct {
     hosts: [2]?*cd.GlowcapHost = undefined,
     dials: h.Dials = .{},
     watches: h.Watches = .{},
@@ -180,13 +181,12 @@ const Rig = struct {
     tap: *Tap = undefined,
     probe: Probe = .{},
 
-    fn open(self: *Rig, codec: u32, seed: u8, designator: []const u8, mode: Mode, nesting_limit: ?usize) !void {
+    pub fn open(self: *Rig, codec: u32, seed: u8, designator: []const u8, mode: Mode) !void {
         self.* = .{};
         const dialer = try h.newHostWith(seed, codec);
         const acceptor = try h.newHostWith(seed + 1, codec);
         self.hosts = .{ dialer, acceptor };
         self.probe = .{ .host = acceptor, .keep = .init(std.testing.allocator) };
-        if (nesting_limit) |limit| try cd.testing.setNestingLimit(acceptor, limit);
         self.pair = try h.openPair(&self.hosts, dialer, acceptor, designator, &self.dials, &self.watches);
         const bridge = try cd.testing.hostedBridge(std.testing.allocator, probeBehavior, &self.probe, null);
         self.tap = std.testing.allocator.create(Tap) catch |err| {
@@ -204,16 +204,16 @@ const Rig = struct {
         self.target = try fetched.requireRef();
     }
 
-    fn deinit(self: *Rig) void {
+    pub fn deinit(self: *Rig) void {
         for (self.hosts) |host| _ = cd.glowcap_host_release(host);
         self.probe.keep.deinit();
     }
 
-    fn client(self: *Rig) ?*cd.GlowcapHost {
+    pub fn client(self: *Rig) ?*cd.GlowcapHost {
         return self.hosts[0];
     }
 
-    fn server(self: *Rig) ?*cd.GlowcapHost {
+    pub fn server(self: *Rig) ?*cd.GlowcapHost {
         return self.hosts[1];
     }
 
@@ -239,7 +239,7 @@ fn expectFulfilled(settled: h.CapturedSettle) !void {
     try std.testing.expectEqual(.fulfilled, settled.kind);
 }
 
-fn listOf(arena: std.mem.Allocator, kind: u32, items: []const Arg) !Arg {
+pub fn listOf(arena: std.mem.Allocator, kind: u32, items: []const Arg) !Arg {
     var arg = argBase();
     arg.kind = kind;
     if (items.len > 0) {
@@ -284,7 +284,7 @@ test "a capability-free deliver grows the turn arena by the C argument spine onl
         defer arena_state.deinit();
         const arena = arena_state.allocator();
         var rig: Rig = undefined;
-        try rig.open(codec, 0x40, "127.0.0.1:7981", .forward, null);
+        try rig.open(codec, 0x40, "127.0.0.1:7981", .forward);
         defer rig.deinit();
         const shape = try spineShape(arena, argStr("last"));
 
@@ -377,7 +377,7 @@ test "the callback receives the lifted projection's tree for every kind under bo
         var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
         defer arena_state.deinit();
         var rig: Rig = undefined;
-        try rig.open(codec, 0x44, "127.0.0.1:7982", .forward, null);
+        try rig.open(codec, 0x44, "127.0.0.1:7982", .forward);
         defer rig.deinit();
         rig.tap.lift_copy = true;
         const args = try everyKind(arena_state.allocator());
@@ -400,15 +400,14 @@ test "the views projection admits exactly the depth the lift admits, and only th
     var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
-    // The innermost argument decides where the lift's two thresholds meet: a
-    // leaf and an empty struct sit at the node's depth, an empty list one
-    // level past it.
+    // One rule decides every innermost argument: a leaf may sit at the
+    // ceiling and a container, empty or not, may not.
     const innermosts = [_]model.Argument{ .{ .void = {} }, .{ .list = &.{} }, .{ .@"struct" = &.{} } };
     for (innermosts) |innermost| {
         for (model.max_value_depth - 2..model.max_value_depth + 3) |containers| {
             // A fresh rig per case: a refused lift condemns its session.
             var rig: Rig = undefined;
-            try rig.open(c.GLOWCAP_CODEC_SYRUP, 0x48, "127.0.0.1:7983", .forward, null);
+            try rig.open(c.GLOWCAP_CODEC_SYRUP, 0x48, "127.0.0.1:7983", .forward);
             defer rig.deinit();
             const nested = try fixtures.Nested.build(arena, containers, innermost);
             const viewed = shared.viewsToC(arena, nested.args());
@@ -427,6 +426,35 @@ test "the views projection admits exactly the depth the lift admits, and only th
     }
 }
 
+test "run-backed views take the same depth as the lift, and the run is the backing the walks read" {
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    for ([_]depth_support.Shape{ .empty_run, .run }) |shape| {
+        for (depth_support.sweep) |depth| {
+            var rig: Rig = undefined;
+            try rig.open(c.GLOWCAP_CODEC_SYRUP, 0x49, "127.0.0.1:7984", .forward);
+            defer rig.deinit();
+            const args = try depth_support.viewArgs(arena, depth, shape);
+            // The innermost list is a word run, not a list of views.
+            var innermost = try args.at(0);
+            for (0..depth) |_| innermost = try innermost.list.at(0);
+            try std.testing.expect(innermost.list.wordRun() != null);
+            const viewed = shared.viewsToC(arena, args);
+            const lifted = cd.testing.projectLifted(rig.server(), rig.pair.b, arena, args);
+            if (depth_support.admitted(shape, depth)) {
+                var nodes: usize = 0;
+                try expectSameList(try viewed, try lifted, true, &nodes);
+                try std.testing.expectEqual(@as(c_int, 1), cd.glowcap_host_session_is_open(rig.pair.b));
+            } else {
+                try std.testing.expectError(error.NestingTooDeep, viewed);
+                try std.testing.expectError(error.NestingTooDeep, lifted);
+                try std.testing.expectEqual(@as(c_int, 0), cd.glowcap_host_session_is_open(rig.pair.b));
+            }
+        }
+    }
+}
+
 test "a view whose count and cursor disagree refuses the lift with MalformedView and leaves the session open" {
     // The views projection takes no session, so its refusals are tested with
     // the walk in `views_to_c_test.zig`. The lift has a session to leave open.
@@ -434,42 +462,13 @@ test "a view whose count and cursor disagree refuses the lift with MalformedView
     defer arena_state.deinit();
     const arena = arena_state.allocator();
     var rig: Rig = undefined;
-    try rig.open(c.GLOWCAP_CODEC_SYRUP, 0x4c, "127.0.0.1:7984", .forward, null);
+    try rig.open(c.GLOWCAP_CODEC_SYRUP, 0x4c, "127.0.0.1:7984", .forward);
     defer rig.deinit();
     for ([_]model.view.Args.Ctx{ fixtures.Lying.shorter, fixtures.Lying.longer }) |ctx| {
         const args = model.view.Args.fromBacking(ctx, &fixtures.Lying.table);
         try std.testing.expectError(error.MalformedView, cd.testing.projectLifted(rig.server(), rig.pair.b, arena, args));
         try std.testing.expectEqual(@as(c_int, 1), cd.glowcap_host_session_is_open(rig.pair.b));
     }
-}
-
-test "session validation refuses an over-deep deliver before the C bridge sees it" {
-    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena_state.deinit();
-    const arena = arena_state.allocator();
-    // The server validates at three levels, the client sends five.
-    var rig: Rig = undefined;
-    try rig.open(c.GLOWCAP_CODEC_SYRUP, 0x50, "127.0.0.1:7985", .forward, 3);
-    defer rig.deinit();
-    var tree = argInt(1);
-    for (0..5) |_| tree = try listOf(arena, c.GLOWCAP_ARG_LIST, &.{tree});
-    var vow: u64 = undefined;
-    try h.expectOk(cd.glowcap_host_session_send(rig.pair.a, &rig.target, "call", 4, &[_]Arg{tree}, 1, &vow));
-    var frame: c.GlowcapManagedFrame = undefined;
-    try h.expectOk(h.takeOutbound(rig.pair.a, &frame));
-    defer c.glowcap_managed_frame_release(&frame);
-    const borrowed: c.GlowcapFrame = .{ .bytes = frame.bytes, .len = frame.len, .shape = frame.shape };
-    // Validation refuses the frame at the feed, so the bridge never runs.
-    try std.testing.expect(cd.glowcap_host_session_feed(rig.pair.b, &borrowed) != c.GLOWCAP_OK);
-    try std.testing.expectEqual(@as(usize, 0), rig.tap.delivers);
-    try std.testing.expectEqual(@as(usize, 0), rig.probe.calls);
-}
-
-test "a C host validates nesting well inside the depth the views projection reads" {
-    const host = try h.newHost(0x54);
-    defer _ = cd.glowcap_host_release(host);
-    const limits = try cd.testing.configuredSessionLimits(host);
-    try std.testing.expect(limits.max_nesting_depth <= model.max_value_depth);
 }
 
 test "a turn arena that refuses an allocation breaks the call before the callback and leaves the session open" {
@@ -483,7 +482,7 @@ test "a turn arena that refuses an allocation breaks the call before the callbac
     var fail_index: usize = 0;
     while (fail_index < 4) : (fail_index += 1) {
         var rig: Rig = undefined;
-        try rig.open(c.GLOWCAP_CODEC_SYRUP, 0x58, "127.0.0.1:7986", .forward, null);
+        try rig.open(c.GLOWCAP_CODEC_SYRUP, 0x58, "127.0.0.1:7986", .forward);
         defer rig.deinit();
         var borrow = try cd.embedding.borrowForAttachment(rig.server());
         defer borrow.release();
@@ -518,7 +517,7 @@ test "a capability nested below the top level takes the lift and reaches the cal
         defer arena_state.deinit();
         const arena = arena_state.allocator();
         var rig: Rig = undefined;
-        try rig.open(codec, 0x5c, "127.0.0.1:7987", .forward, null);
+        try rig.open(codec, 0x5c, "127.0.0.1:7987", .forward);
         defer rig.deinit();
         var local: c.GlowcapReference = undefined;
         try h.expectOk(cd.glowcap_host_spawn(rig.client(), probeBehavior, &rig.probe, null, &local));
@@ -541,7 +540,7 @@ test "a pipelined capability-free deliver carries its count through the queue an
     defer arena_state.deinit();
     const arena = arena_state.allocator();
     var rig: Rig = undefined;
-    try rig.open(c.GLOWCAP_CODEC_SYRUP, 0x60, "127.0.0.1:7988", .forward, null);
+    try rig.open(c.GLOWCAP_CODEC_SYRUP, 0x60, "127.0.0.1:7988", .forward);
     defer rig.deinit();
     rig.tap.lift_copy = true;
     // "make" answers with the tap, and the client sends to that answer before
@@ -577,7 +576,7 @@ test "a reference on the views route breaks the turn without calling the callbac
     defer arena_state.deinit();
     const arena = arena_state.allocator();
     var rig: Rig = undefined;
-    try rig.open(c.GLOWCAP_CODEC_SYRUP, 0x64, "127.0.0.1:7989", .forward_claimed_free, null);
+    try rig.open(c.GLOWCAP_CODEC_SYRUP, 0x64, "127.0.0.1:7989", .forward_claimed_free);
     defer rig.deinit();
     var local: c.GlowcapReference = undefined;
     try h.expectOk(cd.glowcap_host_spawn(rig.client(), probeBehavior, &rig.probe, null, &local));
@@ -597,7 +596,7 @@ test "a reference on the views route breaks the turn without calling the callbac
 
 test "a deliver with no arguments reaches the callback with a null array and length zero" {
     var rig: Rig = undefined;
-    try rig.open(c.GLOWCAP_CODEC_SYRUP, 0x68, "127.0.0.1:7990", .forward, null);
+    try rig.open(c.GLOWCAP_CODEC_SYRUP, 0x68, "127.0.0.1:7990", .forward);
     defer rig.deinit();
     try expectFulfilled(try rig.send(&.{}));
     try std.testing.expectEqual(@as(?u32, 0), rig.tap.slots);
@@ -609,7 +608,7 @@ test "a deliver with no arguments reaches the callback with a null array and len
 
 test "a deliver with no verb reaches the callback with a null verb and length zero" {
     var rig: Rig = undefined;
-    try rig.open(c.GLOWCAP_CODEC_SYRUP, 0x6c, "127.0.0.1:7991", .forward, null);
+    try rig.open(c.GLOWCAP_CODEC_SYRUP, 0x6c, "127.0.0.1:7991", .forward);
     defer rig.deinit();
     try expectFulfilled(try rig.sendVerb(null, &.{argInt(7)}));
     try std.testing.expectEqual(@as(?u32, 0), rig.tap.slots);

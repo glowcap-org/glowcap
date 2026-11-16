@@ -98,7 +98,9 @@ test "Host copy measurement and capability visits give integer runs list depth" 
     };
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
-    for (leaves, 0..) |leaf, shape| {
+    // Every leaf here is a container: its items sit one level deeper than it,
+    // an empty one included, so none may sit at the ceiling.
+    for (leaves) |leaf| {
         for ([_]usize{ Value.max_depth - 1, Value.max_depth }) |depth| {
             var backing: [Value.max_depth + 1][1]Value = undefined;
             backing[depth][0] = leaf;
@@ -108,7 +110,7 @@ test "Host copy measurement and capability visits give integer runs list depth" 
                 backing[level][0] = .{ .list = &backing[level + 1] };
             }
             const root = backing[0][0];
-            if (depth == Value.max_depth and shape < 2) {
+            if (depth == Value.max_depth) {
                 try std.testing.expectError(error.ValueTooDeep, core.copyValue(Value, arena.allocator(), root));
                 try std.testing.expectError(error.ValueTooDeep, core.copyValue(model.Argument, arena.allocator(), root));
                 try std.testing.expectError(error.ValueTooDeep, core.valueCopyBytes(&.{root}));

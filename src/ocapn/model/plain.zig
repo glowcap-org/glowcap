@@ -11,18 +11,20 @@ pub fn argumentIsPlainData(argument: *const model.Argument) bool {
 }
 
 fn argumentIsPlainDataAt(argument: *const model.Argument, depth: usize) bool {
-    if (depth > model.max_value_depth) return false;
     return switch (argument.*) {
         .reference, .handoff => false,
-        .list, .set => |items| for (items) |*item| {
-            if (!argumentIsPlainDataAt(item, depth + 1)) break false;
-        } else true,
-        .tagged => |tagged| for (tagged.value) |*item| {
-            if (!argumentIsPlainDataAt(item, depth + 1)) break false;
-        } else true,
-        .@"struct" => |entries| for (entries) |*entry| {
+        .list, .set => |items| itemsArePlainData(items, depth),
+        .tagged => |tagged| itemsArePlainData(tagged.value, depth),
+        .@"struct" => |entries| model.mayHoldItems(depth) and for (entries) |*entry| {
             if (!argumentIsPlainDataAt(&entry.value, depth + 1)) break false;
         } else true,
         else => true,
     };
+}
+
+/// The items of the container at `depth`.
+fn itemsArePlainData(items: []const model.Argument, depth: usize) bool {
+    if (!model.mayHoldItems(depth)) return false;
+    for (items) |*item| if (!argumentIsPlainDataAt(item, depth + 1)) return false;
+    return true;
 }

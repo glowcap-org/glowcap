@@ -14,6 +14,7 @@ const host_mod = @import("../../host.zig");
 const value_mod = @import("../../value.zig");
 const host_pump = @import("../pump.zig");
 const identity = @import("identity.zig");
+const itemsDepth = @import("depth.zig").itemsDepth;
 const receipt_list = @import("receipt_list.zig");
 const capability_promise = @import("../../capability_promise.zig");
 
@@ -70,7 +71,6 @@ fn discardUnprojectedArgumentReferences(
     skip: *usize,
     depth: usize,
 ) error{ NestingTooDeep, MalformedView }!void {
-    if (depth > model.max_value_depth) return error.NestingTooDeep;
     switch (arg) {
         .reference => |reference| {
             if (skip.* != 0)
@@ -78,12 +78,13 @@ fn discardUnprojectedArgumentReferences(
             else
                 identity.discardCapabilityObservation(self, session, reference);
         },
-        .list, .set => |items| try discardUnprojectedSequence(self, session, items, skip, depth),
-        .tagged => |tagged| try discardUnprojectedSequence(self, session, tagged.value, skip, depth),
+        .list, .set => |items| try discardUnprojectedSequence(self, session, items, skip, try itemsDepth(depth)),
+        .tagged => |tagged| try discardUnprojectedSequence(self, session, tagged.value, skip, try itemsDepth(depth)),
         .@"struct" => |entries| {
+            const items_depth = try itemsDepth(depth);
             var it = entries.iterator();
             while (try it.next()) |entry|
-                try discardUnprojectedArgumentReferences(self, session, entry.value, skip, depth + 1);
+                try discardUnprojectedArgumentReferences(self, session, entry.value, skip, items_depth);
         },
         else => {},
     }
@@ -98,7 +99,7 @@ fn discardUnprojectedSequence(
 ) error{ NestingTooDeep, MalformedView }!void {
     var it = items.iterator();
     while (try it.next()) |item|
-        try discardUnprojectedArgumentReferences(self, session, item, skip, depth + 1);
+        try discardUnprojectedArgumentReferences(self, session, item, skip, depth);
 }
 
 fn failValuesProjection(
@@ -222,7 +223,6 @@ fn liftValueInner(
     comptime bytes: ByteOwnership,
     out: *value_mod.Value,
 ) LiftError!void {
-    if (depth > model.max_value_depth) return error.NestingTooDeep;
     out.* = switch (arg) {
         .bytes => |v| .{ .bytes = try bytes.materialize(arena, v) },
         .symbol => |v| .{ .symbol = try bytes.materialize(arena, v) },
@@ -236,24 +236,25 @@ fn liftValueInner(
         .string => |v| .{ .string = try bytes.materialize(arena, v) },
         .integer => |v| .{ .integer = v },
         .boolean => |v| .{ .boolean = v },
-        .list => |items| .{ .list = try liftValuesInner(self, session, arena, items, lifts, depth + 1, bytes) },
+        .list => |items| .{ .list = try liftValuesInner(self, session, arena, items, lifts, try itemsDepth(depth), bytes) },
         .void => .{ .void = {} },
         .float64 => |v| .{ .float64 = v },
-        .set => |items| .{ .set = try liftValuesInner(self, session, arena, items, lifts, depth + 1, bytes) },
+        .set => |items| .{ .set = try liftValuesInner(self, session, arena, items, lifts, try itemsDepth(depth), bytes) },
         .tagged => |tagged| .{ .tagged = .{
             .tag = try bytes.materialize(arena, tagged.tag),
-            .value = try liftValuesInner(self, session, arena, tagged.value, lifts, depth + 1, bytes),
+            .value = try liftValuesInner(self, session, arena, tagged.value, lifts, try itemsDepth(depth), bytes),
         } },
         .keyword => |v| .{ .keyword = try bytes.materialize(arena, v) },
         .big_integer => |v| .{ .big_integer = .{ .negative = v.negative, .digits = try bytes.materialize(arena, v.digits) } },
         .@"struct" => |entries| blk: {
+            const items_depth = try itemsDepth(depth);
             const lifted = try arena.alloc(value_mod.Value.StructEntry, try entries.len());
             var filled: usize = 0;
             var it = entries.iterator();
             while (try it.next()) |entry| : (filled += 1) {
                 if (filled >= lifted.len) return error.MalformedView;
                 lifted[filled].key = try bytes.materialize(arena, entry.key);
-                try liftValueInner(self, session, arena, entry.value, lifts, depth + 1, bytes, &lifted[filled].value);
+                try liftValueInner(self, session, arena, entry.value, lifts, items_depth, bytes, &lifted[filled].value);
             }
             if (filled != lifted.len) return error.MalformedView;
             break :blk .{ .@"struct" = lifted };
@@ -281,7 +282,6 @@ fn liftValuesInner(
     depth: usize,
     comptime bytes: ByteOwnership,
 ) LiftError![]value_mod.Value {
-    if (depth > model.max_value_depth) return error.NestingTooDeep;
     const out = try arena.alloc(value_mod.Value, try args.len());
     var filled: usize = 0;
     var it = args.iterator();

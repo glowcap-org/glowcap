@@ -157,6 +157,10 @@ pub fn register(ctx: Context) Registered {
     // Collection tests import the dependency-free Loam leaf directly, matching
     // the snapshot benchmark without involving storage or LMDB backends.
     tests_mod.addImport("loam_collections", host_mods[layerIndex("loam_collections")]);
+    // The access record tests reach the internal records module, the same
+    // instance the library holds, for helpers the supported root does not
+    // publish.
+    tests_mod.addImport("loam_access_records", host_mods[layerIndex("loam_access_records")]);
     // The header-parity test imports translated generated headers to prove they
     // agree with the Zig C ABI sources (sizes, offsets, constants), so the two
     // can never silently drift.

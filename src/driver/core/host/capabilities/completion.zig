@@ -43,18 +43,29 @@ const Retains = struct {
     }
 };
 
+/// Acquire a retain for each capability in `values`, each value counted from
+/// depth 0. A refusal leaves the acquired prefix for `rollbackValues`.
+fn acquireValues(retained: *Retains, values: []const value_mod.Value) !void {
+    for (values) |*value| try value.forEachCapability(retained, Retains.acquire);
+}
+
+/// Release exactly the prefix `acquireValues` took. Only that prefix is a
+/// rollback receipt: the suffix may be overdeep or invalid, which is why
+/// acquisition refused in the first place, so the walk stops at the last
+/// released occurrence instead of visiting it.
+fn rollbackValues(retained: *Retains, values: []const value_mod.Value) void {
+    for (values) |*value| value.forEachCapability(retained, Retains.rollback) catch |err| {
+        std.debug.assert(err == error.RollbackComplete);
+        return;
+    };
+}
+
 pub fn projectOwnedValue(self: *Host, value: value_mod.Value, context: anytype, comptime project: anytype) !projectedValueType(project) {
     self.assertOwner();
     var retained = Retains{ .host = self };
-    errdefer if (retained.count != 0) {
-        // Only the acquired prefix is a rollback receipt. The suffix may be
-        // overdeep or invalid, which is why acquisition refused in the first
-        // place. Stop at the last released occurrence instead of visiting it.
-        value.forEachCapability(&retained, Retains.rollback) catch |err| {
-            std.debug.assert(err == error.RollbackComplete);
-        };
-    };
-    try value.forEachCapability(&retained, Retains.acquire);
+    const values = (&value)[0..1];
+    errdefer if (retained.count != 0) rollbackValues(&retained, values);
+    try acquireValues(&retained, values);
     return try project(context, value);
 }
 
@@ -64,6 +75,18 @@ pub fn retainValue(self: *Host, value: value_mod.Value) !void {
     _ = projectOwnedValue(self, value, {}, keepValue) catch |err| return switch (err) {
         // Reply preparation uses the same stale-identity refusal as lowering.
         // Consumer projection separately classifies a retired home as closed.
+        error.CapabilityClosed => error.UnknownCapability,
+        else => err,
+    };
+}
+
+/// `retainValue` for a delivery's arguments: each value counts from depth 0, as
+/// the session counted it, and a refusal releases what the call acquired.
+pub fn retainValues(self: *Host, values: []const value_mod.Value) !void {
+    self.assertOwner();
+    var retained = Retains{ .host = self };
+    errdefer if (retained.count != 0) rollbackValues(&retained, values);
+    acquireValues(&retained, values) catch |err| return switch (err) {
         error.CapabilityClosed => error.UnknownCapability,
         else => err,
     };

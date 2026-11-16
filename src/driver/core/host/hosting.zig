@@ -150,7 +150,7 @@ pub const HostTurn = struct {
         if (args.inner != .values or !value_views.carriesCapability(args.inner.values.items)) return null;
         const values = args.inner.values.items;
         const lease = try self.turn.allocResource(ArgumentLease, .{ .host = self.host }, ArgumentLease.release);
-        try @import("capabilities/completion.zig").retainValue(self.host, .{ .list = values });
+        try @import("capabilities/completion.zig").retainValues(self.host, values);
         lease.values = values;
         return lease;
     }

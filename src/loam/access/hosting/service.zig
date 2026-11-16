@@ -6,6 +6,7 @@ const storage = @import("loam_access_storage");
 const loam = @import("loam_core");
 const hosting = @import("loam_hosting");
 const driver = @import("driver_core");
+const model = @import("model");
 const working = @import("working.zig");
 pub const graph = @import("content_graph.zig");
 const commit = @import("commit.zig");
@@ -13,9 +14,11 @@ const observation = @import("observation.zig");
 const maintenance = @import("maintenance.zig");
 const vocabulary = @import("vocabulary.zig");
 
-comptime {
-    // The receipt codec and the Host's value walk admit one nesting.
-    std.debug.assert(records.ValueRecord.max_depth == driver.Value.max_depth);
+/// The depth of the items of a container at `depth`, or `ValueTooDeep` when
+/// `model.mayHoldItems` refuses them.
+fn itemsDepth(depth: usize) error{ValueTooDeep}!usize {
+    if (!model.mayHoldItems(depth)) return error.ValueTooDeep;
+    return depth + 1;
 }
 
 pub const ContentCall = opaque {
@@ -410,16 +413,20 @@ pub const ForwardWork = struct {
         return .{ .selector = selector, .method = intent.verb, .material_bytes = try bytes(intent.args, 0) };
     }
     fn bytes(args: []const driver.Value, depth: usize) !usize {
-        if (depth > driver.Value.max_depth) return error.ValueTooDeep;
         var total: usize = 0;
         for (args) |arg| {
             const size = switch (arg) {
                 .string, .bytes => |leaf| leaf.len,
-                .list, .set => |items| try bytes(items, depth + 1),
-                .tagged => |tag| try bytes(tag.value, depth + 1),
+                .integers => blk: {
+                    _ = try itemsDepth(depth);
+                    break :blk 0;
+                },
+                .list, .set => |items| try bytes(items, try itemsDepth(depth)),
+                .tagged => |tag| try bytes(tag.value, try itemsDepth(depth)),
                 .@"struct" => |items| blk: {
+                    const items_depth = try itemsDepth(depth);
                     var sum: usize = 0;
-                    for (items) |item| sum = try std.math.add(usize, sum, try bytes(&.{item.value}, depth + 1));
+                    for (items) |item| sum = try std.math.add(usize, sum, try bytes(&.{item.value}, items_depth));
                     break :blk sum;
                 },
                 else => 0,

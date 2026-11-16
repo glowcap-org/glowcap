@@ -53,12 +53,6 @@ pub fn publishHosted(raw: ?*c.GlowcapHostSession, name: []const u8, hosted: acto
     return .{ .id = reference.raw() };
 }
 
-/// Set the nesting limit sessions minted after this call validate with.
-pub fn setNestingLimit(host_handle: ?*c.GlowcapHost, depth: usize) !void {
-    const inst = instance.instanceFrom(host_handle) orelse return error.NullPointer;
-    inst.core.opts.limits.max_nesting_depth = depth;
-}
-
 pub fn liveCapabilityCount(host_handle: ?*c.GlowcapHost) !usize {
     const inst = instance.instanceFrom(host_handle) orelse return error.NullPointer;
     return inst.core.capabilities.liveCount();

@@ -311,7 +311,6 @@ pub const GlowcapLastAbort = value.GlowcapLastAbort;
 pub const lastAbortToC = value.lastAbortToC;
 pub const sliceFromC = value.sliceFromC;
 pub const itemsFromC = value.itemsFromC;
-pub const max_marshal_depth = value.max_marshal_depth;
 pub const argumentFromCWith = value.argumentFromCWith;
 pub const argsFromCWith = value.argsFromCWith;
 pub const valuesFromCWith = value.valuesFromCWith;

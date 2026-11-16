@@ -13,6 +13,19 @@ Releases before 0.1.7 are in the
 
 ### Breaking
 
+- Values nest at most 64 deep on every path (`model.max_value_depth`), and
+  one count decides it: a top-level argument sits at depth 0, a container's
+  items one deeper, and any container at depth 64, an empty one included, is
+  refused. `SessionLimits.max_nesting_depth` and the C marshal's separate
+  ceiling are gone, so a Zig embedder deletes the field from its limits.
+- A send to a promise past the ceiling, settled data included, is refused at
+  the call instead of failing after it queues, and the Zig surface reports
+  `NestingTooDeep`. Data that settles only after the send is admitted can
+  still fail when it lowers, and that send's result breaks.
+- A mutation intent counts each argument from depth 0. A stored Loam value
+  with a container at depth 64, an empty one included, no longer decodes, and
+  a write refuses it. An author whose records hold such a value rewrites each
+  one so every container sits at depth 63 or less.
 - A Host refuses an `outbound_high_water_bytes` of zero with
   `InvalidOutboundHighWater`, at construction and in `setSessionLimits`. A
   session with a zero waterline could never take input. Pass null for the

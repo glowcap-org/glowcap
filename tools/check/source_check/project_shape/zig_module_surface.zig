@@ -31,7 +31,7 @@ const surfaces = [_]Surface{
     .{ .path = "src/loam/core/mod.zig", .modules = &.{"backend"} },
     .{ .path = "src/loam/records/mod.zig", .modules = &.{} },
     .{ .path = "src/loam/collections/mod.zig", .modules = &.{} },
-    .{ .path = "src/loam/access/mod.zig", .modules = &.{ "core", "records", "storage", "hosting" } },
+    .{ .path = "src/loam/access/mod.zig", .modules = &.{ "core", "storage", "hosting" } },
     .{ .path = "src/loam/access/core/mod.zig", .modules = &.{} },
     .{ .path = "src/loam/access/records/mod.zig", .modules = &.{"profile"} },
     .{ .path = "src/foundation/mod.zig", .modules = &.{

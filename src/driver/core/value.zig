@@ -16,6 +16,14 @@ const capability = @import("capability.zig");
 /// The opaque Host-scoped capability identity (see `capability.Ref`).
 pub const Capability = capability.Ref;
 
+/// The depth of the items of a container at `depth`, or `ValueTooDeep` when
+/// `model.mayHoldItems` refuses them. Shared by the walks over `Value` here and
+/// in `value_copy.zig`, which import it from this file.
+pub inline fn itemsDepth(depth: usize) error{ValueTooDeep}!usize {
+    if (!model.mayHoldItems(depth)) return error.ValueTooDeep;
+    return depth + 1;
+}
+
 /// A passable value on the Host. Data arms mirror
 /// `model.Argument`. A capability mention is opaque. There is no handoff arm
 /// because the host redeems a give before the application sees it. An Error is
@@ -52,10 +60,9 @@ pub const Value = union(enum) {
     };
 
     /// The nesting a value may have to be copied, measured, retained, or
-    /// delivered to a local actor. A deeper value is `ValueTooDeep`. The Host's
-    /// lift and lower between wire arguments and values bound at
-    /// `model.max_value_depth`, behind the session's `max_nesting_depth`.
-    pub const max_depth = 64;
+    /// delivered to a local actor. A deeper value is `ValueTooDeep`. It is the
+    /// one ceiling every path shares (`model.max_value_depth`).
+    pub const max_depth = model.max_value_depth;
 
     /// Visit every capability in this value without allocation. Composite
     /// values are bounded to the same depth as owning-tier copy and retention.
@@ -78,13 +85,23 @@ pub const Value = union(enum) {
         comptime visit: anytype,
         depth: usize,
     ) VisitError(visit)!void {
-        if (depth > max_depth) return error.ValueTooDeep;
         switch (self.*) {
             .capability => |ref| try visit(ctx, ref),
-            .integers => |words| if (words.len != 0 and depth == max_depth) return error.ValueTooDeep,
-            .list, .set => |items| for (items) |*item| try item.forEachCapabilityAt(ctx, visit, depth + 1),
-            .tagged => |tag| for (tag.value) |*item| try item.forEachCapabilityAt(ctx, visit, depth + 1),
-            .@"struct" => |items| for (items) |*item| try item.value.forEachCapabilityAt(ctx, visit, depth + 1),
+            .integers => {
+                _ = try itemsDepth(depth);
+            },
+            .list, .set => |items| {
+                const items_depth = try itemsDepth(depth);
+                for (items) |*item| try item.forEachCapabilityAt(ctx, visit, items_depth);
+            },
+            .tagged => |tag| {
+                const items_depth = try itemsDepth(depth);
+                for (tag.value) |*item| try item.forEachCapabilityAt(ctx, visit, items_depth);
+            },
+            .@"struct" => |items| {
+                const items_depth = try itemsDepth(depth);
+                for (items) |*item| try item.value.forEachCapabilityAt(ctx, visit, items_depth);
+            },
             .bytes,
             .symbol,
             .@"error",

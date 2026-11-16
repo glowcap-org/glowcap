@@ -1,7 +1,9 @@
 //! One bounded boundary copy for owning Values and plain model data.
 //! Capabilities preserve opaque identity. Conversion to model data refuses them.
 const std = @import("std");
-const Value = @import("value.zig").Value;
+const value_leaf = @import("value.zig");
+const Value = value_leaf.Value;
+const itemsDepth = value_leaf.itemsDepth;
 
 /// The copy walk's error set is explicit because `copyAt`, `copySequence`,
 /// and `copyItem` are mutually recursive, which the compiler refuses to
@@ -13,7 +15,6 @@ pub fn copy(comptime To: type, allocator: std.mem.Allocator, value: anytype) Err
 }
 
 fn copyAt(comptime To: type, allocator: std.mem.Allocator, value: anytype, depth: usize) Error!To {
-    if (depth > Value.max_depth) return error.ValueTooDeep;
     switch (value) {
         inline else => |payload, tag| {
             const name = @tagName(tag);
@@ -29,7 +30,7 @@ fn copyAt(comptime To: type, allocator: std.mem.Allocator, value: anytype, depth
             } else if (comptime std.mem.eql(u8, name, "struct")) {
                 return .{ .@"struct" = try copySequence(std.meta.Elem(@FieldType(To, name)), allocator, payload, depth) };
             } else if (comptime std.mem.eql(u8, name, "integers")) {
-                if (payload.len != 0 and depth == Value.max_depth) return error.ValueTooDeep;
+                _ = try itemsDepth(depth);
                 // A run of integers copies as its words where the owner has
                 // the arm, and as the list it means where it does not.
                 if (comptime @hasField(To, "integers")) return .{ .integers = try allocator.dupe(i64, payload) };
@@ -60,29 +61,31 @@ pub fn measureSlice(values: []const @import("value.zig").Value) !usize {
 }
 
 fn measureAt(value: Value, depth: usize) !usize {
-    if (depth > Value.max_depth) return error.ValueTooDeep;
     var bytes: usize = 0;
     switch (value) {
         .bytes, .symbol, .string, .keyword => |leaf| bytes = leaf.len,
         .@"error" => |reason| bytes = reason.message.len,
         .big_integer => |big| bytes = big.digits.len,
         .integers => |words| {
-            if (words.len != 0 and depth == Value.max_depth) return error.ValueTooDeep;
+            _ = try itemsDepth(depth);
             bytes = try std.math.mul(usize, words.len, @sizeOf(i64));
         },
         .list, .set => |items| {
+            const items_depth = try itemsDepth(depth);
             bytes = try std.math.mul(usize, items.len, @sizeOf(@import("value.zig").Value));
-            for (items) |item| bytes = try std.math.add(usize, bytes, try measureAt(item, depth + 1));
+            for (items) |item| bytes = try std.math.add(usize, bytes, try measureAt(item, items_depth));
         },
         .tagged => |tag| {
+            const items_depth = try itemsDepth(depth);
             bytes = try std.math.add(usize, tag.tag.len, try std.math.mul(usize, tag.value.len, @sizeOf(@import("value.zig").Value)));
-            for (tag.value) |item| bytes = try std.math.add(usize, bytes, try measureAt(item, depth + 1));
+            for (tag.value) |item| bytes = try std.math.add(usize, bytes, try measureAt(item, items_depth));
         },
         .@"struct" => |items| {
+            const items_depth = try itemsDepth(depth);
             bytes = try std.math.mul(usize, items.len, @sizeOf(@import("value.zig").Value.StructEntry));
             for (items) |item| {
                 bytes = try std.math.add(usize, bytes, item.key.len);
-                bytes = try std.math.add(usize, bytes, try measureAt(item.value, depth + 1));
+                bytes = try std.math.add(usize, bytes, try measureAt(item.value, items_depth));
             }
         },
         else => {},
@@ -94,7 +97,8 @@ fn measureAt(value: Value, depth: usize) !usize {
 /// a slice, and a borrowed one (`model.view.Args`, `model.view.StructEntries`)
 /// is walked once through its iterator, so a handler's delivery copies into
 /// an owner without materializing an owned tree first.
-fn copySequence(comptime Item: type, allocator: std.mem.Allocator, sequence: anytype, depth: usize) Error![]Item {
+fn copySequence(comptime Item: type, allocator: std.mem.Allocator, sequence: anytype, container_depth: usize) Error![]Item {
+    const depth = try itemsDepth(container_depth);
     if (comptime @typeInfo(@TypeOf(sequence)) == .pointer) {
         const items = try allocator.alloc(Item, sequence.len);
         for (items, sequence) |*out, item| out.* = try copyItem(Item, allocator, item, depth);
@@ -115,7 +119,7 @@ fn copySequence(comptime Item: type, allocator: std.mem.Allocator, sequence: any
 
 fn copyItem(comptime Item: type, allocator: std.mem.Allocator, item: anytype, depth: usize) Error!Item {
     if (comptime @hasField(Item, "key")) {
-        return .{ .key = try allocator.dupe(u8, item.key), .value = try copyAt(@FieldType(Item, "value"), allocator, item.value, depth + 1) };
+        return .{ .key = try allocator.dupe(u8, item.key), .value = try copyAt(@FieldType(Item, "value"), allocator, item.value, depth) };
     }
-    return copyAt(Item, allocator, item, depth + 1);
+    return copyAt(Item, allocator, item, depth);
 }

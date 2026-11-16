@@ -106,7 +106,7 @@ declaration under `src/`.
   validate and apply. Its mention lists and its distinct-fresh table hold
   their first rows in place (`foundation.inline_rows`), so a message with a
   few references allocates nothing, and a longer one spills to the record's
-  allocator once. Depth-bounded by `SessionLimits.max_nesting_depth`, so a
+  allocator once. Depth-bounded by `model.max_value_depth`, so a
   nested argument tree fails instead of overflowing the stack.
 - **GC fold scratch**: `session/gc.zig` and `answers.prepareGc`. Each
   `op:gc-*` folds its repeated positions in a record that holds eight rows in

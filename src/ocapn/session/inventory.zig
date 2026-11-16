@@ -184,17 +184,17 @@ fn Walk(comptime Meter: type) type {
         }
 
         fn visitItems(self: *Self, items: []const model.Argument, depth: usize) InventoryError!void {
-            if (depth + 1 > self.session.limits.max_nesting_depth) return error.NestingTooDeep;
-            for (items) |*item| try self.visit(item, .{ .heap = @constCast(item) }, depth + 1);
+            const items_depth = try passable.itemsDepth(depth);
+            for (items) |*item| try self.visit(item, .{ .heap = @constCast(item) }, items_depth);
         }
 
         /// A duplicate struct key refuses here, pre-commit, never at encode.
         /// Keys do not change after this walk.
         fn visitStruct(self: *Self, entries: []const model.StructEntry, depth: usize) InventoryError!void {
-            if (depth + 1 > self.session.limits.max_nesting_depth) return error.NestingTooDeep;
+            const items_depth = try passable.itemsDepth(depth);
             for (entries) |*entry| {
                 self.wire +|= Meter.key(entry.key);
-                try self.visit(&entry.value, .{ .heap = @constCast(&entry.value) }, depth + 1);
+                try self.visit(&entry.value, .{ .heap = @constCast(&entry.value) }, items_depth);
             }
             try passable.checkSentStructKeyUniqueness(self.allocator, entries);
         }

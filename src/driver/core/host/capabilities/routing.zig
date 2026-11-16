@@ -14,6 +14,7 @@ const host_mod = @import("../../host.zig");
 const capability = @import("../../capability.zig");
 const capability_promise = @import("../../capability_promise.zig");
 const vocab = @import("../../vocab.zig");
+const itemsDepth = @import("depth.zig").itemsDepth;
 
 const Host = host_mod.Host;
 const HostSession = host_mod.HostSession;
@@ -195,18 +196,27 @@ fn argumentIsForeign(
     argument: model.Argument,
     depth: usize,
 ) error{NestingTooDeep}!bool {
-    if (depth > model.max_value_depth) return error.NestingTooDeep;
     return switch (argument) {
         .reference => |ref| self.node.argIsForeign(peer_handle, ref),
-        .list, .set => |items| for (items) |item| {
-            if (try argumentIsForeign(self, peer_handle, item, depth + 1)) break true;
-        } else false,
-        .tagged => |tagged| for (tagged.value) |item| {
-            if (try argumentIsForeign(self, peer_handle, item, depth + 1)) break true;
-        } else false,
-        .@"struct" => |entries| for (entries) |entry| {
-            if (try argumentIsForeign(self, peer_handle, entry.value, depth + 1)) break true;
-        } else false,
+        .list, .set => |items| try anyForeign(self, peer_handle, items, try itemsDepth(depth)),
+        .tagged => |tagged| try anyForeign(self, peer_handle, tagged.value, try itemsDepth(depth)),
+        .@"struct" => |entries| blk: {
+            const items_depth = try itemsDepth(depth);
+            break :blk for (entries) |entry| {
+                if (try argumentIsForeign(self, peer_handle, entry.value, items_depth)) break true;
+            } else false;
+        },
         else => false,
     };
+}
+
+/// Whether any of `items`, at `depth`, is foreign to `peer_handle`.
+fn anyForeign(
+    self: *Host,
+    peer_handle: engine.PeerHandle,
+    items: []const model.Argument,
+    depth: usize,
+) error{NestingTooDeep}!bool {
+    for (items) |item| if (try argumentIsForeign(self, peer_handle, item, depth)) return true;
+    return false;
 }

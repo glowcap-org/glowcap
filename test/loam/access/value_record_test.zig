@@ -6,6 +6,7 @@
 const std = @import("std");
 const g = @import("glowcap");
 const Codec = g.loam.access.records.ValueRecord;
+const internal = @import("loam_access_records");
 const Value = g.driver.core.Value;
 const Context = struct {
     pub fn id(_: *@This(), _: g.driver.core.Capability) g.loam.core.ObjectId {
@@ -31,12 +32,29 @@ test "loam integer runs obey the durable list depth boundary" {
     const again = try Codec.encode(a, decoded, &context);
     defer a.free(again);
     try std.testing.expectEqualStrings(bytes, again);
-    // An empty list has no child beyond the boundary.
+    // An empty run at the ceiling is refused like any container there, and one
+    // level up it round-trips.
     tree[Codec.max_depth] = .{ .integers = &.{} };
-    const empty = try Codec.encode(a, tree[0], &context);
+    try std.testing.expectError(error.UnsupportedArgument, Codec.encode(a, tree[0], &context));
+    const empty = try Codec.encode(a, tree[1], &context);
     defer a.free(empty);
     const empty_decoded = try Codec.decode(Value, a, empty, &context);
     defer Codec.free(a, empty_decoded);
+}
+
+test "a mutation intent envelope counts each argument from depth zero, so a partner's deepest admitted argument encodes" {
+    const a = std.testing.allocator;
+    var context: Context = .{};
+    const head = [_]Value{ .{ .string = "poke" }, .{ .bytes = &.{} } };
+    // An argument with its leaf at the ceiling is the deepest the session admits.
+    var tree: [Codec.max_depth + 2]Value = undefined;
+    for (tree[0 .. Codec.max_depth + 1], 0..) |*item, i| item.* = .{ .list = tree[i + 1 ..][0..1] };
+    tree[Codec.max_depth + 1] = .{ .integer = 1 };
+    const admitted = try internal.encodeEnvelope(a, &head, tree[1..2], &context);
+    defer a.free(admitted);
+    try std.testing.expect(admitted.len > 0);
+    // One wrapper more puts the leaf past the ceiling and the writer refuses it.
+    try std.testing.expectError(error.UnsupportedArgument, internal.encodeEnvelope(a, &head, tree[0..1], &context));
 }
 
 test "loam mutation receipt value decoding releases nested allocations on truncation and allocation failure" {
@@ -104,4 +122,62 @@ test "loam receipt topology bounds actual mixed encodings and empty key tag pref
     try std.testing.expectEqual(receipt.len, try Receipt.encodedSizeBound(bytes.len, bytes.len));
     try std.testing.expectError(error.Overflow, Codec.encodedSizeBound(Value, std.math.maxInt(usize), 0, 0, 0));
     try std.testing.expectError(error.Overflow, Receipt.encodedSizeBound(std.math.maxInt(usize), 0));
+}
+
+test "a stored value decodes a leaf at the ceiling and refuses a container there, an empty one included" {
+    const a = std.testing.allocator;
+    var context: Context = .{};
+    const leaf = "<4'void>";
+    const empty = "<4'list0+>";
+    inline for (.{ .{ leaf, true }, .{ empty, false } }) |innermost| {
+        inline for (.{ Codec.max_depth - 1, Codec.max_depth }) |wrappers| {
+            var buffer: [1024]u8 = undefined;
+            var len: usize = 0;
+            for (0..wrappers) |_| {
+                const open = "<4'list1+";
+                @memcpy(buffer[len..][0..open.len], open);
+                len += open.len;
+            }
+            @memcpy(buffer[len..][0..innermost[0].len], innermost[0]);
+            len += innermost[0].len;
+            @memset(buffer[len..][0..wrappers], '>');
+            len += wrappers;
+            // A leaf sits at `wrappers` and may be at the ceiling. A container
+            // there has items one level past it, so it needs `wrappers` below.
+            const admitted = innermost[1] or wrappers < Codec.max_depth;
+            if (admitted) {
+                const decoded = try Codec.decode(Value, a, buffer[0..len], &context);
+                Codec.free(a, decoded);
+            } else {
+                try std.testing.expectError(error.ValueTooDeep, Codec.decode(Value, a, buffer[0..len], &context));
+            }
+        }
+    }
+}
+
+test "an envelope encodes the same bytes as the list it stands for" {
+    const a = std.testing.allocator;
+    var context: Context = .{};
+    const head = [_]Value{ .{ .string = "poke" }, .{ .bytes = "dep" } };
+    const nested = [_]Value{.{ .list = &.{.{ .integer = 5 }} }};
+    const args = [_]Value{ .{ .boolean = true }, .{ .@"struct" = &.{.{ .key = "k", .value = .{ .list = &nested } }} }, .{ .integers = &.{ 1, 2 } } };
+    const items = head ++ args;
+    const listed = try Codec.encode(a, Value{ .list = &items }, &context);
+    defer a.free(listed);
+    const enveloped = try internal.encodeEnvelope(a, &head, &args, &context);
+    defer a.free(enveloped);
+    try std.testing.expectEqualStrings(listed, enveloped);
+}
+
+test "the supported records namespace aliases the internal declarations and omits the envelope helper" {
+    const supported = comptime g.loam.access.records;
+    // Each published name is the very declaration the internal module holds.
+    const names = comptime std.meta.declarations(supported);
+    inline for (names) |name| {
+        try std.testing.expect(@field(supported, name) == @field(internal, name));
+    }
+    // The envelope encoder is shared inside the access layer and is not API.
+    try std.testing.expect(!@hasDecl(supported, "encodeEnvelope"));
+    try std.testing.expect(!@hasDecl(Codec, "encodeEnvelope"));
+    try std.testing.expect(@hasDecl(internal, "encodeEnvelope"));
 }
