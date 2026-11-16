@@ -4,6 +4,7 @@ Called by the CI workflows at the checkout root. Requires
 Docker and the pinned Dev Containers CLI. Registry writes require --publish;
 read-only misses use a run-scoped Docker archive in RUNNER_TEMP. Outputs go to
 GITHUB_OUTPUT. Subprocess failures stop the job; workflow timeouts bound builds.
+A refused image pull is tried again before it stops the job.
 
     image.py reclaim [--need-gb N]   free hosted-runner disk before the image lands
     image.py prepare --publish true|false   resolve the toolchain image or build it once
@@ -17,6 +18,7 @@ import os
 import re
 import shutil
 import subprocess
+import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -53,6 +55,11 @@ QUICK = 120
 TRANSFER = 900
 BUILD = 2400
 
+# The registry sometimes refuses a pull of an image it holds. The reference
+# is an immutable digest, so a later attempt can only fetch the same image.
+PULL_ATTEMPTS = 3
+PULL_RETRY_DELAY = 10
+
 
 def run(*args, timeout, capture=False):
     return subprocess.run(
@@ -73,6 +80,20 @@ def reclaim(need_gb):
     run("sudo", "rm", "-rf", *RUNNER_SDKS, *map(str, Path("/usr/local").glob("julia*")), timeout=TRANSFER)
     run("docker", "image", "prune", "--all", "--force", timeout=TRANSFER)
     print(f"{shutil.disk_usage('/').free // 1_000_000_000} GB free now.")
+
+
+def pull(image):
+    """Pull one image, trying again after a refusal. A pull that runs out of
+    time has spent its whole bound and is not retried."""
+    for attempt in range(1, PULL_ATTEMPTS + 1):
+        try:
+            run("docker", "pull", image, timeout=TRANSFER)
+            return
+        except subprocess.CalledProcessError:
+            if attempt == PULL_ATTEMPTS:
+                raise
+            print(f"Pull attempt {attempt}/{PULL_ATTEMPTS} failed. Trying again in {PULL_RETRY_DELAY}s.", flush=True)
+            time.sleep(PULL_RETRY_DELAY)
 
 
 def fingerprint():
@@ -227,7 +248,7 @@ def start(image):
     if reference is None:
         raise ValueError("consumer requires an immutable image reference")
     if reference["registry"]:
-        run("docker", "pull", image, timeout=TRANSFER)
+        pull(image)
     else:
         archive = Path(os.environ["RUNNER_TEMP"]) / "devcontainer.tar"
         run("docker", "load", "-i", str(archive), timeout=TRANSFER)

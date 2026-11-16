@@ -157,6 +157,29 @@ class ImageTest(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("ZIG_LOCAL_PKG_DIR", result.stderr)
 
+    def test_pull_tries_again_after_a_refusal_and_reports_the_last_one(self):
+        refusals = [subprocess.CalledProcessError(code, ("docker", "pull", REF)) for code in (1, 2, 3)]
+        timed_out = subprocess.TimeoutExpired(("docker", "pull", REF), 900)
+        for outcomes, attempts, raised in [
+            ([refusals[0], ""], 2, None),
+            (refusals, 3, refusals[2]),
+            ([timed_out], 1, timed_out),
+        ]:
+            with (
+                self.subTest(attempts=attempts, raised=raised),
+                mock.patch.object(IMAGE, "run", side_effect=outcomes) as run,
+                mock.patch.object(IMAGE.time, "sleep") as sleep,
+            ):
+                if raised is None:
+                    IMAGE.pull(REF)
+                else:
+                    with self.assertRaises(type(raised)) as caught:
+                        IMAGE.pull(REF)
+                    self.assertIs(caught.exception, raised)
+                self.assertEqual(run.call_count, attempts)
+                self.assertEqual(sleep.call_count, attempts - 1)
+                run.assert_called_with("docker", "pull", REF, timeout=IMAGE.TRANSFER)
+
     def test_archive_start_uses_verified_id_for_uid_adjustment(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
