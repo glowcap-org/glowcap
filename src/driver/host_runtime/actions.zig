@@ -75,9 +75,39 @@ pub fn drainActions(self: *HostRuntime) !void {
     try drainActionsWith(self, .operational);
 }
 
+/// How long the step's wait lets work that failed for lack of memory sit
+/// before the next drain tries it. Memory comes back when other work
+/// finishes, which takes milliseconds, so this is far shorter than a dial's
+/// network interval. The deadline bounds idle wake-ups while the work waits.
+/// It does not cap retries: every drain reruns the work.
+pub const memory_retry_ms: i64 = 250;
+
+/// Ask the step's wait to wake for another drain once memory may have
+/// returned (`clampTimeoutToPendingWork`), so queued work a refused
+/// allocation left does not wait for an event that may never come.
+pub fn armMemoryRetry(self: *HostRuntime) void {
+    self.memory_retry_due_ms = self.nowMs() +| memory_retry_ms;
+}
+
+/// Drain every immediately runnable action. Arming the memory retry deadline
+/// belongs to this drain and to a close whose tail ran out of memory
+/// (`closeTailFailed`), and clearing it belongs to this drain alone. A drain
+/// that returns clears the deadline, because it has rerun the pump
+/// (`resumeWorkForActionDrain`) or stopped at outbound pressure, whose flush
+/// wake brings the rerun. A drain that fails with `OutOfMemory` arms it. A
+/// drain that fails any other way while it is set arms it afresh, so a
+/// deadline already past never holds the step's wait at zero.
 pub fn drainActionsWith(self: *HostRuntime, effect_mode: ExternalEffectMode) !void {
     self.enterDriver();
     defer self.leaveDriver();
+    drainLoop(self, effect_mode) catch |err| {
+        if (err == error.OutOfMemory or self.memory_retry_due_ms != null) armMemoryRetry(self);
+        return err;
+    };
+    self.memory_retry_due_ms = null;
+}
+
+fn drainLoop(self: *HostRuntime, effect_mode: ExternalEffectMode) !void {
     // The stepped face parks outside the runtime, so a held answer release
     // has no later message of ours to ride before that park: every drain
     // here sends it. The blocking face flushes at its own park instead

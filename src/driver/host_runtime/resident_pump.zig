@@ -302,14 +302,20 @@ fn endOfStream(wire: *Wire) error{ TruncatedFrame, EndOfStream } {
 }
 
 /// Park `chunk` for an unattended wire, or feed it to the core, which keeps
-/// no borrow of it past the call.
+/// no borrow of it past the call. A chunk the core refuses closes the wire
+/// here. A chunk that cannot be parked returns its failure and `feedReadable`
+/// closes the wire, because the bytes after it would land on a stream with a
+/// hole.
 fn feedChunk(self: *HostRuntime, wire: *Wire, chunk: []const u8) !void {
     if (!wire.attended) return wire.link.park(self.allocator, wire.session.wire_framing, chunk);
     self.core.feedTransportPacket(wire.session, chunk) catch |err| {
         const failure = net.classifyApplyError(err);
         self.drainActions() catch |drain_err| {
             Internal.closeWire(self, wire, failure);
-            return drain_err;
+            // tolerant: the drain armed the memory retry for its own shortage
+            // (`drainActionsWith`), and the next drain reports one that lasts,
+            // so the wire reports its own cause.
+            return if (drain_err == error.OutOfMemory) failure else drain_err;
         };
         Internal.writeOutbound(self, wire) catch |write_err| {
             Internal.closeWire(self, wire, write_err);

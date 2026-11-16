@@ -1,8 +1,9 @@
 //! An allocator that refuses one allocation, the `fail_index`th, and serves
 //! every other. A test lands one refusal at every site a program reaches and
 //! lets the program run on, the way a process under a brief shortage does.
-//! `std.testing.FailingAllocator` refuses every allocation from its index on,
-//! the lasting shortage, and a test that needs both runs them side by side.
+//! With `lasting` set it refuses every allocation from that index on, and
+//! every growth in place, until a test moves `fail_index` out of reach: the
+//! lasting shortage, ended when the test says memory came back.
 //! The byte counters say whether the program returned everything it took, and
 //! the captured trace says where the refusal landed.
 
@@ -15,6 +16,7 @@ pub const FailingOnce = struct {
     allocated_bytes: usize = 0,
     freed_bytes: usize = 0,
     induced: bool = false,
+    lasting: bool = false,
     return_addresses: [frame_count]usize = @splat(0),
 
     const frame_count = 16;
@@ -47,7 +49,7 @@ pub const FailingOnce = struct {
         const self: *FailingOnce = @ptrCast(@alignCast(ctx));
         const index = self.alloc_index;
         self.alloc_index += 1;
-        if (index == self.fail_index) {
+        if (index == self.fail_index or (self.lasting and index > self.fail_index)) {
             const trace = std.debug.captureCurrentStackTrace(.{ .first_address = return_address }, &self.return_addresses);
             @memset(self.return_addresses[@min(trace.return_addresses.len, frame_count)..], 0);
             self.induced = true;
@@ -60,6 +62,7 @@ pub const FailingOnce = struct {
 
     fn resize(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: usize, return_address: usize) bool {
         const self: *FailingOnce = @ptrCast(@alignCast(ctx));
+        if (self.refusesGrowth(memory.len, new_len)) return false;
         if (!self.backing.rawResize(memory, alignment, new_len, return_address)) return false;
         self.account(memory.len, new_len);
         return true;
@@ -67,6 +70,7 @@ pub const FailingOnce = struct {
 
     fn remap(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: usize, return_address: usize) ?[*]u8 {
         const self: *FailingOnce = @ptrCast(@alignCast(ctx));
+        if (self.refusesGrowth(memory.len, new_len)) return null;
         const pointer = self.backing.rawRemap(memory, alignment, new_len, return_address) orelse return null;
         self.account(memory.len, new_len);
         return pointer;
@@ -76,6 +80,11 @@ pub const FailingOnce = struct {
         const self: *FailingOnce = @ptrCast(@alignCast(ctx));
         self.backing.rawFree(memory, alignment, return_address);
         self.freed_bytes += memory.len;
+    }
+
+    /// Whether a lasting shortage has begun and `new_len` asks for more.
+    fn refusesGrowth(self: *const FailingOnce, old_len: usize, new_len: usize) bool {
+        return self.lasting and self.alloc_index > self.fail_index and new_len > old_len;
     }
 
     fn account(self: *FailingOnce, old_len: usize, new_len: usize) void {

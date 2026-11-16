@@ -33,7 +33,9 @@ const opts = residents.opts;
 /// `departs_on_close`, the closed bit also ends the partner for good: every
 /// later write answers would-block and no writable record follows, as a
 /// transport that lost its peer reports. `write_attempts` counts every write
-/// and `write_fails` answers each with a fault.
+/// and `write_fails` answers each with a fault. A runtime that serves two of
+/// these tells them apart by `conn` and `key_seed`, and by the transport name
+/// each is registered under.
 pub const ExternalAdoptionResident = struct {
     wake: net.wake_channel.WakeChannel,
     close_calls: usize = 0,
@@ -58,6 +60,8 @@ pub const ExternalAdoptionResident = struct {
     departed: bool = false,
     write_attempts: usize = 0,
     write_fails: bool = false,
+    conn: usize = conn_id,
+    key_seed: u8 = 0x5d,
 
     pub const transport = "external-close";
     pub const conn_id: usize = 9;
@@ -146,13 +150,14 @@ pub const ExternalAdoptionResident = struct {
             self.departed = self.departs_on_close;
         }
         if (events == 0) return 0;
-        out[0] = .{ .subject = conn_id, .events = events };
+        out[0] = .{ .subject = self.conn, .events = events };
         return 1;
     }
 
-    fn claimExternal(_: *anyopaque, subject: usize) net.MultiplexedExternalClaimRawOutcome {
-        if (subject != conn_id) return .{ .failed = .init(error.InvalidAddress) };
-        return .{ .claimed = conn_id };
+    fn claimExternal(ctx: *anyopaque, subject: usize) net.MultiplexedExternalClaimRawOutcome {
+        const self = of(ctx);
+        if (subject != self.conn) return .{ .failed = .init(error.InvalidAddress) };
+        return .{ .claimed = self.conn };
     }
 
     fn tryRead(ctx: *anyopaque, _: usize, into: []u8) isize {
@@ -188,8 +193,8 @@ pub const ExternalAdoptionResident = struct {
     }
 
     fn connClose(ctx: *anyopaque, conn: usize) net.multiplexed_resident.TeardownOutcome {
-        std.debug.assert(conn == conn_id);
         const self = of(ctx);
+        std.debug.assert(conn == self.conn);
         self.close_calls += 1;
         if (self.close_completes) return .complete;
         if (!self.close_ready) return .pending;
@@ -198,9 +203,10 @@ pub const ExternalAdoptionResident = struct {
         return .{ .failed = failure };
     }
 
-    fn connRemoteKey(_: *anyopaque, conn: usize) net.multiplexed_resident.ContractError!?glowcap.foundation.crypto.PeerKey {
-        std.debug.assert(conn == conn_id);
-        return glowcap.foundation.crypto.SecretKey.fromSeed(@as([32]u8, @splat(0x5d))).publicKey();
+    fn connRemoteKey(ctx: *anyopaque, conn: usize) net.multiplexed_resident.ContractError!?glowcap.foundation.crypto.PeerKey {
+        const self = of(ctx);
+        std.debug.assert(conn == self.conn);
+        return glowcap.foundation.crypto.SecretKey.fromSeed(@as([32]u8, @splat(self.key_seed))).publicKey();
     }
 };
 

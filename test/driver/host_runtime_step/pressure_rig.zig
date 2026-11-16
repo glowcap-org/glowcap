@@ -39,6 +39,9 @@ pub const Spec = struct {
     /// The open's observer holds the session's inbound until the test
     /// attends it, as the driver's event queue does.
     unattended_on_open: bool = false,
+    /// The allocator the runtime and its core draw from, when a test refuses
+    /// their allocations apart from the rig's own.
+    runtime_allocator: ?std.mem.Allocator = null,
 };
 
 /// A runtime serving one adopted connection whose partner is a raw core
@@ -99,7 +102,7 @@ pub const Rig = struct {
         var options = if (spec.blocking) residents.opts else rig.observed.steppedOpts();
         // One read carries a whole burst, so a chunk is never split by scratch.
         options.wire_buffer_bytes = 64 * 1024;
-        rig.runtime = try driver.HostRuntime.init(allocator, rig.threaded.io(), .{}, .ephemeral, options);
+        rig.runtime = try driver.HostRuntime.init(spec.runtime_allocator orelse allocator, rig.threaded.io(), .{}, .ephemeral, options);
         errdefer rig.runtime.deinit();
         try rig.runtime.core.setSessionLimits(null, null, spec.limit, null, null);
         if (spec.unattended_on_open) rig.observed.unattend = &rig.runtime;

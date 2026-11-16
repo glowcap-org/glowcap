@@ -175,9 +175,28 @@ fn closeWireFailure(self: *HostRuntime, wire: *Wire, failure: ?OperationFailure)
         armCarrierCloseDeadline(self, wire, self.nowMs() +| transport_close_ms);
         const reason = if (wire.close_failure) |value| value.chain.primaryName() else "connection closed";
         wire.session.host.transportClosed(wire.session, reason) catch |err|
-            Internal.noteTerminalFailure(self, err);
+            closeTailFailed(self, err);
     }
     progressWireCarrierClose(self, wire);
+}
+
+/// The core's close tail failed after the wire closed. The tail is host-wide
+/// pump work that can belong to any session, so the wire's own close failure
+/// records nothing and a clean close stays clean. A shortage of memory leaves
+/// that work queued for the next drain, and outbound pressure leaves it for
+/// the flush wake the core already published. Any other failure latches as
+/// the loop's terminal failure.
+pub fn closeTailFailed(self: *HostRuntime, err: anyerror) void {
+    switch (err) {
+        // tolerant: the next drain reruns the pump (`resumeWorkForActionDrain`),
+        // and a shortage that lasts fails that drain, which reports it. The
+        // armed deadline wakes the step's wait for that drain.
+        error.OutOfMemory => Internal.armMemoryRetry(self),
+        // tolerant: the core published the flush wake that brings the rerun
+        // when the session's window opens, so no deadline is owed.
+        error.OutboundBackpressure => {},
+        else => Internal.noteTerminalFailure(self, err),
+    }
 }
 
 fn noteWireCloseFailure(wire: *Wire, later: OperationFailure) void {

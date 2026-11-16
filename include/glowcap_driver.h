@@ -169,8 +169,7 @@ int32_t glowcap_driver_retire(GlowcapDriverLoop *loop);
 int32_t glowcap_driver_lifecycle_state(GlowcapDriverLoop *loop, uint32_t *out_state);
 /* The longest a nonblocking embedder may park on the readiness descriptor before
    calling glowcap_driver_step again with a zero timeout: milliseconds until the
-   nearest pending-work deadline (the close grace, a session's close grace, a dial
-   or listener setup budget), clamped at zero, or -1 when no finite deadline is
+   nearest pending-work deadline, clamped at zero, or -1 when no finite deadline is
    pending and readiness alone advances the loop. The value drops straight into a
    wait primitive's timeout argument. */
 int32_t glowcap_driver_step_wait_ms(GlowcapDriverLoop *loop, int32_t *out_wait_ms);

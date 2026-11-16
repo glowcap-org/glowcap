@@ -178,9 +178,9 @@ says when it runs. "Refusal proved by" is the test that pins the refusal.
 **Allocation failure while a frame is applied**
 
 - Read by: every allocating door of `Peer`, which are `recvBorrowed`, `feedOwned`, `step`, and the sends (`recvPacket` and `stepToIdle` are the first and third called in a loop, and the Host's `feed` verbs reach the same doors)
-- Bounded by: the allocator alone. The contract is two states and no third. The borrowed door commits nothing, and the Host offers the same bytes again. The owned door and the dispatch close the session, recording `OutOfMemory`. A send or a step leaves its message queued for a retry. No path applies half a frame or forgets one
+- Bounded by: the allocator alone. The contract is two states and no third. The borrowed door commits nothing, and the Host offers the same bytes again. The owned door and the dispatch close the session, and a feed the Host driver loop cannot retain closes that wire, recording `OutOfMemory`, even when the shortage came from other work. A send or a step leaves its message queued for a retry. No path applies half a frame or forgets one
 - Searched by: `engine/allocation_failure_test.zig` (a program between two conforming peers run once per allocation site with that one allocation refused, and once per site with every allocation from it on refused, under both profiles). Each run ends with the pair agreeing about every row or with the refused peer closed for memory, and with every byte it took returned
-- Refusal proved by: the same test, and `driver/sealed_channel_test.zig` (an allocation failure mid-record)
+- Refusal proved by: the same test, `driver/host_runtime_step/feed_pressure_test.zig` (a Host driver loop whose allocations are refused in turn, where a wire that cannot take its input closes with `OutOfMemory`, no step fails for it, and the other session keeps serving), and `driver/sealed_channel_test.zig` (an allocation failure mid-record)
 
 **Session traffic as a flood**
 
