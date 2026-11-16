@@ -66,6 +66,10 @@ Releases before 0.1.7 are in the
   its callback returns keeps it for that span. A turn that forwarded its
   answer has its `out_reply` ignored: a value there that would not convert
   does not fail the turn.
+- The C ABI drops `GLOWCAP_RESOLUTION_FULFILL`,
+  `GLOWCAP_RESOLUTION_BREAK`, and `GLOWCAP_RESOLUTION_HANDOFF`. No function,
+  field, or callback took or returned them. C code that names them deletes
+  the use.
 
 ### Added
 

@@ -162,7 +162,7 @@ test "libglowcap_host: the full three-party handoff through the C surface — on
     try pump(&hosts, &all_pairs, &dials, &watches);
 
     try std.testing.expect(redeemed.fired);
-    try std.testing.expectEqual(c.GLOWCAP_RESOLUTION_FULFILL, redeemed.kind);
+    try std.testing.expectEqual(.fulfilled, redeemed.kind);
     try std.testing.expectEqual(c.GLOWCAP_ARG_REFERENCE, redeemed.value.kind);
     const token = redeemed.value.reference;
 
@@ -193,7 +193,7 @@ test "libglowcap_host: the full three-party handoff through the C surface — on
     watches.add(recipient, poke_vow, &poked);
     try pump(&hosts, &all_pairs, &dials, &watches);
     try std.testing.expect(poked.fired);
-    try std.testing.expectEqual(c.GLOWCAP_RESOLUTION_FULFILL, poked.kind);
+    try std.testing.expectEqual(.fulfilled, poked.kind);
     try std.testing.expectEqualStrings("poked over the C surface", poked.text[0..poked.text_len]);
     try std.testing.expectEqual(@as(u32, 1), counter.pokes);
 
@@ -206,7 +206,7 @@ test "libglowcap_host: the full three-party handoff through the C surface — on
     watches.add(recipient, application_vow, &application_reply);
     try pump(&hosts, &all_pairs, &dials, &watches);
     try std.testing.expect(application_reply.fired);
-    try std.testing.expectEqual(c.GLOWCAP_RESOLUTION_FULFILL, application_reply.kind);
+    try std.testing.expectEqual(.fulfilled, application_reply.kind);
     try std.testing.expectEqualStrings("poked over the C surface", application_reply.text[0..application_reply.text_len]);
     try std.testing.expectEqual(@as(u32, 2), counter.pokes);
     try expectOk(cd.glowcap_host_ref_release(recipient, &local_argument, 1));
@@ -336,7 +336,7 @@ test "libglowcap_host: a failed dial breaks the redeeming vow with the reason" {
     ));
     _ = try drainActions(&hosts, &dials, &watches);
     try std.testing.expect(redeemed.fired);
-    try std.testing.expectEqual(c.GLOWCAP_RESOLUTION_BREAK, redeemed.kind);
+    try std.testing.expectEqual(.failed, redeemed.kind);
     try std.testing.expect(std.mem.find(u8, redeemed.msg[0..redeemed.msg_len], "exporter unreachable") != null);
 }
 
@@ -507,7 +507,7 @@ test "libglowcap_host: a select-or-dial enliven breaks when the embedder cannot 
     ));
     _ = try drainActions(&hosts, &dials, &watches);
     try std.testing.expect(parked.fired);
-    try std.testing.expectEqual(c.GLOWCAP_RESOLUTION_BREAK, parked.kind);
+    try std.testing.expectEqual(.failed, parked.kind);
 }
 
 test "libglowcap_host: id route bundles expose a bounded strong-route race" {
@@ -560,7 +560,7 @@ test "libglowcap_host: id route bundles expose a bounded strong-route race" {
     _ = try drainActions(&hosts, &dials, &watches);
     try std.testing.expectEqual(@as(usize, 0), dials.len);
     try std.testing.expect(parked.fired);
-    try std.testing.expectEqual(c.GLOWCAP_RESOLUTION_BREAK, parked.kind);
+    try std.testing.expectEqual(.failed, parked.kind);
 }
 
 test "libglowcap_host: explicit next select-or-dial enliven parses raw swiss URI bytes" {

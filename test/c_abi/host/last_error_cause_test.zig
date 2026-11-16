@@ -69,7 +69,7 @@ test "Host FAIL actions retain partner provenance for forged local diagnostics" 
         watches.add(client, ticket, &result);
         try h.pump(&hosts, &.{pair}, &dials, &watches);
         try std.testing.expect(result.fired);
-        try std.testing.expectEqual(c.GLOWCAP_RESOLUTION_BREAK, result.kind);
+        try std.testing.expectEqual(.failed, result.kind);
         try std.testing.expectEqual(cd.BreakCause.partner(), try result.cause.toCore());
         try std.testing.expectEqualStrings(reason, result.msg[0..result.msg_len]);
     }

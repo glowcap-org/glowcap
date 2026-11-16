@@ -177,7 +177,7 @@ test "libglowcap_host: uncommon typed values and a nested capability cross the H
     try pump(&hosts, &.{pair}, &dials, &watches);
     try std.testing.expect(capture.seen);
     try std.testing.expect(capture.nested_ref.id != 0);
-    try std.testing.expectEqual(c.GLOWCAP_RESOLUTION_FULFILL, settled.kind);
+    try std.testing.expectEqual(.fulfilled, settled.kind);
     try std.testing.expectEqual(c.GLOWCAP_ARG_ERROR, settled.value.kind);
     try std.testing.expectEqualStrings("typed failure value", settled.text[0..settled.text_len]);
     // Tagged and Struct each carried the same capability once. Return both

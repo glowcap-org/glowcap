@@ -179,7 +179,7 @@ test "libglowcap_host: inside a callback every top-level verb refuses and every 
     try std.testing.expect(rctx.enqueued_ok);
     // The probe's own reply reached the caller, so the refusals broke nothing.
     try std.testing.expect(settled.fired);
-    try std.testing.expectEqual(c.GLOWCAP_RESOLUTION_FULFILL, settled.kind);
+    try std.testing.expectEqual(.fulfilled, settled.kind);
     try std.testing.expectEqualStrings("probed", settled.text[0..settled.text_len]);
     // The nested send and tell both landed at the unwind, and the nested
     // vow's settle fired.
@@ -361,7 +361,7 @@ test "libglowcap_host: a behavior defers onto a resolver vow, and the settle re-
     try expectOk(cd.glowcap_host_resolver_fulfill(server, state.resolver_id, &value));
     try pump(&hosts, &.{pair}, &dials, &watches);
     try std.testing.expect(settled.fired);
-    try std.testing.expectEqual(c.GLOWCAP_RESOLUTION_FULFILL, settled.kind);
+    try std.testing.expectEqual(.fulfilled, settled.kind);
     try std.testing.expectEqualStrings("computed off-turn", settled.text[0..settled.text_len]);
 
     // One attempt: the resolver is consumed.
@@ -382,7 +382,7 @@ test "libglowcap_host: a behavior defers onto a resolver vow, and the settle re-
     try expectOk(cd.glowcap_host_resolver_break(server, state.resolver_id, "worker gave up", 14));
     try pump(&hosts, &.{pair}, &dials, &watches);
     try std.testing.expect(broke.fired);
-    try std.testing.expectEqual(c.GLOWCAP_RESOLUTION_BREAK, broke.kind);
+    try std.testing.expectEqual(.failed, broke.kind);
     try std.testing.expectEqualStrings("worker gave up", broke.msg[0..broke.msg_len]);
     try expectOk(cd.glowcap_host_resolver_abandon(server, state.resolver_id, "retired", 7));
 
@@ -395,7 +395,7 @@ test "libglowcap_host: a behavior defers onto a resolver vow, and the settle re-
     try expectOk(cd.glowcap_host_resolver_abandon(server, state.resolver_id, "owner dropped", 13));
     try pump(&hosts, &.{pair}, &dials, &watches);
     try std.testing.expect(abandoned.fired);
-    try std.testing.expectEqual(c.GLOWCAP_RESOLUTION_BREAK, abandoned.kind);
+    try std.testing.expectEqual(.failed, abandoned.kind);
     try std.testing.expectEqualStrings("owner dropped", abandoned.msg[0..abandoned.msg_len]);
 
     // An id this Host never minted refuses NOT_FOUND, distinct from the

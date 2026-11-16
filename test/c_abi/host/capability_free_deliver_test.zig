@@ -236,7 +236,7 @@ const Rig = struct {
 
 fn expectFulfilled(settled: h.CapturedSettle) !void {
     try std.testing.expect(settled.fired);
-    try std.testing.expectEqual(c.GLOWCAP_RESOLUTION_FULFILL, settled.kind);
+    try std.testing.expectEqual(.fulfilled, settled.kind);
 }
 
 fn listOf(arena: std.mem.Allocator, kind: u32, items: []const Arg) !Arg {
@@ -504,7 +504,7 @@ test "a turn arena that refuses an allocation breaks the call before the callbac
             // session carried on.
             try std.testing.expect(induced);
             try std.testing.expect(settled.fired);
-            try std.testing.expectEqual(c.GLOWCAP_RESOLUTION_BREAK, settled.kind);
+            try std.testing.expectEqual(.failed, settled.kind);
             try std.testing.expectEqual(@as(c_int, 1), cd.glowcap_host_session_is_open(rig.pair.b));
             refusals += 1;
         }
@@ -589,7 +589,7 @@ test "a reference on the views route breaks the turn without calling the callbac
     try std.testing.expectEqual(@as(usize, 1), rig.tap.delivers);
     try std.testing.expectEqual(@as(usize, 0), rig.probe.calls);
     try std.testing.expect(settled.fired);
-    try std.testing.expectEqual(c.GLOWCAP_RESOLUTION_BREAK, settled.kind);
+    try std.testing.expectEqual(.failed, settled.kind);
     try std.testing.expect(std.mem.find(u8, settled.msg[0..settled.msg_len], "UnsupportedValue") != null);
     try std.testing.expectEqual(@as(c_int, 1), cd.glowcap_host_session_is_open(rig.pair.b));
     try std.testing.expectEqual(live_before, try cd.testing.liveCapabilityCount(rig.server()));

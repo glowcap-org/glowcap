@@ -96,7 +96,7 @@ test "libglowcap_host: a spawned object behind a caretaker — turn_forward, tur
     watches.add(client, vow, &settled);
     try pump(&hosts, &.{pair}, &dials, &watches);
     try std.testing.expect(settled.fired);
-    try std.testing.expectEqual(c.GLOWCAP_RESOLUTION_FULFILL, settled.kind);
+    try std.testing.expectEqual(.fulfilled, settled.kind);
     try std.testing.expectEqualStrings("poked over the C surface", settled.text[0..settled.text_len]);
     try std.testing.expectEqual(@as(u32, 1), counter.pokes);
 
@@ -107,7 +107,7 @@ test "libglowcap_host: a spawned object behind a caretaker — turn_forward, tur
     watches.add(client, kick_vow, &kicked);
     try pump(&hosts, &.{pair}, &dials, &watches);
     try std.testing.expect(kicked.fired);
-    try std.testing.expectEqual(c.GLOWCAP_RESOLUTION_FULFILL, kicked.kind);
+    try std.testing.expectEqual(.fulfilled, kicked.kind);
     try std.testing.expectEqual(@as(u32, 3), counter.pokes);
 }
 
@@ -141,7 +141,7 @@ test "libglowcap_host: turn_spawn mints a capability mid-turn, and turn_break ca
     watches.add(client, make_vow, &made);
     try pump(&hosts, &.{pair}, &dials, &watches);
     try std.testing.expect(made.fired);
-    try std.testing.expectEqual(c.GLOWCAP_RESOLUTION_FULFILL, made.kind);
+    try std.testing.expectEqual(.fulfilled, made.kind);
     try std.testing.expectEqual(c.GLOWCAP_ARG_REFERENCE, made.value.kind);
     try std.testing.expect(factory_ctx.saw_expected_session);
     const widget_ref = made.value.reference;
@@ -152,7 +152,7 @@ test "libglowcap_host: turn_spawn mints a capability mid-turn, and turn_break ca
     watches.add(client, poke_vow, &poked);
     try pump(&hosts, &.{pair}, &dials, &watches);
     try std.testing.expect(poked.fired);
-    try std.testing.expectEqual(c.GLOWCAP_RESOLUTION_FULFILL, poked.kind);
+    try std.testing.expectEqual(.fulfilled, poked.kind);
     try std.testing.expectEqual(@as(u32, 1), counter.pokes);
 
     // A refusal through turn_break reaches the caller with the behavior's own
@@ -163,7 +163,7 @@ test "libglowcap_host: turn_spawn mints a capability mid-turn, and turn_break ca
     watches.add(client, deny_vow, &denied);
     try pump(&hosts, &.{pair}, &dials, &watches);
     try std.testing.expect(denied.fired);
-    try std.testing.expectEqual(c.GLOWCAP_RESOLUTION_BREAK, denied.kind);
+    try std.testing.expectEqual(.failed, denied.kind);
     try std.testing.expectEqualStrings("Attenuated", denied.msg[0..denied.msg_len]);
 }
 
@@ -234,7 +234,7 @@ test "libglowcap_host: promise pipelining — vow_send, vow_index, vow_untag, vo
     try std.testing.expectEqual(c.GLOWCAP_ARG_INTEGER, unboxed.value.kind);
     try std.testing.expectEqual(@as(i64, 7), unboxed.value.integer);
     try std.testing.expect(gotten.fired);
-    try std.testing.expectEqual(c.GLOWCAP_RESOLUTION_BREAK, gotten.kind);
+    try std.testing.expectEqual(.failed, gotten.kind);
 
     // The source answer has already settled, but its public C handle still
     // owns the answer position and remains a valid pipeline target.
@@ -317,7 +317,7 @@ test "libglowcap_host: a pending vow passes as a capability — vow_capability r
     try expectOk(cd.glowcap_host_ref_release(client, &promise_ref, 2));
     try pump(&hosts, &.{pair}, &dials, &watches);
     try std.testing.expect(relayed.fired);
-    try std.testing.expectEqual(c.GLOWCAP_RESOLUTION_FULFILL, relayed.kind);
+    try std.testing.expectEqual(.fulfilled, relayed.kind);
     try std.testing.expectEqualStrings("poked over the C surface", relayed.text[0..relayed.text_len]);
     try std.testing.expectEqual(@as(u32, 1), counter.pokes);
 
@@ -333,7 +333,7 @@ test "libglowcap_host: a pending vow passes as a capability — vow_capability r
     try expectOk(cd.glowcap_host_ref_release(client, &late_ref, 1));
     try pump(&hosts, &.{pair}, &dials, &watches);
     try std.testing.expect(late.fired);
-    try std.testing.expectEqual(c.GLOWCAP_RESOLUTION_FULFILL, late.kind);
+    try std.testing.expectEqual(.fulfilled, late.kind);
     try std.testing.expectEqual(@as(u32, 2), counter.pokes);
     try expectOk(cd.glowcap_host_vow_release(client, make_vow));
     var gone_ref: c.GlowcapReference = .{ .id = 0 };

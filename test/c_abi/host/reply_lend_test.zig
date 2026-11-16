@@ -402,7 +402,7 @@ test "a served reply's turn arena holds no copy of the leaf and the peer receive
     defer rig.deinit();
     const settled = try rig.call(&rig.tap_target, "big");
     try std.testing.expect(settled.fired);
-    try std.testing.expectEqual(c.GLOWCAP_RESOLUTION_FULFILL, settled.kind);
+    try std.testing.expectEqual(.fulfilled, settled.kind);
     try std.testing.expectEqual(c.GLOWCAP_ARG_BYTES, settled.value.kind);
     try std.testing.expectEqual(big_bytes, settled.value.bytes_len);
     try std.testing.expectEqual(@as(usize, 1), rig.tap.delivers);
@@ -448,7 +448,7 @@ test "a reply holding a reference and a lent byte leaf delivers both" {
     defer rig.deinit();
     const settled = try rig.call(&rig.plain_target, "ref-bytes");
     try std.testing.expect(settled.fired);
-    try std.testing.expectEqual(c.GLOWCAP_RESOLUTION_FULFILL, settled.kind);
+    try std.testing.expectEqual(.fulfilled, settled.kind);
     try std.testing.expectEqualStrings(rig.reply.expectedText(0), settled.rendered[0..settled.rendered_len]);
     try std.testing.expectEqualStrings("[r x\"bytes-1\"]", settled.rendered[0..settled.rendered_len]);
 }
@@ -474,7 +474,7 @@ test "a forwarded served turn reads nothing from its out_reply and settles on th
     defer rig.deinit();
     const settled = try rig.call(&rig.plain_target, "forward");
     try std.testing.expect(settled.fired);
-    try std.testing.expectEqual(c.GLOWCAP_RESOLUTION_FULFILL, settled.kind);
+    try std.testing.expectEqual(.fulfilled, settled.kind);
     try std.testing.expectEqualStrings("poked over the C surface", settled.text[0..settled.text_len]);
     try std.testing.expectEqual(@as(u32, 1), rig.counter.pokes);
     try std.testing.expectEqual(@as(c_int, 1), cd.glowcap_host_session_is_open(rig.pair.b));
@@ -526,7 +526,7 @@ test "a near call into a C behavior copies its leaves, so the first reply surviv
     defer rig.deinit();
     const settled = try rig.call(&rig.caller_target, "go");
     try std.testing.expect(settled.fired);
-    try std.testing.expectEqual(c.GLOWCAP_RESOLUTION_FULFILL, settled.kind);
+    try std.testing.expectEqual(.fulfilled, settled.kind);
     try std.testing.expectEqual(@as(usize, 2), rig.reply.rich_calls);
     try std.testing.expect(rig.caller.first_intact);
     try std.testing.expect(rig.caller.second_intact);
@@ -540,11 +540,11 @@ test "a reply refused in mid-conversion breaks the answer, retains nothing, and 
     for ([_][]const u8{ "bad-big", "bad-struct" }) |verb| {
         const refused = try rig.call(&rig.plain_target, verb);
         try std.testing.expect(refused.fired);
-        try std.testing.expectEqual(c.GLOWCAP_RESOLUTION_BREAK, refused.kind);
+        try std.testing.expectEqual(.failed, refused.kind);
         try std.testing.expectEqual(@as(c_int, 1), cd.glowcap_host_session_is_open(rig.pair.b));
         try std.testing.expectEqual(live_before, try cd.testing.liveCapabilityCount(rig.server()));
         const next = try rig.call(&rig.plain_target, "rich");
-        try std.testing.expectEqual(c.GLOWCAP_RESOLUTION_FULFILL, next.kind);
+        try std.testing.expectEqual(.fulfilled, next.kind);
         try std.testing.expectEqualStrings(rig.reply.expectedText(rig.reply.rich_calls - 1), next.rendered[0..next.rendered_len]);
     }
 }
@@ -559,7 +559,7 @@ test "a tell that writes a reply and a call that rewrites its buffer in one feed
     try std.testing.expectEqual(@as(usize, 2), try rig.feedOnce());
     try rig.pump();
     try std.testing.expectEqual(@as(usize, 2), rig.reply.rich_calls);
-    try std.testing.expectEqual(c.GLOWCAP_RESOLUTION_FULFILL, settled.kind);
+    try std.testing.expectEqual(.fulfilled, settled.kind);
     try std.testing.expectEqualStrings(rig.reply.expectedText(1), settled.rendered[0..settled.rendered_len]);
 }
 
@@ -582,13 +582,13 @@ test "an allocation refusal at every index of the reply conversion breaks the an
         if (fail_index < containers) {
             // The refusal landed before commit: the call broke and the session carried on.
             try std.testing.expect(rig.tap.counter.induced);
-            try std.testing.expectEqual(c.GLOWCAP_RESOLUTION_BREAK, settled.kind);
+            try std.testing.expectEqual(.failed, settled.kind);
             try std.testing.expectEqual(@as(c_int, 1), cd.glowcap_host_session_is_open(rig.pair.b));
             refusals += 1;
         } else {
             try std.testing.expect(!rig.tap.counter.induced);
             try std.testing.expectEqual(containers, rig.tap.arena_allocs);
-            try std.testing.expectEqual(c.GLOWCAP_RESOLUTION_FULFILL, settled.kind);
+            try std.testing.expectEqual(.fulfilled, settled.kind);
             try std.testing.expectEqual(@as(usize, 3), settled.value.items_len);
         }
     }
