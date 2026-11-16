@@ -325,6 +325,24 @@ async fn a_publisher_socket_takes_a_record_line_and_closes_a_longer_message_by_i
 }
 
 #[tokio::test]
+async fn trace_bind_refusal_names_the_listener_and_address() {
+	rooms_testing::local_set::run_within(Duration::from_secs(15), async {
+		let held = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+		let address = held.local_addr().unwrap();
+		let Err(error) = super::Trace::start(address, "trace-bind-proof".into(), None, None, Rc::new(|_| {})).await
+		else {
+			panic!("a held trace address was bound twice");
+		};
+		let refusal = error.to_string();
+		assert!(
+			refusal.starts_with(&format!("binding the trace listener at {address} failed: ")),
+			"{refusal}"
+		);
+	})
+	.await;
+}
+
+#[tokio::test]
 async fn trace_bind_selects_interface_and_preserves_capability_admission() {
 	rooms_testing::local_set::run_within(Duration::from_secs(15), async {
 		for bind in ["127.0.0.2:0", "0.0.0.0:0", "[::1]:0", "[::]:0"] {

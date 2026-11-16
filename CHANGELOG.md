@@ -316,6 +316,8 @@ Releases before 0.1.7 are in the
   room after the page read it, as any other workspace conflict is. The result
   ended in recovery with a bare refusal, which the room's connection
   restarting at that moment was enough to cause.
+- A Rooms process that cannot bind its trace, HTTP, or IRC listener names the
+  listener and the address in its refusal.
 - The TCP connections a Rooms process owns send each small write as soon as
   it is written, as glowcap's own sockets do. A write could wait tens of
   milliseconds for the one before it to be acknowledged, which was enough to

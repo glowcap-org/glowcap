@@ -11,7 +11,7 @@ pub use onion::Config as OnionConfig;
 pub mod endpoint;
 mod opening;
 pub mod relay;
-pub use opening::{BindError, OpenError};
+pub use opening::{BindError, HostPort, OpenError};
 
 /// iroh's idle timeout for a peer's listener and its dial endpoint alike.
 const IROH_IDLE_TIMEOUT_MS: u64 = 8_000;
@@ -455,6 +455,14 @@ impl fmt::Display for PartnerNotice {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn a_listening_address_brackets_only_an_ipv6_host() {
+		assert_eq!(HostPort("127.0.0.1", 8080).to_string(), "127.0.0.1:8080");
+		assert_eq!(HostPort("rooms.example", 8080).to_string(), "rooms.example:8080");
+		assert_eq!(HostPort("::", 8080).to_string(), "[::]:8080");
+		assert_eq!(HostPort("[::1]", 8080).to_string(), "[::1]:8080");
+	}
 
 	#[test]
 	fn a_cleartext_tcp_profile_is_registered_only_when_named() {

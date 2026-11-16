@@ -35,6 +35,20 @@ impl fmt::Display for OpenError {
 }
 impl std::error::Error for OpenError {}
 
+/// A listening host and port as an operator reads them. An IPv6 host is
+/// bracketed, which keeps its colons apart from the port.
+pub struct HostPort<'a>(pub &'a str, pub u16);
+impl fmt::Display for HostPort<'_> {
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		let Self(host, port) = *self;
+		if host.contains(':') && !host.starts_with('[') {
+			write!(f, "[{host}]:{port}")
+		} else {
+			write!(f, "{host}:{port}")
+		}
+	}
+}
+
 /// The actual bind owns exclusion. Retain its address and failure together.
 /// Diagnostic wording must never turn a different I/O failure into a collision.
 #[derive(Debug)]
@@ -54,7 +68,7 @@ impl BindError {
 }
 impl fmt::Display for BindError {
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-		write!(f, "cannot listen on {}:{}: ", self.host, self.port)?;
+		write!(f, "cannot listen on {}: ", HostPort(&self.host, self.port))?;
 		// This translates the host driver's diagnostic for display only;
 		// admission and recovery continue to use the original failure.
 		if self.cause.kind() == glowcap::ErrorKind::Io && self.cause.message() == Some("listener failed: AddressInUse")

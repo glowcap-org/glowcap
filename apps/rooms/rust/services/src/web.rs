@@ -76,9 +76,10 @@ async fn serve(
 	} = config;
 	// Acquiring HTTP first prevents a conflicting web start from briefly
 	// acquiring directory custody or minting operator capabilities.
-	let listener = TcpListener::bind((bind.as_str(), port))
-		.await
-		.map_err(|e| format!("binding the HTTP listener failed: {e}"))?;
+	let listener = TcpListener::bind((bind.as_str(), port)).await.map_err(|e| {
+		let address = rooms_platform::serving::HostPort(&bind, port);
+		format!("binding the HTTP listener at {address} failed: {e}")
+	})?;
 	let address = listener.local_addr().map_err(|e| e.to_string())?;
 	let port = address.port();
 	// The bound port is the first line on stdout, so a harness that asked for

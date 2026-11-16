@@ -178,7 +178,9 @@ impl Trace {
 		connect: Option<String>,
 		report: Report,
 	) -> Result<Self, super::super::error::Error> {
-		let listener = TcpListener::bind(address).await?;
+		let listener = TcpListener::bind(address).await.map_err(|e| {
+			super::super::error::Error::refused(format!("binding the trace listener at {address} failed: {e}"))
+		})?;
 		let address = listener.local_addr()?;
 		let mut seed = [0u8; 32];
 		rooms_platform::entropy::fill(&mut seed)

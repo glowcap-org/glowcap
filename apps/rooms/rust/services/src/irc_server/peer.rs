@@ -62,7 +62,10 @@ pub async fn run(
 		.map_err(|e| e.to_string())?;
 		let listener = TcpListener::bind((config.bind.as_str(), config.port))
 			.await
-			.map_err(|e| e.to_string())?;
+			.map_err(|e| {
+				let address = rooms_platform::serving::HostPort(&config.bind, config.port);
+				format!("binding the IRC listener at {address} failed: {e}")
+			})?;
 		let port = listener.local_addr().map_err(|e| e.to_string())?.port();
 		let dm_uri = glowcap::format_locator_uri(&dm).map_err(|e| e.to_string())?;
 		let context = Rc::new(Context {
