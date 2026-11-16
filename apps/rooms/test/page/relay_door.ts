@@ -61,7 +61,7 @@ export async function run(browser: Browser, at: (part: string) => void): Promise
 				fail(
 					"the published page did not reach a directory through its relay door: " +
 						JSON.stringify({
-							refused: await open.textContent("#joinError").catch(() => null),
+							refused: await open.textContent("#joinAddressFieldSaid").catch(() => null),
 							asked: await open.locator("#serverAddress").count(),
 						}),
 				)
@@ -162,7 +162,7 @@ async function reroutesHeldDirectory(open: Page, origin: string, address: string
 		fail(
 			"re-routing a held directory through its bare relay door did not reach it: " +
 				JSON.stringify({
-					refused: await open.textContent("#joinError").catch(() => null),
+					refused: await open.textContent("#joinAddressFieldSaid").catch(() => null),
 					asked: await open.locator("#serverAddress").count(),
 				}),
 		)
@@ -191,13 +191,13 @@ async function deadDoorsAreNamed(open: Page, origin: string, address: string): P
 	await fillSettled(open, "#joinAddressField", dead);
 	await open.click("#joinBtn");
 	await open.waitForFunction(
-		(said) => (document.getElementById("joinError")?.textContent ?? "").startsWith(said),
+		(said) => (document.getElementById("joinAddressFieldSaid")?.textContent ?? "").startsWith(said),
 		said,
 		{ timeout: 30_000 },
 	).catch(async () =>
 		fail(
 			"a relay door nothing answers at was not named on the join card: " +
-				JSON.stringify(await open.textContent("#joinError").catch(() => null)),
+				JSON.stringify(await open.textContent("#joinAddressFieldSaid").catch(() => null)),
 		)
 	);
 	if (await open.locator("#serverAddress").count() !== 0) {
@@ -213,7 +213,7 @@ async function deadDoorsAreNamed(open: Page, origin: string, address: string): P
 	await lead.waitFor({ state: "visible", timeout: 30_000 }).catch(async () =>
 		fail(
 			"an address with a door only a server reaches did not ask for one: " +
-				JSON.stringify(await open.textContent("#joinError").catch(() => null)),
+				JSON.stringify(await open.textContent("#joinAddressFieldSaid").catch(() => null)),
 		)
 	);
 	// The dial reports whichever door failed last, so the break's own words

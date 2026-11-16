@@ -289,13 +289,13 @@ export async function proveOpeningFaces(browser: Browser, httpPort: number): Pro
 		await open.fill("#nick", "asker");
 		await open.click("#joinBtn");
 		await open.waitForFunction(
-			(said) => document.querySelector("#joinError .said-clamp")?.textContent === said,
+			(said) => document.querySelector("#joinAddressFieldSaid .said-clamp")?.textContent === said,
 			joinNeedsAddress,
 			{ timeout: 10_000 },
 		).catch(async () =>
 			fail(
 				`a blank address was not refused on its field: ${
-					JSON.stringify(await open.textContent("#joinError .said-clamp").catch(() => null))
+					JSON.stringify(await open.textContent("#joinAddressFieldSaid .said-clamp").catch(() => null))
 				}`,
 			)
 		);
@@ -310,10 +310,10 @@ export async function proveOpeningFaces(browser: Browser, httpPort: number): Pro
 		if ((await open.textContent("#serverSave")) !== saveAndReload) {
 			fail(`the server ask did not say saving reloads: ${JSON.stringify(await open.textContent("#serverSave"))}`);
 		}
-		if (await open.locator("#joinError").count() !== 0) {
+		if (await open.locator("#joinAddressFieldSaid").count() !== 0) {
 			fail(
 				`the join form said a failure the ask already answers: ${
-					JSON.stringify(await open.textContent("#joinError"))
+					JSON.stringify(await open.textContent("#joinAddressFieldSaid"))
 				}`,
 			);
 		}

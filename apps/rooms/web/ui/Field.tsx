@@ -66,7 +66,12 @@ export function Field(
 		>
 			<label className="field-label" htmlFor={id}>
 				{label}
-				{optional !== undefined && <span className="optional">{optional}</span>}
+				{optional !== undefined && (
+					<>
+						{" "}
+						<span className="optional">{optional}</span>
+					</>
+				)}
 			</label>
 			{refused && <Said id={saidId} kind="failure">{said}</Said>}
 			{children({ id, describedBy, invalid: refused ? true : undefined })}

@@ -279,9 +279,9 @@ export { MINT_INVITATION } from "./protocol_data.ts";
 export { CLAIM_INVITATION } from "./protocol_data.ts";
 
 /** The method on the subject facet in `subscribe`'s answer:
- * `setSubject(description, link?)`, what this room is about. Participant
- * answers carry this facet in their third slot, and observer answers carry
- * null.
+ * `setSubject(description, link?)`, what this room is about. A participant
+ * on the Rooms server receives it in the third slot. An observer or a
+ * subscription through the IRC bridge receives null.
  *
  * Same shape as a line's reference, one level up. Holding it is the authority
  * to set the subject, so the room asks nobody whether they may. Because it is

@@ -331,17 +331,6 @@ html:has(.app.covered) {
 .modal-card [role="tabpanel"] {
 	display: contents;
 }
-/* A refusal tucks down onto the box it refused rather than sitting on a line
-   of its own. Colour and weight live on `.said`.
-
-   It keeps no slot while empty. A reserved slot would cost 1.2em plus the
-   card's gap on every reading of a card where a refusal is the rare state, so
-   the card renders a reply only when there is one, and a refusal moves the
-   button as it arrives. */
-.join .said {
-	margin: 0 0 -4px;
-}
-
 /* The capability-set draft has one model and two projections. Its tiny action
    swaps the complete controls for the complete text block. Neither projection
    is a second form or a nested card. */

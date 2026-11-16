@@ -339,9 +339,7 @@ try {
 						address: await addressOf(tab),
 						nick: await tab.locator("#nick").inputValue().catch(() => null),
 						form: await tab.locator("#joinForm").textContent().catch(() => null),
-						nickError: await tab.locator("#joinNickError").evaluate((node) => node.outerHTML).catch(() =>
-							null
-						),
+						nickError: await tab.locator("#nickSaid").evaluate((node) => node.outerHTML).catch(() => null),
 						holderRoster: await holder.locator("#members").textContent().catch(() => null),
 						title: await tab.title(),
 					})

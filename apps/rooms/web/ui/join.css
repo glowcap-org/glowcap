@@ -66,11 +66,6 @@
 	display: flex;
 	flex-direction: column;
 	gap: var(--gap-group);
-	/* One gap separates everything in this form, which is right between one
-	   question and the next and too much inside a single one. A field's label
-	   pulls itself back by this much, so a reader sees three groups rather than
-	   six evenly spaced lines. */
-	--field-tuck: 7px;
 	border: 1px solid var(--rule);
 	border-radius: 18px;
 	/* Less above and below than at the sides. The card is tall and narrow, so
@@ -119,19 +114,14 @@
 	font-size: var(--type-body);
 	text-wrap: pretty;
 }
-.join label {
+.join .field-label {
 	font-size: var(--type-caption);
 	font-weight: 700;
 	color: var(--ink-soft);
-	margin-bottom: calc(var(--field-tuck) * -1);
+	margin: 0;
 }
-/* A field's aside belongs to the box above it, not to the column: dropped in
-   as a sibling it becomes a fourth evenly spaced line and the reader sees six
-   things where there are three. So it takes the label's tuck upward, against
-   the box it describes, and keeps the column's own gap below, where the next
-   question starts. */
-.join-fields > .hint {
-	margin-block: calc(var(--field-tuck) * -1) 0;
+.join .field-stack > .hint {
+	margin: 0;
 	font-size: var(--type-caption);
 	color: var(--ink-soft);
 	line-height: 1.4;
@@ -147,7 +137,6 @@
 .join label .optional {
 	font-weight: 500;
 	color: var(--ink-soft);
-	margin-left: 4px;
 }
 /* The questions, held together so they can go inert (while a join is in
    flight, and whenever this capability cannot join at all) without the card's

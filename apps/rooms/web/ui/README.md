@@ -281,13 +281,13 @@ Presentation follows `presentation.ts`:
 
 | Feedback                                                                                 | Delay                        |
 | ---------------------------------------------------------------------------------------- | ---------------------------- |
-| Pressed control's busy decoration, placeholder for earlier history                       | 400ms                        |
-| Sending message                                                                          | 1s                           |
-| Joining or reconnecting decoration                                                       | 2s                           |
+| Pressed control's busy decoration, placeholder for earlier history                       | <!-- value presentation.ts BUSY_DELAY_MS milliseconds -->0.4 seconds<!-- /value -->                        |
+| Sending message                                                                          | <!-- value presentation.ts SENDING_DELAY_MS milliseconds -->1 second<!-- /value -->                           |
+| Joining or reconnecting decoration                                                       | <!-- value presentation.ts CONNECTION_DELAY_MS milliseconds -->2 seconds<!-- /value -->                           |
 | Failure, permission change, disabling a conflicting control, releasing a settled control | Immediate                    |
 | Supported Stop action                                                                    | Immediate, in reserved space |
 
-A feedback slot may hand off to a confirmed result for the rest of its 500ms minimum. A surface with no real
+A feedback slot may hand off to a confirmed result for the rest of its <!-- value presentation.ts RESULT_MINIMUM_MS milliseconds -->0.5 seconds<!-- /value --> minimum. A surface with no real
 result to show clears its progress at once. Neither the minimum nor a delayed spinner extends the effect, keeps a
 settled control disabled, or postpones a failure.
 

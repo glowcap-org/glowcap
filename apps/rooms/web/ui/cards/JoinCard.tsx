@@ -41,6 +41,7 @@ import { answerJoinNick, joinNickAvailability, ownJoinNick } from "../join_nick.
 import { NICK_TAKEN, NO_SERVER } from "../../../lib/error_codes.ts";
 import { JoinField, JoinPrefix } from "./JoinField.tsx";
 import { JoinAddress } from "./JoinAddress.tsx";
+import { Field } from "../Field.tsx";
 import { MenuLayer } from "../Menu.tsx";
 import { roomMarkGlyph } from "../room_mark.tsx";
 import {
@@ -391,155 +392,147 @@ export const JoinCard = memo(function JoinCard(
 						: joinLeadReadOnly}
 				</p>
 				<div className="join-fields" inert={joining || !canInteract || undefined}>
-					<label htmlFor="joinAddressField">
-						{asLink ? joinLinkLabel : (
+					<Field
+						id="joinAddressField"
+						label={asLink ? joinLinkLabel : joinAddressLabel}
+						optional={!asLink && !addressRequired ? joinAddressOptional : undefined}
+						hint={asLink ? undefined : addressHint}
+						said={error?.field === "address" ? error.text : undefined}
+					>
+						{(wiring) => (
+							<JoinAddress
+								address={address}
+								dirs={dirs}
+								defaultAddress={defaultDirectoryAddress}
+								directoryContext={directoryContext}
+								invalid={wiring.invalid}
+								describedBy={wiring.describedBy}
+								onPick={(next) => browser.editJoin({ address: next })}
+								onType={(next) => browser.editJoin({ address: next })}
+							/>
+						)}
+					</Field>
+					{reaching && homeDirectory == null && <MakeHomeChoice />}
+					<div hidden={reaching}>
+						<Field
+							id="room"
+							label={asLink ? joinCallIt : roomFieldLabel(standing)}
+							said={error?.field === "room" ? error.text : undefined}
+						>
+							{(wiring) => (
+								<div className="join-field-wrap" ref={roomWrap}>
+									<JoinField invalid={wiring.invalid}>
+										{asLink ? undefined : (
+											<JoinPrefix
+												id="joinPrivate"
+												disabled={resolved.fixed}
+												// One answer drives both halves of this control. Keying the
+												// label and the disabled state to separate conditions is how
+												// they come to say different things about one question.
+												label={resolved.fixed
+													? joinAccessFixedLabel(standing, wantedRoom)
+													: joinAccessLabel(standing, nextRoomPreset(standing))}
+												onMouseDown={(event) => event.preventDefault()}
+												onClick={() =>
+													browser.editJoin({ roomPreset: nextRoomPreset(standing) })}
+											>
+												{standing === "open"
+													? <span className="join-hash" aria-hidden="true">#</span>
+													: roomMarkGlyph(standing, 18)}
+											</JoinPrefix>
+										)}
+										<input
+											ref={field}
+											id="room"
+											name="room"
+											placeholder={asLink ? "a room" : JOIN_DEFAULT_ROOM}
+											enterKeyHint="next"
+											aria-describedby={wiring.describedBy}
+											aria-invalid={wiring.invalid}
+											maxLength={looksLikeRoomLink(room) ? undefined : MAX_ROOM}
+											value={room}
+											{...suggest.aria}
+											{...suggest.caret}
+											onChange={(e) => {
+												browser.editJoin({ room: e.target.value });
+												suggest.typed();
+											}}
+											onPaste={(e) => {
+												const text = e.clipboardData.getData("text").trim();
+												if (!looksLikeRoomLink(text)) return;
+												e.preventDefault();
+												browser.editJoin({ address: text });
+											}}
+											onKeyDown={(e) => {
+												// The list first: while a row is picked, the arrows,
+												// Enter and Escape are the list's rather than the form's,
+												// and Enter here would otherwise submit the card.
+												suggest.keyDown(e);
+											}}
+											{...identifierField}
+										/>
+									</JoinField>
+									{suggest.list !== null && (
+										<MenuLayer
+											holder={roomWrap}
+											layer={roomOffered}
+											owner="joinForm"
+											className="field-offers"
+										>
+											{suggest.list}
+										</MenuLayer>
+									)}
+								</div>
+							)}
+						</Field>
+					</div>
+					<Field
+						id="nick"
+						label={joinNickLabel}
+						hint={joinNickHint}
+						said={nickNotice == null ? undefined : (
 							<>
-								{joinAddressLabel}{" "}
-								{!addressRequired && <span className="optional">{joinAddressOptional}</span>}
+								<span>{nickNotice}</span>
+								{nickSuggestion != null && (
+									<>
+										{" Try "}
+										<Button
+											id="joinNickSuggestion"
+											variant="link"
+											onClick={() => browser.editJoin({ nick: nickSuggestion })}
+										>
+											{nickSuggestion}
+										</Button>
+										{joinInstead}
+									</>
+								)}
 							</>
 						)}
-					</label>
-					{error?.field === "address" && error.text !== "" && (
-						<Said id="joinError" kind="failure">{error.text}</Said>
-					)}
-					<JoinAddress
-						address={address}
-						dirs={dirs}
-						defaultAddress={defaultDirectoryAddress}
-						directoryContext={directoryContext}
-						invalid={error?.field === "address"}
-						onPick={(next) => browser.editJoin({ address: next })}
-						onType={(next) => browser.editJoin({ address: next })}
-					/>
-					{
-						/* Connect is reaching this address, so a refusal stands over it
-					    rather than under the name or as a leftover of the join the
-					    button is not performing. The sentence about what to type
-					    follows the box it describes. */
-					}
-					{!asLink && (
-						<p className="hint" id="addressHint">
-							{addressHint}
-						</p>
-					)}
-					{reaching && homeDirectory == null && <MakeHomeChoice />}
-					{
-						/* Out until the directory can describe what naming a room there
-					    would do. */
-					}
-					{!reaching && (
-						<label htmlFor="room">
-							{asLink ? joinCallIt : roomFieldLabel(standing)}
-						</label>
-					)}
-					{
-						/* The list hangs off this box rather than off the field, so it
-					    lines up with the field's outer edge and not with the inside
-					    of the lock that stands before it. */
-					}
-					<div className="join-field-wrap" hidden={reaching} ref={roomWrap}>
-						<JoinField invalid={error?.field === "room"}>
-							{asLink ? undefined : (
-								<JoinPrefix
-									id="joinPrivate"
-									disabled={resolved.fixed}
-									// One answer drives both halves of this control. Keying the
-									// label and the disabled state to separate conditions is how
-									// they come to say different things about one question.
-									label={resolved.fixed
-										? joinAccessFixedLabel(standing, wantedRoom)
-										: joinAccessLabel(standing, nextRoomPreset(standing))}
-									onMouseDown={(event) => event.preventDefault()}
-									onClick={() => browser.editJoin({ roomPreset: nextRoomPreset(standing) })}
-								>
-									{standing === "open"
-										? <span className="join-hash" aria-hidden="true">#</span>
-										: roomMarkGlyph(standing, 18)}
+					>
+						{(wiring) => (
+							<JoinField invalid={wiring.invalid}>
+								<JoinPrefix label={avatarLabel}>
+									<Avatar name={who} />
 								</JoinPrefix>
-							)}
-							<input
-								ref={field}
-								id="room"
-								name="room"
-								placeholder={asLink ? "a room" : JOIN_DEFAULT_ROOM}
-								enterKeyHint="next"
-								aria-describedby={error?.field === "room" ? "joinError" : undefined}
-								aria-invalid={error?.field === "room"}
-								maxLength={looksLikeRoomLink(room) ? undefined : MAX_ROOM}
-								value={room}
-								{...suggest.aria}
-								{...suggest.caret}
-								onChange={(e) => {
-									browser.editJoin({ room: e.target.value });
-									suggest.typed();
-								}}
-								onPaste={(e) => {
-									const text = e.clipboardData.getData("text").trim();
-									if (!looksLikeRoomLink(text)) return;
-									e.preventDefault();
-									browser.editJoin({ address: text });
-								}}
-								onKeyDown={(e) => {
-									// The list first: while a row is picked, the arrows,
-									// Enter and Escape are the list's rather than the form's,
-									// and Enter here would otherwise submit the card.
-									suggest.keyDown(e);
-								}}
-								{...identifierField}
-							/>
-						</JoinField>
-						{suggest.list !== null && (
-							<MenuLayer holder={roomWrap} layer={roomOffered} owner="joinForm" className="field-offers">
-								{suggest.list}
-							</MenuLayer>
+								<input
+									id="nick"
+									name="nick"
+									placeholder={nickAnswer.placeholder}
+									enterKeyHint="go"
+									{...identifierField}
+									autoComplete="nickname"
+									aria-describedby={wiring.describedBy}
+									aria-invalid={wiring.invalid}
+									maxLength={MAX_NICK}
+									value={nick}
+									onChange={(e) => browser.editJoin({ nick: e.target.value })}
+								/>
+							</JoinField>
 						)}
-					</div>
-					<label htmlFor="nick">{joinNickLabel}</label>
-					{nickNotice !== null && (
-						<Said
-							id="joinNickError"
-							kind="failure"
-							className="join-nick-answer"
-						>
-							<span>{nickNotice}</span>
-							{nickSuggestion !== null && (
-								<>
-									{" Try "}
-									<Button
-										id="joinNickSuggestion"
-										variant="link"
-										onClick={() => browser.editJoin({ nick: nickSuggestion })}
-									>
-										{nickSuggestion}
-									</Button>
-									{joinInstead}
-								</>
-							)}
-						</Said>
-					)}
-					<JoinField invalid={nickNotice !== null}>
-						<JoinPrefix label={avatarLabel}>
-							<Avatar name={who} />
-						</JoinPrefix>
-						<input
-							id="nick"
-							name="nick"
-							placeholder={nickAnswer.placeholder}
-							enterKeyHint="go"
-							{...identifierField}
-							autoComplete="nickname"
-							aria-describedby={nickNotice === null ? "nickHint" : "joinNickError nickHint"}
-							aria-invalid={nickNotice !== null}
-							maxLength={MAX_NICK}
-							value={nick}
-							onChange={(e) => browser.editJoin({ nick: e.target.value })}
-						/>
-					</JoinField>
-					<p className="hint" id="nickHint">{joinNickHint}</p>
+					</Field>
 				</div>
-				{error != null && error.field !== "address" && error.field !== "nick" && error.text !== "" && (
-					<Said id="joinError" kind="failure">{error.text}</Said>
-				)}
+				{error != null && error.field !== "address" && error.field !== "room" && error.field !== "nick" &&
+					error.text !== "" && <Said id="joinError" kind="failure">{error.text}</Said>}
 				{
 					/* The act, named as what pressing it does now. Busy is this card's
 				    own act and nothing else: the stop beside it aborts what this press

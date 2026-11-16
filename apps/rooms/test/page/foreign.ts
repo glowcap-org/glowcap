@@ -6,6 +6,7 @@
 // the other.
 
 import type { Page } from "playwright";
+import { joinAddressLabel, joinAddressOptional } from "../../lib/text/join.ts";
 import { homeDirectoryName } from "../../lib/text/directory.ts";
 import { fail } from "../support/fail.ts";
 import { nonEphemeralPort } from "../../../../bindings/ts/test/ports.ts";
@@ -122,7 +123,7 @@ export async function run(
 		{ timeout: 10_000 },
 	).catch(() => fail("stopping a connect left the card waiting"));
 	const afterStop = await tab.evaluate(() => ({
-		error: (document.getElementById("joinError")?.textContent ?? "").trim(),
+		error: (document.getElementById("joinAddressFieldSaid")?.textContent ?? "").trim(),
 		address: (document.getElementById("joinAddressField") as HTMLInputElement | null)?.value ?? "",
 		named: document.querySelectorAll("#roomList .rwhere").length,
 	}));
@@ -144,7 +145,9 @@ export async function run(
 		.catch(() => fail("the same address after stopping did not wait; it settled at once"));
 	// Read it off the document rather than waiting for it: a refusal that was
 	// never made has no element, and waiting for one is waiting out the timeout.
-	const retried = await tab.evaluate(() => document.getElementById("joinError")?.textContent?.trim() ?? "");
+	const retried = await tab.evaluate(() =>
+		document.getElementById("joinAddressFieldSaid")?.textContent?.trim() ?? ""
+	);
 	if (retried !== "") {
 		fail(`the same address after stopping was refused at once: ${JSON.stringify(retried)}`);
 	}
@@ -165,7 +168,7 @@ export async function run(
 	await tab.fill("#joinAddressField", typo);
 	await tab.click("#joinBtn");
 	await tab.waitForFunction(
-		() => (document.getElementById("joinError")?.textContent ?? "").length > 0,
+		() => (document.getElementById("joinAddressFieldSaid")?.textContent ?? "").length > 0,
 		undefined,
 		{ timeout: 30_000 },
 	).catch(() => fail("an address that cannot be reached never settled; the card waits for good"));
@@ -179,14 +182,28 @@ export async function run(
 	if (kept !== typo) {
 		fail(`a refused address was not left in the field to correct; it holds ${JSON.stringify(kept)}`);
 	}
+	if (
+		await tab.getByRole("textbox", { name: `${joinAddressLabel} ${joinAddressOptional}`, exact: true }).count() !==
+			1
+	) {
+		fail("the optional address field did not keep the words of its accessible name separate");
+	}
 	const addressSaid = await tab.evaluate(() => {
 		const field = document.getElementById("joinAddressField");
 		return {
 			invalid: field?.getAttribute("aria-invalid"),
 			described: field?.getAttribute("aria-describedby"),
+			refusalAbove:
+				(document.getElementById("joinAddressFieldSaid")?.getBoundingClientRect().bottom ?? Infinity) <=
+					(field?.getBoundingClientRect().top ?? -Infinity),
+			hintBelow: (document.getElementById("joinAddressFieldHint")?.getBoundingClientRect().top ?? -Infinity) >=
+				(field?.getBoundingClientRect().bottom ?? Infinity),
 		};
 	});
-	if (addressSaid.invalid !== "true" || addressSaid.described !== "joinError") {
+	if (
+		addressSaid.invalid !== "true" || addressSaid.described !== "joinAddressFieldSaid joinAddressFieldHint" ||
+		!addressSaid.refusalAbove || !addressSaid.hintBelow
+	) {
 		fail(`a refused address was not marked on the field Connect is about; ${JSON.stringify(addressSaid)}`);
 	}
 	// Nothing was kept for it. A second server would have made every row in the
@@ -204,7 +221,7 @@ export async function run(
 	await tab.fill("#joinAddressField", "not an address at all");
 	await tab.click("#joinBtn");
 	await tab.waitForFunction(
-		() => (document.getElementById("joinError")?.textContent ?? "").length > 0,
+		() => (document.getElementById("joinAddressFieldSaid")?.textContent ?? "").length > 0,
 		undefined,
 		{ timeout: 20_000 },
 	).catch(() => fail("text that is not an address was never refused on the join card"));
@@ -243,7 +260,7 @@ export async function run(
 				room: (document.getElementById("room") as HTMLInputElement | null)?.value,
 				address: (document.getElementById("joinAddressField") as HTMLInputElement | null)?.value,
 				nick: (document.getElementById("nick") as HTMLInputElement | null)?.value,
-				refused: document.getElementById("joinError")?.textContent,
+				refused: document.getElementById("joinAddressFieldSaid")?.textContent,
 				status: document.getElementById("status")?.textContent,
 				button: document.getElementById("joinBtn")?.textContent?.trim(),
 				rooms: document.querySelectorAll("#roomList li").length,

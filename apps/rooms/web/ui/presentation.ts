@@ -2,7 +2,16 @@
 import { Children, createElement, isValidElement, type ReactNode, useEffect, useMemo, useReducer } from "react";
 import { controlInProgress } from "../../lib/text/controls.ts";
 
-export const PRESENTATION = { busy: 400, feedback: 500, sending: 1000, connection: 2000 } as const;
+const BUSY_DELAY_MS = 400;
+const RESULT_MINIMUM_MS = 500;
+const SENDING_DELAY_MS = 1000;
+const CONNECTION_DELAY_MS = 2000;
+export const PRESENTATION = {
+	busy: BUSY_DELAY_MS,
+	feedback: RESULT_MINIMUM_MS,
+	sending: SENDING_DELAY_MS,
+	connection: CONNECTION_DELAY_MS,
+} as const;
 interface PresentationClock {
 	now(): number;
 	later(work: () => void, ms: number): () => void;

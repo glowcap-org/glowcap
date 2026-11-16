@@ -129,6 +129,9 @@ Releases before 0.1.7 are in the
 - The Rooms page says a member is typing when they edit a draft. Focus on a
   draft kept from earlier says nothing, and neither does changing a line
   already said.
+- The Rooms join card announces each field's guidance with its control and
+  places a refused room name above that field. Address, room, and nickname
+  fields use the same label, refusal, and hint layout as other forms.
 - The Rooms page moves what a change displaces. When a line lands, the rows
   above it slide to their new places and the line rises with them. The
   welcome card at the top of a conversation grows from the size it had, a
