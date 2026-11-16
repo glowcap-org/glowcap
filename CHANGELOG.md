@@ -95,6 +95,9 @@ Releases before 0.1.7 are in the
 
 ### Changed
 
+- A Rooms server sends the page's files gzip-compressed to a browser that
+  accepts it, and builds the browser module for size. A first visit
+  downloads about 3 MB where it downloaded about 13 MB.
 - A Rooms timeline socket reads no message larger than one record line, at
   the endpoint, through the web address, and in the viewer. A timeline
   producer that sends a longer message is closed with code 1009 and the

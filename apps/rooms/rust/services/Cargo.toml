@@ -12,7 +12,7 @@ publish.workspace = true
 workspace = true
 
 [features]
-processes = ["tokio/signal", "tokio/net", "tokio/io-util", "tokio/fs", "tokio/process", "dep:tokio-tungstenite", "dep:futures-util", "dep:tokio-rustls", "dep:hyper", "dep:hyper-util", "dep:http-body-util", "dep:bytes", "dep:base64", "dep:url", "dep:nix", "dep:html5ever", "dep:encoding_rs"]
+processes = ["tokio/signal", "tokio/net", "tokio/io-util", "tokio/fs", "tokio/process", "dep:tokio-tungstenite", "dep:futures-util", "dep:tokio-rustls", "dep:hyper", "dep:hyper-util", "dep:http-body-util", "dep:bytes", "dep:base64", "dep:flate2", "dep:url", "dep:nix", "dep:html5ever", "dep:encoding_rs"]
 
 [dependencies]
 rooms-application = { path = "../application" }
@@ -33,6 +33,8 @@ http-body-util = { workspace = true, optional = true }
 bytes = { workspace = true, optional = true }
 # dep base64: Encodes inline web assets.
 base64 = { version = "=0.23.1", optional = true }
+# dep flate2: Compresses browser assets for a browser that accepts gzip.
+flate2 = { version = "=1.1.11", default-features = false, features = ["rust_backend"], optional = true }
 url = { workspace = true, optional = true }
 nix = { workspace = true, optional = true }
 # dep html5ever: Parses fetched pages for link previews.

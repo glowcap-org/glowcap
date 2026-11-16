@@ -2,16 +2,13 @@
 //! file bodies. A changed source graph becomes visible only as a complete
 //! generation. Compilation failures refuse new pages and preserve old chunks.
 use super::{
+	asset::Asset,
 	bundle,
 	notice::{Notice, Report},
 	source::Graph,
 };
 use base64::Engine;
-use bytes::Bytes;
-use hyper::{
-	StatusCode,
-	header::{HeaderMap, HeaderValue},
-};
+use hyper::header::{HeaderMap, HeaderValue};
 use sha2::{Digest, Sha256};
 use std::rc::Rc;
 use std::{
@@ -31,13 +28,6 @@ use tokio::{
 const ENTRIES: [&str; 2] = ["page.js", "ground.js"];
 const MAX_ASSET: usize = 64 * 1024 * 1024;
 const MAX_GENERATION: usize = 128 * 1024 * 1024;
-#[derive(Clone)]
-pub(super) struct Asset {
-	pub body: Bytes,
-	pub content_type: &'static str,
-	pub etag: HeaderValue,
-	pub headers: HeaderMap,
-}
 pub(super) struct Generation {
 	files: BTreeMap<String, Asset>,
 	revision: Asset,
@@ -93,7 +83,15 @@ impl Assets {
 			Some(bundle::graph(&root).await?)
 		};
 		let stamp = graph.as_ref().map(|graph| graph.stamp);
-		let Some(current) = Self::generation(&root, graph, stop.clone(), &report, browser_admission.clone()).await?
+		let Some(current) = Self::generation(
+			&root,
+			graph,
+			stop.clone(),
+			&report,
+			browser_admission.clone(),
+			BTreeMap::new(),
+		)
+		.await?
 		else {
 			return Ok(None);
 		};
@@ -120,6 +118,7 @@ impl Assets {
 		stop: watch::Receiver<bool>,
 		report: &Report,
 		browser_admission: String,
+		earlier: BTreeMap<String, Asset>,
 	) -> Result<Option<Generation>, String> {
 		if *stop.borrow() {
 			return Ok(None);
@@ -146,10 +145,14 @@ impl Assets {
 		} else {
 			directory
 		};
-		let result = tokio::task::spawn_blocking(move || Generation::load_configured(&directory, &browser_admission))
-			.await
-			.map_err(|e| e.to_string())
-			.and_then(|r| r);
+		let result = tokio::task::spawn_blocking(move || {
+			let mut generation = Generation::load_configured(&directory, &browser_admission)?;
+			generation.compress(&earlier)?;
+			Ok(generation)
+		})
+		.await
+		.map_err(|e| e.to_string())
+		.and_then(|r| r);
 		if let Some(owner) = temporary {
 			let cleanup = owner.close().await;
 			match result {
@@ -184,12 +187,15 @@ impl Assets {
 		let stamp = graph.stamp;
 		let changed = self.state.borrow().stamp != Some(stamp);
 		if changed {
+			// Byte handles, so no body is copied.
+			let earlier = self.state.borrow().current.files.clone();
 			let generation = Self::generation(
 				&self.root,
 				Some(graph),
 				self.stop.clone(),
 				&self.report,
 				self.browser_admission.clone(),
+				earlier,
 			)
 			.await;
 			self.state.borrow_mut().finish_refresh(stamp, generation);
@@ -371,52 +377,18 @@ impl Generation {
 		self.files.insert(path, asset);
 		Ok(())
 	}
-}
-impl Asset {
-	fn new(body: Bytes, content_type: &'static str) -> Result<Self, String> {
-		let etag = HeaderValue::from_str(&format!(
-			"\"{}\"",
-			rooms_application::fields::lower_hex(&Sha256::digest(&body))
-		))
-		.map_err(|e| e.to_string())?;
-		Ok(Self {
-			body,
-			content_type,
-			etag,
-			headers: HeaderMap::new(),
-		})
-	}
-	pub fn response(self, request: &hyper::Request<hyper::body::Incoming>) -> super::http::Reply {
-		let matches = request
-			.headers()
-			.get("if-none-match")
-			.and_then(|h| h.to_str().ok())
-			.is_some_and(|header| {
-				header.split(',').map(str::trim).any(|tag| {
-					tag == "*"
-						|| self
-							.etag
-							.to_str()
-							.is_ok_and(|etag| tag.strip_prefix("W/").unwrap_or(tag) == etag)
-				})
-			});
-		let mut response = super::http::response(
-			if matches {
-				StatusCode::NOT_MODIFIED
-			} else {
-				StatusCode::OK
-			},
-			self.content_type,
-			if matches { Bytes::new() } else { self.body },
-		);
-		response.headers_mut().extend(self.headers);
-		response.headers_mut().insert("etag", self.etag);
-		if request.uri().path() != "/ui-version" {
-			response
-				.headers_mut()
-				.insert("cache-control", HeaderValue::from_static("no-cache"));
+	/// Give every asset that shrinks a gzip form. A served generation pays
+	/// this once on its loading thread, and an exported one never does. A
+	/// rebuilt generation shares the form of each file `earlier` held
+	/// unchanged. The forms count toward the byte budget, and one the budget
+	/// has no room for is not held.
+	fn compress(&mut self, earlier: &BTreeMap<String, Asset>) -> Result<(), String> {
+		for (route, asset) in &mut self.files {
+			self.bytes += asset
+				.compress(MAX_GENERATION - self.bytes, earlier.get(route))
+				.map_err(|e| format!("cannot compress {route}: {e}"))?;
 		}
-		response
+		Ok(())
 	}
 }
 pub(super) fn read(path: &Path, limit: usize) -> Result<Vec<u8>, String> {
@@ -485,6 +457,7 @@ fn security(page: &str) -> Result<HeaderMap, String> {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use bytes::Bytes;
 
 	fn generation(label: &str) -> Generation {
 		Generation {
