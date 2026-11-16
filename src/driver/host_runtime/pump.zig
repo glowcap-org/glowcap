@@ -2,8 +2,10 @@
 //!
 //! Every blocking and step-driven face shares this one read-feed-react cycle.
 //! A sibling's protocol failure closes only that sibling, while the caller's
-//! own failure propagates. The wait rotates which resident it reports first,
-//! and each resident drains its ready records in bounded batches.
+//! own failure propagates. A wire that cannot take its input for lack of
+//! memory closes with that cause and ends nothing else. The wait rotates
+//! which resident it reports first, and each resident drains its ready
+//! records in bounded batches.
 
 const std = @import("std");
 const builtin = @import("builtin");
@@ -161,7 +163,13 @@ fn closeWireForRefusedFeed(self: *HostRuntime, wire: *Wire, err: anyerror) !void
 /// A wire at its outbound waterline is offered its queued output first
 /// (`pressuredAfterOffer`), so a window that opened since the last drain
 /// releases the hold in the same sweep. A refusal closes that wire like any
-/// dispatch refusal.
+/// dispatch refusal. The drain that follows a refused replay or resume is
+/// host-wide work, so its failure (`closeWireForRefusedFeed`) ends the sweep.
+/// The two `feedReadable` calls pass no owner and never fail, because that
+/// function turns every failure into `.closed`.
+/// A sweep that ends early has not asked the wires behind it. The wire it
+/// stopped on held input, so `held_input_possible` is already set and the
+/// next sweep walks them all.
 ///
 /// The pause at the open exists so the embedder can finish post-open setup
 /// (publish, spawn) before the partner's coalesced first frames dispatch, so
@@ -339,7 +347,13 @@ const FeedOutcome = union(enum) { fed: usize, closed };
 /// inside the read-and-feed arm. It propagates only when the misbehaving
 /// session is `own`, because a sibling's protocol violation is that session's
 /// closure, not a reason to abort an innocent caller's wait. A null `own`
-/// (a pre-wire resident dial wait) treats every wire as a sibling.
+/// (a pre-wire resident dial wait) treats every wire as a sibling. A chunk
+/// the wire could not retain for lack of memory is such a failure: the wire
+/// closes with `OutOfMemory`, which `own` hears and a sibling does not, so
+/// a blocking connect keeps its cause and the any-session step, which passes
+/// no owner, never fails for it. Every failure leaves the wire closed,
+/// because a read that failed after consuming its bytes must not feed the
+/// next.
 pub fn feedReadable(self: *HostRuntime, wire: *Wire, own: ?*driver_core.HostSession) !FeedOutcome {
     const fed = resident_pump.readAndFeed(self, wire) catch |err| switch (err) {
         error.ConnectionLost => {
@@ -354,8 +368,8 @@ pub fn feedReadable(self: *HostRuntime, wire: *Wire, own: ?*driver_core.HostSess
             Internal.closeWire(self, wire, null);
             return .closed;
         },
-        error.OutOfMemory => return error.OutOfMemory,
         else => |e| {
+            Internal.closeWire(self, wire, e);
             if (own != null and wire.session == own.?) return e;
             return .closed;
         },

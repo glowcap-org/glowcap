@@ -133,10 +133,9 @@ class _LifecycleMixin(DriverLoopMixinBase):
 
     def _step_wait_ms(self) -> int:
         """The longest a close driver may park before stepping again:
-        milliseconds until the nearest pending-work deadline (the close grace,
-        a session's close grace, a dial or listener setup budget), clamped at
-        zero, or -1 when no finite deadline is pending and readiness alone
-        advances the loop."""
+        milliseconds until the nearest pending-work deadline, clamped at zero,
+        or -1 when no finite deadline is pending and readiness alone advances
+        the loop."""
         if self._released:
             return 0
         out = ctypes.c_int32()

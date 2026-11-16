@@ -198,11 +198,10 @@ pub export fn glowcap_driver_lifecycle_state(raw: ?*c.GlowcapDriverLoop, out_sta
 
 /// The longest a nonblocking embedder may park on the readiness descriptor
 /// before calling `glowcap_driver_step` again with a zero timeout:
-/// milliseconds until the nearest pending-work deadline (the close grace, a
-/// session's close grace, a dial or listener setup budget), clamped at zero,
-/// or -1 when no finite deadline is pending and readiness alone advances the
-/// loop. Poll-shaped: the value drops straight into a wait
-/// primitive's timeout argument.
+/// milliseconds until the nearest pending-work deadline, clamped at zero, or
+/// -1 when no finite deadline is pending and readiness alone advances the
+/// loop. Poll-shaped: the value drops straight into a wait primitive's
+/// timeout argument.
 pub export fn glowcap_driver_step_wait_ms(raw: ?*c.GlowcapDriverLoop, out_wait_ms: ?*i32) i32 {
     shared.lastErrorClear();
     const inst = instanceFrom(raw) orelse return GLOWCAP_ERR_NULL_POINTER;

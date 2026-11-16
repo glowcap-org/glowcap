@@ -169,6 +169,10 @@ Releases before 0.1.7 are in the
 
 ### Fixed
 
+- A Host driver loop step no longer fails when one connection's input cannot
+  be fed or parked for lack of memory. That connection closes with
+  `OutOfMemory`, and the other sessions keep running. Closing a connection
+  while memory is short no longer ends the loop.
 - A Rooms session saves a moderator it issued while it holds no seat in the
   room, as a session does between a link rotation and the rejoin. The save
   read the room's live seat and failed without one. A joined room keeps

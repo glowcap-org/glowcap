@@ -307,9 +307,10 @@ pub fn publishResidentRecords(self: *HostRuntime) void {
 /// The longest a nonblocking embedder may park on readiness before its
 /// next zero-timeout step: milliseconds until the nearest pending-work
 /// deadline (the close grace, a session's close grace, a dial or listener
-/// setup budget), clamped at zero, or -1 when no finite deadline is
-/// pending and readiness alone advances the loop. The blocking face applies
-/// the same bound inside its own park.
+/// setup budget, the retry of work a refused allocation left), clamped at
+/// zero, or -1 when no finite deadline is pending and readiness alone
+/// advances the loop. The blocking face applies the same bound inside its
+/// own park.
 pub fn stepWaitMs(self: *const HostRuntime) i32 {
     return clampTimeoutToPendingWork(self, -1);
 }
@@ -342,6 +343,11 @@ pub fn clampTimeoutToPendingWork(self: *const HostRuntime, timeout_ms: i32) i32 
         noteDeadline(&nearest_wait, deadline orelse continue, now_ms);
     }
     if (self.nearest_carrier_close_ms) |deadline| noteDeadline(&nearest_wait, deadline, now_ms);
+    // After fail-stop a step may run no drain to clear the deadline, so it
+    // would hold the wait at zero.
+    if (self.terminal_failure == null) {
+        if (self.memory_retry_due_ms) |deadline| noteDeadline(&nearest_wait, deadline, now_ms);
+    }
     for (self.pending_listeners.items) |row| noteDeadline(&nearest_wait, row.deadline_ms orelse continue, now_ms);
     const wait = nearest_wait orelse return timeout_ms;
     const remaining = std.math.cast(i32, wait) orelse std.math.maxInt(i32);

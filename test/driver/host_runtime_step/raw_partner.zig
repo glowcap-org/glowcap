@@ -28,6 +28,9 @@ pub const RawPartner = struct {
 
     pub const Role = enum { dialer, acceptor };
 
+    /// The identity seed of a partner that is the runtime's only one.
+    pub const default_seed: u8 = 0x61;
+
     /// A partner over `stream` whose session plays `role` toward a runtime
     /// that advertises `designator` on `transport`.
     pub fn init(
@@ -42,9 +45,24 @@ pub const RawPartner = struct {
         profile: ?model.transport.Metadata,
         designator: []const u8,
     ) !RawPartner {
+        return initWithSeed(allocator, io, stream, role, transport, profile, designator, default_seed);
+    }
+
+    /// `init` with the partner's own identity drawn from `seed`, so a runtime
+    /// serving two partners sees two distinct ones.
+    pub fn initWithSeed(
+        allocator: std.mem.Allocator,
+        io: std.Io,
+        stream: ?std.Io.net.Stream,
+        role: Role,
+        transport: []const u8,
+        profile: ?model.transport.Metadata,
+        designator: []const u8,
+        seed: u8,
+    ) !RawPartner {
         const host = try allocator.create(Host);
         errdefer allocator.destroy(host);
-        host.* = test_host.init(allocator, @as([32]u8, @splat(0x61)), Host.Options.init(.unchecked, harness.frame_cap));
+        host.* = test_host.init(allocator, @as([32]u8, @splat(seed)), Host.Options.init(.unchecked, harness.frame_cap));
         errdefer host.deinit();
         if (profile) |defined| {
             var canonical: [1][]const u8 = undefined;

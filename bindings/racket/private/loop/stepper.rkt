@@ -555,11 +555,10 @@
 
 
 ;; How long a loop close driver may park before stepping again: milliseconds
-;; until the nearest pending-work deadline (close grace, session close grace,
-;; a dial or listener setup budget), clamped at zero, or -1 when no finite
-;; deadline is pending and readiness alone advances the loop. An expiry takes
-;; effect only inside a step, so the timer arm of each driver below is what
-;; applies it.
+;; until the nearest pending-work deadline, clamped at zero, or -1 when no
+;; finite deadline is pending and readiness alone advances the loop. An
+;; expiry takes effect only inside a step, so the timer arm of each driver
+;; below is what applies it.
 (define (loop-step-wait-ms lp)
   (define-values (rc wait-ms)
     (glowcap_driver_step_wait_ms (driver-loop-handle lp)))
