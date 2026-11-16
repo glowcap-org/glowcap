@@ -15,7 +15,7 @@
 // without importing a single view.
 
 import type { UseView } from "../session/managed/model.ts";
-import { DEFAULT_ROOMS_VIEW_STATE, type RoomsSettingsTab } from "../../../lib/view_state.ts";
+import { DEFAULT_ROOMS_VIEW_STATE, type RoomsSettingsTab, type Theme } from "../../../lib/view_state.ts";
 import type { Act, Edits, Remembered } from "../intent.ts";
 import type { DraftPreview } from "../link_preview.ts";
 import { createStore, type StoreApi } from "zustand/vanilla";
@@ -216,7 +216,7 @@ export interface State {
 	 * nickname remains checkpoint/reconnect history. The join form gets its
 	 * current automatic offer from the connected directory instead. */
 	remembered: Remembered;
-	theme: "light" | "dark";
+	theme: Theme;
 	notifyOn: boolean;
 	/** Where this reader stands everywhere: empty for here, otherwise why they
 	 * stepped out. The outermost of the three levels `standingFor` reads.

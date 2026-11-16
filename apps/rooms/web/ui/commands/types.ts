@@ -2,6 +2,7 @@
 //
 // The catalog and the parser both need these. Neither owns them.
 
+import type { Theme } from "../../../lib/view_state.ts";
 import type { Conv } from "../conversation.ts";
 
 /** Where a command's authority comes from. See the header. */
@@ -63,7 +64,7 @@ export interface CommandPowers {
 	/** Open a direct line to a member. `null` when the line was opened. A
 	 * sentence when this tab does not hold an introduction to them. */
 	directMessage(who: string): CommandResult<string | null>;
-	setTheme(theme: "light" | "dark"): void;
+	setTheme(theme: Theme): void;
 	/** Empty this conversation's history in this window only. */
 	clearHere(): void;
 	/** Stop showing lines from somebody, in this window only. */

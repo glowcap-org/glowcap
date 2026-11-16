@@ -59,22 +59,16 @@ impl Suspension {
 		}
 	}
 }
-pub(super) struct Task(tokio::task::JoinHandle<()>);
-impl Drop for Task {
-	fn drop(&mut self) {
-		self.0.abort();
-	}
-}
 impl rooms_glowcap::client::Tasks for Platform {
-	type Task = Task;
-	fn spawn(&self, work: impl core::future::Future<Output = ()> + 'static) -> Task {
+	type Task = rooms_runtime::platform::OwnedTask;
+	fn spawn(&self, work: impl core::future::Future<Output = ()> + 'static) -> rooms_runtime::platform::OwnedTask {
 		let suspended = self.suspended.clone();
-		let task = tokio::task::spawn_local(async move {
+		let task = rooms_runtime::platform::OwnedTask::spawn_local(async move {
 			suspended.wait().await;
 			work.await;
 		});
 		self.tasks.borrow_mut().push(task.abort_handle());
-		Task(task)
+		task
 	}
 }
 impl Deadline for Platform {

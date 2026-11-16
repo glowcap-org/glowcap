@@ -18,6 +18,7 @@ import {
 	NO_LINE_TO_TAKE_BACK,
 	NOT_ON_A_DIRECTORY,
 } from "../web/ui/commands/targets.ts";
+import { applyCommandPlan } from "../web/ui/commands/execute.ts";
 import { prepareComposerSend } from "../web/ui/composer/send.ts";
 import type { ComposerDraft } from "../web/ui/composer/send.ts";
 import type { Conv } from "../web/ui/conversation.ts";
@@ -150,6 +151,18 @@ Deno.test("the shared composer pipeline interprets slash commands before any con
 		if (slip.kind !== "refused" || !slip.why.includes(named)) {
 			fail(`${glued} reached the room instead of being refused: ${JSON.stringify(slip)}`);
 		}
+	}
+});
+
+Deno.test("a theme outside the grammar is a defect of the shared build, not a refusal", () => {
+	let message = "";
+	try {
+		applyCommandPlan({ kind: "effect", op: "theme", text: "sepia" }, QUIET, null);
+	} catch (error) {
+		message = error instanceof Error ? error.message : String(error);
+	}
+	if (!message.includes("theme outside the grammar")) {
+		fail(`an out-of-enum theme did not fail as an invariant: ${message}`);
 	}
 });
 

@@ -3,6 +3,7 @@
 // the same way the Settings control sits pressed while its layer is up.
 
 import { type MouseEvent, type ReactNode, type Ref, useState } from "react";
+import type { Theme } from "../../../lib/view_state.ts";
 import { themeToggle } from "../../../lib/text/controls.ts";
 import { IconButton } from "../IconButton.tsx";
 import { ModalHead } from "../ModalHead.tsx";
@@ -38,7 +39,7 @@ export function SettingsHead(
 	}: {
 		titleId: string;
 		title: string;
-		theme: "light" | "dark";
+		theme: Theme;
 		notifyOn: boolean;
 		helpOpen: boolean;
 		/** The Operations control, present while any operations pane is

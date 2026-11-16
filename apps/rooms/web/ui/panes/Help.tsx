@@ -9,6 +9,7 @@
 // one answering.
 
 import { Fragment, lazy, memo, Suspense, useEffect, useLayoutEffect, useRef, useState } from "react";
+import type { Theme } from "../../../lib/view_state.ts";
 import { useRoomsBrowser } from "../controller/browser.ts";
 import { useHeldModal, useModalDialog } from "../modal.ts";
 import { loadKitchen, prefetch } from "../chunks.ts";
@@ -85,7 +86,7 @@ export const Help = memo(function Help(
 	{ open, retain = false, theme, notifyOn, onLayer }: {
 		open: boolean;
 		retain?: boolean;
-		theme: "light" | "dark";
+		theme: Theme;
 		notifyOn: boolean;
 		onLayer: (held: boolean) => void;
 	},

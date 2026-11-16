@@ -8,7 +8,7 @@
 // page.html reads it before the first paint. Everything else is Rooms' own
 // and lives in the Rooms record.
 import * as z from "zod/mini";
-import { parseRoomsViewState, type RoomsViewState, RoomsViewStateSchema } from "../../lib/view_state.ts";
+import { parseRoomsViewState, type RoomsViewState, RoomsViewStateSchema, ThemeSchema } from "../../lib/view_state.ts";
 import type { PageProjection } from "./store/projection.ts";
 import { noteTrouble } from "./store.ts";
 import { refusalText } from "../../lib/text/failure.ts";
@@ -52,7 +52,7 @@ function storedViewState(
 	}
 	return parseRoomsViewState({
 		...preferences,
-		theme: theme === "light" || theme === "dark" ? theme : current.theme,
+		theme: z.safeParse(ThemeSchema, theme).data ?? current.theme,
 	});
 }
 

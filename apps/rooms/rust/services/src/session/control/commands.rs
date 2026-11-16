@@ -4,6 +4,7 @@ use super::{Failure, peer_failure};
 use rooms_application::{content::session::custody, session::command::Request};
 use rooms_glowcap::client::workspace::{Command, EffectStatus, Workspace};
 use rooms_platform::HostPlatform;
+use rooms_runtime::platform::OwnedTask;
 use std::{collections::BTreeMap, rc::Rc};
 use tokio::sync::{Mutex, watch};
 
@@ -13,13 +14,7 @@ mod tests;
 struct Pending {
 	command: Rc<Command<HostPlatform>>,
 	result: watch::Receiver<Option<Result<EffectStatus, rooms_glowcap::client::Error>>>,
-	_task: Task,
-}
-struct Task(tokio::task::JoinHandle<()>);
-impl Drop for Task {
-	fn drop(&mut self) {
-		self.0.abort();
-	}
+	_task: OwnedTask,
 }
 impl Pending {
 	async fn admitted(
@@ -72,7 +67,7 @@ impl Commands {
 			}
 			let mut submission = command.start_submission();
 			let (completed, result) = watch::channel(None);
-			let task = tokio::task::spawn_local(async move {
+			let task = OwnedTask::spawn_local(async move {
 				completed.send_replace(Some(submission.completed().await));
 			});
 			commands.insert(
@@ -80,7 +75,7 @@ impl Commands {
 				Pending {
 					command: Rc::new(command),
 					result,
-					_task: Task(task),
+					_task: task,
 				},
 			);
 		}

@@ -8,6 +8,7 @@ import type { Conv } from "../conversation.ts";
 import type { CommandOutcome, CommandPowers, CommandResult, HeldDirectory } from "./types.ts";
 import { CommandRefused } from "./types.ts";
 import { held, hereOf } from "./catalog.ts";
+import { ThemeSchema } from "../../../lib/view_state.ts";
 import { helpCommandFormatting } from "../../../lib/text/writing.ts";
 import { directoryReportLine, helpYouCanUse, roomListLine, whoisLine } from "../../../lib/text/log.ts";
 import {
@@ -98,9 +99,15 @@ export function applyCommandPlan(
 		case "members":
 			powers.showRoster(true);
 			break;
-		case "theme":
-			powers.setTheme(text as "light" | "dark");
+		case "theme": {
+			const theme = z.safeParse(ThemeSchema, text);
+			invariant(
+				theme.success,
+				`the Rooms application answered a theme outside the grammar: ${JSON.stringify(text)}`,
+			);
+			powers.setTheme(theme.data);
 			break;
+		}
 		case "clear":
 			powers.clearHere();
 			break;
