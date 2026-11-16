@@ -2,15 +2,7 @@
 use super::*;
 impl Dispatch {
 	pub(super) fn room<'a>(intent: &'a workspace::Intent, id: &str) -> Result<&'a workspace::Room, Refusal> {
-		intent
-			.conversations
-			.as_slice()
-			.iter()
-			.find_map(|conversation| match conversation {
-				workspace::Conversation::Room(room) if room.id.text().as_str() == Some(id) => Some(room.as_ref()),
-				_ => None,
-			})
-			.ok_or(Refusal)
+		intent.room(id).ok_or(Refusal)
 	}
 	pub(super) fn direct<'a>(intent: &'a workspace::Intent, id: &str) -> Result<&'a workspace::Direct, Refusal> {
 		intent
@@ -133,21 +125,13 @@ impl Dispatch {
 			Selection::Room(id, selection) => {
 				let room = Self::room(intent, id)?;
 				match selection {
-					RoomTarget::Link if room.control.is_some() => {
-						let key = room.control.ok_or(Refusal)?;
-						(custody::Role::RoomControl, key.slot(), key.generation())
+					RoomTarget::Link => {
+						let target = room.link_target().ok_or(Refusal)?;
+						(target.role, target.key.slot(), target.key.generation())
 					}
-					RoomTarget::Entrance | RoomTarget::Link => {
-						match (room.access, room.accepted, room.public_entry.as_ref()) {
-							(Some(key), None, None) => (custody::Role::RoomAccess, key.slot(), key.generation()),
-							(None, Some(key), None) => (custody::Role::AcceptedAccess, key.slot(), key.generation()),
-							(None, None, Some(entry)) => (
-								custody::Role::DirectoryAccess,
-								entry.access.slot(),
-								entry.access.generation(),
-							),
-							_ => return Err(Refusal),
-						}
+					RoomTarget::Entrance => {
+						let target = room.entrance().ok_or(Refusal)?;
+						(target.role, target.key.slot(), target.key.generation())
 					}
 					RoomTarget::Seat | RoomTarget::RetiringSeat(_) => {
 						let key = room.seat.ok_or(Refusal)?;

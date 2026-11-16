@@ -252,7 +252,7 @@ export async function managedRooms({ location, moduleUrl = "/rooms_contract_proo
 		await reader.list();
 		const name = `managed-${key().slice(0, 8)}`;
 		const create = await workspace.prepareCommand(
-			"create",
+			"room",
 			(await workspace.snapshot()).revision,
 			"openManagedRoom",
 			["home", name, "listed", "open", "open", `~${key()}`],
@@ -281,7 +281,7 @@ export async function managedRooms({ location, moduleUrl = "/rooms_contract_proo
 			draft: "",
 		});
 		snapshot.intent.active = "room";
-		const acquisition = await create.prepareResultAcquisition(
+		const acquisition = await create.prepareCreatedRoomAcquisition(
 			snapshot.revision,
 			JSON.stringify([
 				[coordinate("roomAccess", result.room), coordinate("roomAccess", access)],

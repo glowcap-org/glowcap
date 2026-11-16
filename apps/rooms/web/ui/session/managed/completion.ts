@@ -296,6 +296,9 @@ async function completeOnce(
 			row.access = retain("roomAccess", receipt.room);
 			delete row.accepted;
 			delete row.publicEntry;
+			// A seated row asks to reconnect through its new link. A row with no
+			// seat keeps the choice it has, because leaving a room sets it to manual.
+			if (row.seat != null) row.reconnect = "requested";
 			break;
 		}
 		case "publishPeeredRoom": {

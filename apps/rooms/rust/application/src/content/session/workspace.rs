@@ -343,10 +343,7 @@ pub enum InvalidIntent {
 impl Intent {
 	/// Effective standing preserves explicit empty overrides at both scopes.
 	pub fn room_standing(&self, id: &str) -> Option<&Standing> {
-		let room = self.conversations.as_slice().iter().find_map(|row| match row {
-			Conversation::Room(room) if room.id.text().as_str() == Some(id) => Some(room),
-			_ => None,
-		})?;
+		let room = self.room(id)?;
 		let directory = self
 			.directories
 			.as_slice()

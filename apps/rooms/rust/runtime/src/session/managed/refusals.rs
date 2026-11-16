@@ -15,8 +15,8 @@ use std::{
 ///   (`workspace/observer.rs`, `workspace/recovery.rs`).
 /// - `addressed-snapshot`, the page's workspace read (`workspace.rs`).
 /// - `acquire-result-workspace` and `acquire-created-room`, which end the
-///   acquisition (`workspace/results.rs`). When the result maps a room
-///   authority, the step can first send `room-identity-reader`
+///   acquisition (`workspace/results.rs`). When the result maps a manager
+///   link, the step can first send `room-identity-reader`
 ///   (`workspace/authority.rs`).
 ///
 /// After a commit the page also sends `effect-intent`, `effect-inventory`,
