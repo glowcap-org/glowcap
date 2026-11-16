@@ -130,6 +130,11 @@
 	   makes it pop, carried by the hairline and a breath of shadow. */
 	--field-fill: #fff;
 	--field-lift: 0 1px 2px var(--shadow-sm-color);
+	/* The edge of a place to type. A hairline separates two surfaces a reader
+	   can already tell apart. A field's fill is nearly its card's, so its edge
+	   is the only thing that says where to aim, and it is mixed to stand three
+	   to one against both in either theme. */
+	--field-rule: color-mix(in srgb, var(--ink-soft) 60%, var(--rule));
 	/* The band a control wears while it is the one in play: a field holding
 	   focus, a choice that has been made, the panel a name is being typed
 	   into. One shape and one strength for all of them, spelled once because a

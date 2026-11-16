@@ -64,11 +64,14 @@
 .session-setup-choice + .session-setup-choice {
 	border-block-start: 1px solid var(--rule);
 }
-/* A door that is not open yet fades as one piece, its state chip keeping
-   full ink so the word that says why stays readable. */
-.session-setup-choice[data-unavailable="true"] .launch-mark,
-.session-setup-choice[data-unavailable="true"] .launch-copy {
+/* A door that is not open yet steps back by its mark and its title. The
+   sentence under the title says what the door will be, and the chip says why
+   it is shut, so both keep their reading contrast. */
+.session-setup-choice[data-unavailable="true"] .launch-mark {
 	opacity: .55;
+}
+.session-setup-choice[data-unavailable="true"] .launch-title {
+	color: var(--ink-soft);
 }
 .session-setup-choice[data-unavailable="true"] > .tag {
 	justify-self: end;

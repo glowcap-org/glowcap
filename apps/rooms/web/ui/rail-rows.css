@@ -426,9 +426,6 @@
 .newroom input:focus {
 	outline: none;
 }
-.newroom input::placeholder {
-	color: var(--ink-soft);
-}
 /* The same line a room carries, spanning this panel's whole content box the way
    it spans a row's. The panel's own padding is what insets it here, so unlike a
    room row's caption it needs no margins: this one really is inside the columns

@@ -424,6 +424,12 @@ summary:focus-visible,
 	outline: 2px solid var(--accent);
 	outline-offset: 2px;
 }
+/* An example of what goes in a field, in one ink wherever the field is. The
+   opacity is stated because one browser fades a placeholder by default. */
+::placeholder {
+	color: var(--ink-soft);
+	opacity: 1;
+}
 /* Reduced motion means less travel, not less feedback.
 
    Asking for it should not turn a change into a jump cut: something that

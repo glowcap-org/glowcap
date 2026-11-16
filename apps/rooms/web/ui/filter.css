@@ -161,13 +161,10 @@
 	font: inherit;
 	font-size: var(--filter-answer);
 	padding: 0 8px;
-	border: 1px solid var(--rule);
+	border: 1px solid var(--field-rule);
 	border-radius: var(--radius-control);
-	background: var(--paper);
+	background: var(--field-fill);
 	color: var(--ink);
-}
-.filter-field::placeholder {
-	color: var(--ink-soft);
 }
 .filter-field:focus-visible {
 	outline: 2px solid var(--accent-ink);

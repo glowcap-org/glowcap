@@ -147,7 +147,6 @@
 .join label .optional {
 	font-weight: 500;
 	color: var(--ink-soft);
-	opacity: .72;
 	margin-left: 4px;
 }
 /* The questions, held together so they can go inert (while a join is in
@@ -190,12 +189,12 @@
 	width: 100%;
 	padding: 3px 8px 3px 3px;
 	border-radius: var(--radius-well);
-	border: 1px solid var(--rule);
+	border: 1px solid var(--field-rule);
 	background: var(--field-fill);
 	box-shadow: var(--field-lift);
 }
 [data-dir] .join-field {
-	border-color: color-mix(in srgb, var(--dir-mark) 32%, var(--rule));
+	border-color: color-mix(in srgb, var(--dir-mark) 32%, var(--field-rule));
 }
 /* The one ring that writes itself out. Its hue is the directory's own mark,
    which is set on the element and not known where the named rings are
@@ -206,7 +205,7 @@
 	box-shadow: 0 0 0 2px color-mix(in srgb, var(--dir-mark, var(--accent)) 28%, transparent);
 }
 .join-field[data-invalid="true"] {
-	border-color: color-mix(in srgb, var(--danger) 55%, var(--rule));
+	border-color: color-mix(in srgb, var(--danger) 55%, var(--field-rule));
 }
 .join-field[data-invalid="true"]:focus-within {
 	border-color: var(--danger);

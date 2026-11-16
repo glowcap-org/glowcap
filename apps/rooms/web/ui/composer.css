@@ -212,7 +212,7 @@
 	display: flex;
 	flex-direction: column;
 	gap: var(--gap-line);
-	border: 1px solid var(--rule);
+	border: 1px solid var(--field-rule);
 	/* The well's corner: this is a box holding controls, and the card radius
 	   made it read as a second card under the conversation. */
 	border-radius: var(--radius-well);
@@ -293,9 +293,6 @@
 	height: var(--control-h);
 	min-height: var(--control-h);
 	max-height: 140px;
-}
-.composer textarea::placeholder {
-	color: var(--ink-soft);
 }
 
 /* Refusals belong to the gesture, independently of draft synchronization. */

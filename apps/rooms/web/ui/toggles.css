@@ -308,7 +308,7 @@
 	margin: 0;
 	display: inline-grid;
 	place-content: center;
-	border: 1px solid var(--rule);
+	border: 1px solid var(--field-rule);
 	border-radius: calc(var(--checkbox-size, 20px) * .3);
 	background: var(--field-fill);
 	box-shadow: var(--field-lift);

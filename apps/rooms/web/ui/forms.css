@@ -31,7 +31,7 @@
 	font: inherit;
 	line-height: normal;
 	border-radius: var(--radius-well);
-	border: 1px solid var(--rule);
+	border: 1px solid var(--field-rule);
 	background: var(--field-fill);
 	box-shadow: var(--field-lift);
 	color: var(--ink);
@@ -57,7 +57,7 @@
 	cursor: not-allowed;
 }
 .card-plane .field[aria-invalid="true"] {
-	border-color: color-mix(in srgb, var(--danger) 55%, var(--rule));
+	border-color: color-mix(in srgb, var(--danger) 55%, var(--field-rule));
 }
 .card-plane .field[aria-invalid="true"]:focus {
 	border-color: var(--danger);
@@ -105,7 +105,6 @@
 .card-plane .field-label .optional {
 	margin-left: 4px;
 	font-weight: 500;
-	opacity: .72;
 }
 .card-plane .hint {
 	margin: 0;
@@ -246,7 +245,7 @@
 	grid-template-columns: auto minmax(0, 1fr);
 	align-items: center;
 	height: var(--field-h);
-	border: 1px solid var(--rule);
+	border: 1px solid var(--field-rule);
 	border-radius: var(--radius-well);
 	background: var(--field-fill);
 	box-shadow: var(--field-lift);
