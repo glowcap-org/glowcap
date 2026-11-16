@@ -443,11 +443,6 @@ pre {
   border-color: var(--accent);
 }
 
-.copy-btn:focus-visible {
-  outline: 2px solid var(--teal);
-  outline-offset: 2px;
-}
-
 .copy-btn.is-done {
   color: var(--teal-ink);
   border-color: var(--teal);
@@ -503,11 +498,6 @@ pre code {
      selected tab opens straight into the code block. */
   background: var(--code-bg);
   border-bottom-color: var(--code-bg);
-}
-
-.code-tabs .tab-bar button:focus-visible {
-  outline: 2px solid var(--teal);
-  outline-offset: 2px;
 }
 
 /* Once the script has built a bar, every panel behind it drops its top margin

@@ -173,6 +173,10 @@ Releases before 0.1.7 are in the
   library, and so through every binding, with its arguments projected once,
   from the received frame onto the C argument arrays. They were first lifted
   into a Host value tree in the turn arena.
+- The website keeps its sidebar and reading column in one place on every
+  page at wide widths, draws one focus ring on every control, and sizes its
+  fallback fonts like IBM Plex, so less of a page moves when the web font
+  arrives. The Rooms page shares the fallback fonts.
 - A reply from a behavior served through the C library, and so through
   every binding, has its text and bytes copied once, into the stored answer.
   They were copied into the turn arena first.

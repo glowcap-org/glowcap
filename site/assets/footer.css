@@ -3,7 +3,8 @@
 /* ── Footer ──────────────────────────────────────────────────────────────── */
 
 /* Seated in the shell's reading column, under the article (the template says
-   why). The shell owns the page's width and side padding. */
+   why). A wide page with no outline widens both (style.css). The shell owns the
+   page's width and side padding. */
 .site-footer {
   grid-column: 2;
   padding: 1rem 0 2.5rem;
