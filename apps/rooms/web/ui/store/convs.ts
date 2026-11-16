@@ -3,7 +3,7 @@
 // A room's identity is its directory and its name. A direct line's is the
 // introduction that opened it. The page reaches these through `store.ts`.
 
-import type { Conv, ConvBase, DirectoryConv, DmConv, DmLine, RoomConv, SessionConv } from "../conversation.ts";
+import type { Conv, ConvBase, DirectoryConv, DmConv, RoomConv, SessionConv } from "../conversation.ts";
 import type { DirId, DirView } from "../directory.ts";
 import type { WorkspaceRoomBridgeIntent } from "../../../lib/rooms_state.ts";
 import {
@@ -454,13 +454,4 @@ export function forgetConv(projection: PageProjection, key: string): void {
 	if (state.activeKey === key) {
 		projection.set({ ...gone, activeKey: null, aboutConv: false, aboutConvLeave: false });
 	} else projection.set(gone);
-}
-
-/** Move a direct line between introducing and live. A closed one stays closed:
- * the room has the nick back, so nothing arriving under it belongs to this
- * conversation. */
-export function setDmLine(projection: PageProjection, key: string, line: Exclude<DmLine, "closed">): void {
-	const conv = getConv(projection, key);
-	if (conv?.type !== "dm" || conv.line === "closed" || conv.line === line) return;
-	put(projection, { ...conv, line });
 }

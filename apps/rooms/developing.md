@@ -570,10 +570,7 @@ The server therefore enforces limits:
   exist.
 - `web/ui/emoji.ts` is a curated table, the one authority the tray, `:code:`
   substitution, and completion derive from. Widening it means a generator over
-  a pinned CLDR-backed dataset, so the runtime stays dependency-free.
-- Every filterable list in the page owns its input except the composer's inline
-  completion, which keeps focus in the textarea. No combobox primitive exists,
-  and the page's only runtime dependency is React.
+  a pinned CLDR-backed dataset.
 - IRC stays at the application edge. Carrying CapTP itself over IRC is
   refused: a 512-byte line protocol with a server that may inject cannot keep
   an OCapN session insertable only by its participants.
@@ -595,6 +592,7 @@ The server therefore enforces limits:
 | `rust/browser/` | The Wasm application: session controllers, storage, signaling, transport |
 | `rust/proofs/` | The application contracts replayed from fixtures, in a process and in Wasm |
 | `rust/product/` | Private executable entry points, workspace and roster supervision, and process proofs |
+| `rust/testing/` | Test support the crates share: scratch directory, child process, and local-set guards |
 | `web/ui/` | The browser page: React components, the store, the session projection |
 | `web/compiler.json` | The production compiler invocation and additional source-identity inputs |
 | `deno.json` | TypeScript dependencies and checks for the application |
