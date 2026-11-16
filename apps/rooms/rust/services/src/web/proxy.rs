@@ -23,7 +23,7 @@ pub(super) async fn run(
 	let connected = tokio::select! {
 		_ = super::stopped(&mut stop) => return close(&mut near, None, false).await,
 		result = tokio::time::timeout(Duration::from_secs(5), tokio_tungstenite::connect_async_with_config(
-			target, Some(config), false)) => result
+			target, Some(config), rooms_platform::serving::NO_DELAY)) => result
 				.map_err(|_| "timeline dial timed out".to_owned()).and_then(|r| r.map_err(|_| "timeline endpoint is not reachable".to_owned())),
 	};
 	let (mut far, _) = match connected {

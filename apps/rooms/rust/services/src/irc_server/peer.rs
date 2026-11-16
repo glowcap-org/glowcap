@@ -102,6 +102,7 @@ pub async fn run(
 						Ok((socket,_))=>{
 							let (tls,context,mut stopped)=(tls.clone(),context.clone(),stopping.clone());
 							clients.spawn_local(async move {
+								socket.set_nodelay(serving::NO_DELAY).map_err(|e|format!("IRC TCP setup failed: {e}"))?;
 								let stream:Box<dyn client::Stream>=if let Some(tls)=tls {
 									let secured=tokio::select! {
 										_ = stopped.changed() => return Ok(()),

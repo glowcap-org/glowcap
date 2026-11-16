@@ -51,7 +51,7 @@ impl Endpoint {
 		}
 		.map_err(|e| format!("IRC TCP connect failed: {e}"))?;
 		socket
-			.set_nodelay(true)
+			.set_nodelay(rooms_platform::serving::NO_DELAY)
 			.map_err(|e| format!("IRC TCP setup failed: {e}"))?;
 		if !self.tls {
 			return Ok(Box::new(socket));

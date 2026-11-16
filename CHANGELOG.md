@@ -312,6 +312,11 @@ Releases before 0.1.7 are in the
   room after the page read it, as any other workspace conflict is. The result
   ended in recovery with a bare refusal, which the room's connection
   restarting at that moment was enough to cause.
+- The TCP connections a Rooms process owns send each small write as soon as
+  it is written, as glowcap's own sockets do. A write could wait tens of
+  milliseconds for the one before it to be acknowledged, which was enough to
+  show a progress ring on opening a direct message through a Rooms server on
+  the same machine.
 
 ## [0.1.7] - 2026-11-11
 
