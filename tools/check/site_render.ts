@@ -30,6 +30,7 @@
 import { chromium } from "playwright";
 import { sitePages } from "./site_pages.ts";
 import { serveSite } from "./site_server.ts";
+import { checkDiagrams } from "./site_diagrams.ts";
 
 const siteRoot = Deno.args[0];
 if (!siteRoot) {
@@ -142,6 +143,11 @@ for (const [i, width] of widths.entries()) {
 		}
 	}
 	await page.close();
+}
+try {
+	await checkDiagrams(browser, base, siteRoot);
+} catch (error) {
+	failures.push(String(error));
 }
 await browser.close();
 await server.close();

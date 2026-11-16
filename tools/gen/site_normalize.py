@@ -22,6 +22,10 @@ caption, marks both images lazy, and writes the WebP dimensions into their
 attributes: a hidden lazy image is never fetched, and the shown one reserves
 its space before it arrives.
 
+SVG figures are embedded in declarative shadow roots. Their styles stay scoped
+while page theme tokens inherit, so diagrams need no client fetch or replacement
+and render with the same palette when JavaScript is disabled.
+
 Serving shape: GitHub Pages answers a missing path with the artifact's
 top-level `404.html`, so the rendered `404/index.html` is copied there;
 `robots.txt` and `sitemap.xml` are written from the walked pages, with the
@@ -47,8 +51,11 @@ markdown twin, and the sitemap lists it.
 
 import re
 import sys
+import xml.etree.ElementTree as ET
+from html import escape, unescape
 from html.parser import HTMLParser
 from pathlib import Path
+from urllib.parse import unquote, urlsplit
 
 ENTRY_HREF = re.compile(r'href="(/(?:[^"]*/)?)index\.html"')
 # Each cell body is read one character at a time with disjoint alternatives, so
@@ -86,6 +93,44 @@ def webpDimensions(path: Path) -> tuple[int, int]:
     raise SystemExit(f"site_normalize: {path}: no supported WebP image chunk")
 
 
+SVG_FIGURE = re.compile(r'<figure><img alt="([^"<>]*)" src="([^"<>]+\.svg)">')
+
+
+def inlineDiagrams(text: str, path: Path, root: Path) -> str:
+    """Render authored SVG figures with scoped styles and no browser fetch or swap."""
+    ET.register_namespace("", "http://www.w3.org/2000/svg")
+    ET.register_namespace("xlink", "http://www.w3.org/1999/xlink")
+
+    def embed(match: re.Match[str]) -> str:
+        alt, src = (unescape(value) for value in match.groups())
+        url = urlsplit(src)
+        if url.scheme or url.netloc:
+            return match.group(0)
+        asset = (
+            (root / unquote(url.path).lstrip("/")) if url.path.startswith("/") else (path.parent / unquote(url.path))
+        ).resolve()
+        if not asset.is_relative_to(root.resolve()):
+            raise SystemExit(f"site_normalize: {path}: diagram leaves the site root: {src}")
+        try:
+            svg = ET.fromstring(asset.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, ET.ParseError) as error:
+            raise SystemExit(f"site_normalize: {path}: cannot read diagram {src}: {error}") from error
+        if svg.tag != "{http://www.w3.org/2000/svg}svg":
+            raise SystemExit(f"site_normalize: {path}: diagram is not an SVG document: {src}")
+        name = f'role="img" aria-label="{escape(alt, quote=True)}"' if alt else 'aria-hidden="true"'
+        return (
+            f'<figure><span class="diagram" {name}><template shadowrootmode="open">'
+            "<style>svg{display:block;width:100%;height:auto}</style>"
+            + ET.tostring(svg, encoding="unicode")
+            + "</template></span>"
+        )
+
+    text = SVG_FIGURE.sub(embed, text)
+    # The live preview has no normalization pass. Its browser-side theming is
+    # unnecessary once these figures ship as shadow roots with the page.
+    return re.sub(r'<script id="preview-diagrams">.*?</script>', "", text, flags=re.DOTALL)
+
+
 def normalize(text: str, path: Path, root: Path) -> str:
     opened_figures = text.count("<p><figure")
     closed_figures = text.count("</figure></p>")
@@ -97,6 +142,7 @@ def normalize(text: str, path: Path, root: Path) -> str:
     text = text.replace("<p><figure", "<figure").replace("</figure></p>", "</figure>")
 
     text = text.replace("<figure><img src=", '<figure><img alt="" src=')
+    text = inlineDiagrams(text, path, root)
 
     # A page links an exported application by its entry document, the only
     # form the renderer resolves for a static asset. The host serves that
