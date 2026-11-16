@@ -20,7 +20,7 @@ pub fn main(init: std.process.Init) !void {
     };
     defer root.close(io);
 
-    const count = try source_check.check(io, gpa, root, root_path);
+    const count = try source_check.check(io, gpa, root);
     if (count != 0) {
         std.debug.print("source-check found {d} source contract violation(s)\n", .{count});
         std.process.exit(1);

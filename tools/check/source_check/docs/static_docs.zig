@@ -60,13 +60,13 @@ fn checkText(
         if (linksLocal(line)) {
             try appendViolation(gpa, violations, "{s}:{d}: links into `{s}`, which git ignores; no other checkout has that doc", .{ path, line_no, kinds.local_home });
         }
-        if (static) try checkNarration(gpa, violations, path, line_no, line);
+        if (static) try appendNarration(gpa, violations, path, line_no, line);
     }
 }
 
 /// Hold one line of a static doc, or one first-party source comment, to the
 /// history phrases and the dated-contract form.
-pub fn checkNarration(gpa: std.mem.Allocator, violations: *std.ArrayList([]const u8), path: []const u8, line_no: usize, line: []const u8) !void {
+pub fn appendNarration(gpa: std.mem.Allocator, violations: *std.ArrayList([]const u8), path: []const u8, line_no: usize, line: []const u8) !void {
     if (datedAsOf(line)) try appendViolation(gpa, violations, "{s}:{d}: dates a static contract with As of Month YYYY; move run dates to living records", .{ path, line_no });
     for (history_phrases) |phrase| {
         if (findWord(line, phrase) != null) try appendViolation(gpa, violations, "{s}:{d}: says `{s}`; state the present contract", .{ path, line_no, phrase });
@@ -79,7 +79,7 @@ fn count(line: []const u8) !usize {
         for (violations.items) |item| std.testing.allocator.free(item);
         violations.deinit(std.testing.allocator);
     }
-    try checkNarration(std.testing.allocator, &violations, "a.md", 1, line);
+    try appendNarration(std.testing.allocator, &violations, "a.md", 1, line);
     return violations.items.len;
 }
 

@@ -68,7 +68,7 @@ Rules for every doc:
 
 - Write present-tense contracts. No "future X" once X lands, no stale status
   markers, no transition narration. History lives in git or an ADR that still
-  owns a decision. `checkNarration` in `static_docs.zig` refuses the phrases
+  owns a decision. `appendNarration` in `static_docs.zig` refuses the phrases
   that always date a sentence, in static docs and source comments alike.
 - Do not hardcode a count the code can outgrow. Describe the set or cite the
   check that holds the number.
