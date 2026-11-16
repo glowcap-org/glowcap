@@ -164,6 +164,7 @@ Declared in [`apps/rooms/rust/platform/Cargo.toml`](../apps/rooms/rust/platform/
 Declared in [`apps/rooms/rust/services/Cargo.toml`](../apps/rooms/rust/services/Cargo.toml):
 
 - **base64**: Encodes inline web assets.
+- **flate2**: Compresses browser assets for a browser that accepts gzip.
 - **html5ever**: Parses fetched pages for link previews.
 - **encoding_rs**: Decodes fetched pages in their declared character set.
 

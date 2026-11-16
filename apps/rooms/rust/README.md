@@ -161,8 +161,9 @@ rooms-rust-browser-test` runs them in Wasm. The
   preparation depends on it.
 
 Browser checks use the workspace's `browser-proof` profile for Wasm and non-Wasm
-fixtures, with optimization level 1, no LTO, and 16 codegen units. Deployment
-builds keep the `release` profile.
+fixtures, with optimization level 1, no LTO, and 16 codegen units. The deployed
+browser module uses the `browser` profile, which is `release` optimized for
+size. Server programs use `release`.
 
 - Non-Wasm fixtures have a separate Cargo target directory and install as
   `zig-out/libexec/rooms-web-proof` and `rooms-server-proof`. Their sibling

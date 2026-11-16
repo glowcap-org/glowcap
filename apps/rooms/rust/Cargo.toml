@@ -83,6 +83,11 @@ expect_used = "deny"
 # or use the `str` methods that find their own boundaries.
 string_slice = "deny"
 
+[profile.dev.package.miniz_oxide]
+# The web service compresses its browser bundle each time it starts. Without
+# optimization that takes seconds, and tests start it many times.
+opt-level = 3
+
 [profile.test]
 # Keep source locations for failure backtraces without full variable/type
 # debug data in every test binary. CARGO_PROFILE_TEST_DEBUG=2 opts back in.
@@ -103,3 +108,9 @@ codegen-units = 1
 # supervisor restart one coherent service instead of leaving sibling tasks
 # alive around state that can no longer be trusted.
 panic = "abort"
+
+[profile.browser]
+# A reader downloads the browser module before the page opens, and each call
+# into it is short. It is built for size, like the Zig archives it links.
+inherits = "release"
+opt-level = "z"

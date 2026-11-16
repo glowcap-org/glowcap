@@ -109,6 +109,9 @@ Releases before 0.1.7 are in the
 - The terminal Rooms client prints a name, a room name, and an error on one
   line with control and text-direction characters written out, and marks
   each further line of a message that has several.
+- A Rooms server sends the page's files gzip-compressed to a browser that
+  accepts it, and builds the browser module for size. A first visit
+  downloads about 3 MB where it downloaded about 13 MB.
 - ocapnviz serves the Inter typeface itself, so the page asks no other site
   for a font. Its build names every file relative to the entry document, so
   it works from any directory, and carries no service worker.

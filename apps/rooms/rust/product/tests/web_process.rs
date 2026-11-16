@@ -405,6 +405,18 @@ async fn web_rendezvous_admission_early_bytes_and_shutdown() {
 		let wasm = web.request("HEAD", &route, "").await;
 		assert!(wasm.starts_with("HTTP/1.1 200"), "{wasm}");
 		assert!(wasm.contains("content-type: application/wasm"), "{wasm}");
+		assert!(!wasm.contains("content-encoding:"), "{wasm}");
+		let packed = web.request("HEAD", &route, "Accept-Encoding: gzip, br\r\n").await;
+		assert!(packed.contains("content-encoding: gzip"), "{packed}");
+		assert!(packed.contains("vary: accept-encoding"), "{packed}");
+		let length = |reply: &str| -> usize {
+			let line = reply.lines().find_map(|line| line.strip_prefix("content-length: "));
+			line.unwrap().parse().unwrap()
+		};
+		assert!(
+			length(&packed) < length(&wasm) / 2,
+			"the module travels in its gzip form"
+		);
 		let retired = web.request("HEAD", "/glowcap_host.wasm", "").await;
 		assert!(retired.starts_with("HTTP/1.1 404"), "{retired}");
 		// A query is refused at the endpoint, through the proxy, on either socket route.

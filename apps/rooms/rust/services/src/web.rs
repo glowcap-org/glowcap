@@ -2,6 +2,7 @@
 //! Capability sessions belong to peers. This front serves assets and carries
 //! opaque transport traffic for browsers.
 mod admission;
+mod asset;
 mod assets;
 mod browser_admission;
 mod bundle;

@@ -11,7 +11,7 @@ pub fn register(b: *std.Build, archives: *std.Build.Step, layouts: *std.Build.St
         "--check",
     });
     b.step("rooms-browser-metadata-check", "Verify browser metadata against the Rust application owners").dependOn(&metadata.step);
-    const glue = module(b, archives, layouts, &metadata.step, "release", "browser-app", "zig-out/wasm/rooms");
+    const glue = module(b, archives, layouts, &metadata.step, "browser", "browser-app", "zig-out/wasm/rooms");
     const proof_glue = module(b, archives, layouts, &metadata.step, "browser-proof", "browser-app-proof", "apps/rooms/rust/target/browser-app-proof/pkg");
     const step = b.step("rooms-browser-build", "Build the production Rust Rooms browser module (needs the Wasm Rust target and matching wasm-bindgen)");
     step.dependOn(glue);
