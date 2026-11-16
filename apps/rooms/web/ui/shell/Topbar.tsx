@@ -72,10 +72,9 @@ function titleOf(conv: Conv | null, home: DirId | null): { name: string; said: s
  * phone has no room for the full phrase. */
 function provenanceOf(conv: Conv, online: boolean, narrow: boolean): string {
 	if (!online) return memberOffline;
-	// Not "Introducing…", which claims something is happening: the line opens on
-	// the first message, so before one is sent nothing has started, and after one
-	// has failed nothing is still running. This says the state a reader can act
-	// on, and it stays true through the moment in between.
+	// Not "Introducing…", which claims something is happening, and after an
+	// opening has failed nothing is. This says the state a reader can act on,
+	// and it stays true while the line is being opened.
 	if (conv.type === "dm" && conv.line !== "live") return factLineNotOpen;
 	return narrow ? titleDmEncrypted : titleDmEncryptedLong;
 }

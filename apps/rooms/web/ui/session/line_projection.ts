@@ -89,7 +89,6 @@ export class AttachedLineProjection<F extends FileDescription = FileDescription>
 			return;
 		}
 		const mine = event.from === store.dirNick(this.#page.projection, conversation.dir);
-		if (conversation.type === "dm") store.setDmLine(this.#page.projection, key, "live");
 		// What the room states about itself folds in whatever else the line
 		// carries, before any line is judged to be state alone and spared the
 		// log: a statement with no words is exactly the line that is.
