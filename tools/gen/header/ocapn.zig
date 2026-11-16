@@ -6,6 +6,7 @@
 
 const std = @import("std");
 const c = @import("c_abi");
+const cp = @import("c_abi_shared");
 const header_emit = @import("header_emit.zig");
 
 const Output = @import("output").Output;
@@ -51,12 +52,6 @@ const discriminant_consts = [_][]const u8{
     "GLOWCAP_RESOLUTION_BREAK",       "GLOWCAP_RESOLUTION_HANDOFF",
     "GLOWCAP_ABORT_DOMAIN_CODEC",     "GLOWCAP_ABORT_DOMAIN_SESSION",
     "GLOWCAP_ABORT_DOMAIN_FOREIGN",
-};
-const locator_consts = [_][]const u8{
-    "GLOWCAP_LOCATOR_VIEW_ABI_VERSION", "GLOWCAP_HINT_STRING",
-    "GLOWCAP_HINT_BYTES",               "GLOWCAP_HINT_BOOLEAN",
-    "GLOWCAP_HINT_INTEGER",             "GLOWCAP_HINTS_MAP",
-    "GLOWCAP_HINTS_BOOLEAN_FALSE",
 };
 const resource_consts = [_][]const u8{
     "GLOWCAP_RAW_TRANSPORT_DEFAULT_FRAME_CAP",
@@ -172,28 +167,26 @@ const E = header_emit.Emit(Spec);
 const Buf = header_emit.Buf;
 const section = header_emit.section;
 const emitDoc = header_emit.emitDoc;
-const emitConst = E.emitConst;
 const emitStruct = E.emitStruct;
 const emitBareStruct = E.emitBareStruct;
 const emitFn = E.emitFn;
 
+const emitted_consts = version_consts ++ error_consts ++ discriminant_consts ++ resource_consts ++ failure_consts;
+
+const omitted_consts = [_]header_emit.ConstOmission{
+    header_emit.fingerprintOmission("GLOWCAP_OCAPN_ARCHIVE_FINGERPRINT", "glowcap_ocapn_archive_fingerprint"),
+};
+
+// The locator constants the archive re-exports belong to glowcap_locator.h,
+// which `#include "glowcap_locator.h"` below pulls in.
+const covered_consts = .{
+    header_emit.ConstOwner{ .by = "glowcap_locator.h", .module = cp.locator, .omits = &.{} },
+};
+
 comptime {
     @setEvalBranchQuota(40000);
     E.guardFns("c_abi", "glowcap_");
-
-    const all = version_consts ++ error_consts ++ discriminant_consts ++ locator_consts ++ resource_consts ++ failure_consts;
-    for (@typeInfo(c).@"struct".decl_names) |decl_name| {
-        if (!std.mem.startsWith(u8, decl_name, "GLOWCAP_")) continue;
-        if (@typeInfo(@TypeOf(@field(c, decl_name))) != .int) continue;
-        // Archive identity crosses through its function, not a C macro: a
-        // consumer must compare against the binding/header version it built.
-        if (std.mem.eql(u8, decl_name, "GLOWCAP_OCAPN_ARCHIVE_FINGERPRINT")) continue;
-        var found = false;
-        for (all) |name| {
-            if (std.mem.eql(u8, name, decl_name)) found = true;
-        }
-        if (!found) @compileError("constant not emitted to glowcap_ocapn.h: " ++ decl_name);
-    }
+    E.guardConsts("glowcap_ocapn.h", "add it to version_consts, error_consts, discriminant_consts, resource_consts, or failure_consts in tools/gen/header/ocapn.zig, or a row to `omitted_consts` there with a reason", &emitted_consts, &omitted_consts, covered_consts);
 }
 
 fn generate(gpa: std.mem.Allocator) ![]u8 {
@@ -216,15 +209,15 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
         \\
     );
 
-    inline for (version_consts) |name| try emitConst(&b, gpa, name);
+    try E.emitConsts(&b, gpa, &version_consts);
     try emitFn(&b, gpa, "glowcap_ocapn_archive_fingerprint", &.{}, "Read the exact reflected callable and layout identity of this core archive.");
     try emitFn(&b, gpa, "glowcap_abi_version", &.{ "out_major", "out_minor", "out_patch" }, "Read the linked shared archive's ABI version.");
     try section(&b, gpa, "Return codes");
-    inline for (error_consts) |name| try emitConst(&b, gpa, name);
+    try E.emitConsts(&b, gpa, &error_consts);
     try section(&b, gpa, "Shared discriminants");
-    inline for (discriminant_consts) |name| try emitConst(&b, gpa, name);
+    try E.emitConsts(&b, gpa, &discriminant_consts);
     try section(&b, gpa, "Resource limits");
-    inline for (resource_consts) |name| try emitConst(&b, gpa, name);
+    try E.emitConsts(&b, gpa, &resource_consts);
 
     try section(&b, gpa, "Frames");
     try emitStruct(&b, gpa, c.GlowcapFrame, "GlowcapFrame", &.{
@@ -261,7 +254,7 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
         "GLOWCAP_BREAK_ORIGIN_*", "GLOWCAP_BREAK_REASON_*", "GLOWCAP_BREAK_CONTEXT_* bitmask",
     });
     try section(&b, gpa, "Unreturned failures");
-    inline for (failure_consts) |name| try emitConst(&b, gpa, name);
+    try E.emitConsts(&b, gpa, &failure_consts);
     try emitStruct(&b, gpa, c.GlowcapFailureReport, "GlowcapFailureReport", &.{
         "GLOWCAP_FAILURE_EVENT_ABI_VERSION", "sizeof(GlowcapFailureReport)",       "GLOWCAP_FAILURE_LAYER_*",        "GLOWCAP_FAILURE_SCOPE_*",
         "stable identity within the scope",  "stable operation identity, or zero", "stable primary result, or zero", "stable first secondary result, or zero",

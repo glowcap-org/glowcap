@@ -17,7 +17,6 @@
 //! `glowcap_iroh_*` prototypes are new here.
 
 const std = @import("std");
-const c = @import("c_abi_net_transport_iroh");
 const header_emit = @import("header_emit.zig");
 
 const Output = @import("output").Output;
@@ -67,10 +66,35 @@ const Buf = header_emit.Buf;
 const emitDoc = header_emit.emitDoc;
 const emitFn = E.emitFn;
 
+const posture_consts = [_][]const u8{
+    "GLOWCAP_IROH_REACH_DIRECT",
+    "GLOWCAP_IROH_REACH_DISCOVERY",
+    "GLOWCAP_IROH_REACH_DISCOVERY_NO_RELAY",
+    "GLOWCAP_IROH_REACH_LOCAL_DISCOVERY",
+    "GLOWCAP_IROH_NODE_ID_BYTES",
+    "GLOWCAP_IROH_MAX_DIRECT_ADDRESS_BYTES",
+    "GLOWCAP_IROH_READ_CHUNK_BYTES",
+};
+const redeem_consts = [_][]const u8{
+    "GLOWCAP_IROH_REACH_REDEEM_DEFAULT",
+};
+const event_consts = [_][]const u8{
+    "GLOWCAP_IROH_EV_READABLE",
+    "GLOWCAP_IROH_EV_WRITABLE",
+    "GLOWCAP_IROH_EV_CLOSED",
+    "GLOWCAP_IROH_EV_ACCEPT",
+    "GLOWCAP_IROH_EV_CONNECT",
+};
+const emitted_consts = posture_consts ++ redeem_consts ++ event_consts;
+const omitted_consts = [_]header_emit.ConstOmission{
+    header_emit.fingerprintOmission("GLOWCAP_IROH_ARCHIVE_FINGERPRINT", "glowcap_iroh_archive_fingerprint"),
+};
+
 // Coverage guard, both directions: every `pub export fn glowcap_iroh_*` in
 // `c_abi_net_transport_iroh` must be listed, and every listed name must be real.
 comptime {
     E.guardFns("c_abi_net_transport_iroh", "glowcap_iroh_");
+    E.guardConsts("glowcap_net_transport_iroh.h", "add it to `posture_consts`, `redeem_consts`, or `event_consts` in tools/gen/header/iroh.zig, or a row to `omitted_consts` there with a reason", &emitted_consts, &omitted_consts, .{});
 }
 
 /// Build the full header text. Caller owns the returned bytes.
@@ -183,13 +207,7 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
     );
     // Reflected from the Zig module (which mirrors the resident's enum), so
     // the header cannot disagree with the values the archive accepts.
-    try b.print(gpa, "#define GLOWCAP_IROH_REACH_DIRECT {d}u\n", .{c.GLOWCAP_IROH_REACH_DIRECT});
-    try b.print(gpa, "#define GLOWCAP_IROH_REACH_DISCOVERY {d}u\n", .{c.GLOWCAP_IROH_REACH_DISCOVERY});
-    try b.print(gpa, "#define GLOWCAP_IROH_REACH_DISCOVERY_NO_RELAY {d}u\n", .{c.GLOWCAP_IROH_REACH_DISCOVERY_NO_RELAY});
-    try b.print(gpa, "#define GLOWCAP_IROH_REACH_LOCAL_DISCOVERY {d}u\n", .{c.GLOWCAP_IROH_REACH_LOCAL_DISCOVERY});
-    try b.print(gpa, "#define GLOWCAP_IROH_NODE_ID_BYTES {d}u\n", .{c.GLOWCAP_IROH_NODE_ID_BYTES});
-    try b.print(gpa, "#define GLOWCAP_IROH_MAX_DIRECT_ADDRESS_BYTES {d}u\n", .{c.GLOWCAP_IROH_MAX_DIRECT_ADDRESS_BYTES});
-    try b.print(gpa, "#define GLOWCAP_IROH_READ_CHUNK_BYTES {d}u\n", .{c.GLOWCAP_IROH_READ_CHUNK_BYTES});
+    try E.emitUnsignedConsts(&b, gpa, &posture_consts);
     try b.appendSlice(gpa,
         \\
         \\/* The posture a Host redeems a hint-less handoff give under until the
@@ -198,7 +216,7 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
         \\   starting value so every consumer initializes from the same fact. */
         \\
     );
-    try b.print(gpa, "#define GLOWCAP_IROH_REACH_REDEEM_DEFAULT {d}u\n", .{c.GLOWCAP_IROH_REACH_REDEEM_DEFAULT});
+    try E.emitUnsignedConsts(&b, gpa, &redeem_consts);
     try b.appendSlice(gpa,
         \\
         \\/* Readiness event bits (ADR-0019). The netlayer's loop serves many
@@ -212,11 +230,7 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
         \\   is the shared GLOWCAP_ERR_WOULD_BLOCK from glowcap_ocapn.h. */
         \\
     );
-    try b.print(gpa, "#define GLOWCAP_IROH_EV_READABLE {d}u\n", .{c.GLOWCAP_IROH_EV_READABLE});
-    try b.print(gpa, "#define GLOWCAP_IROH_EV_WRITABLE {d}u\n", .{c.GLOWCAP_IROH_EV_WRITABLE});
-    try b.print(gpa, "#define GLOWCAP_IROH_EV_CLOSED {d}u\n", .{c.GLOWCAP_IROH_EV_CLOSED});
-    try b.print(gpa, "#define GLOWCAP_IROH_EV_ACCEPT {d}u\n", .{c.GLOWCAP_IROH_EV_ACCEPT});
-    try b.print(gpa, "#define GLOWCAP_IROH_EV_CONNECT {d}u\n", .{c.GLOWCAP_IROH_EV_CONNECT});
+    try E.emitUnsignedConsts(&b, gpa, &event_consts);
     try b.appendSlice(gpa,
         \\
         \\/* One readiness record from glowcap_iroh_netlayer_drain_ready. subject

@@ -6,6 +6,9 @@
 
 use core::ffi::{c_int, c_uint};
 
+pub const VERSION_MAJOR: c_uint = 0;
+pub const VERSION_MINOR: c_uint = 1;
+pub const VERSION_PATCH: c_uint = 7;
 pub const OK: c_int = 0;
 pub const WOULD_BLOCK: c_int = -6;
 pub const ERR_NULL_POINTER: c_int = -1;
@@ -34,7 +37,14 @@ pub const FAILURE_SCOPE_SESSION: c_uint = 3;
 pub const FAILURE_SCOPE_LISTENER: c_uint = 4;
 pub const FAILURE_SCOPE_TRANSPORT: c_uint = 5;
 pub const FAILURE_SCOPE_OPERATION: c_uint = 6;
+pub const FAILURE_EVENT_ABI_VERSION: c_uint = 1;
+pub const FAILURE_TRUNCATED_OPERATION: c_uint = 1;
+pub const FAILURE_TRUNCATED_PRIMARY_NAME: c_uint = 2;
+pub const FAILURE_TRUNCATED_PRIMARY_MESSAGE: c_uint = 4;
+pub const FAILURE_TRUNCATED_SECONDARY_NAME: c_uint = 8;
+pub const FAILURE_TRUNCATED_SECONDARY_MESSAGE: c_uint = 16;
 pub const FRAME_SHAPE_BYTE: c_uint = 0;
+pub const FRAME_SHAPE_WORD: c_uint = 1;
 pub const ARG_INTEGER: c_uint = 0;
 pub const ARG_FLOAT64: c_uint = 1;
 pub const ARG_BOOLEAN: c_uint = 2;
@@ -113,6 +123,8 @@ pub const CLOSE_GRACE_UNBOUNDED: c_uint = 2;
 pub const SESSION_LIMIT_OPTIONS_ABI_VERSION: c_uint = 1;
 pub const DRIVER_OPTIONS_ABI_VERSION: c_uint = 1;
 pub const DRIVER_FAILURE_ABI_VERSION: c_uint = 2;
+pub const DRIVER_ADOPT_DIALED: c_uint = 0;
+pub const DRIVER_ADOPT_ACCEPTED: c_uint = 1;
 pub const CARRIER_PHASE_NONE: c_uint = 0;
 pub const CARRIER_PHASE_RESOLVE: c_uint = 1;
 pub const CARRIER_PHASE_CONNECT: c_uint = 2;

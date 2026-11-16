@@ -16,6 +16,7 @@
 
 const std = @import("std");
 const header_emit = @import("header_emit.zig");
+const host_omissions = @import("host_omissions.zig");
 
 const Output = @import("output").Output;
 pub const outputs = [_]Output{
@@ -97,12 +98,72 @@ const E = header_emit.Emit(Spec);
 const Buf = header_emit.Buf;
 const emitDoc = header_emit.emitDoc;
 const emitFn = E.emitFn;
-const emitConst = E.emitConst;
+
+const trace_consts = [_][]const u8{
+    "GLOWCAP_TRACE_SESSION_OPEN",
+    "GLOWCAP_TRACE_MESSAGE",
+    "GLOWCAP_TRACE_SESSION_CLOSE",
+    "GLOWCAP_TRACE_DIGEST_BYTES",
+};
+const action_consts = [_][]const u8{
+    "GLOWCAP_HOST_ACTION_DIAL",
+    "GLOWCAP_HOST_ACTION_FLUSH",
+    "GLOWCAP_HOST_ACTION_NEED_GIFT_ID",
+    "GLOWCAP_HOST_ACTION_SETTLE",
+    "GLOWCAP_HOST_ACTION_FAIL",
+    "GLOWCAP_HOST_ACTION_CLOSE",
+    "GLOWCAP_HOST_ACTION_RESUME",
+    "GLOWCAP_HOST_ACTION_CANCEL_DIAL",
+    "GLOWCAP_UNKNOWN_SWISSNUM_MESSAGE",
+};
+const session_consts = [_][]const u8{
+    "GLOWCAP_PENDING_CANCEL",
+    "GLOWCAP_PENDING_FINISH",
+    "GLOWCAP_CLOSE_OPTIONS_ABI_VERSION",
+    "GLOWCAP_CLOSE_MAX_GRACE_MS",
+    "GLOWCAP_CLOSE_GRACE_UNSPECIFIED",
+    "GLOWCAP_CLOSE_GRACE_FINITE",
+    "GLOWCAP_CLOSE_GRACE_UNBOUNDED",
+    "GLOWCAP_SESSION_LIMIT_OPTIONS_ABI_VERSION",
+    "GLOWCAP_LIFECYCLE_ACTIVE",
+    "GLOWCAP_LIFECYCLE_FINISHING",
+    "GLOWCAP_LIFECYCLE_TERMINATING",
+    "GLOWCAP_LIFECYCLE_CLOSED",
+    "GLOWCAP_DEFAULT_FRAME_CAP",
+    "GLOWCAP_MAX_LOCAL_FORWARD_HOPS",
+    "GLOWCAP_DISCOVERY_DIAL_RETRY_MS",
+    "GLOWCAP_DISCOVERY_DIAL_MAX_ATTEMPTS",
+    "GLOWCAP_DURABLE_PROVENANCE_AUTHENTICATED_TRANSPORT",
+    "GLOWCAP_DURABLE_PROVENANCE_UNAUTHENTICATED",
+};
+const dial_plan_consts = [_][]const u8{
+    "GLOWCAP_DIAL_SHAPE_HOST_PORT",
+    "GLOWCAP_DIAL_SHAPE_PEER_ID",
+    "GLOWCAP_DIAL_SHAPE_SIGNALING",
+    "GLOWCAP_DIAL_SHAPE_RENDEZVOUS",
+    "GLOWCAP_DIAL_REACH_DIRECT",
+    "GLOWCAP_DIAL_REACH_CONFIGURED",
+    "GLOWCAP_DIAL_REACH_EXPLICIT",
+    "GLOWCAP_DIAL_POSTURE_REDEEM",
+    "GLOWCAP_DIAL_POSTURE_EXPLICIT",
+    "GLOWCAP_DIAL_POSTURE_EXPLICIT_NONE",
+};
+const host_setting_consts = [_][]const u8{
+    "GLOWCAP_DESIGNATOR_SCHEME_ADDRESS",
+    "GLOWCAP_DESIGNATOR_SCHEME_KEY",
+    "GLOWCAP_LOCAL_TURN_BUDGET_DEFAULT",
+    "GLOWCAP_LOCAL_TURN_BUDGET_UNBOUNDED",
+    "GLOWCAP_HOST_OUTBOUND_PREFIX_CAP",
+    "GLOWCAP_HOST_DURABLE_ENTROPY_LEN",
+    "GLOWCAP_HOST_DURABLE_SWISS_LEN",
+};
+const emitted_consts = trace_consts ++ action_consts ++ session_consts ++ dial_plan_consts ++ host_setting_consts;
 
 // Coverage guard, both directions: every `pub export fn glowcap_host_*` in
 // `c_abi_host` must be listed, and every listed name must be real.
 comptime {
     E.guardFns("c_abi_host", "glowcap_host_");
+    E.guardConsts("glowcap_host.h", "add it to trace_consts, action_consts, session_consts, dial_plan_consts, or host_setting_consts in tools/gen/header/host.zig, or a row to `omitted` in tools/gen/header/host_omissions.zig with a reason", &emitted_consts, &host_omissions.omitted, .{});
     // Hold the action-kind #defines emitted below against the Zig source.
     std.debug.assert(Spec.c.GLOWCAP_HOST_ACTION_DIAL == 0);
     std.debug.assert(Spec.c.GLOWCAP_HOST_ACTION_FLUSH == 1);
@@ -261,10 +322,7 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
         \\
     );
 
-    try emitConst(&b, gpa, "GLOWCAP_TRACE_SESSION_OPEN");
-    try emitConst(&b, gpa, "GLOWCAP_TRACE_MESSAGE");
-    try emitConst(&b, gpa, "GLOWCAP_TRACE_SESSION_CLOSE");
-    try emitConst(&b, gpa, "GLOWCAP_TRACE_DIGEST_BYTES");
+    try E.emitConsts(&b, gpa, &trace_consts);
     try b.appendSlice(gpa, "\n");
     try emitDoc(&b, gpa,
         \\One live-trace fact (glowcap_host_set_trace). kind selects the live
@@ -304,34 +362,9 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
         \\
     );
 
-    try emitConst(&b, gpa, "GLOWCAP_HOST_ACTION_DIAL");
-    try emitConst(&b, gpa, "GLOWCAP_HOST_ACTION_FLUSH");
-    try emitConst(&b, gpa, "GLOWCAP_HOST_ACTION_NEED_GIFT_ID");
-    try emitConst(&b, gpa, "GLOWCAP_HOST_ACTION_SETTLE");
-    try emitConst(&b, gpa, "GLOWCAP_HOST_ACTION_FAIL");
-    try emitConst(&b, gpa, "GLOWCAP_HOST_ACTION_CLOSE");
-    try emitConst(&b, gpa, "GLOWCAP_HOST_ACTION_RESUME");
-    try emitConst(&b, gpa, "GLOWCAP_HOST_ACTION_CANCEL_DIAL");
-    try emitConst(&b, gpa, "GLOWCAP_UNKNOWN_SWISSNUM_MESSAGE");
+    try E.emitConsts(&b, gpa, &action_consts);
 
-    try emitConst(&b, gpa, "GLOWCAP_PENDING_CANCEL");
-    try emitConst(&b, gpa, "GLOWCAP_PENDING_FINISH");
-    try emitConst(&b, gpa, "GLOWCAP_CLOSE_OPTIONS_ABI_VERSION");
-    try emitConst(&b, gpa, "GLOWCAP_CLOSE_MAX_GRACE_MS");
-    try emitConst(&b, gpa, "GLOWCAP_CLOSE_GRACE_UNSPECIFIED");
-    try emitConst(&b, gpa, "GLOWCAP_CLOSE_GRACE_FINITE");
-    try emitConst(&b, gpa, "GLOWCAP_CLOSE_GRACE_UNBOUNDED");
-    try emitConst(&b, gpa, "GLOWCAP_SESSION_LIMIT_OPTIONS_ABI_VERSION");
-    try emitConst(&b, gpa, "GLOWCAP_LIFECYCLE_ACTIVE");
-    try emitConst(&b, gpa, "GLOWCAP_LIFECYCLE_FINISHING");
-    try emitConst(&b, gpa, "GLOWCAP_LIFECYCLE_TERMINATING");
-    try emitConst(&b, gpa, "GLOWCAP_LIFECYCLE_CLOSED");
-    try emitConst(&b, gpa, "GLOWCAP_DEFAULT_FRAME_CAP");
-    try emitConst(&b, gpa, "GLOWCAP_MAX_LOCAL_FORWARD_HOPS");
-    try emitConst(&b, gpa, "GLOWCAP_DISCOVERY_DIAL_RETRY_MS");
-    try emitConst(&b, gpa, "GLOWCAP_DISCOVERY_DIAL_MAX_ATTEMPTS");
-    try emitConst(&b, gpa, "GLOWCAP_DURABLE_PROVENANCE_AUTHENTICATED_TRANSPORT");
-    try emitConst(&b, gpa, "GLOWCAP_DURABLE_PROVENANCE_UNAUTHENTICATED");
+    try E.emitConsts(&b, gpa, &session_consts);
     try b.appendSlice(gpa, "\n");
     try E.emitStruct(&b, gpa, Spec.c.GlowcapCloseOptions, "GlowcapCloseOptions", &.{
         "GLOWCAP_CLOSE_OPTIONS_ABI_VERSION.",
@@ -426,23 +459,8 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
     try emitFn(&b, gpa, "glowcap_host_session_open_dialed_locator", &.{ "host", "locator", "out_session" }, "Mint the dialing half after an embedder has opened the byte channel for\nlocator. The one locator vocabulary is taken whole: the designator keys\nduplicate-dial refusal and, on a key transport, demands the partner's durable\nkey; route hints carry no semantics here because the caller's dial executor\nspent them realizing the channel. A DIAL action identifies one admitted\n(ticket, route_index) attempt: project its typed locator with\nglowcap_host_pending_dial, open the channel it names, and report that exact\nattempt. The host retains its own dial default for the locator's transport\nfirst, never displacing an advertised locator the embedder explicitly selected,\nso a bare client host dials without publishing anything. A sealed session\nderives its Noise ephemeral from the Host's unique per-session seed under a\nseparate KDF domain, so callers do not branch on transport policy or supply\nper-open entropy. The keyed op:start-session is signed under the host identity\nand encoded before this returns, so drain take_outbound (a FLUSH action is\nqueued) and drive the handshake byte-fed. Host-wide aliases remain lazily\ndiscoverable through the new session. *out_session is host-owned; release with\nglowcap_host_session_release.");
     try emitFn(&b, gpa, "glowcap_host_session_open_accepted", &.{ "host", "transport", "transport_len", "designator_scheme", "server_designator", "server_designator_len", "accepted_local_addr", "accepted_local_addr_len", "out_session" }, "Mint the accepting half of a connection your listener produced.\ndesignator_scheme is the provider's GLOWCAP_DESIGNATOR_SCHEME_* declaration;\nserver_designator is the listener's own signing designator (its key for a key\ntransport, unused for an address transport); accepted_local_addr is the route\nthe accept reported (NULL/0 when unavailable). The host retains the locator\nthis accept would sign without displacing an acceptable location the embedder\nalready selected: an explicit glowcap_host_set_advertised_locator is deployment\npolicy and wins, and the accept-derived locator becomes the selection only when\nthere is none. The session signs the selected snapshot even when it names\nanother transport. Sealed-channel entropy follows the dialed half's Host-owned\nderivation. Host-wide aliases remain lazily discoverable, with the same flush\nand release contract as the dialed half.");
     try b.appendSlice(gpa, "\n");
-    try emitConst(&b, gpa, "GLOWCAP_DIAL_SHAPE_HOST_PORT");
-    try emitConst(&b, gpa, "GLOWCAP_DIAL_SHAPE_PEER_ID");
-    try emitConst(&b, gpa, "GLOWCAP_DIAL_SHAPE_SIGNALING");
-    try emitConst(&b, gpa, "GLOWCAP_DIAL_SHAPE_RENDEZVOUS");
-    try emitConst(&b, gpa, "GLOWCAP_DIAL_REACH_DIRECT");
-    try emitConst(&b, gpa, "GLOWCAP_DIAL_REACH_CONFIGURED");
-    try emitConst(&b, gpa, "GLOWCAP_DIAL_REACH_EXPLICIT");
-    try emitConst(&b, gpa, "GLOWCAP_DIAL_POSTURE_REDEEM");
-    try emitConst(&b, gpa, "GLOWCAP_DIAL_POSTURE_EXPLICIT");
-    try emitConst(&b, gpa, "GLOWCAP_DIAL_POSTURE_EXPLICIT_NONE");
-    try emitConst(&b, gpa, "GLOWCAP_DESIGNATOR_SCHEME_ADDRESS");
-    try emitConst(&b, gpa, "GLOWCAP_DESIGNATOR_SCHEME_KEY");
-    try emitConst(&b, gpa, "GLOWCAP_LOCAL_TURN_BUDGET_DEFAULT");
-    try emitConst(&b, gpa, "GLOWCAP_LOCAL_TURN_BUDGET_UNBOUNDED");
-    try emitConst(&b, gpa, "GLOWCAP_HOST_OUTBOUND_PREFIX_CAP");
-    try emitConst(&b, gpa, "GLOWCAP_HOST_DURABLE_ENTROPY_LEN");
-    try emitConst(&b, gpa, "GLOWCAP_HOST_DURABLE_SWISS_LEN");
+    try E.emitConsts(&b, gpa, &dial_plan_consts);
+    try E.emitConsts(&b, gpa, &host_setting_consts);
     try b.appendSlice(gpa, "\n");
     try emitDoc(&b, gpa,
         \\A resolved dial from glowcap_host_plan_dial: what byte channel to open and

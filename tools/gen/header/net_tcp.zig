@@ -15,7 +15,6 @@
 //! `glowcap_tcp_*` prototypes are new here.
 
 const std = @import("std");
-const c = @import("c_abi_net_transport_tcp");
 const header_emit = @import("header_emit.zig");
 
 const Output = @import("output").Output;
@@ -65,10 +64,21 @@ const line = header_emit.line;
 const emitDoc = header_emit.emitDoc;
 const emitFn = E.emitFn;
 
+const profile_consts = [_][]const u8{
+    "GLOWCAP_TCP_PROFILE_TCP",
+    "GLOWCAP_TCP_PROFILE_KEYED_TCP",
+    "GLOWCAP_TCP_PROFILE_NOISE_TCP",
+    "GLOWCAP_TCP_PROFILES_ALL",
+};
+const omitted_consts = [_]header_emit.ConstOmission{
+    header_emit.fingerprintOmission("GLOWCAP_TCP_ARCHIVE_FINGERPRINT", "glowcap_tcp_archive_fingerprint"),
+};
+
 // Coverage guard, both directions: every `pub export fn glowcap_tcp_*` in
 // `c_abi_net_transport_tcp` must be listed, and every listed name must be real.
 comptime {
     E.guardFns("c_abi_net_transport_tcp", "glowcap_tcp_");
+    E.guardConsts("glowcap_net_transport_tcp.h", "add it to `profile_consts` in tools/gen/header/net_tcp.zig, or a row to `omitted_consts` there with a reason", &profile_consts, &omitted_consts, .{});
 }
 
 /// Build the full header text. Caller owns the returned bytes.
@@ -157,10 +167,8 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
         \\   noise-tcp seals the session and proves the peer's key. */
         \\
     );
-    try b.print(gpa, "#define GLOWCAP_TCP_PROFILE_TCP {d}u\n", .{c.GLOWCAP_TCP_PROFILE_TCP});
-    try b.print(gpa, "#define GLOWCAP_TCP_PROFILE_KEYED_TCP {d}u\n", .{c.GLOWCAP_TCP_PROFILE_KEYED_TCP});
-    try b.print(gpa, "#define GLOWCAP_TCP_PROFILE_NOISE_TCP {d}u\n", .{c.GLOWCAP_TCP_PROFILE_NOISE_TCP});
-    try b.print(gpa, "#define GLOWCAP_TCP_PROFILES_ALL {d}u\n\n", .{c.GLOWCAP_TCP_PROFILES_ALL});
+    try E.emitUnsignedConsts(&b, gpa, &profile_consts);
+    try b.appendSlice(gpa, "\n");
 
     try emitFn(&b, gpa, "glowcap_tcp_archive_fingerprint", &.{}, "Return the exact callable-surface fingerprint of this archive. A dynamic loader must compare it with the binding-generated GLOWCAP_TCP_ARCHIVE_FINGERPRINT before calling any other glowcap_tcp_* function.");
     try emitFn(&b, gpa, "glowcap_tcp_netlayer_new", &.{ "config", "out_netlayer" }, "Create the netlayer handle that owns the blocking I/O backend, allocating\nthrough the library allocator. `config` is required and supplies inherited\nstream defaults and the nonempty profile set the provider registers. Release with glowcap_tcp_netlayer_release after releasing\nevery endpoint made from it.");

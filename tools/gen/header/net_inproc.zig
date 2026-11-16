@@ -60,10 +60,15 @@ const Buf = header_emit.Buf;
 const emitDoc = header_emit.emitDoc;
 const emitFn = E.emitFn;
 
+const omitted_consts = [_]header_emit.ConstOmission{
+    header_emit.fingerprintOmission("GLOWCAP_INPROC_ARCHIVE_FINGERPRINT", "glowcap_inproc_archive_fingerprint"),
+};
+
 // Coverage guard, both directions: every `pub export fn glowcap_inproc_*` in
 // `c_abi_net_transport_inproc` must be listed, and every listed name must be real.
 comptime {
     E.guardFns("c_abi_net_transport_inproc", "glowcap_inproc_");
+    E.guardConsts("glowcap_net_transport_inproc.h", "emit it in tools/gen/header/net_inproc.zig and list it in this call, or add a row to `omitted_consts` there with a reason", &.{}, &omitted_consts, .{});
 }
 
 /// Build the full header text. Caller owns the returned bytes.

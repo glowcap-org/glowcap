@@ -114,6 +114,15 @@ const Spec = struct {
 
 const E = header_emit.Emit(Spec);
 
+/// The constants `src/c_abi/shared/transport_provider.zig` and
+/// `multiplexed_transport.zig` declare, which is the whole of what this header
+/// emits.
+const emitted_consts = header_emit.docNames(Spec.const_docs);
+
+comptime {
+    E.guardConstsOf("glowcap_transport_provider.h", "add it to `const_docs` in tools/gen/header/transport_provider.zig", .{ cp.transport_provider, cp.multiplexed_transport }, emitted_consts);
+}
+
 fn generate(gpa: std.mem.Allocator) ![]u8 {
     var b: header_emit.Buf = .empty;
     errdefer b.deinit(gpa);
@@ -146,24 +155,7 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
         \\
     );
 
-    inline for (.{
-        "GLOWCAP_TRANSPORT_WOULD_BLOCK",           "GLOWCAP_MULTIPLEXED_EV_READABLE",
-        "GLOWCAP_MULTIPLEXED_EV_WRITABLE",         "GLOWCAP_MULTIPLEXED_EV_CLOSED",
-        "GLOWCAP_MULTIPLEXED_EV_ACCEPT",           "GLOWCAP_MULTIPLEXED_EV_CONNECT",
-        "GLOWCAP_MULTIPLEXED_EV_LISTEN",           "GLOWCAP_MULTIPLEXED_TRANSPORT_ABI_VERSION",
-        "GLOWCAP_DESIGNATOR_SCHEME_ADDRESS",       "GLOWCAP_DESIGNATOR_SCHEME_KEY",
-        "GLOWCAP_SEALED_CHANNEL_NONE",             "GLOWCAP_SEALED_CHANNEL_NOISE_XK",
-        "GLOWCAP_WIRE_FRAMING_BYTE_STREAM",        "GLOWCAP_WIRE_FRAMING_MESSAGE",
-        "GLOWCAP_CARRIER_PHASE_NONE",              "GLOWCAP_CARRIER_PHASE_RESOLVE",
-        "GLOWCAP_CARRIER_PHASE_CONNECT",           "GLOWCAP_CARRIER_PHASE_SECURE_HANDSHAKE",
-        "GLOWCAP_CARRIER_PHASE_WEBSOCKET_UPGRADE", "GLOWCAP_CARRIER_PHASE_REGISTRATION",
-        "GLOWCAP_CARRIER_PHASE_RECEIVE",           "GLOWCAP_CARRIER_PHASE_TRANSMIT",
-        "GLOWCAP_CARRIER_PHASE_SHUTDOWN",          "GLOWCAP_CARRIER_DETAIL_PEER_ALERT",
-        "GLOWCAP_CARRIER_DETAIL_ENGINE_CODE",      "GLOWCAP_TRANSPORT_PROVIDER_ABI_VERSION",
-        "GLOWCAP_TRANSPORT_PROFILE_ABI_VERSION",   "GLOWCAP_STREAM_TRANSPORT_ABI_VERSION",
-        "GLOWCAP_LISTEN_READY",                    "GLOWCAP_LISTEN_PENDING",
-        "GLOWCAP_TRANSPORT_EXEC_STREAM",           "GLOWCAP_TRANSPORT_EXEC_MULTIPLEXED",
-    }) |name| try E.emitConst(&b, gpa, name);
+    try E.emitConsts(&b, gpa, emitted_consts);
 
     try E.emitStruct(&b, gpa, cp.GlowcapTransportOperationOptions, "GlowcapTransportOperationOptions", &.{
         "Borrowed provider-owned payload; null with size zero inherits provider defaults.",

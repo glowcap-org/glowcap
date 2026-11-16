@@ -70,7 +70,7 @@
                    #:codec [codec #f]
                    #:captp-version [captp-version #f]
                    #:features [features DEFAULT-FEATURES-SYMBOL]
-                   #:local-turn-budget [local-turn-budget 0])
+                   #:local-turn-budget [local-turn-budget LOCAL-TURN-BUDGET-DEFAULT])
   (unless (and (bytes? seed) (= (bytes-length seed) 32))
     (raise-glowcap 'make-host ERR-INVALID-ARGUMENT "seed must be 32 bytes"))
   (define-values (selected-codec selected-captp-version)
@@ -132,7 +132,7 @@
                          #:codec [codec #f]
                          #:captp-version [captp-version #f]
                          #:features [features DEFAULT-FEATURES-SYMBOL]
-                         #:local-turn-budget [local-turn-budget 0])
+                         #:local-turn-budget [local-turn-budget LOCAL-TURN-BUDGET-DEFAULT])
   (make-host (crypto-random-bytes 32) #:profile profile #:codec codec #:captp-version captp-version
              #:features features
              #:local-turn-budget local-turn-budget))

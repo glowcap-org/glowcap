@@ -44,7 +44,7 @@
 (define matrix-secondary-message #"descriptor remained live")
 (define matrix-report
   (make-GlowcapFailureReport
-   1 (ctype-sizeof _GlowcapFailureReport)
+   FAILURE-EVENT-ABI-VERSION (ctype-sizeof _GlowcapFailureReport)
    FAILURE-LAYER-TRANSPORT FAILURE-SCOPE-LISTENER
    31 47 ERR-IO ERR-INTERNAL 2
    (pin-immobile matrix-operation) (bytes-length matrix-operation)
@@ -287,7 +287,8 @@
  (lambda () (raise (exn:fail "unretained" (current-continuation-marks)))))
 (define bounded-runtime-failure (car (take-runtime-failures!)))
 (expect (and (positive?
-              (bitwise-and (failure-event-truncated-fields bounded-runtime-failure) 1))
+              (bitwise-and (failure-event-truncated-fields bounded-runtime-failure)
+                           FAILURE-TRUNCATED-OPERATION))
              (<= (for/sum ([text (in-list
                                   (list (failure-event-operation bounded-runtime-failure)
                                         (failure-event-primary-name bounded-runtime-failure)
@@ -405,9 +406,10 @@
              (= ERR-INVALID-ARGUMENT (exn:fail:glowcap-code excessive-grace)))
         "finite close grace rejects values outside its C field")
 
-;; The linked library reports a real ABI version.
+;; The linked library reports the ABI version the binding was built against.
 (let-values ([(major minor patch) (abi-version)])
-  (expect (positive? (+ major minor patch)) "abi-version is nonzero"))
+  (expect (and (= major VERSION-MAJOR) (= minor VERSION-MINOR) (= patch VERSION-PATCH))
+          "abi-version is the version the binding was built against"))
 
 (define parsed-sturdyref
   (parse-sturdyref

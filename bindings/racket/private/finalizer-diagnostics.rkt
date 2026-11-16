@@ -11,6 +11,8 @@
          run-ffi-finalizer!
          take-runtime-failures!)
 
+;; `truncated-fields` holds the FAILURE-TRUNCATED-* bits of the text fields cut
+;; to fit the payload bound.
 (struct failure-event
   (sequence dropped-before layer scope scope-id operation-id
             primary-result secondary-result secondary-count truncated-fields

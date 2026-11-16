@@ -2,7 +2,10 @@
 
 const std = @import("std");
 const cd = @import("c_abi_driver");
+const ch = @import("c_abi_host");
+const cp = @import("c_abi_shared");
 const header_emit = @import("header_emit.zig");
+const host_omissions = @import("host_omissions.zig");
 
 const Output = @import("output").Output;
 pub const outputs = [_]Output{
@@ -77,8 +80,47 @@ const Spec = struct {
 
 const E = header_emit.Emit(Spec);
 
+const emitted_consts = [_][]const u8{
+    "GLOWCAP_DRIVER_OPTIONS_ABI_VERSION",
+    "GLOWCAP_DRIVER_FAILURE_ABI_VERSION",
+    "GLOWCAP_DRIVER_MAX_WAIT_MS",
+    "GLOWCAP_DRIVER_WAIT_UNBOUNDED",
+    "GLOWCAP_DRIVER_DEFAULT_WIRE_BUFFER_BYTES",
+    "GLOWCAP_DRIVER_DEFAULT_MAX_PENDING_OPENS",
+    "GLOWCAP_DRIVER_DEFAULT_HANDSHAKE_MS",
+    "GLOWCAP_DRIVER_DEFAULT_LISTENER_SETUP_MS",
+    "GLOWCAP_DRIVER_DEFAULT_SETTLE_MS",
+    "GLOWCAP_DRIVER_DEFAULT_BUSY_POLL_NS",
+    "GLOWCAP_DRIVER_MAX_BUSY_POLL_NS",
+    "GLOWCAP_DRIVER_EVENT_OPENED",
+    "GLOWCAP_DRIVER_EVENT_OPEN_FAILED",
+    "GLOWCAP_DRIVER_EVENT_ACCEPTED",
+    "GLOWCAP_DRIVER_EVENT_SESSION_CLOSED",
+    "GLOWCAP_DRIVER_EVENT_COMPLETION",
+    "GLOWCAP_DRIVER_EVENT_LISTENER_READY",
+    "GLOWCAP_DRIVER_EVENT_LISTENER_FAILED",
+    "GLOWCAP_DRIVER_ADOPT_DIALED",
+    "GLOWCAP_DRIVER_ADOPT_ACCEPTED",
+};
+
+const omitted_consts = [_]header_emit.ConstOmission{
+    header_emit.fingerprintOmission("GLOWCAP_DRIVER_ARCHIVE_FINGERPRINT", "glowcap_driver_archive_fingerprint"),
+};
+
+// The constants the archive re-exports belong to the headers this one
+// includes: `#include "glowcap_host.h"` and `#include "glowcap_transport_provider.h"`
+// below, and glowcap_locator.h through the provider header. A re-export must
+// carry its owner's value.
+const covered_consts = .{
+    header_emit.ConstOwner{ .by = "glowcap_host.h", .module = ch, .omits = &host_omissions.omitted },
+    header_emit.ConstOwner{ .by = "glowcap_transport_provider.h", .module = cp.transport_provider, .omits = &.{} },
+    header_emit.ConstOwner{ .by = "glowcap_transport_provider.h", .module = cp.multiplexed_transport, .omits = &.{} },
+    header_emit.ConstOwner{ .by = "glowcap_locator.h", .module = cp.locator, .omits = &.{} },
+};
+
 comptime {
     E.guardFns("c_abi_driver", "glowcap_driver_");
+    E.guardConsts("glowcap_driver.h", "add it to `emitted_consts` in tools/gen/header/driver.zig, or a row to `omitted_consts` there with a reason", &emitted_consts, &omitted_consts, covered_consts);
     std.debug.assert(cd.GLOWCAP_DRIVER_EVENT_OPENED == 0);
     std.debug.assert(cd.GLOWCAP_DRIVER_EVENT_OPEN_FAILED == 1);
     std.debug.assert(cd.GLOWCAP_DRIVER_EVENT_ACCEPTED == 2);
@@ -119,28 +161,7 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
         \\typedef struct GlowcapDriverLoop GlowcapDriverLoop;
         \\
     );
-    inline for (.{
-        "GLOWCAP_DRIVER_OPTIONS_ABI_VERSION",
-        "GLOWCAP_DRIVER_FAILURE_ABI_VERSION",
-        "GLOWCAP_DRIVER_MAX_WAIT_MS",
-        "GLOWCAP_DRIVER_WAIT_UNBOUNDED",
-        "GLOWCAP_DRIVER_DEFAULT_WIRE_BUFFER_BYTES",
-        "GLOWCAP_DRIVER_DEFAULT_MAX_PENDING_OPENS",
-        "GLOWCAP_DRIVER_DEFAULT_HANDSHAKE_MS",
-        "GLOWCAP_DRIVER_DEFAULT_LISTENER_SETUP_MS",
-        "GLOWCAP_DRIVER_DEFAULT_SETTLE_MS",
-        "GLOWCAP_DRIVER_DEFAULT_BUSY_POLL_NS",
-        "GLOWCAP_DRIVER_MAX_BUSY_POLL_NS",
-        "GLOWCAP_DRIVER_EVENT_OPENED",
-        "GLOWCAP_DRIVER_EVENT_OPEN_FAILED",
-        "GLOWCAP_DRIVER_EVENT_ACCEPTED",
-        "GLOWCAP_DRIVER_EVENT_SESSION_CLOSED",
-        "GLOWCAP_DRIVER_EVENT_COMPLETION",
-        "GLOWCAP_DRIVER_EVENT_LISTENER_READY",
-        "GLOWCAP_DRIVER_EVENT_LISTENER_FAILED",
-        "GLOWCAP_DRIVER_ADOPT_DIALED",
-        "GLOWCAP_DRIVER_ADOPT_ACCEPTED",
-    }) |name| try E.emitConst(&b, gpa, name);
+    try E.emitConsts(&b, gpa, &emitted_consts);
     try b.appendSlice(gpa, "\n");
     try E.emitStruct(&b, gpa, cd.GlowcapDriverOptions, "GlowcapDriverOptions", &.{
         "GLOWCAP_DRIVER_OPTIONS_ABI_VERSION.",

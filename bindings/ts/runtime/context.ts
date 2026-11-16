@@ -8,6 +8,7 @@ import { outPointer, outUsize, readBytes } from "./internal/seam.ts";
 import { L } from "./internal/layout.ts";
 import {
 	BUFFER_TOO_SMALL,
+	FAILURE_EVENT_ABI_VERSION,
 	FAILURE_LAYER_APPLICATION_OBSERVER,
 	FAILURE_LAYER_BINDING,
 	FAILURE_LAYER_CORE,
@@ -88,7 +89,7 @@ function reportValidatedFailure(context: Context, input: FailureReport): void {
 	const layer = failureVocabularyId(failureLayers, input.layer);
 	const scope = failureVocabularyId(failureScopes, input.scope);
 	if (layer < 0 || scope < 0) throw new TypeError("invalid failure layer or scope");
-	dv.setUint32(L.FAILURE_REPORT_ABI_VERSION_OFF, 1, true);
+	dv.setUint32(L.FAILURE_REPORT_ABI_VERSION_OFF, FAILURE_EVENT_ABI_VERSION, true);
 	L.setUsize(dv, L.FAILURE_REPORT_STRUCT_SIZE_OFF, L.FAILURE_REPORT_SIZE);
 	dv.setUint32(L.FAILURE_REPORT_LAYER_OFF, layer, true);
 	dv.setUint32(L.FAILURE_REPORT_SCOPE_KIND_OFF, scope, true);

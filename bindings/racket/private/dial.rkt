@@ -99,13 +99,13 @@
                      #:codec codec
                      #:captp-version captp-version
                      #:features (or features DEFAULT-FEATURES-SYMBOL)
-                     #:local-turn-budget (or local-turn-budget 0))
+                     #:local-turn-budget (or local-turn-budget LOCAL-TURN-BUDGET-DEFAULT))
           (make-fresh-host
            #:profile profile
            #:codec codec
            #:captp-version captp-version
            #:features (or features DEFAULT-FEATURES-SYMBOL)
-           #:local-turn-budget (or local-turn-budget 0)))))
+           #:local-turn-budget (or local-turn-budget LOCAL-TURN-BUDGET-DEFAULT)))))
 
 (define (check-composition who values predicate transports-of label)
   (unless (and (list? values) (pair? values) (andmap predicate values))

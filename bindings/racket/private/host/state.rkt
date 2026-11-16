@@ -131,7 +131,7 @@
 
 (define (next-context-failure context)
   (define event
-    (make-GlowcapFailureEvent 1
+    (make-GlowcapFailureEvent FAILURE-EVENT-ABI-VERSION
                               (ctype-sizeof _GlowcapFailureEvent)
                               0 0 0 0 0 0 0 0 0 0
                               #f 0 #f 0 #f 0 #f 0 #f 0))
@@ -186,7 +186,7 @@
   (define message-buffer (pin-immobile message-bytes))
   (define report
     (make-GlowcapFailureReport
-     1 (ctype-sizeof _GlowcapFailureReport)
+     FAILURE-EVENT-ABI-VERSION (ctype-sizeof _GlowcapFailureReport)
      FAILURE-LAYER-APPLICATION-OBSERVER FAILURE-SCOPE-HOST
      (host-diagnostic-id m) 0 ERR-INTERNAL 0 0
      operation-buffer (bytes-length operation-bytes)

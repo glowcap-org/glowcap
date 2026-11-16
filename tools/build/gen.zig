@@ -377,6 +377,7 @@ pub fn register(ctx: Context) *std.Build.Step.Compile {
             .write_desc = "Regenerate include/glowcap_driver.h from src/c_abi/driver",
             .generator = "tools/gen/header/driver.zig",
             .reflects = .{ .name = "c_abi_driver", .module = driver_abi_mod },
+            .extra_imports = &.{.{ .name = "c_abi_host", .module = host_abi_mod }},
         },
         .{
             .name = "gen-header-net-transport-tcp",

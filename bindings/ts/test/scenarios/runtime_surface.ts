@@ -13,6 +13,9 @@ import {
 	Host,
 	parseSturdyRef,
 	takeRuntimeFailures,
+	VERSION_MAJOR,
+	VERSION_MINOR,
+	VERSION_PATCH,
 } from "../../runtime/mod.ts";
 
 import { entryFor } from "../../runtime/trampoline.ts";
@@ -209,11 +212,11 @@ export async function run(): Promise<void> {
 		"sturdyref formatting round-trips opaque authority",
 	);
 
-	// The linked library reports a real ABI version.
+	// The linked library reports the ABI version the binding was built against.
 	const [major, minor, patch] = abiVersion();
 	assert(
-		major + minor + patch > 0,
-		`abiVersion is nonzero, got ${major}.${minor}.${patch}`,
+		major === VERSION_MAJOR && minor === VERSION_MINOR && patch === VERSION_PATCH,
+		`abiVersion is ${major}.${minor}.${patch}`,
 	);
 
 	for (const invalidSeed of [new Uint8Array(31), new Uint8Array(33)]) {

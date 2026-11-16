@@ -14,6 +14,7 @@ const con = @import("c_abi_net_transport_onion");
 const cw = @import("c_abi_net_transport_webrtc");
 const cr = @import("c_abi_net_transport_relay");
 const binding_policy = @import("binding_policy");
+const omissions = @import("constant_omissions.zig");
 
 /// One generated constant: the TypeScript name, the value, and the sentence
 /// that follows its group's doc. Referencing the `c_abi` declaration makes a
@@ -24,6 +25,8 @@ const Const = struct {
     /// The sentence after the group's: the C declaration the value mirrors,
     /// or for a binding policy value, what it bounds.
     tail: []const u8,
+    /// The C declaration the value mirrors, empty for a binding policy value.
+    decl: []const u8,
 };
 
 /// A run of constants that share one doc sentence, so the package reader
@@ -37,22 +40,28 @@ const BigConst = struct {
     ts: []const u8,
     value: u64,
     archive: []const u8,
+    /// The C declaration the value mirrors.
+    decl: []const u8,
 };
 
+fn fingerprint(comptime M: type, comptime ts: []const u8, comptime decl: []const u8, comptime archive: []const u8) BigConst {
+    return .{ .ts = ts, .value = @field(M, decl), .archive = archive, .decl = decl };
+}
+
 pub const archive_fingerprints = [_]BigConst{
-    .{ .ts = "OCAPN_ARCHIVE_FINGERPRINT", .value = c.GLOWCAP_OCAPN_ARCHIVE_FINGERPRINT, .archive = "libglowcap_ocapn" },
-    .{ .ts = "HOST_ARCHIVE_FINGERPRINT", .value = cd.GLOWCAP_HOST_ARCHIVE_FINGERPRINT, .archive = "libglowcap_host" },
-    .{ .ts = "DRIVER_ARCHIVE_FINGERPRINT", .value = cdr.GLOWCAP_DRIVER_ARCHIVE_FINGERPRINT, .archive = "libglowcap_driver" },
-    .{ .ts = "TCP_ARCHIVE_FINGERPRINT", .value = ct.GLOWCAP_TCP_ARCHIVE_FINGERPRINT, .archive = "libglowcap_net_transport_tcp" },
-    .{ .ts = "INPROC_ARCHIVE_FINGERPRINT", .value = cin.GLOWCAP_INPROC_ARCHIVE_FINGERPRINT, .archive = "libglowcap_net_transport_inproc" },
-    .{ .ts = "ONION_ARCHIVE_FINGERPRINT", .value = con.GLOWCAP_ONION_ARCHIVE_FINGERPRINT, .archive = "libglowcap_net_transport_onion" },
-    .{ .ts = "IROH_ARCHIVE_FINGERPRINT", .value = ci.GLOWCAP_IROH_ARCHIVE_FINGERPRINT, .archive = "libglowcap_net_transport_iroh" },
-    .{ .ts = "RELAY_ARCHIVE_FINGERPRINT", .value = cr.GLOWCAP_RELAY_ARCHIVE_FINGERPRINT, .archive = "libglowcap_net_transport_relay" },
-    .{ .ts = "WEBRTC_ARCHIVE_FINGERPRINT", .value = cw.GLOWCAP_WEBRTC_ARCHIVE_FINGERPRINT, .archive = "libglowcap_net_transport_webrtc" },
+    fingerprint(c, "OCAPN_ARCHIVE_FINGERPRINT", "GLOWCAP_OCAPN_ARCHIVE_FINGERPRINT", "libglowcap_ocapn"),
+    fingerprint(cd, "HOST_ARCHIVE_FINGERPRINT", "GLOWCAP_HOST_ARCHIVE_FINGERPRINT", "libglowcap_host"),
+    fingerprint(cdr, "DRIVER_ARCHIVE_FINGERPRINT", "GLOWCAP_DRIVER_ARCHIVE_FINGERPRINT", "libglowcap_driver"),
+    fingerprint(ct, "TCP_ARCHIVE_FINGERPRINT", "GLOWCAP_TCP_ARCHIVE_FINGERPRINT", "libglowcap_net_transport_tcp"),
+    fingerprint(cin, "INPROC_ARCHIVE_FINGERPRINT", "GLOWCAP_INPROC_ARCHIVE_FINGERPRINT", "libglowcap_net_transport_inproc"),
+    fingerprint(con, "ONION_ARCHIVE_FINGERPRINT", "GLOWCAP_ONION_ARCHIVE_FINGERPRINT", "libglowcap_net_transport_onion"),
+    fingerprint(ci, "IROH_ARCHIVE_FINGERPRINT", "GLOWCAP_IROH_ARCHIVE_FINGERPRINT", "libglowcap_net_transport_iroh"),
+    fingerprint(cr, "RELAY_ARCHIVE_FINGERPRINT", "GLOWCAP_RELAY_ARCHIVE_FINGERPRINT", "libglowcap_net_transport_relay"),
+    fingerprint(cw, "WEBRTC_ARCHIVE_FINGERPRINT", "GLOWCAP_WEBRTC_ARCHIVE_FINGERPRINT", "libglowcap_net_transport_webrtc"),
 };
 
 fn mirrored(comptime ts: []const u8, comptime decl: []const u8, value: anytype) Const {
-    return .{ .ts = ts, .value = @intCast(value), .tail = "Mirrors `" ++ decl ++ "`." };
+    return .{ .ts = ts, .value = @intCast(value), .tail = "Mirrors `" ++ decl ++ "`.", .decl = decl };
 }
 
 fn k(comptime ts: []const u8, comptime decl: []const u8) Const {
@@ -95,16 +104,15 @@ fn ko(comptime ts: []const u8, comptime decl: []const u8) Const {
 /// value and the sentence printed beside it.
 fn kp(comptime ts: []const u8, comptime name: []const u8) Const {
     const policy = @field(binding_policy, name);
-    return .{ .ts = ts, .value = @intCast(policy.value), .tail = policy.doc };
+    return .{ .ts = ts, .value = @intCast(policy.value), .tail = policy.doc, .decl = "" };
 }
 
 pub const groups = [_]Group{
     .{
-        // The subset the binding branches on; the rest surface through `check`
-        // as thrown errors carrying the raw code.
         .doc = "A status code a glowcap C call returns: `OK`, or the cause of its refusal.",
         .entries = &.{
             k("OK", "GLOWCAP_OK"),
+            k("NULL_POINTER", "GLOWCAP_ERR_NULL_POINTER"),
             k("INVALID_ARGUMENT", "GLOWCAP_ERR_INVALID_ARGUMENT"),
             k("SESSION", "GLOWCAP_ERR_SESSION"),
             k("CODEC", "GLOWCAP_ERR_CODEC"),
@@ -112,12 +120,21 @@ pub const groups = [_]Group{
             k("WOULD_BLOCK", "GLOWCAP_ERR_WOULD_BLOCK"),
             k("CLOSED", "GLOWCAP_ERR_CLOSED"),
             k("IO", "GLOWCAP_ERR_IO"),
+            k("MALFORMED", "GLOWCAP_ERR_MALFORMED"),
             k("FRAME_TOO_LARGE", "GLOWCAP_ERR_FRAME_TOO_LARGE"),
             k("BUFFER_TOO_SMALL", "GLOWCAP_ERR_BUFFER_TOO_SMALL"),
             k("NOT_FOUND", "GLOWCAP_ERR_NOT_FOUND"),
             k("UNSUPPORTED_VALUE", "GLOWCAP_ERR_UNSUPPORTED_VALUE"),
             k("BROKEN", "GLOWCAP_ERR_BROKEN"),
             k("TIMEOUT", "GLOWCAP_ERR_TIMEOUT"),
+        },
+    },
+    .{
+        .doc = "The version of the linked glowcap library, the macros `abiVersion` is compared with.",
+        .entries = &.{
+            k("VERSION_MAJOR", "GLOWCAP_VERSION_MAJOR"),
+            k("VERSION_MINOR", "GLOWCAP_VERSION_MINOR"),
+            k("VERSION_PATCH", "GLOWCAP_VERSION_PATCH"),
         },
     },
     .{
@@ -140,6 +157,42 @@ pub const groups = [_]Group{
             k("FAILURE_SCOPE_LISTENER", "GLOWCAP_FAILURE_SCOPE_LISTENER"),
             k("FAILURE_SCOPE_TRANSPORT", "GLOWCAP_FAILURE_SCOPE_TRANSPORT"),
             k("FAILURE_SCOPE_OPERATION", "GLOWCAP_FAILURE_SCOPE_OPERATION"),
+        },
+    },
+    .{
+        .doc = "The version a `GlowcapFailureReport` or `GlowcapFailureEvent` carries in `abi_version`.",
+        .entries = &.{
+            k("FAILURE_EVENT_ABI_VERSION", "GLOWCAP_FAILURE_EVENT_ABI_VERSION"),
+        },
+    },
+    .{
+        .doc = "A `GlowcapFailureEvent.flags` bit: the journal cut the operation name to fit its payload bound.",
+        .entries = &.{
+            k("FAILURE_TRUNCATED_OPERATION", "GLOWCAP_FAILURE_TRUNCATED_OPERATION"),
+        },
+    },
+    .{
+        .doc = "A `GlowcapFailureEvent.flags` bit: the journal cut the primary cause name to fit its payload bound.",
+        .entries = &.{
+            k("FAILURE_TRUNCATED_PRIMARY_NAME", "GLOWCAP_FAILURE_TRUNCATED_PRIMARY_NAME"),
+        },
+    },
+    .{
+        .doc = "A `GlowcapFailureEvent.flags` bit: the journal cut the primary cause message to fit its payload bound.",
+        .entries = &.{
+            k("FAILURE_TRUNCATED_PRIMARY_MESSAGE", "GLOWCAP_FAILURE_TRUNCATED_PRIMARY_MESSAGE"),
+        },
+    },
+    .{
+        .doc = "A `GlowcapFailureEvent.flags` bit: the journal cut the first secondary cause name to fit its payload bound.",
+        .entries = &.{
+            k("FAILURE_TRUNCATED_SECONDARY_NAME", "GLOWCAP_FAILURE_TRUNCATED_SECONDARY_NAME"),
+        },
+    },
+    .{
+        .doc = "A `GlowcapFailureEvent.flags` bit: the journal cut the first secondary cause message to fit its payload bound.",
+        .entries = &.{
+            k("FAILURE_TRUNCATED_SECONDARY_MESSAGE", "GLOWCAP_FAILURE_TRUNCATED_SECONDARY_MESSAGE"),
         },
     },
     .{
@@ -183,6 +236,18 @@ pub const groups = [_]Group{
             kd("LIFECYCLE_FINISHING", "GLOWCAP_LIFECYCLE_FINISHING"),
             kd("LIFECYCLE_TERMINATING", "GLOWCAP_LIFECYCLE_TERMINATING"),
             kd("LIFECYCLE_CLOSED", "GLOWCAP_LIFECYCLE_CLOSED"),
+        },
+    },
+    .{
+        .doc = "The `local_turn_budget` value that applies the Host's finite default cap on local-turn amplification.",
+        .entries = &.{
+            kd("LOCAL_TURN_BUDGET_DEFAULT", "GLOWCAP_LOCAL_TURN_BUDGET_DEFAULT"),
+        },
+    },
+    .{
+        .doc = "The `local_turn_budget` value that turns the cap on local-turn amplification off.",
+        .entries = &.{
+            kd("LOCAL_TURN_BUDGET_UNBOUNDED", "GLOWCAP_LOCAL_TURN_BUDGET_UNBOUNDED"),
         },
     },
     .{
@@ -487,3 +552,20 @@ pub const groups = [_]Group{
         },
     },
 };
+
+/// Every C declaration a group entry or an archive fingerprint mirrors.
+const mirrored_decls = blk: {
+    var names: []const []const u8 = &.{};
+    for (groups) |group| names = names ++ omissions.declNames(group.entries);
+    break :blk names ++ omissions.declNames(archive_fingerprints);
+};
+
+comptime {
+    omissions.guard(
+        "the TypeScript ABI constants",
+        "add an entry to a group in `groups` in tools/gen/binding/ts_abi_constants.zig, or a row to `shared` in tools/gen/binding/constant_omissions.zig with a reason",
+        .{ c, cd, cdr, ci, ct, cin, con, cw, cr },
+        mirrored_decls,
+        &omissions.shared,
+    );
+}

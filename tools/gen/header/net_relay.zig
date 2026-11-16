@@ -29,8 +29,19 @@ const Buf = header_emit.Buf;
 const emitDoc = header_emit.emitDoc;
 const emitFn = E.emitFn;
 
+const config_consts = [_][]const u8{
+    "GLOWCAP_RELAY_CONFIG_ABI_VERSION",
+    "GLOWCAP_RELAY_TRUST_SYSTEM",
+    "GLOWCAP_RELAY_TRUST_COPIED_PEM",
+    "GLOWCAP_RELAY_MAX_RENDEZVOUS_RELAY_HINT_BYTES",
+};
+const omitted_consts = [_]header_emit.ConstOmission{
+    header_emit.fingerprintOmission("GLOWCAP_RELAY_ARCHIVE_FINGERPRINT", "glowcap_relay_archive_fingerprint"),
+};
+
 comptime {
     E.guardFns("c_abi_net_transport_relay", "glowcap_relay_");
+    E.guardConsts("glowcap_net_transport_relay.h", "add it to `config_consts` in tools/gen/header/net_relay.zig, or a row to `omitted_consts` there with a reason", &config_consts, &omitted_consts, .{});
 }
 
 fn generate(gpa: std.mem.Allocator) ![]u8 {
@@ -66,10 +77,8 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
         \\typedef struct GlowcapRelayRuntime GlowcapRelayRuntime;
         \\
     );
-    try b.print(gpa, "#define GLOWCAP_RELAY_CONFIG_ABI_VERSION {d}u\n", .{c.GLOWCAP_RELAY_CONFIG_ABI_VERSION});
-    try b.print(gpa, "#define GLOWCAP_RELAY_TRUST_SYSTEM {d}u\n", .{c.GLOWCAP_RELAY_TRUST_SYSTEM});
-    try b.print(gpa, "#define GLOWCAP_RELAY_TRUST_COPIED_PEM {d}u\n", .{c.GLOWCAP_RELAY_TRUST_COPIED_PEM});
-    try b.print(gpa, "#define GLOWCAP_RELAY_MAX_RENDEZVOUS_RELAY_HINT_BYTES {d}u\n\n", .{c.GLOWCAP_RELAY_MAX_RENDEZVOUS_RELAY_HINT_BYTES});
+    try E.emitUnsignedConsts(&b, gpa, &config_consts);
+    try b.appendSlice(gpa, "\n");
     try E.emitStruct(&b, gpa, c.GlowcapRelayConfig, "GlowcapRelayConfig", &.{
         "Must equal GLOWCAP_RELAY_CONFIG_ABI_VERSION.",
         "Must equal sizeof(GlowcapRelayConfig).",

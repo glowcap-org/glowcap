@@ -16,7 +16,6 @@
 //! constants, and `glowcap_webrtc_*` prototypes are new here.
 
 const std = @import("std");
-const c = @import("c_abi_net_transport_webrtc");
 const header_emit = @import("header_emit.zig");
 
 // Force sidecar stubs so reflection-only gen links cargo-free.
@@ -75,10 +74,35 @@ const Buf = header_emit.Buf;
 const emitDoc = header_emit.emitDoc;
 const emitFn = E.emitFn;
 
+const event_consts = [_][]const u8{
+    "GLOWCAP_WEBRTC_EV_OPEN",
+    "GLOWCAP_WEBRTC_EV_CANDIDATE",
+    "GLOWCAP_WEBRTC_EV_READABLE",
+    "GLOWCAP_WEBRTC_EV_WRITABLE",
+    "GLOWCAP_WEBRTC_EV_CLOSED",
+};
+const limit_consts = [_][]const u8{
+    "GLOWCAP_WEBRTC_MAX_SIGNAL_BYTES",
+    "GLOWCAP_WEBRTC_MAX_ICE_CANDIDATE_BYTES",
+    "GLOWCAP_WEBRTC_MAX_ICE_SERVERS",
+    "GLOWCAP_WEBRTC_MAX_ICE_URLS_PER_SERVER",
+    "GLOWCAP_WEBRTC_MAX_ICE_URL_BYTES",
+    "GLOWCAP_WEBRTC_MAX_ICE_CREDENTIAL_BYTES",
+    "GLOWCAP_WEBRTC_MAX_PENDING_ICE_CANDIDATES",
+    "GLOWCAP_WEBRTC_MAX_ACCEPTS_IN_FLIGHT",
+    "GLOWCAP_WEBRTC_PENDING_ICE_CANDIDATE_QUEUE_BYTES",
+    "GLOWCAP_WEBRTC_DATA_CHANNEL_QUEUE_BYTES",
+};
+const emitted_consts = event_consts ++ limit_consts;
+const omitted_consts = [_]header_emit.ConstOmission{
+    header_emit.fingerprintOmission("GLOWCAP_WEBRTC_ARCHIVE_FINGERPRINT", "glowcap_webrtc_archive_fingerprint"),
+};
+
 // Coverage guard, both directions: every `pub export fn glowcap_webrtc_*` in
 // `c_abi_net_transport_webrtc` must be listed, and every listed name must be real.
 comptime {
     E.guardFns("c_abi_net_transport_webrtc", "glowcap_webrtc_");
+    E.guardConsts("glowcap_net_transport_webrtc.h", "add it to `event_consts` or `limit_consts` in tools/gen/header/webrtc.zig, or a row to `omitted_consts` there with a reason", &emitted_consts, &omitted_consts, .{});
 }
 
 /// Build the full header text. Caller owns the returned bytes.
@@ -184,21 +208,8 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
         \\
     );
 
-    try b.print(gpa, "#define GLOWCAP_WEBRTC_EV_OPEN {d}u\n", .{c.GLOWCAP_WEBRTC_EV_OPEN});
-    try b.print(gpa, "#define GLOWCAP_WEBRTC_EV_CANDIDATE {d}u\n", .{c.GLOWCAP_WEBRTC_EV_CANDIDATE});
-    try b.print(gpa, "#define GLOWCAP_WEBRTC_EV_READABLE {d}u\n", .{c.GLOWCAP_WEBRTC_EV_READABLE});
-    try b.print(gpa, "#define GLOWCAP_WEBRTC_EV_WRITABLE {d}u\n", .{c.GLOWCAP_WEBRTC_EV_WRITABLE});
-    try b.print(gpa, "#define GLOWCAP_WEBRTC_EV_CLOSED {d}u\n", .{c.GLOWCAP_WEBRTC_EV_CLOSED});
-    try b.print(gpa, "#define GLOWCAP_WEBRTC_MAX_SIGNAL_BYTES {d}u\n", .{c.GLOWCAP_WEBRTC_MAX_SIGNAL_BYTES});
-    try b.print(gpa, "#define GLOWCAP_WEBRTC_MAX_ICE_CANDIDATE_BYTES {d}u\n", .{c.GLOWCAP_WEBRTC_MAX_ICE_CANDIDATE_BYTES});
-    try b.print(gpa, "#define GLOWCAP_WEBRTC_MAX_ICE_SERVERS {d}u\n", .{c.GLOWCAP_WEBRTC_MAX_ICE_SERVERS});
-    try b.print(gpa, "#define GLOWCAP_WEBRTC_MAX_ICE_URLS_PER_SERVER {d}u\n", .{c.GLOWCAP_WEBRTC_MAX_ICE_URLS_PER_SERVER});
-    try b.print(gpa, "#define GLOWCAP_WEBRTC_MAX_ICE_URL_BYTES {d}u\n", .{c.GLOWCAP_WEBRTC_MAX_ICE_URL_BYTES});
-    try b.print(gpa, "#define GLOWCAP_WEBRTC_MAX_ICE_CREDENTIAL_BYTES {d}u\n", .{c.GLOWCAP_WEBRTC_MAX_ICE_CREDENTIAL_BYTES});
-    try b.print(gpa, "#define GLOWCAP_WEBRTC_MAX_PENDING_ICE_CANDIDATES {d}u\n", .{c.GLOWCAP_WEBRTC_MAX_PENDING_ICE_CANDIDATES});
-    try b.print(gpa, "#define GLOWCAP_WEBRTC_MAX_ACCEPTS_IN_FLIGHT {d}u\n", .{c.GLOWCAP_WEBRTC_MAX_ACCEPTS_IN_FLIGHT});
-    try b.print(gpa, "#define GLOWCAP_WEBRTC_PENDING_ICE_CANDIDATE_QUEUE_BYTES {d}u\n", .{c.GLOWCAP_WEBRTC_PENDING_ICE_CANDIDATE_QUEUE_BYTES});
-    try b.print(gpa, "#define GLOWCAP_WEBRTC_DATA_CHANNEL_QUEUE_BYTES {d}u\n", .{c.GLOWCAP_WEBRTC_DATA_CHANNEL_QUEUE_BYTES});
+    try E.emitUnsignedConsts(&b, gpa, &event_consts);
+    try E.emitUnsignedConsts(&b, gpa, &limit_consts);
     try b.appendSlice(gpa,
         \\/* One readiness record from glowcap_webrtc_netlayer_drain_ready. subject
         \\   is the stable identity returned by glowcap_webrtc_peer_id. */

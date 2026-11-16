@@ -8,6 +8,8 @@
 
 /** A status code a glowcap C call returns: `OK`, or the cause of its refusal. Mirrors `GLOWCAP_OK`. */
 export const OK = 0;
+/** A status code a glowcap C call returns: `OK`, or the cause of its refusal. Mirrors `GLOWCAP_ERR_NULL_POINTER`. */
+export const NULL_POINTER = -1;
 /** A status code a glowcap C call returns: `OK`, or the cause of its refusal. Mirrors `GLOWCAP_ERR_INVALID_ARGUMENT`. */
 export const INVALID_ARGUMENT = -2;
 /** A status code a glowcap C call returns: `OK`, or the cause of its refusal. Mirrors `GLOWCAP_ERR_SESSION`. */
@@ -22,6 +24,8 @@ export const WOULD_BLOCK = -6;
 export const CLOSED = -7;
 /** A status code a glowcap C call returns: `OK`, or the cause of its refusal. Mirrors `GLOWCAP_ERR_IO`. */
 export const IO = -8;
+/** A status code a glowcap C call returns: `OK`, or the cause of its refusal. Mirrors `GLOWCAP_ERR_MALFORMED`. */
+export const MALFORMED = -9;
 /** A status code a glowcap C call returns: `OK`, or the cause of its refusal. Mirrors `GLOWCAP_ERR_FRAME_TOO_LARGE`. */
 export const FRAME_TOO_LARGE = -10;
 /** A status code a glowcap C call returns: `OK`, or the cause of its refusal. Mirrors `GLOWCAP_ERR_BUFFER_TOO_SMALL`. */
@@ -34,6 +38,12 @@ export const UNSUPPORTED_VALUE = -11;
 export const BROKEN = -12;
 /** A status code a glowcap C call returns: `OK`, or the cause of its refusal. Mirrors `GLOWCAP_ERR_TIMEOUT`. */
 export const TIMEOUT = -15;
+/** The version of the linked glowcap library, the macros `abiVersion` is compared with. Mirrors `GLOWCAP_VERSION_MAJOR`. */
+export const VERSION_MAJOR = 0;
+/** The version of the linked glowcap library, the macros `abiVersion` is compared with. Mirrors `GLOWCAP_VERSION_MINOR`. */
+export const VERSION_MINOR = 1;
+/** The version of the linked glowcap library, the macros `abiVersion` is compared with. Mirrors `GLOWCAP_VERSION_PATCH`. */
+export const VERSION_PATCH = 7;
 /** A `GlowcapFailureReport.layer` value: the tier that recorded a failure with no surviving caller. Mirrors `GLOWCAP_FAILURE_LAYER_CORE`. */
 export const FAILURE_LAYER_CORE = 0;
 /** A `GlowcapFailureReport.layer` value: the tier that recorded a failure with no surviving caller. Mirrors `GLOWCAP_FAILURE_LAYER_DRIVER`. */
@@ -58,6 +68,18 @@ export const FAILURE_SCOPE_LISTENER = 4;
 export const FAILURE_SCOPE_TRANSPORT = 5;
 /** A `GlowcapFailureReport.scope` value: the owner a journaled failure belongs to. Mirrors `GLOWCAP_FAILURE_SCOPE_OPERATION`. */
 export const FAILURE_SCOPE_OPERATION = 6;
+/** The version a `GlowcapFailureReport` or `GlowcapFailureEvent` carries in `abi_version`. Mirrors `GLOWCAP_FAILURE_EVENT_ABI_VERSION`. */
+export const FAILURE_EVENT_ABI_VERSION = 1;
+/** A `GlowcapFailureEvent.flags` bit: the journal cut the operation name to fit its payload bound. Mirrors `GLOWCAP_FAILURE_TRUNCATED_OPERATION`. */
+export const FAILURE_TRUNCATED_OPERATION = 1;
+/** A `GlowcapFailureEvent.flags` bit: the journal cut the primary cause name to fit its payload bound. Mirrors `GLOWCAP_FAILURE_TRUNCATED_PRIMARY_NAME`. */
+export const FAILURE_TRUNCATED_PRIMARY_NAME = 2;
+/** A `GlowcapFailureEvent.flags` bit: the journal cut the primary cause message to fit its payload bound. Mirrors `GLOWCAP_FAILURE_TRUNCATED_PRIMARY_MESSAGE`. */
+export const FAILURE_TRUNCATED_PRIMARY_MESSAGE = 4;
+/** A `GlowcapFailureEvent.flags` bit: the journal cut the first secondary cause name to fit its payload bound. Mirrors `GLOWCAP_FAILURE_TRUNCATED_SECONDARY_NAME`. */
+export const FAILURE_TRUNCATED_SECONDARY_NAME = 8;
+/** A `GlowcapFailureEvent.flags` bit: the journal cut the first secondary cause message to fit its payload bound. Mirrors `GLOWCAP_FAILURE_TRUNCATED_SECONDARY_MESSAGE`. */
+export const FAILURE_TRUNCATED_SECONDARY_MESSAGE = 16;
 /** A default bound of the failure journal: how many reports it keeps, and how many payload bytes each keeps. Mirrors `GLOWCAP_DEFAULT_FAILURE_CAPACITY`. */
 export const DEFAULT_FAILURE_CAPACITY = 64;
 /** A default bound of the failure journal: how many reports it keeps, and how many payload bytes each keeps. Mirrors `GLOWCAP_DEFAULT_FAILURE_PAYLOAD_CAP`. */
@@ -94,6 +116,10 @@ export const LIFECYCLE_FINISHING = 1;
 export const LIFECYCLE_TERMINATING = 2;
 /** A lifecycle state of a Host, driver loop, or driver session, from admitting work to past its close barrier. Mirrors `GLOWCAP_LIFECYCLE_CLOSED`. */
 export const LIFECYCLE_CLOSED = 3;
+/** The `local_turn_budget` value that applies the Host's finite default cap on local-turn amplification. Mirrors `GLOWCAP_LOCAL_TURN_BUDGET_DEFAULT`. */
+export const LOCAL_TURN_BUDGET_DEFAULT = 0;
+/** The `local_turn_budget` value that turns the cap on local-turn amplification off. Mirrors `GLOWCAP_LOCAL_TURN_BUDGET_UNBOUNDED`. */
+export const LOCAL_TURN_BUDGET_UNBOUNDED = 4294967295;
 /** A `GlowcapCloseOptions` version, grace mode, or grace bound for closing a host-owned object. Mirrors `GLOWCAP_CLOSE_OPTIONS_ABI_VERSION`. */
 export const CLOSE_OPTIONS_ABI_VERSION = 1;
 /** A `GlowcapCloseOptions` version, grace mode, or grace bound for closing a host-owned object. Mirrors `GLOWCAP_CLOSE_MAX_GRACE_MS`. */

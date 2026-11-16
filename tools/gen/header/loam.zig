@@ -106,8 +106,16 @@ const Spec = struct {
     }
 };
 const E = header_emit.Emit(Spec);
+const limit_consts = [_][]const u8{
+    "GLOWCAP_LOAM_METADATA_SIZE",
+    "GLOWCAP_LOAM_MAX_KEY_BYTES",
+    "GLOWCAP_LOAM_MAX_URI_BYTES",
+};
+const identity_consts = [_][]const u8{"GLOWCAP_LOAM_ARCHIVE_FINGERPRINT"};
+const emitted_consts = limit_consts ++ identity_consts ++ abi.error_code_names;
 comptime {
     E.guardFns("c_abi_loam", "glowcap_loam_");
+    E.guardConsts("glowcap_loam.h", "add it to `limit_consts` or `identity_consts` in tools/gen/header/loam.zig, or an error code to `error_code_names` in src/c_abi/loam/mod.zig", &emitted_consts, &.{}, .{});
 }
 fn generate(gpa: std.mem.Allocator) ![]u8 {
     var b: header_emit.Buf = .empty;
@@ -183,10 +191,8 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
     try E.emitStruct(&b, gpa, abi.GlowcapLoamPolicyValue, "GlowcapLoamPolicyValue", &@as([@typeInfo(abi.GlowcapLoamPolicyValue).@"struct".field_names.len][]const u8, @splat("")));
     try E.emitStruct(&b, gpa, abi.GlowcapLoamBytes, "GlowcapLoamBytes", &.{ "Inputs are consumed synchronously; callback output lasts until the next callback.", "Byte count.", "Zero means absent; one means present, including an empty value." });
     try b.appendSlice(gpa, "typedef int32_t (*GlowcapLoamKvFn)(void *, uint32_t, const uint8_t *, size_t, const GlowcapLoamBytes *, GlowcapLoamBytes *);\n");
-    try E.emitConst(&b, gpa, "GLOWCAP_LOAM_METADATA_SIZE");
-    try E.emitConst(&b, gpa, "GLOWCAP_LOAM_MAX_KEY_BYTES");
-    try E.emitConst(&b, gpa, "GLOWCAP_LOAM_MAX_URI_BYTES");
-    try E.emitConst(&b, gpa, "GLOWCAP_LOAM_ARCHIVE_FINGERPRINT");
+    try E.emitConsts(&b, gpa, &limit_consts);
+    try E.emitConsts(&b, gpa, &identity_consts);
     try E.emitFn(&b, gpa, "glowcap_loam_store_new", &.{ "metadata", "metadata_len", "schemas", "schema_count", "limits", "out_store" }, "Construct a portable Store from exclusively claimed encoded metadata. Schema descriptors are copied. Inputs borrow for this call; out_store owns one release. No backend is opened.");
     try E.emitFn(&b, gpa, "glowcap_loam_store_new_in", &.{ "context", "metadata", "metadata_len", "schemas", "schema_count", "limits", "out_store" }, "Construct a portable Store using the Context allocator for every Store and attachment allocation. The Context and its allocator callbacks outlive the Store and all its borrows. Metadata and schema rules match store_new.");
     try E.emitFn(&b, gpa, "glowcap_loam_store_release", &.{"raw"}, "Release a standalone Store. Backend-owned Stores release through their backend owner. Busy leaves the handle alive while attachments, workers, transactions, or leases survive.");
@@ -230,7 +236,7 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
     try E.emitFn(&b, gpa, "glowcap_loam_store_abort", &.{"raw"}, "Abort unsubmitted staging before any backend write. Refuses an attached Store or an in-flight write. An LMDB companion commit consumes its transaction through the shared completion contract.");
     try E.emitFn(&b, gpa, "glowcap_loam_archive_fingerprint", &.{}, "Return this archive's reflected callable and layout fingerprint before the first ordinary call.");
     try E.emitFn(&b, gpa, "glowcap_loam_work_report_unknown", &.{"raw"}, "After joining the original write worker, report an indeterminate commit. Complete and release this work before taking recovery. Other effect kinds refuse.");
-    inline for (abi.error_code_names) |name| try E.emitConst(&b, gpa, name);
+    try E.emitConsts(&b, gpa, &abi.error_code_names);
     try E.emitFn(&b, gpa, "glowcap_loam_has_pending_work", &.{ "raw", "out_pending" }, "Observe pending shared work on the Host thread. A parked effect is pending without necessarily being runnable; advance reports actual transitions.");
     try E.emitFn(&b, gpa, "glowcap_loam_policy_value", &.{ "policy", "requirement", "out_value" }, "Validate a bounded descriptor and construct policy terms from declared keys and bounds. Inputs borrow for this call; the shared Zig policy algebra produces the allocation-free output.");
     try E.emitFn(&b, gpa, "glowcap_loam_policy_value_for_kind", &.{ "policy", "kind", "requirement", "out_value" }, "Construct terms supported by one declared exact interface. Kind is schema data; this check supplies no authority or reusable admission for an effect.");

@@ -55,6 +55,11 @@ from __future__ import annotations
 
 from ._carrier_failure import CarrierFailure, CarrierPhase
 from ._constants import (
+    FAILURE_TRUNCATED_OPERATION,
+    FAILURE_TRUNCATED_PRIMARY_MESSAGE,
+    FAILURE_TRUNCATED_PRIMARY_NAME,
+    FAILURE_TRUNCATED_SECONDARY_MESSAGE,
+    FAILURE_TRUNCATED_SECONDARY_NAME,
     FEATURE_BASELINE,
     FEATURE_FULL,
     FEATURE_HANDOFF,
@@ -68,6 +73,8 @@ from ._constants import (
     HINT_ALT_LOCATORS,
     HINT_DIRECT_ADDRESSES,
     HINT_VIA,
+    LOCAL_TURN_BUDGET_DEFAULT,
+    LOCAL_TURN_BUDGET_UNBOUNDED,
     TRANSPORT_ID,
     TRANSPORT_INPROC,
     TRANSPORT_IROH,
@@ -78,6 +85,9 @@ from ._constants import (
     TRANSPORT_ONION,
     TRANSPORT_TCP,
     TRANSPORT_WEBRTC,
+    VERSION_MAJOR,
+    VERSION_MINOR,
+    VERSION_PATCH,
     BreakCause,
     BreakOrigin,
     BreakReason,
@@ -192,4 +202,16 @@ __all__ = [
     "HINT_ALT_LOCATORS",
     "HINT_DIRECT_ADDRESSES",
     "HINT_VIA",
+    # Library version the binding was built against, local-turn budget values,
+    # and the bits of a failure event's truncated fields
+    "VERSION_MAJOR",
+    "VERSION_MINOR",
+    "VERSION_PATCH",
+    "LOCAL_TURN_BUDGET_DEFAULT",
+    "LOCAL_TURN_BUDGET_UNBOUNDED",
+    "FAILURE_TRUNCATED_OPERATION",
+    "FAILURE_TRUNCATED_PRIMARY_NAME",
+    "FAILURE_TRUNCATED_PRIMARY_MESSAGE",
+    "FAILURE_TRUNCATED_SECONDARY_NAME",
+    "FAILURE_TRUNCATED_SECONDARY_MESSAGE",
 ]

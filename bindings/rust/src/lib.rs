@@ -199,6 +199,15 @@ pub use abi_constants::{
 	TRANSPORT_TCP, TRANSPORT_WEBRTC,
 };
 
+/// The library version the binding was built against, the local-turn budget
+/// sentinels, and the bits of `FailureEvent::truncated_fields`. Each is a
+/// `u32`, the type of the value it is compared with or passed as.
+pub use abi_constants::{
+	FAILURE_TRUNCATED_OPERATION, FAILURE_TRUNCATED_PRIMARY_MESSAGE, FAILURE_TRUNCATED_PRIMARY_NAME,
+	FAILURE_TRUNCATED_SECONDARY_MESSAGE, FAILURE_TRUNCATED_SECONDARY_NAME, LOCAL_TURN_BUDGET_DEFAULT,
+	LOCAL_TURN_BUDGET_UNBOUNDED, VERSION_MAJOR, VERSION_MINOR, VERSION_PATCH,
+};
+
 /// Browser ICE configuration envelopes, generated from the transport ABI.
 pub use abi_constants::{
 	WEBRTC_MAX_ICE_CREDENTIAL_BYTES, WEBRTC_MAX_ICE_SERVERS, WEBRTC_MAX_ICE_URL_BYTES, WEBRTC_MAX_ICE_URLS_PER_SERVER,
@@ -332,9 +341,11 @@ mod tests {
 	}
 
 	#[test]
-	fn reports_a_nonzero_abi_version() {
-		let (major, minor, patch) = abi_version();
-		assert!(major + minor + patch > 0);
+	fn reports_the_abi_version_the_binding_was_built_against() {
+		assert_eq!(
+			abi_version(),
+			(crate::VERSION_MAJOR, crate::VERSION_MINOR, crate::VERSION_PATCH)
+		);
 	}
 
 	#[test]
@@ -346,7 +357,7 @@ mod tests {
 		let secondary_name = b"ReleaseFailed";
 		let secondary_message = b"descriptor remained live";
 		let report = sys::GlowcapFailureReport {
-			abi_version: 1,
+			abi_version: abi_constants_gen::FAILURE_EVENT_ABI_VERSION,
 			struct_size: core::mem::size_of::<sys::GlowcapFailureReport>(),
 			layer: abi_constants_gen::FAILURE_LAYER_TRANSPORT,
 			scope_kind: abi_constants_gen::FAILURE_SCOPE_LISTENER,
@@ -417,7 +428,10 @@ mod tests {
 			Error::with_detail(sys::ERR_INTERNAL, "x".repeat(FAILURE_PAYLOAD_CAP * 2)),
 		);
 		let bounded = journal.claim().pop().unwrap();
-		assert_ne!(bounded.truncated_fields & (1 << 2), 0);
+		assert_ne!(
+			bounded.truncated_fields & abi_constants_gen::FAILURE_TRUNCATED_PRIMARY_MESSAGE,
+			0
+		);
 		assert!(
 			bounded.operation.len()
 				+ bounded.primary_name.len()

@@ -113,6 +113,18 @@ export {
 	type SendRedeemingResult,
 	Session,
 } from "./session.ts";
+export {
+	FAILURE_TRUNCATED_OPERATION,
+	FAILURE_TRUNCATED_PRIMARY_MESSAGE,
+	FAILURE_TRUNCATED_PRIMARY_NAME,
+	FAILURE_TRUNCATED_SECONDARY_MESSAGE,
+	FAILURE_TRUNCATED_SECONDARY_NAME,
+	LOCAL_TURN_BUDGET_DEFAULT,
+	LOCAL_TURN_BUDGET_UNBOUNDED,
+	VERSION_MAJOR,
+	VERSION_MINOR,
+	VERSION_PATCH,
+} from "@glowcap/abi";
 export { type ConnectOptions, Runtime, type RuntimeOptions } from "./runtime.ts";
 export {
 	abortable,
@@ -170,7 +182,11 @@ export {
 	TRANSPORT_WEBRTC,
 } from "./locator.ts";
 
-/** The linked library's ABI version as `[major, minor, patch]`. */
+/**
+ * The linked library's ABI version as `[major, minor, patch]`. Compare it with
+ * `VERSION_MAJOR`, `VERSION_MINOR`, and `VERSION_PATCH`, the header constants
+ * the binding was built against.
+ */
 export function abiVersion(): [number, number, number] {
 	const major = new Uint8Array(4),
 		minor = new Uint8Array(4),

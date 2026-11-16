@@ -184,7 +184,7 @@ class Context:
         secondary_message_buf, secondary_message_ptr, secondary_message_len = encoded(secondary_message)
         keepalive = (operation_buf, primary_name_buf, primary_message_buf, secondary_name_buf, secondary_message_buf)
         report = _FailureReport(
-            1,
+            _abi.FAILURE_EVENT_ABI_VERSION,
             ctypes.sizeof(_FailureReport),
             layer,
             scope,
