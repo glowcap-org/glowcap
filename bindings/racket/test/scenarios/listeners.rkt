@@ -523,7 +523,9 @@
 ;; A listener accepts a session whose dialer refused the handshake, and its
 ;; handle is released before the application serves it. Serving it then
 ;; reports the closed session and never hands the released handle back to the
-;; driver, which once answered SessionNotOwned from freed memory.
+;; driver, which once answered SessionNotOwned from freed memory. Whether the
+;; close event or the accept comes first is a race here; rejected-handshake.rkt
+;; pins the close-first order.
 (let ()
   (define honest (listen-keyed-tcp "127.0.0.1" 0 #:seed (make-bytes 32 #x72)))
   (define designator (locator-designator (server-locator honest)))
@@ -539,7 +541,7 @@
   (define c (sync/timeout 10 accepted))
   (expect c "released handle: the squatter never accepted the refused dial")
   ;; The loop releases the handle itself when the close arrives after the
-  ;; accept, and the close here releases it when the close came first.
+  ;; accept. When the close came first, the accept's wrap released it.
   (with-handlers ([exn:fail:glowcap? void]) ; tolerant: the refused session closes failed
     (parameterize ([current-pump-deadline (+ (current-inexact-milliseconds) 10000)])
       (session-close! c)))

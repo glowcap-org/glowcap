@@ -187,6 +187,9 @@ Releases before 0.1.7 are in the
 
 ### Fixed
 
+- Closing an accepted Racket session no longer hangs when the driver closed
+  it before the application accepted it. The binding releases the session
+  handle when it consumes the remembered close event.
 - A Host driver loop step no longer fails when one connection's input cannot
   be fed or parked for lack of memory. That connection closes with
   `OutOfMemory`, and the other sessions keep running. Closing a connection
