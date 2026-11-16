@@ -278,8 +278,11 @@ pub fn shuttle(from: ?*cd.GlowcapHostSession, to: ?*cd.GlowcapHostSession) !bool
 /// string payload is copied out of the popped action's until-next-pop
 /// lifetime.
 pub const CapturedSettle = struct {
+    /// How the vow settled. `pending` until a SETTLE or FAIL action pops.
+    pub const Outcome = enum { pending, fulfilled, failed };
+
     fired: bool = false,
-    kind: u32 = 0xffff_ffff,
+    kind: Outcome = .pending,
     value: c.GlowcapArgument = undefined,
     text: [64]u8 = undefined,
     text_len: usize = 0,
@@ -293,7 +296,7 @@ pub const CapturedSettle = struct {
 
     fn recordSettle(self: *CapturedSettle, action: *const cd.GlowcapHostAction) void {
         self.fired = true;
-        self.kind = c.GLOWCAP_RESOLUTION_FULFILL;
+        self.kind = .fulfilled;
         self.value = action.value;
         var writer = std.Io.Writer.fixed(&self.rendered);
         // tolerant: a value too long for the buffer renders truncated, and a
@@ -308,7 +311,7 @@ pub const CapturedSettle = struct {
 
     fn recordFail(self: *CapturedSettle, action: *const cd.GlowcapHostAction) void {
         self.fired = true;
-        self.kind = c.GLOWCAP_RESOLUTION_BREAK;
+        self.kind = .failed;
         self.cause = action.cause;
         self.value = argBase();
         if (action.message) |m| {
@@ -319,7 +322,7 @@ pub const CapturedSettle = struct {
 
     pub fn requireRef(self: *const CapturedSettle) !c.GlowcapReference {
         try std.testing.expect(self.fired);
-        try std.testing.expectEqual(c.GLOWCAP_RESOLUTION_FULFILL, self.kind);
+        try std.testing.expectEqual(.fulfilled, self.kind);
         try std.testing.expectEqual(c.GLOWCAP_ARG_REFERENCE, self.value.kind);
         return self.value.reference;
     }

@@ -223,7 +223,7 @@ test "libglowcap_host: feed_bytes delimits a chunked byte stream end to end, bot
         watches.add(client, vow, &settled);
         try pumpBytes(&hosts, pair, &pipes, chunk, &dials, &watches);
         try std.testing.expect(settled.fired);
-        try std.testing.expectEqual(c.GLOWCAP_RESOLUTION_FULFILL, settled.kind);
+        try std.testing.expectEqual(.fulfilled, settled.kind);
         try std.testing.expectEqualStrings("poked over the C surface", settled.text[0..settled.text_len]);
         try std.testing.expectEqual(@as(u32, 1), counter.pokes);
         // Nothing lingers in either inbox: the stream delimited exactly.
@@ -428,7 +428,7 @@ test "libglowcap_host: transport_closed terminates finish and fires a parked fet
     try expectOk(cd.glowcap_host_session_lifecycle_state(pair.a, &state));
     try std.testing.expectEqual(cd.GLOWCAP_LIFECYCLE_CLOSED, state);
     try std.testing.expect(fetched.fired);
-    try std.testing.expectEqual(c.GLOWCAP_RESOLUTION_BREAK, fetched.kind);
+    try std.testing.expectEqual(.failed, fetched.kind);
     try std.testing.expectEqualStrings("transport gone", fetched.msg[0..fetched.msg_len]);
     var refused_vow: u64 = 0;
     try std.testing.expectEqual(
@@ -542,7 +542,7 @@ test "libglowcap_host: a composed forward's inner behavior keeps its args across
     watches.add(client, vow, &settled);
     try pump(&hosts, &.{pair}, &dials, &watches);
     try std.testing.expect(settled.fired);
-    try std.testing.expectEqual(c.GLOWCAP_RESOLUTION_FULFILL, settled.kind);
+    try std.testing.expectEqual(.fulfilled, settled.kind);
     try std.testing.expectEqualStrings("the payload survives", settled.text[0..settled.text_len]);
 
     // A local eventual send forwards through the same queue authority. The
@@ -556,7 +556,7 @@ test "libglowcap_host: a composed forward's inner behavior keeps its args across
     watches.add(server, near_vow, &near_settled);
     _ = try drainActions(&hosts, &dials, &watches);
     try std.testing.expect(near_settled.fired);
-    try std.testing.expectEqual(c.GLOWCAP_RESOLUTION_FULFILL, near_settled.kind);
+    try std.testing.expectEqual(.fulfilled, near_settled.kind);
     try std.testing.expectEqualStrings("the payload survives", near_settled.text[0..near_settled.text_len]);
 }
 

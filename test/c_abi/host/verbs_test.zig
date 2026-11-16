@@ -288,7 +288,7 @@ test "libglowcap_host: publish, fetch, send, tell, and the enliven cache hit's p
     watches.add(client, vow, &settled);
     try pump(&hosts, &.{pair}, &dials, &watches);
     try std.testing.expect(settled.fired);
-    try std.testing.expectEqual(c.GLOWCAP_RESOLUTION_FULFILL, settled.kind);
+    try std.testing.expectEqual(.fulfilled, settled.kind);
     try std.testing.expectEqualStrings("poked over the C surface", settled.text[0..settled.text_len]);
     try std.testing.expectEqual(@as(u32, 1), counter.pokes);
 
@@ -309,7 +309,7 @@ test "libglowcap_host: publish, fetch, send, tell, and the enliven cache hit's p
     watches.add(client, empty_verb_vow, &empty_verb_settled);
     try pump(&hosts, &.{pair}, &dials, &watches);
     try std.testing.expect(empty_verb_settled.fired);
-    try std.testing.expectEqual(c.GLOWCAP_RESOLUTION_BREAK, empty_verb_settled.kind);
+    try std.testing.expectEqual(.failed, empty_verb_settled.kind);
 
     // A fresh enliven rides the wire; the second one hits the dedup cache and
     // its completion is queued before the registering call returns, no wire
@@ -545,7 +545,7 @@ test "libglowcap_host: the host codec option carries a Cap'n Proto session end t
     watches.add(client, vow, &settled);
     try pump(&hosts, &.{pair}, &dials, &watches);
     try std.testing.expect(settled.fired);
-    try std.testing.expectEqual(c.GLOWCAP_RESOLUTION_FULFILL, settled.kind);
+    try std.testing.expectEqual(.fulfilled, settled.kind);
     try std.testing.expectEqualStrings("poked over the C surface", settled.text[0..settled.text_len]);
     try std.testing.expectEqual(@as(u32, 1), counter.pokes);
 }

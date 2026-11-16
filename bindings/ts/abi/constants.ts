@@ -441,7 +441,7 @@ export const ABORT_DOMAIN_SESSION = 1;
 /** A `GlowcapLastAbort.domain` value: which layer classified the failure. Mirrors `GLOWCAP_ABORT_DOMAIN_FOREIGN`. */
 export const ABORT_DOMAIN_FOREIGN = 2;
 /** The C contract fingerprint of `libglowcap_ocapn`. The loader compares it with the library's own before the first call and refuses a stale companion. */
-export const OCAPN_ARCHIVE_FINGERPRINT = 7281719028025087839n;
+export const OCAPN_ARCHIVE_FINGERPRINT = 11235810141579783441n;
 /** The C contract fingerprint of `libglowcap_host`. The loader compares it with the library's own before the first call and refuses a stale companion. */
 export const HOST_ARCHIVE_FINGERPRINT = 1330235606562017225n;
 /** The C contract fingerprint of `libglowcap_driver`. The loader compares it with the library's own before the first call and refuses a stale companion. */

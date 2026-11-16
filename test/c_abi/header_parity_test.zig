@@ -174,9 +174,6 @@ test "C header discriminants match the Zig c_abi source" {
     try expectConst(c.GLOWCAP_ARG_ERROR, cabi.GLOWCAP_ARG_ERROR);
     try expectConst(c.GLOWCAP_ARG_INTEGERS, cabi.GLOWCAP_ARG_INTEGERS);
 
-    try expectConst(c.GLOWCAP_RESOLUTION_FULFILL, cabi.GLOWCAP_RESOLUTION_FULFILL);
-    try expectConst(c.GLOWCAP_RESOLUTION_BREAK, cabi.GLOWCAP_RESOLUTION_BREAK);
-
     try expectConst(c.GLOWCAP_VERSION_MAJOR, cabi.GLOWCAP_VERSION_MAJOR);
     try expectConst(c.GLOWCAP_VERSION_MINOR, cabi.GLOWCAP_VERSION_MINOR);
     try expectConst(c.GLOWCAP_VERSION_PATCH, cabi.GLOWCAP_VERSION_PATCH);

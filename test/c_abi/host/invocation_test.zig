@@ -65,7 +65,7 @@ test "Host C invocation presence survives local, session, and forwarded delivery
                     std.debug.print("invocation: shape={d}, args={d}, path={d}, calls={d}\n", .{ shape, count, path, probe.calls });
                     return err;
                 };
-                try std.testing.expectEqual(c.GLOWCAP_RESOLUTION_FULFILL, captured.kind);
+                try std.testing.expectEqual(.fulfilled, captured.kind);
                 try std.testing.expectEqual(expected, captured.value.integer);
                 const before = probe.calls;
                 try h.expectOk(switch (path) {
@@ -131,7 +131,7 @@ test "Host C callback can release sender-owned arguments before returning their 
     pending.add(client, ticket, &echoed);
     try h.pump(&hosts, &.{pair}, &dials, &pending);
     try std.testing.expect(echoed.fired);
-    try std.testing.expectEqual(c.GLOWCAP_RESOLUTION_FULFILL, echoed.kind);
+    try std.testing.expectEqual(.fulfilled, echoed.kind);
     try std.testing.expectEqual(callback.id, (try echoed.requireRef()).id);
     try std.testing.expectEqual(server_live, try cd.testing.liveCapabilityCount(server));
 }

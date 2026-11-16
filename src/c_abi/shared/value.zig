@@ -45,8 +45,8 @@ pub const GLOWCAP_ARG_BIG_INTEGER: u32 = 12;
 /// `_STRING` keys and values. Keys must be unique. The alternating tree keeps
 /// the C waist recursive without adding a second mutually-recursive ABI type.
 pub const GLOWCAP_ARG_STRUCT: u32 = 13;
-/// An OCapN Error value. `bytes`/`bytes_len` carry its message. This is a
-/// fulfilled value. `GLOWCAP_RESOLUTION_BREAK` remains the rejected outcome.
+/// An OCapN Error value. `bytes`/`bytes_len` carry its message. It is data
+/// like any other value, so a vow settled to it is fulfilled, not failed.
 pub const GLOWCAP_ARG_ERROR: u32 = 14;
 /// A list of integers lent as one leaf (ADR-0064): `bytes` points at the
 /// first `int64_t` in host byte order, 8-aligned, and `bytes_len` is the
@@ -54,14 +54,6 @@ pub const GLOWCAP_ARG_ERROR: u32 = 14;
 /// `_INTEGER` elements and encodes to the same bytes. A received list of
 /// integers arrives as a `_LIST`.
 pub const GLOWCAP_ARG_INTEGERS: u32 = 15;
-
-pub const GLOWCAP_RESOLUTION_FULFILL: u32 = 0;
-pub const GLOWCAP_RESOLUTION_BREAK: u32 = 1;
-/// The answer fulfilled to a three-party handoff (ADR-0039): the
-/// resolution carries a `desc:handoff-give` the recipient must redeem against
-/// the named exporter rather than an immediate value. `GlowcapResolve.handoff`
-/// carries the verbatim give and the exporter's dialable locator.
-pub const GLOWCAP_RESOLUTION_HANDOFF: u32 = 2;
 
 /// An opaque capability identity owned by one `GlowcapHost`. The integer has no
 /// wire meaning and cannot be combined with a caller-selected session. Equal

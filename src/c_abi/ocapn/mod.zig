@@ -171,10 +171,6 @@ pub const GLOWCAP_ARG_STRUCT = abi.GLOWCAP_ARG_STRUCT;
 pub const GLOWCAP_ARG_ERROR = abi.GLOWCAP_ARG_ERROR;
 pub const GLOWCAP_ARG_INTEGERS = abi.GLOWCAP_ARG_INTEGERS;
 
-pub const GLOWCAP_RESOLUTION_FULFILL = abi.GLOWCAP_RESOLUTION_FULFILL;
-pub const GLOWCAP_RESOLUTION_BREAK = abi.GLOWCAP_RESOLUTION_BREAK;
-pub const GLOWCAP_RESOLUTION_HANDOFF = abi.GLOWCAP_RESOLUTION_HANDOFF;
-
 // Reference/argument struct layouts (shared leaf).
 pub const GlowcapReference = abi.GlowcapReference;
 pub const GlowcapArgument = abi.GlowcapArgument;

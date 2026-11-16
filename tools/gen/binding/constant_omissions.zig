@@ -20,7 +20,6 @@ const cp = @import("c_abi_shared");
 
 const ConstOmission = reflect.ConstOmission;
 
-const resolution = "No declaration in any generated header takes or returns the value, so a binding has nothing to compare with it.";
 const plan_dial = "Vocabulary of glowcap_host_plan_dial, which every binding omits (bindings/ffi_omissions/shared.zig): driver providers plan dials inside Zig, and plan_dial serves a C embedder that opens its own sockets.";
 const host_action = "Reaches Rust, Python, and Racket through the generated host-action mirror (tools/gen/binding/host_action_py_rs_rkt.zig).";
 
@@ -48,9 +47,6 @@ pub const shared = [_]ConstOmission{
     .{ .name = "GLOWCAP_DIAL_POSTURE_REDEEM", .reason = plan_dial },
     .{ .name = "GLOWCAP_DIAL_POSTURE_EXPLICIT", .reason = plan_dial },
     .{ .name = "GLOWCAP_DIAL_POSTURE_EXPLICIT_NONE", .reason = plan_dial },
-    .{ .name = "GLOWCAP_RESOLUTION_FULFILL", .reason = resolution },
-    .{ .name = "GLOWCAP_RESOLUTION_BREAK", .reason = resolution },
-    .{ .name = "GLOWCAP_RESOLUTION_HANDOFF", .reason = resolution },
 };
 
 pub const rust_python_racket = [_]ConstOmission{
