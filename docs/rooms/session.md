@@ -106,6 +106,12 @@ releases and source. If the workspace intent changed underneath it, it
 reports a conflict before saving anything. Saving any other result still needs
 `ManageCustody` and a workspace replacement.
 
+A moderator or a room link the session requested is checked against that
+request. It is saved only into the room the request named, and only while the
+manager link or entrance the request used is still held. This check reads no
+seat. A link a person pastes is checked against the room's identity, and so is
+a manager link an operator gives.
+
 Activity delivers message text and attachment details apart from the file
 bytes. A refused file read stays with that attachment, and opening it again
 retries the same selection. The refusal does not stop messages from arriving

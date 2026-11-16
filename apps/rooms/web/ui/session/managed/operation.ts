@@ -43,7 +43,7 @@ function heldReason(cause: unknown): (typeof HELD_REASONS)[number] | "result-nee
  * one call into the session client, and its name is the session verb that step
  * ends in. A step can send more than that verb first, so a session log line
  * for an earlier verb belongs to the same stage:
- * - When the result maps a room authority, `acquire-result-workspace` and
+ * - When the result maps a manager link, `acquire-result-workspace` and
  *   `acquire-created-room` can first send `effect-adopted`, `effect-result`
  *   and `room-identity-reader`, then `roomIdentity` or `managedRoomIdentity`.
  * - `managedRoomIdentity` first sends `room-identity-reader`.

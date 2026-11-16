@@ -1,7 +1,7 @@
 //! The directory and room rows of the intent: what a session asked to hold
 //! in each directory and each room, and the custody coordinates it holds
 //! there. A row's methods answer what its coordinates mean for membership.
-use super::{Field, Id, Reconnect, RoomKind, Standing, custody, custody::FieldKey};
+use super::{Conversation, Field, Id, Intent, Reconnect, RoomKind, Standing, custody, custody::FieldKey};
 use crate::{
 	directory::registration::NicknameAllocation,
 	fields::{List, Text},
@@ -78,17 +78,42 @@ impl Directory {
 		self.source.is_some() && self.nick.text().as_str().is_some_and(|nick| !nick.is_empty())
 	}
 }
+impl Intent {
+	/// The room row named by a conversation id.
+	pub fn room(&self, id: &str) -> Option<&Room> {
+		self.conversations.as_slice().iter().find_map(|row| match row {
+			Conversation::Room(room) if room.id.text().as_str() == Some(id) => Some(room.as_ref()),
+			_ => None,
+		})
+	}
+}
 impl Room {
+	/// The one coordinate through which this row is entered: its link, its
+	/// accepted visit, or its public entry. A row with no entrance or several
+	/// has none.
+	pub fn entrance(&self) -> Option<custody::Coordinate> {
+		match (self.access, self.accepted, self.public_entry.as_ref()) {
+			(Some(key), None, None) => Some(custody::Coordinate::new(custody::Role::RoomAccess, key)),
+			(None, Some(key), None) => Some(custody::Coordinate::new(custody::Role::AcceptedAccess, key)),
+			(None, None, Some(entry)) => Some(custody::Coordinate::new(custody::Role::DirectoryAccess, entry.access)),
+			_ => None,
+		}
+	}
+	/// The coordinate a link command targets: the held manager link when the
+	/// row has one, otherwise its entrance.
+	pub fn link_target(&self) -> Option<custody::Coordinate> {
+		match self.control {
+			Some(key) => Some(custody::Coordinate::new(custody::Role::RoomControl, key)),
+			None => self.entrance(),
+		}
+	}
 	/// Keep an independently held seat. Otherwise join only by explicit intent.
 	/// Room visibility is learned from the upstream policy, never this choice.
 	pub fn requests_membership(&self) -> bool {
 		self.seat.is_some() || self.reconnect == Reconnect::Requested
 	}
 	pub fn has_entrance(&self) -> bool {
-		usize::from(self.access.is_some())
-			+ usize::from(self.accepted.is_some())
-			+ usize::from(self.public_entry.is_some())
-			== 1
+		self.entrance().is_some()
 	}
 	/// Whether a membership realized through the entrance `access`,
 	/// `accepted`, `public_entry` still stands in this row. A held seat

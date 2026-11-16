@@ -11,7 +11,7 @@ impl Request<'_> {
 		record: &'r MetadataRecord,
 		receipt: &'r custody::EffectReceipt<records::Metadata>,
 		candidate: &workspace::Intent,
-	) -> Result<Option<[Retained<'r, records::Metadata>; 2]>> {
+	) -> Result<Option<OriginTargets<'r>>> {
 		let mut lines = self
 			.selections
 			.iter()
@@ -69,12 +69,7 @@ impl Request<'_> {
 		if line.id != identity.id {
 			return Err(refuse("line result number differs from its receipt"));
 		}
-		let original = receipt
-			.targets
-			.as_slice()
-			.first()
-			.ok_or_else(|| refuse("line receipt has no original target"))?
-			.borrowed();
+		let original = first_target(receipt, "line receipt has no original target")?;
 		let coordinate = original.coordinate();
 		if target(current, coordinate.role, identity.id) != Some(coordinate)
 			|| (coordinate.role != custody::Role::Line
@@ -82,11 +77,7 @@ impl Request<'_> {
 		{
 			return Err(refuse("original line membership was replaced"));
 		}
-		let current = record
-			.custody
-			.get(coordinate)
-			.ok_or_else(|| refuse("original line target custody is absent"))?;
-		Ok(Some([original, current]))
+		held_at(record, original, "original line target custody is absent").map(Some)
 	}
 }
 fn target(row: &workspace::Conversation, role: custody::Role, id: SafeInteger) -> Option<Coordinate> {

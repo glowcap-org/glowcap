@@ -204,11 +204,7 @@ impl<D: Deadline + Clone> ResultAcquisition<D> {
 				let matches = |key: custody::FieldKey<_>| {
 					key.slot() == destination.key.slot() && key.generation() == destination.key.generation()
 				};
-				(destination.role == custody::Role::RoomControl && room.control.is_some_and(matches))
-					|| (destination.role == custody::Role::RoomAccess
-						&& room.moderator.is_some_and(|key| {
-							key.slot() == destination.key.slot() && key.generation() == destination.key.generation()
-						}))
+				destination.role == custody::Role::RoomControl && room.control.is_some_and(matches)
 			})
 		});
 		if !needs_validation {

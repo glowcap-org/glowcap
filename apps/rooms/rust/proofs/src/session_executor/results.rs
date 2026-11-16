@@ -1,33 +1,65 @@
 //! Real foreign result custody survives settlement refusal and source restart.
 use super::*;
 use glowcap::{CaptpVersion, Locator, Session};
+mod roles;
+
+fn field<K>(slot: u64) -> custody::FieldKey<K> {
+	custody::FieldKey::new(NonZeroU64::new(slot).unwrap(), NonZeroU64::new(1).unwrap())
+}
+
+fn coordinate_at(role: custody::Role, slot: u64) -> custody::Coordinate {
+	custody::Coordinate { role, key: field(slot) }
+}
+
+fn room(intent: &mut Intent) -> &mut session::workspace::Room {
+	let session::workspace::Conversation::Room(room) = &mut intent.conversations.as_mut_slice()[0] else {
+		panic!("room row")
+	};
+	room
+}
 
 #[derive(Clone, Copy)]
 enum ResultCase {
-	RoomLink,
-	RoomModerator,
+	/// A link command on a row that holds a manager link targets that link.
+	Link,
+	/// A link command on a row with no manager link targets its entrance.
+	Entrance,
+	Moderator,
 }
 impl ResultCase {
 	fn name(self) -> &'static str {
 		match self {
-			Self::RoomLink => "ensureRoomLink",
-			Self::RoomModerator => "issueRoomModerator",
+			Self::Link | Self::Entrance => "ensureRoomLink",
+			Self::Moderator => "issueRoomModerator",
 		}
 	}
+	/// The role of the custody the command targets.
 	fn role(self) -> custody::Role {
 		match self {
-			Self::RoomLink | Self::RoomModerator => custody::Role::RoomControl,
+			Self::Link | Self::Moderator => custody::Role::RoomControl,
+			Self::Entrance => custody::Role::RoomAccess,
+		}
+	}
+	/// The slot of the custody the command targets.
+	fn slot(self) -> u64 {
+		match self {
+			Self::Link | Self::Moderator => 1,
+			Self::Entrance => 5,
 		}
 	}
 	fn args(self) -> Vec<String> {
 		match self {
-			Self::RoomLink | Self::RoomModerator => vec!["conversation".into()],
+			Self::Link | Self::Entrance | Self::Moderator => vec!["conversation".into()],
 		}
 	}
 	fn workspace(self) -> Intent {
-		match self {
-			Self::RoomLink | Self::RoomModerator => Case::policy(false).workspace(1),
+		let mut intent = Case::policy(false).workspace(1);
+		if matches!(self, Self::Entrance) {
+			let row = room(&mut intent);
+			row.control = None;
+			row.access = Some(field(self.slot()));
 		}
+		intent
 	}
 }
 struct Operator {
@@ -96,11 +128,11 @@ async fn disclosed(host: &Host, root: &Ref, intent: &str, case: ResultCase) -> (
 		"bearer text never enters persisted result data"
 	);
 	let key = match case {
-		ResultCase::RoomLink => {
+		ResultCase::Link | ResultCase::Entrance => {
 			let row: session::results::RoomLink = serde_json::from_str(data).unwrap();
 			row.room
 		}
-		ResultCase::RoomModerator => {
+		ResultCase::Moderator => {
 			let row: session::results::RoomModerator = serde_json::from_str(data).unwrap();
 			row.moderator
 		}
@@ -125,16 +157,21 @@ async fn disclosed(host: &Host, root: &Ref, intent: &str, case: ResultCase) -> (
 #[cfg(all(test, not(target_arch = "wasm32")))]
 #[tokio::test]
 async fn room_link_saves_exact_foreign_authority_and_replays_after_cold_restart() {
-	run_case(ResultCase::RoomLink).await;
+	run_case(ResultCase::Link).await;
 }
 #[cfg(all(test, not(target_arch = "wasm32")))]
 #[tokio::test]
 async fn moderator_issuance_saves_exact_foreign_authority_and_replays_after_cold_restart() {
-	run_case(ResultCase::RoomModerator).await;
+	run_case(ResultCase::Moderator).await;
+}
+#[cfg(all(test, not(target_arch = "wasm32")))]
+#[tokio::test]
+async fn entrance_link_saves_exact_foreign_authority_and_replays_after_cold_restart() {
+	run_case(ResultCase::Entrance).await;
 }
 #[cfg(target_arch = "wasm32")]
 pub(super) async fn run() {
-	for case in [ResultCase::RoomLink, ResultCase::RoomModerator] {
+	for case in [ResultCase::Link, ResultCase::Entrance, ResultCase::Moderator] {
 		run_case(case).await;
 	}
 }
@@ -199,6 +236,13 @@ async fn run_case(case: ResultCase) {
 					platform.clone(),
 					std::num::NonZeroUsize::new(4096).unwrap(),
 				);
+				let reports = Rc::new(std::cell::RefCell::new(Vec::<String>::new()));
+				owner
+					.on_trouble({
+						let reports = reports.clone();
+						move |_, cause| reports.borrow_mut().push(cause.to_string())
+					})
+					.unwrap();
 				let refuse_settlement = Rc::new(Cell::new(true));
 				let mut content = owner.registration();
 				content.content = Box::new(AbortAfterAdmission {
@@ -223,14 +267,7 @@ async fn run_case(case: ResultCase) {
 					.await
 					.unwrap();
 				owner
-					.import(
-						custody::Coordinate {
-							role: case.role(),
-							key: key(),
-						},
-						target,
-						None,
-					)
+					.import(coordinate_at(case.role(), case.slot()), target.clone(), None)
 					.await
 					.unwrap();
 				let workspace = case.workspace();
@@ -336,6 +373,19 @@ async fn run_case(case: ResultCase) {
 				);
 
 				assert_eq!(calls.get(), 1);
+				roles::Saves {
+					host: &host,
+					owner: &owner,
+					root: &root,
+					target: &target,
+					other: (&host.enliven(&other_uri).await.unwrap(), &other_uri),
+					reports: &reports,
+					case,
+					base: u64::try_from(base).unwrap(),
+					args: &command_args,
+				}
+				.run()
+				.await;
 				let completed_calls = calls.get();
 
 				owner.close().await.unwrap();

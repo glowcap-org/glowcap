@@ -201,23 +201,13 @@ Deno.test("operator moderator issuance answers the stewardship row and stores no
 	}
 });
 
-Deno.test("room link adoption replaces its entrance while retaining the exact public identity and seat", async () => {
+type Conversation = ReturnType<typeof snapshot>["intent"]["conversations"][number];
+
+/** Completes an `ensureRoomLink` result into a workspace holding `room` and
+ * returns the row the acquisition saved. */
+async function adoptedLink(room: Conversation): Promise<Conversation> {
 	const current = snapshot();
-	current.intent.conversations.push({
-		kind: "room",
-		id: "room",
-		directory: "directory",
-		name: "bridge",
-		source: "source",
-		access: null,
-		publicEntry: { access: "directory-access" },
-		publication: "exact-publication",
-		seat: "original-seat",
-		control: null,
-		reconnect: "requested",
-		standing: null,
-		draft: "kept draft",
-	});
+	current.intent.conversations.push(room);
 	const operation = new ManagedOperation("link", {
 		result: () => Promise.resolve({ room: "original-result" }),
 		adopted: () => Promise.resolve(false),
@@ -235,22 +225,67 @@ Deno.test("room link adoption replaces its entrance while retaining the exact pu
 	const session = viewer({ snapshot: () => Promise.resolve(current) });
 	try {
 		await completeResult(session, operation);
-		const row = current.intent.conversations[0];
-		assert(row.kind === "room", "room adoption");
-		assert(row.access != null, "the committed receipt installs exact link custody");
-		assertEquals([row.publicEntry, row.accepted], [undefined, undefined]);
-		assertEquals([row.publication, row.seat, row.source, row.draft], [
-			"exact-publication",
-			"original-seat",
-			"source",
-			"kept draft",
-		]);
 		assertEquals(current.intent.conversations.length, 1);
+		return current.intent.conversations[0];
 	} finally {
 		await operation.close();
 		await session.close();
 	}
+}
+
+Deno.test("room link adoption replaces its entrance while retaining the exact public identity and seat", async () => {
+	const row = await adoptedLink({
+		kind: "room",
+		id: "room",
+		directory: "directory",
+		name: "bridge",
+		source: "source",
+		access: null,
+		publicEntry: { access: "directory-access" },
+		publication: "exact-publication",
+		seat: "original-seat",
+		control: null,
+		reconnect: "requested",
+		standing: null,
+		draft: "kept draft",
+	});
+	assert(row.kind === "room", "room adoption");
+	assert(row.access != null, "the committed receipt installs exact link custody");
+	assertEquals([row.publicEntry, row.accepted], [undefined, undefined]);
+	assertEquals([row.publication, row.seat, row.source, row.draft], [
+		"exact-publication",
+		"original-seat",
+		"source",
+		"kept draft",
+	]);
 });
+
+for (
+	const [name, seated, reconnect, expected] of [
+		["asks a seated manual row to reconnect", true, "manual", "requested"],
+		["leaves an unseated manual row manual", false, "manual", "manual"],
+		["leaves an unseated requested row requested", false, "requested", "requested"],
+	] as const
+) {
+	Deno.test(`room link adoption ${name}`, async () => {
+		const row = await adoptedLink({
+			kind: "room",
+			id: "room",
+			directory: "directory",
+			name: "bridge",
+			source: "source",
+			access: null,
+			seat: seated ? "original-seat" : undefined,
+			control: "manager",
+			reconnect,
+			standing: null,
+			draft: "",
+		});
+		assert(row.kind === "room", "room adoption");
+		assert(row.access != null, "the committed receipt installs exact link custody");
+		assertEquals(row.reconnect, expected);
+	});
+}
 
 for (const change of ["unrelated", "registration"] as const) {
 	Deno.test(`outgoing direct result retains registration through ${change} acquisition conflict`, async () => {

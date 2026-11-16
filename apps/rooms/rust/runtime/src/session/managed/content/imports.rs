@@ -6,7 +6,36 @@ use custody::{Coordinate, Retained};
 mod created;
 mod lines;
 mod participation;
+mod rooms;
 
+/// A request's original target and the custody now held at it.
+type OriginTargets<'r> = [Retained<'r, records::Metadata>; 2];
+/// The refusal for a room result whose request used authority the workspace has replaced.
+const REPLACED: &str = "the manager link or entrance its request used was replaced";
+/// The first target the receipt recorded.
+fn first_target<'r>(
+	receipt: &'r custody::EffectReceipt<records::Metadata>,
+	none: &'static str,
+) -> Result<Retained<'r, records::Metadata>> {
+	Ok(receipt
+		.targets
+		.as_slice()
+		.first()
+		.ok_or_else(|| refuse(none))?
+		.borrowed())
+}
+/// The receipt's original target and the custody the record holds at its coordinate.
+fn held_at<'r>(
+	record: &'r MetadataRecord,
+	original: Retained<'r, records::Metadata>,
+	absent: &'static str,
+) -> Result<OriginTargets<'r>> {
+	let current = record
+		.custody
+		.get(original.coordinate())
+		.ok_or_else(|| refuse(absent))?;
+	Ok([original, current])
+}
 struct Selection {
 	result: Coordinate,
 	destination: Coordinate,
@@ -280,6 +309,24 @@ impl<'a> Request<'a> {
 		Ok(Ok(Some(intent)))
 	}
 }
+impl Request<'_> {
+	/// The original target a result's request used and the custody held at it,
+	/// with the refusal for authority that differs. A post names a line's
+	/// target and a room command names its row's link or entrance.
+	fn target_origin<'r>(
+		&self,
+		record: &'r MetadataRecord,
+		receipt: &'r custody::EffectReceipt<records::Metadata>,
+		candidate: &workspace::Intent,
+	) -> Result<Option<(OriginTargets<'r>, &'static str)>> {
+		if let Some(fields) = self.line_origin(record, receipt, candidate)? {
+			return Ok(Some((fields, "original line target authority was replaced")));
+		}
+		Ok(self
+			.room_origin(record, receipt, candidate)?
+			.map(|fields| (fields, REPLACED)))
+	}
+}
 fn selected<'r>(
 	receipt: &'r custody::EffectReceipt<records::Metadata>,
 	coordinate: Coordinate,
@@ -301,23 +348,24 @@ pub(super) fn references(input: Invocation<'_>, record: &MetadataRecord) -> Resu
 	if matches!(preparation, Err(WorkspaceConflict)) || (request.replacement.is_some() && receipt.adopted) {
 		return Ok(vec![restore_source(receipt)?]);
 	}
-	let line_origin = match &preparation {
-		Ok(Some(candidate)) => request.line_origin(record, receipt, candidate)?,
+	let origin = match &preparation {
+		Ok(Some(candidate)) => request.target_origin(record, receipt, candidate)?,
 		_ => None,
 	};
 	// Selected results, occupied destinations and the source need at most two
-	// declarations per mapping plus two. A line adoption adds two declarations
-	// for its original and current target. No result capability is resaved.
-	let mut requests = Vec::with_capacity(2 + request.selections.len() * 2 + usize::from(line_origin.is_some()) * 2);
+	// declarations per mapping plus two. A line or room adoption adds two
+	// declarations for its original and current target. No result capability
+	// is resaved.
+	let mut requests = Vec::with_capacity(2 + request.selections.len() * 2 + usize::from(origin.is_some()) * 2);
 	requests.push(restore_source(receipt)?);
-	if let Some(fields) = line_origin {
+	if let Some((fields, _)) = origin {
 		for field in fields {
 			let location = records::location(&field);
 			requests.push(ReferenceRequest::RestorePage {
 				page: location
 					.page
 					.checked_sub(1)
-					.ok_or_else(|| refuse("invalid line target page"))?,
+					.ok_or_else(|| refuse("invalid target page"))?,
 				field: location.field,
 			});
 		}
@@ -391,11 +439,11 @@ pub(super) fn invoke(call: &mut Call<'_>, input: Invocation<'_>) -> Result<Argum
 		return Ok("conflict".into());
 	}
 	if let Ok(Some(candidate)) = &replacement
-		&& let Some([original, current]) = request.line_origin(&metadata, receipt, candidate)?
+		&& let Some(([original, current], replaced)) = request.target_origin(&metadata, receipt, candidate)?
 		&& Field::Retained(records::location(&original)).resolve(call, input)?
 			!= Field::Retained(records::location(&current)).resolve(call, input)?
 	{
-		return Err(refuse("original line target authority was replaced"));
+		return Err(refuse(replaced));
 	}
 	let mut record = records::decode(input)?;
 	let mut changed = false;
