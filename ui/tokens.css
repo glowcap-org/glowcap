@@ -78,6 +78,52 @@
 	font-display: swap;
 }
 
+/* What stands in while a web font is on its way. Each face is a font the
+   reader's system already has, scaled to the web font's width and line, so
+   the swap moves little of the page when it lands. The mono faces already
+   share the web font's width and need only its line. Each face covers the
+   characters the web font does, so any other character, and a system with
+   none of the named fonts, takes the next family in the stack. */
+
+@font-face {
+	font-family: "IBM Plex Sans Fallback";
+	font-weight: 100 500;
+	src: local("Arial"), local("Liberation Sans"), local("Arimo");
+	size-adjust: 101.8%;
+	ascent-override: 100.7%;
+	descent-override: 27.0%;
+	line-gap-override: 0%;
+	unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+	font-family: "IBM Plex Sans Fallback";
+	font-weight: 600 700;
+	src: local("Arial Bold"), local("Liberation Sans Bold"), local("Arimo Bold");
+	size-adjust: 96.9%;
+	ascent-override: 105.8%;
+	descent-override: 28.4%;
+	line-gap-override: 0%;
+	unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+	font-family: "IBM Plex Mono Fallback";
+	font-weight: 400;
+	src: local("Courier New"), local("Liberation Mono"), local("Cousine");
+	ascent-override: 102.5%;
+	descent-override: 27.5%;
+	line-gap-override: 0%;
+	unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+	font-family: "IBM Plex Mono Fallback";
+	font-weight: 600;
+	src: local("Courier New Bold"), local("Liberation Mono Bold"), local("Cousine Bold");
+	ascent-override: 102.5%;
+	descent-override: 27.5%;
+	line-gap-override: 0%;
+	unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
 :root {
 	color-scheme: light;
 
@@ -106,8 +152,8 @@
 
 	/* ── Type ─────────────────────────────────────────────────────────────
 	   Named once so the pairing is a single decision. */
-	--font-sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
-	--font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", "Cascadia Code", monospace;
+	--font-sans: "IBM Plex Sans", "IBM Plex Sans Fallback", system-ui, -apple-system, "Segoe UI", sans-serif;
+	--font-mono: "IBM Plex Mono", "IBM Plex Mono Fallback", ui-monospace, "SF Mono", "Cascadia Code", monospace;
 
 	/* ── The mark ─────────────────────────────────────
 	   A glowcap is a mushroom that makes its own light, and this is that

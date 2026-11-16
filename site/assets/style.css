@@ -134,10 +134,14 @@ a:hover {
   text-decoration: underline;
 }
 
-a:focus-visible,
-.card:focus-visible {
+/* One ring for everything a key can reach. A control keeps its own corners. */
+:focus-visible {
   outline: 2px solid var(--teal);
   outline-offset: 2px;
+}
+
+/* A link draws no box, so its ring gets corners unless a class draws one. */
+:where(a):focus-visible {
   border-radius: var(--radius-chip);
 }
 
@@ -333,11 +337,6 @@ html.js .hero-mark:not(.mark-shaded):not(.mark-still) > .icon-mark {
   background: color-mix(in srgb, var(--accent) 10%, transparent);
 }
 
-.theme-toggle:focus-visible {
-  outline: 2px solid var(--teal);
-  outline-offset: 2px;
-}
-
 .theme-toggle svg {
   display: block;
   width: 17px;
@@ -369,7 +368,10 @@ html.js .hero-mark:not(.mark-shaded):not(.mark-still) > .icon-mark {
 .shell {
   display: grid;
   grid-template-columns: var(--sidebar-w) minmax(0, 1fr);
-  gap: clamp(1.25rem, 2.5vw, 2rem);
+  --shell-gap: clamp(1.25rem, 2.5vw, 2rem);
+  gap: var(--shell-gap);
+  /* The body is a flex column, where a centered item shrinks to its content. */
+  width: 100%;
   max-width: 84rem;
   margin: 0 auto;
   padding: 0 var(--header-inset);
@@ -418,23 +420,26 @@ html.js .hero-mark:not(.mark-shaded):not(.mark-still) > .icon-mark {
   content: "−";
 }
 
-.docs-nav-toggle:focus-visible {
-  outline: 2px solid var(--teal);
-  outline-offset: 2px;
-}
-
 /* "On this page". Built from the page's own headings by the base template, and
    only shown when there is a third column to spare and enough headings to be
-   worth one. The reading column stays where it was; this fills the room that
-   was already sitting empty beside it on a wide screen. */
+   worth one. A wide screen keeps that column on every page, filled or not, so
+   the index and the reading column sit in the same place from page to page. */
 .toc {
   display: none;
 }
 
 @media (min-width: 84rem) {
-  body.has-toc .shell {
+  .shell {
     grid-template-columns: var(--sidebar-w) minmax(0, 1fr) 13rem;
     max-width: 92rem;
+  }
+
+  /* A page with no outline centers its content and footer across both columns,
+     at the width the two-column frame gives them. */
+  body:not(.has-toc) :is(main, .site-footer) {
+    grid-column: 2 / -1;
+    justify-self: center;
+    width: min(100%, calc(84rem - 2 * var(--header-inset) - var(--sidebar-w) - var(--shell-gap)));
   }
 
   body.has-toc .toc {

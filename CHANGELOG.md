@@ -95,6 +95,10 @@ Releases before 0.1.7 are in the
 
 ### Changed
 
+- The website keeps its sidebar and reading column in one place on every
+  page at wide widths, draws one focus ring on every control, and sizes its
+  fallback fonts like IBM Plex, so less of a page moves when the web font
+  arrives. The Rooms page shares the fallback fonts.
 - A Rooms timeline socket reads no message larger than one record line, at
   the endpoint, through the web address, and in the viewer. A timeline
   producer that sends a longer message is closed with code 1009 and the
