@@ -29,6 +29,8 @@ pub const VTable = provider_mod.VTable;
 pub const Handle = provider_mod.Handle;
 pub const Started = provider_mod.Started;
 pub const Finished = provider_mod.Finished;
+pub const ListenStarted = provider_mod.ListenStarted;
+pub const ListenFinished = provider_mod.ListenFinished;
 
 /// The providers a backend dials and listens through. They borrow storage
 /// that outlives the backend.
@@ -94,6 +96,8 @@ pub fn CompletionBackend(comptime Platform: type) type {
         platform: Platform,
         providers: []const Provider,
         listener: ?ListenerRow = null,
+        /// The provider's exact chain when it refused the last `openListener`.
+        refused_listen: ?foundation.FailureChain = null,
         conns: std.AutoHashMap(Fd, Entry),
         ready: completion.ReadyQueue = .{},
         next_id: u32 = 1,
@@ -157,6 +161,8 @@ pub fn CompletionBackend(comptime Platform: type) type {
         }
 
         pub fn openListener(self: *Self, target: ListenTarget) !Fd {
+            // An earlier refusal never describes this attempt.
+            self.refused_listen = null;
             return switch (target) {
                 .platform => |platform_target| self.platform.openListener(platform_target),
                 .provider => |serve| Listening.open(self, serve),
@@ -167,6 +173,7 @@ pub fn CompletionBackend(comptime Platform: type) type {
         pub const listenerCanonicalize = Listening.canonicalize;
         pub const listenerRestorationState = Listening.restorationState;
         pub const listenerPending = Listening.pending;
+        pub const listenFailure = Listening.failure;
         pub const submitListenReady = Listening.submitReady;
 
         pub fn listenerAddress(self: *Self, fd: Fd) !ListenerAddress {

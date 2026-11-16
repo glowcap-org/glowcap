@@ -42,7 +42,7 @@ pub fn Machine(comptime Self: type, comptime Policy: type) type {
             const listener = self.allocator.create(Listener) catch |err| return .{ .failed = .init(err) };
             const fd = self.backend.openListener(target) catch |err| {
                 self.allocator.destroy(listener);
-                return .{ .failed = .init(err) };
+                return .{ .failed = backendFailure(self, null, err) };
             };
             listener.* = .{ .token = self.next_listener, .route = route_id, .fd = fd, .identity = config.identity };
             if (comptime can_pend) if (self.backend.listenerPending(fd)) {
@@ -67,6 +67,16 @@ pub fn Machine(comptime Self: type, comptime Policy: type) type {
             return .{ .admitted = .{ .ready = listener } };
         }
 
+        /// A backend that keeps the exact chain of a failed listen (a foreign
+        /// provider) is the authority on that failure's identity. `fd` is the
+        /// listener whose setup failed, or null for an open that refused.
+        fn backendFailure(self: *Self, fd: ?Backend.Fd, err: anyerror) netlayer.ListenFailure {
+            if (comptime @hasDecl(Backend, "listenFailure")) {
+                if (self.backend.listenFailure(fd)) |exact| return exact;
+            }
+            return .init(err);
+        }
+
         fn forRoute(self: *Self, route_id: usize) ?*Listener {
             var listeners = self.listeners.valueIterator();
             while (listeners.next()) |listener| if (listener.*.route == route_id) return listener.*;
@@ -78,12 +88,11 @@ pub fn Machine(comptime Self: type, comptime Policy: type) type {
             const self = of(ctx);
             defer self.pump();
             const listener = forRoute(self, route_id) orelse return .{ .failed = .init(error.ProviderContract) };
-            const cause: anyerror = switch (listener.setup) {
-                .ready => if (self.armAccept(listener)) return .{ .listener = listener } else |err| err,
-                .failed => |err| err,
-                .pending => error.ProviderContract,
+            var failure: netlayer.ListenFailure = switch (listener.setup) {
+                .ready => if (self.armAccept(listener)) return .{ .listener = listener } else |err| .init(err),
+                .failed => |err| backendFailure(self, listener.fd, err),
+                .pending => .init(error.ProviderContract),
             };
-            var failure: netlayer.ListenFailure = .init(cause);
             switch (stopListen(self, listener)) {
                 .complete => {},
                 .failed => |cleanup| failure.noteChain(cleanup),

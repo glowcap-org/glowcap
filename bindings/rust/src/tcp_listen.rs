@@ -328,6 +328,27 @@ mod tests {
 			.await;
 	}
 
+	// A bind refused by the OS keeps the provider's cause name, so a caller
+	// can tell a busy port from any other listener failure.
+	#[tokio::test]
+	async fn binding_a_busy_port_reports_the_address_in_use_cause() {
+		let local = LocalSet::new();
+		local
+			.run_until(async {
+				let first = listen("127.0.0.1:0").await.unwrap();
+				let busy = format!("127.0.0.1:{}", first.port().unwrap());
+				let refused = tokio::time::timeout(Duration::from_secs(10), listen(&busy))
+					.await
+					.expect("the second bind settles")
+					.err()
+					.expect("the port is taken");
+				assert_eq!(refused.kind(), crate::ErrorKind::Io);
+				assert_eq!(refused.message(), Some("listener failed: AddressInUse"));
+				first.close().await.unwrap();
+			})
+			.await;
+	}
+
 	// A rude TCP probe, connect, say nothing, hang up, is that connection's
 	// failure, not the listener's: `accept` skips it internally and serves the
 	// next, real client. Without that isolation one port scan takes a

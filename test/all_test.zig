@@ -397,6 +397,7 @@ comptime {
             _ = @import("net/completion_loop_test.zig");
         if (@import("builtin").target.os.tag == .linux or @import("builtin").target.os.tag.isDarwin())
             _ = @import("net/completion_listener_test.zig");
+        _ = @import("net/external_listen_failure_test.zig");
         _ = @import("net/completion_loop_backpressure_test.zig");
         _ = @import("net/completion_loop_stream_test.zig");
         _ = @import("net/completion_loop_spill_test.zig");
@@ -516,6 +517,7 @@ comptime {
         _ = @import("c_abi/driver_loop/readiness_contract_test.zig");
         _ = @import("c_abi/driver_loop/teardown_contract_test.zig");
         _ = @import("c_abi/driver_loop/listener_test.zig");
+        _ = @import("c_abi/driver_loop/stream_listen_failure_test.zig");
         _ = @import("c_abi/driver_loop/archive_test.zig");
         _ = @import("c_abi/driver_loop/loopback_test.zig");
         _ = @import("c_abi/driver_loop/session_release_test.zig");
