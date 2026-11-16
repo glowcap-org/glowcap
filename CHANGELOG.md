@@ -172,6 +172,11 @@ Releases before 0.1.7 are in the
 - A Rust Host with a Loam attachment answers a fetch of a durable name
   that arrived before `Session::serve`. The lookup was never started, so
   the fetch stayed unanswered until the caller gave up.
+- A connection that reaches a listener before its Host has a selected
+  location is closed, and the driver loop keeps running.
+  `glowcap_driver_step` returned `GLOWCAP_ERR_INVALID_ARGUMENT` for it,
+  which every binding treats as the end of its loop, so a peer that
+  connected while a server was starting stopped that server.
 - A Host stepped by its embedder's loop waits while input it holds cannot
   move: part of a message from a partner, or messages held until the
   application serves an accepted session. It woke its embedder after every

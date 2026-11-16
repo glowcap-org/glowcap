@@ -99,6 +99,10 @@ fn handleResidentEvent(
         // Level-shaped readiness brings the next accept through a later step.
         if (!Internal.pendingOpenSlotAvailable(self)) return 0;
         if (!listener.observation.observer.can_accept(listener.observation.observer.ctx)) return 0;
+        // A listener is ready before its caller can select a location, and a
+        // session cannot open without one. An arrival in that window closes,
+        // so a peer's timing never fails the step.
+        if (self.core.acceptableLocator() == null) return 0;
         try startAcceptedConn(
             self,
             resident_index,
