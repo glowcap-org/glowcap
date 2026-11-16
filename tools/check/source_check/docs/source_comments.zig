@@ -28,7 +28,7 @@ pub fn check(io: std.Io, gpa: std.mem.Allocator, root: std.Io.Dir, violations: *
             number += 1;
             scanner.at = 0;
             while (scanner.comment(line, if (hash) '#' else if (scheme) ';' else null)) |comment| {
-                try narration.checkNarration(gpa, violations, entry.path, number, comment);
+                try narration.appendNarration(gpa, violations, entry.path, number, comment);
             }
         }
     }

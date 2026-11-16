@@ -4,6 +4,7 @@
 const std = @import("std");
 const appendViolation = @import("violation_log.zig").appendViolation;
 const blankComments = @import("text_match.zig").blankComments;
+const entry_wiring = @import("entry_wiring.zig");
 
 const suite_roots = [_][]const u8{ "test/all_test.zig", "test/oracle_check.zig", "test/loam_lmdb_test.zig", "test/loam_sqlite_test.zig" };
 
@@ -220,13 +221,14 @@ test "a commented-out suite import wires nothing" {
     try std.testing.expect(importedByAny(&.{&live}, needle));
 }
 
-const checker_root = "tools/check/source_check.zig";
-const checker_modules = "tools/check/source_check";
+const checker_root = entry_wiring.checker_root;
+const checker_modules = entry_wiring.checker_modules;
 
 /// The checks' own unit tests reach their artifact the same way. Zig compiles
-/// a file's `test` declarations only when a test block refers to the file, and
-/// the `test` block of `checker_root` is the one list. A check module with
-/// tests that the block does not import has tests that pass by never running.
+/// a file's `test` declarations only when a test block refers to the file. The
+/// `test` block of `checker_root` refers to every module in its `checks` list
+/// and imports the nested modules the list does not name. A check module with
+/// tests that neither does has tests that pass by never running.
 fn checkCheckerTests(
     io: std.Io,
     gpa: std.mem.Allocator,
@@ -240,6 +242,11 @@ fn checkCheckerTests(
     defer gpa.free(root_source);
     const block = testBlock(root_source) orelse {
         try appendViolation(gpa, violations, "{s}: has no `test {{` block to import the check modules' tests", .{checker_root});
+        return;
+    };
+
+    const list = entry_wiring.readChecksList(root_source) orelse {
+        try appendViolation(gpa, violations, entry_wiring.no_list, .{checker_root});
         return;
     };
 
@@ -260,10 +267,11 @@ fn checkCheckerTests(
         // A comment after the opening brace would hide the declaration.
         blankComments(source);
         if (!declaresTest(source)) continue;
-        if (!try imports(gpa, block, entry.path)) try appendViolation(
+        if (!try imports(gpa, block, entry.path) and !try entry_wiring.isListed(gpa, root_source, list, entry.path)) try appendViolation(
             gpa,
             violations,
-            "{s}/{s}: declares tests the `test` block in {s} does not import, so they never run; add `_ = @import(\"source_check/{s}\");` there",
+            "{s}/{s}: declares tests the `test` block in {s} does not reach, so they never run; " ++
+                "list the module in `checks` there, or add `_ = @import(\"source_check/{s}\");` to the block for a nested module",
             .{ checker_modules, entry.path, checker_root, entry.path },
         );
     }

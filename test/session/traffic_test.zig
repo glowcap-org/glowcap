@@ -119,8 +119,8 @@ test "outbound deliver targets require the target descriptor role and a live ans
     try std.testing.expectEqual(before, s.exportRefcount(.from(8)));
     try std.testing.expect(s.outboundAnswer(.from(40)) == null);
 
-    // Next carries no inline resolver. Refuse it at session validation, before
-    // the codec can fail after the answer has already been installed.
+    // On Next an inline resolver is the sender's own near reference. A far one
+    // is refused at session validation, before the answer is installed.
     try std.testing.expectError(session.Error.UnexpectedMessage, s.recordSend(.{ .deliver = .{
         .target = .{ .far = model.FarRef.object(7) },
         .args = &.{},

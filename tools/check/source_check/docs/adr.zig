@@ -260,7 +260,7 @@ fn adrFrontmatterValue(body: []const u8, field: []const u8) ?[]const u8 {
 
 /// Every numbered citation in tracked text must name a current ADR, including
 /// bare plural lists. Existing-but-unrelated records still require review.
-pub fn checkAdrCitations(io: std.Io, gpa: std.mem.Allocator, root: std.Io.Dir, violations: *std.ArrayList([]const u8), root_path: []const u8) !void {
+pub fn checkAdrCitations(io: std.Io, gpa: std.mem.Allocator, root: std.Io.Dir, violations: *std.ArrayList([]const u8)) !void {
     var known: [10000]bool = @splat(false);
     var dir = try root.openDir(io, "docs/decisions/adr", .{ .iterate = true });
     defer dir.close(io);
@@ -270,7 +270,8 @@ pub fn checkAdrCitations(io: std.Io, gpa: std.mem.Allocator, root: std.Io.Dir, v
         if (citationNumber(entry.name, 4)) |number| known[number] = true;
     }
     const files = try std.process.run(gpa, io, .{
-        .argv = &.{ "git", "-C", root_path, "ls-files", "-z" },
+        .argv = &.{ "git", "ls-files", "-z" },
+        .cwd = .{ .dir = root },
         .stdout_limit = .limited(64 << 20),
     });
     defer gpa.free(files.stdout);
@@ -358,7 +359,7 @@ test "tracked scratch citations fail when corrupted and pass when restored" {
     for ([_][]const u8{ valid, "ADR-" ++ "9999", "ADRs 0001, " ++ "9999", valid }, 0..) |body, i| {
         try tmp.dir.writeFile(io, .{ .sub_path = "notes.md", .data = body });
         var violations: std.ArrayList([]const u8) = .empty;
-        try checkAdrCitations(io, gpa, tmp.dir, &violations, path);
+        try checkAdrCitations(io, gpa, tmp.dir, &violations);
         const bad = i == 1 or i == 2;
         try std.testing.expectEqual(@as(usize, if (bad) 1 else 0), violations.items.len);
         if (bad) try std.testing.expect(std.mem.find(u8, violations.items[0], "notes.md:1: ADR citation `9999`") != null);

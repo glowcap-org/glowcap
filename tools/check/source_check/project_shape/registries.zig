@@ -225,17 +225,17 @@ test "a path under a generated directory, and the directory itself, belong to it
 pub fn checkGeneratedStateIgnores(
     io: std.Io,
     gpa: std.mem.Allocator,
+    root: std.Io.Dir,
     violations: *std.ArrayList([]const u8),
-    root_path: []const u8,
 ) !void {
-    const tracked_files = try gitOutput(io, gpa, violations, &.{ "git", "-C", root_path, "ls-files", "-z" }, 0) orelse return;
+    const tracked_files = try gitOutput(io, gpa, root, violations, &.{ "git", "ls-files", "-z" }, 0) orelse return;
     defer gpa.free(tracked_files);
     // `--no-index` asks about the rules alone, so a tracked entry still gets
     // its ignore answer. A directory entry is asked about as the directory,
     // because a rule that ignores only one file inside it leaves the rest
     // unignored. Exit 1 means no entry matched any rule.
-    const check_ignore = [_][]const u8{ "git", "-C", root_path, "check-ignore", "--no-index", "-v", "--" } ++ generated_state;
-    if (try gitOutput(io, gpa, violations, &check_ignore, 1)) |matches| {
+    const check_ignore = [_][]const u8{ "git", "check-ignore", "--no-index", "-v", "--" } ++ generated_state;
+    if (try gitOutput(io, gpa, root, violations, &check_ignore, 1)) |matches| {
         defer gpa.free(matches);
         try reportUnignored(gpa, violations, &generated_state, matches, tracked_files);
     }
@@ -263,12 +263,13 @@ pub fn checkGeneratedStateIgnores(
 fn gitOutput(
     io: std.Io,
     gpa: std.mem.Allocator,
+    root: std.Io.Dir,
     violations: *std.ArrayList([]const u8),
     argv: []const []const u8,
     highest_exit: u8,
 ) !?[]u8 {
-    const verb = argv[3];
-    const ran = std.process.run(gpa, io, .{ .argv = argv, .stdout_limit = .limited(64 << 20) }) catch |err| {
+    const verb = argv[1];
+    const ran = std.process.run(gpa, io, .{ .argv = argv, .cwd = .{ .dir = root }, .stdout_limit = .limited(64 << 20) }) catch |err| {
         try appendViolation(gpa, violations, "git {s}: failed to run for generated-state check with {s}", .{ verb, @errorName(err) });
         return null;
     };
@@ -436,13 +437,13 @@ pub fn checkRepositoryUrl(
     gpa: std.mem.Allocator,
     root: std.Io.Dir,
     violations: *std.ArrayList([]const u8),
-    root_path: []const u8,
 ) !void {
     // Read-only git, sanctioned by the cli rule: one call enumerates exactly
     // the files a reader could ever see, and skips build output and caches
     // without a hand-maintained ignore list.
     const ls_files = std.process.run(gpa, io, .{
-        .argv = &.{ "git", "-C", root_path, "ls-files", "-z" },
+        .argv = &.{ "git", "ls-files", "-z" },
+        .cwd = .{ .dir = root },
         .stdout_limit = .limited(64 << 20),
     }) catch |err| {
         try appendViolation(gpa, violations, "git ls-files: failed to run for repository-url check with {s}", .{@errorName(err)});
