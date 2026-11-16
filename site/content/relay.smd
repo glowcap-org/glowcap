@@ -13,15 +13,14 @@ a small WebSocket service that carries a browser's
 # The relay only moves bytes
 
 The CapTP handshake (`op:start-session`) and every message after it run
-between the browser and the far peer. The relay forwards bytes without
-interpreting CapTP messages. On a cleartext path it can read or alter them, so use
-`noise-relay` when the relay must see only ciphertext. The Zig provider, the
-other language providers, and the browser connector all support `noise-relay`.
+between the browser and the far peer. On a cleartext path the relay can read or
+alter them, so use `noise-relay` when the relay must see only ciphertext. The
+Zig provider, the other language providers, and the browser connector all
+support `noise-relay`.
 
 # Reaching the other side
 
-A browser has no socket to dial with, so the relay reaches the far side one of
-two ways.
+The relay reaches the far side one of two ways.
 
 ## [Dialing a far peer]($section.id('dialing-a-far-peer'))
 
@@ -53,8 +52,6 @@ session
 ([ADR-0034](https://github.com/glowcap-org/glowcap/blob/main/docs/decisions/adr/ADR-0034-browser-peers.md)).
 
 [One browser registers and waits. The other redeems an introduction by dialing that identity. The relay bridges the held socket to the dialer, and the keyed session runs end to end between the two browsers.]($image.siteAsset('diagram-relay-rendezvous.svg'))
-
-Both paths use the same forwarding code, so they share backpressure (a slow reader slows the sender) and shutdown behavior.
 
 # Bounded resources
 

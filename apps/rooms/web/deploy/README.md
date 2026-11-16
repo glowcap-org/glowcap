@@ -18,15 +18,13 @@ Docker keeps the services running after the terminal closes and restarts them af
 session run the same product CLI as a host installation.
 
 Install the [complete host product](../../host.md) and Docker with Compose v2.17 or later on the deployment host.
-`up` waits for health with `--wait-timeout`, which Compose added in that release. The product needs glibc 2.39 or
-newer, and the [host guide's table](../../host.md#install) lists the targets.
+The [host guide's table](../../host.md#install) lists the supported targets.
 
 Your user must be able to run Docker, either as root or through the `docker` group.
 
 A published image needs no checkout, compiler, Python, or product source. Releases carry build provenance. Verify the
 image before running it with
-`gh attestation verify --repo glowcap-org/glowcap oci://ghcr.io/glowcap-org/glowcap-rooms:vVERSION`. That check needs
-the `gh` command.
+`gh attestation verify --repo glowcap-org/glowcap oci://ghcr.io/glowcap-org/glowcap-rooms:vVERSION`.
 
 ## Run it
 
@@ -44,8 +42,7 @@ glowcap apps rooms deployment up --image ghcr.io/glowcap-org/glowcap-rooms:vVERS
 
 An installed executable defaults to `ghcr.io/glowcap-org/glowcap-rooms:vVERSION`, with the version from the installed
 CLI. The first `up` pulls the public image from ghcr.io, so the host needs outbound network access. It resolves the
-image to an immutable ID, writes the managed Compose file, creates the network, and waits for service health. Then it
-prints, in order:
+image to an immutable ID and waits for service health. Then it prints, in order:
 
 - the page link, which opens the published Rooms page with this server filled in. On this host,
   `http://127.0.0.1:8080/`, the loopback port the override publishes, serves the same page
@@ -217,7 +214,6 @@ glowcap apps rooms deployment down
 published. It prints the replay, then live events, and `--json` gives complete records.
 
 - Service logs and protocol traces are separate streams.
-- Startup prints the complete trace link after `ROOMS-TRACE-LISTENING` for other viewers.
 - The feed holds the directory's events and events from session producers configured to publish to it. It cannot see
   traffic that stays with another peer.
 
@@ -234,7 +230,7 @@ Publishing starts once that toggle holds the link, and the **Visualizer** page s
 - `doctor` is read-only. It reports the selected configuration directory and whether an image has been selected.
 - `up` starts missing services and replaces services whose image or configuration changed.
 - `restart` bounces the services, waits for health, and prints the links again. It keeps the selected image, data,
-  identities, and access links. `links` prints them without restarting anything.
+  identities, and access links.
 - `down` removes containers and keeps data.
 
 Mutating commands lock the configuration directory and release the lock when the process exits.
@@ -243,9 +239,8 @@ A failed command names the Docker command and its exit status.
 
 ### Read your links again
 
-`glowcap apps rooms deployment links` prints what `up` printed, without restarting anything. That is the page
-link, the operator capabilities, the directory locator, the browser revision, the shared session's use and
-management links, and the trace link. Keep its output as private as the first print.
+`glowcap apps rooms deployment links` prints what `up` printed, without restarting anything. Keep its output as
+private as the first print.
 
 The image has no shell. Use the product commands to inspect it:
 
@@ -260,9 +255,8 @@ This form prints the operator capabilities alone:
 docker exec glowcap-rooms-directory /runtime/bin/glowcap apps rooms capabilities
 ```
 
-Deployment output prints two independent links to the shared session, the use link and the management link
-([the session service](../../operating.md#the-session-service)). `glowcap apps rooms deployment links` prints them
-again.
+The shared session's use link and management link are independent
+([the session service](../../operating.md#the-session-service)).
 
 - To attach a browser, paste the use link into **Choose a session**, **Shared session**, and **Attach**, or under
   **Settings**, **Session**, and **Attach this browser**.

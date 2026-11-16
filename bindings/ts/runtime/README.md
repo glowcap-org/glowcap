@@ -86,8 +86,8 @@ console.log(await session.send(greeter, "greet", ["world"]));
 ```
 
 `Runtime.open` keeps the transports you pass it, and `Runtime.connect` chooses only among them.
-It does not load a missing transport package from a locator. Passing `adoptHost` moves an existing Host into the
-Runtime, and `Runtime.close()` then shuts that Host down for good.
+It does not load a missing transport package from a locator. Passing `adoptHost` moves an existing Host into the Runtime, and `Runtime.close()` then shuts that
+Host down for good.
 
 A relay Runtime uses `provider(config)` from `@glowcap/relay`. Locator hints select a route
 within that package and do not choose which package the Runtime loads.
@@ -98,8 +98,7 @@ Listening:
   key-plus-address locator through the same driver loop on Deno.
 - All three TCP listeners (plain, keyed, and Noise) accept `ListenOptions` for `host`, `codec`,
   and the optional `advertisedHost`. Keyed and Noise listeners also accept `seed`.
-- A wildcard bind requires `advertisedHost`, the name or address partners dial, because glowcap
-  will not put a wildcard into a Host locator.
+- A wildcard bind requires `advertisedHost`, the name or address partners dial.
 - The driver accepts connections and limits concurrent handshakes.
 
 ## Reference lifetime
@@ -131,9 +130,8 @@ retire their references without waiting for JavaScript collection.
 ## How it is built
 
 - It loads two C libraries. `libglowcap_host` handles byte-fed sessions, where your code supplies
-  the bytes. `libglowcap_driver` runs the event loop (the driver loop) that owns sockets. It starts
-  with no transports and adopts a Host through `glowcap_driver_take_host`. A separate library per
-  transport keeps unused code out of your program.
+  the bytes. `libglowcap_driver` runs the event loop (the driver loop) that owns sockets. A separate
+  library per transport keeps unused code out of your program.
 - On Deno, a `Runtime.connect` that uses a provider runs on a driver loop that
   the binding steps. Transport packages build their listeners and return a
   `Server` on that same loop.
@@ -143,8 +141,7 @@ retire their references without waiting for JavaScript collection.
   library, how to open sockets, and struct layout) live in
   [`internal/ffi/runtime.ts`](internal/ffi/runtime.ts). A browser build injects its own adapter
   first, which is how `@glowcap/web` runs this package over WebAssembly. Otherwise the module
-  detects the runtime and imports the matching adapter, so `bun:ffi` never loads on the wrong
-  runtime.
+  imports the adapter for the runtime it detects.
 
 | Runtime                  | FFI                    | How it runs                               |
 | ------------------------ | ---------------------- | ----------------------------------------- |
@@ -152,9 +149,7 @@ retire their references without waiting for JavaScript collection.
 | [Bun](https://bun.sh)    | `bun:ffi`              | `bun run`                                 |
 | Browser                  | WebAssembly            | `@glowcap/web` `init`                     |
 
-Deno runs the application API over the driver loop. Bun runs the synchronous Host and locator
-API, and its driver-loop and blocking transports refuse with an error. Any other runtime is
-refused at load with an error.
+Any other runtime is refused at load with an error.
 
 ## The modules
 
@@ -208,9 +203,6 @@ const got = await server.readFrame();
 Child disposal requests shutdown synchronously. `await using` on the netlayer
 also waits for every child release and the borrowed backend to retire.
 
-Each transport routes its failures through its own `glowcap_<t>_last_error` slot, so a transport
-call's diagnostic never reads the core's.
-
 Some failures happen where no caller is waiting, such as a background send that fails after its
 caller has moved on. They are not returned as errors. `Host.takeFailures()` atomically returns
 and clears the bounded list of those failures recorded for that Host. `takeRuntimeFailures()` does the same
@@ -222,12 +214,10 @@ Library resolution prints only that it is downloading. A soft failure or a bare-
 is a `library-resolution` record in the process-wide list, and a library that then fails to load
 names those notes in its error, with the loader's own error as the cause.
 
-The raw TCP, inproc, and onion shuttles are asynchronous only on a runtime that
-moves a potentially parking call off the JavaScript event loop. Deno does. Bun's
-FFI executes the call synchronously, so those raw transports refuse
-construction before allocating a handle, since even an idle release may join
-backend work. Bun supports byte-fed Host clients whose JavaScript supplies the
-channel. Inproc exposes raw frames and has no Runtime provider.
+Bun's FFI runs each call synchronously, so on Bun the raw TCP, inproc, and onion transports refuse
+construction before allocating a handle, because even an idle release may join backend work. Bun
+supports byte-fed Host clients whose JavaScript supplies the channel. Inproc exposes raw frames and
+has no Runtime provider.
 
 ## Learn more
 

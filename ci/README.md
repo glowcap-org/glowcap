@@ -5,7 +5,7 @@ declares jobs and the transfers between them, and each step is one command.
 The commands are the Python here and `zig build`, so each program has a test
 beside it and the YAML reads as a list. A setup that several jobs repeat is a
 composite action in [`.github/actions/`](../.github/actions/), each of which
-reads its versions from `.devcontainer/pins.sh`; a cache or artifact transfer
+reads its versions from `.devcontainer/pins.sh`. A cache or artifact transfer
 stays in its workflow, where its step deadline lives.
 
 | Trigger | Workflow | Runs |
@@ -49,7 +49,7 @@ require:
 | Build, CI, fuzz tests, or unclassified files | All, with full validation |
 
 Missing comparison history selects full validation, and a rename counts both
-its paths. Pushes to `dev`, pull requests into `main`, nightly runs, and manual
+paths. Pushes to `dev`, pull requests into `main`, nightly runs, and manual
 `suite=check` runs always run full validation, which includes bounded mutation
 fuzzing. The main ruleset reads `gates` from the run the push to `dev`
 started, and that run's success moves `main` to the commit
@@ -61,16 +61,16 @@ owners or its paths are unknown. Nightly and manual runs include them.
 
 A group's build jobs each compile one shard of what its phases run and hand
 the compiled state to one test job per phase, which run side by side. Source
-and infrastructure checks compile only their checkers, so they report within
-minutes. A failed job does not cancel its siblings, a failed build still hands
-its tests what it compiled, and a failed test does not stop its phase, so one
-run reports every failing test. A build that runs out of time ends its phase,
-because every later gate needs it. The aggregate check requires every selected
-group and macOS to pass, and its summary links each failing job.
+and infrastructure checks compile only their checkers, so they report within minutes. A failed job does not cancel
+its siblings, a failed build still hands its tests what it compiled, and a
+failed test does not stop its phase, so one run reports every failing test. A
+build that runs out of time ends its phase, because every later gate needs it.
+The aggregate check requires every selected group and macOS to pass, and its
+summary links each failing job.
 
-Runtime build and test jobs first run `zig build runtime-toolchain-check`.
-It checks declarations and installed tools before expensive compilation or
-process proofs. A failed prerequisite stops later commands in that job.
+Runtime build and test jobs first run `zig build runtime-toolchain-check`,
+which checks declarations and installed tools. A failed prerequisite stops
+later commands in that job.
 
 A deadline holds on the slowest machine that runs it: a hosted runner compiles
 cold, an order of magnitude slower than a warm workstation. Tests that use
@@ -89,9 +89,9 @@ has less free disk than it needs. Coding-agent installation has a
 [separate workflow](../.github/workflows/agent-tools.yml) for devcontainer
 changes, so product checks never wait for agent downloads.
 
-The conformance submodules are pinned commits on other forges, one of them
-donated. A job checks them out from a cache named by those pins, so it
-clones only when a pin moves. A clone that fails waits and tries twice more.
+The conformance submodules are pinned commits on other forges. A job checks them
+out from a cache named by those pins, so it clones only when a pin moves. A
+clone that fails waits and tries twice more.
 
 ## Files
 
@@ -119,9 +119,6 @@ clones only when a pin moves. A clone that fails waits and tries twice more.
 | [`pyproject.toml`](pyproject.toml) | The tests' one dependency, PyYAML, which [`uv.lock`](uv.lock) pins | `uv run --project ci --locked` |
 
 Reproduce a phase locally with `glowcap-dev python3 ci/gates.py run <phase>`.
-`ci/gates.py fetch` first builds Zig's package/build tool without a download,
-using the build allowance. The subsequent download attempts keep their separate
-three-minute deadline, so retries do not repeatedly kill a cold compiler.
 Each program's test sits beside it as `<name>_test.py`, a workflow's test is
 named after the workflow, and `zig build infrastructure-check` runs them all
 through `uv run --project ci --locked`.

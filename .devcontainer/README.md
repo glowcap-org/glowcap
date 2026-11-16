@@ -225,8 +225,8 @@ Supply build environment overrides through the front:
 `-j1` limits Zig's build graph, and Cargo sets its own child concurrency. The
 front passes `--env` values into the selected environment and refreshes Zig's
 cached configuration so its Run steps receive them. Compiled artifacts stay
-cached, and the build lease and per-test deadline stay active. Compilation and
-linking are outside that deadline.
+cached, and the build lease and per-test deadline (which excludes compiling and
+linking) stay active.
 
 A tool run through `docker exec` writes files as the container's user, so a
 `zig fmt` there leaves files the host session cannot edit. Format from
@@ -252,19 +252,17 @@ Cargo is configured for build speed:
 - Browser proof steps request the contract crate's Wasm module explicitly and
   skip its unused shared-library link. Only `rooms-browser-build`
   requests the deployable module.
-- Browser contracts use the `browser-proof` profile with optimized loops and
-  parallel code generation. Deployment modules keep whole-program optimization.
 - The source analyzer uses optimized code with safety checks.
 
 ## Managed tools: the AI harnesses
 
 `claude`, `codex`, `opencode`, and the Cursor agent CLI (`agent` and
 `cursor-agent`) are not in the image, and neither is Playwright's browser set.
-A harness's first use installs the checkout's seed into the shared cache at
-`~/.cache/glowcap/installed/<platform>/<tool>`. The seed is the version
-`pins.sh` names, verified by registry integrity for npm packages and by
-checksum for archives. Every worktree container shares that cache, so one
-download serves all of them and a rebuild keeps the installed version.
+A harness's first use installs the checkout's seed, the version `pins.sh`
+names, into the shared cache at `~/.cache/glowcap/installed/<platform>/<tool>`.
+It is verified by registry integrity for npm packages and by checksum for
+archives. Every worktree container shares that cache, so one download serves
+all of them and a rebuild keeps the installed version.
 
 Playwright's requirement is the checkout's `PLAYWRIGHT_VERSION` pin, and several
 requirements can coexist in the cache. Browser proof steps run under
@@ -305,10 +303,9 @@ recorded as unverified.
 The container has no browser, so sign in with `NO_OPEN_BROWSER=1 agent login`
 and open the printed URL on the host. `agent status` says who you are.
 
-No Tor runs when the container opens. glowcap reaches an onion service through
-a daemon its deployer started. The image installs the binary only, a check that
-needs a live daemon starts and stops its own, and the in-tree onion checks talk
-to a fake daemon.
+No Tor runs when the container opens. The image installs the binary only, a
+check that needs a live daemon starts and stops its own, and the in-tree onion
+checks talk to a fake daemon.
 
 ## Updating pins
 
@@ -322,14 +319,13 @@ Use [`bin/update-pins.sh`](bin/update-pins.sh) to update a tool:
 
 It fetches versions and hashes from each dependency's release channel and
 validates every edit before replacing a file. Rebuild the container when an
-updated tool is installed there. The harness seeds are not image content, so
-their check is the cold-seed smoke run (`test/tool-install.sh <name>`) in the
-[agent-tools workflow](../.github/workflows/agent-tools.yml), separate from
-product checks. The running cache adopts a bumped seed on the next
-`tools.sh ensure` or cold first use. The report also lists the checks each
-dependency requires: Zig requires
-`zig build check`, Racket and Goblins require `zig build check-external`, and
-the Distroless base lists the release workflow's image proofs.
+updated tool is installed there. Harness seeds are checked by the cold-seed
+smoke run (`test/tool-install.sh <name>`) in the [agent-tools
+workflow](../.github/workflows/agent-tools.yml), and the running cache adopts a
+bumped seed on the next `tools.sh ensure` or cold first use. The report also
+lists the checks each dependency requires: Zig requires `zig build check`,
+Racket and Goblins require `zig build check-external`, and the Distroless base
+lists the release workflow's image proofs.
 
 A few pins are restated outside `pins.sh`, because a Dockerfile and a
 `deno.json` cannot source a shell file. A bump rewrites those copies, and
@@ -407,9 +403,8 @@ worktree bind, where the tree already names them:
 | `.local/` | occupancy and MCP scratch |
 
 `git clean -fdx` removes those worktree paths but not incremental Zig objects
-or extracted packages. After recreate, leftover `.zig-cache/`, `zig-pkg/`, and
-Racket `compiled/` directories in the checkout are unused, and post-create
-deletes them.
+or extracted packages. Post-create deletes leftover `.zig-cache/`, `zig-pkg/`,
+and Racket `compiled/` directories in the checkout.
 
 | Variable | During image build | In an open container |
 | --- | --- | --- |
@@ -426,18 +421,12 @@ deletes them.
 Rustup seeds the image under `/usr/local/cargo`. The first locked cargo build
 of an in-tree crate fills `cargo/` on the host bind, and later builds reuse it.
 
-The last two rows keep an agent CLI's settings across a rebuild, by pointing
-both tools at directories [`devcontainer.json`](devcontainer.json) binds from
-the host.
-
 Playwright's browsers are runtime content. The shared browser prerequisite in
-`build.zig` runs `tools.sh ensure playwright`, which installs the pinned
-requirement into the shared cache on first browser use, and every browser proof
-step (`zig build rooms-web-page` and its siblings) runs under
-`tools.sh exec playwright`. Browser garbage collection is off, so one
-worktree's run cannot delete another's installation.
+`build.zig` runs `tools.sh ensure playwright` on first browser use. Browser
+garbage collection is off, so one worktree's run cannot delete another's
+installation.
 
-Ptrace is enabled in [`docker-compose.yml`](docker-compose.yml), though `perf`
+Ptrace is enabled in [`docker-compose.yml`](docker-compose.yml), and `perf`
 may still depend on host kernel policy. Racket's package tool has no version
 flag: use `racket --version`, not `raco --version`.
 
@@ -507,16 +496,14 @@ procedure for moving an existing checkout's ports.
 | `test/` | Static environment parity (`source-check`) and executable workflow proofs (`infrastructure-check`) |
 | `docs/` | The longer prose: host setup and networking |
 
-Each script refuses the wrong side: host-side scripts call
-`glowcap_require_host`, container-side ones `glowcap_require_devcontainer`, and
-`lib/context.sh` owns the detection. A file's header says what it does and
-where it runs. `image/zig.sh` also runs on CI runners, macOS included.
-`hooks/post-create.sh` runs shellcheck over every shell file here, so a lint
-finding fails container open and the CI push checks.
+Each script refuses the wrong side through `glowcap_require_host` or
+`glowcap_require_devcontainer`, and `lib/context.sh` owns the detection. A
+file's header says what it does and where it runs. `image/zig.sh` also runs on
+CI runners, macOS included. `hooks/post-create.sh` runs shellcheck over every
+shell file here, so a lint finding fails container open and the CI push checks.
 
-`test/env-sync.sh` runs in `zig build source-check`. The executable behavior
-tests run in `zig build infrastructure-check`, so a source-only edit does not
-create temporary repositories or exercise host workflow.
+`test/env-sync.sh` runs in `zig build source-check`, and the executable
+behavior tests run in `zig build infrastructure-check`.
 
 Cursor users can enable Serena from [`.cursor/mcp.json`](../.cursor/mcp.json).
 The [Serena skill](../.agents/skills/serena/SKILL.md) covers project use.

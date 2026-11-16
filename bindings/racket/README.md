@@ -143,8 +143,8 @@ until the loop has work, then steps it.
 `open-runtime` takes `#:seed`, `#:profile`, `#:codec`, `#:captp-version`,
 `#:features`, and `#:local-turn-budget` to configure the Host it creates.
 `#:adopt-host` transfers an existing Host into the Runtime instead and refuses
-every one of those options, matching or not. `runtime-close!` then shuts down that Host
-and waits for shutdown to finish.
+every one of those options, matching or not. `runtime-close!` then shuts that
+Host down and waits.
 
 `listen`, `listen-keyed-tcp`, and `listen-noise-tcp` return the same kind of
 server. `server-locator` is its canonical locator, `server-uri` renders that
@@ -153,9 +153,9 @@ locator as text, and `server-port` returns the port the provider bound.
 - Pass `#:seed` to keep a keyed identity across restarts, or `#:host` to have
   a supplied Host own the same loop. Passing both is refused.
 - `#:codec`, `#:captp-version`, and `#:features` set the profile of a newly
-  created Host. If you leave them out, a listener uses the supplied Host's
-  profile, or otherwise the generated default. A value that conflicts with a
-  supplied Host's profile is refused.
+  created Host. Left out, a listener uses the supplied Host's profile or the
+  generated default. A value that conflicts with a supplied Host's profile is
+  refused.
 - `listen-iroh` and `listen-onion` take the same three keywords with the same
   rule.
 - Every listener takes `#:options`, but only the TCP package defines any. The
@@ -170,8 +170,8 @@ another green thread can perform, because that can deadlock Racket CS. Return a
 value, `bcom`, or a forward. Hand longer work to another thread and settle it
 through an eventual send (`<-`).
 
-`runtime-host` and `session-host` return the Host behind a runtime or session.
-It also runs actors with no session. `host-spawn` returns an owned
+`runtime-host` and `session-host` return the Host behind a runtime or session,
+which also runs actors with no session. `host-spawn` returns an owned
 reference, `host-send` waits for the answer, and `host-tell` queues a
 notification. `host-send-promise` returns the vow without waiting, and
 `host-await` waits for it.

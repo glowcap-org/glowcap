@@ -109,8 +109,7 @@ the way in, and [operating Rooms](operating.md) covers its grants, services, and
 - *Declared listeners.* `rooms-server` and `rooms-web` announce any listener transport
   [Operating Rooms](operating.md) lists with `--transport=<transport>`, and take `--listen=<transport>[,<name>=<value>...]` once per transport beside it.
   Every declared door is open before the server is ready, and `/locator` then names the directory by its key
-  with the doors listed, sealed routes first. A relay door registers at this
-  server's own relay unless `GLOWCAP_ROOMS_RELAY_URL` or the `relay` option names another.
+  with the doors listed, sealed routes first.
 - *Running from a checkout.* The checkout launcher builds the product if it is missing, then runs the complete staged
   installation without build tools. After editing source, run `glowcap-install` explicitly. The runtime proof exercises
   this path without a binary override.

@@ -9,14 +9,12 @@ sources:
 
 # Stores, transactions and reads
 
-A Store keeps validated records in memory and prepares storage work for your
-executor. [SQLite operations](sqlite.md) and [LMDB operations](lmdb.md) cover
-the disk engines that hold its records between runs.
-
-Loam's `core.Store` emits read requests and write batches. A worker runs them
-against an engine and reports the result. The Store touches no disk and
-starts no thread. The [integration guide](../loam.md#choosing-an-integration)
-explains how an embedding, binding, or application runtime drives that worker.
+A `core.Store` keeps validated records in memory and emits read requests and
+write batches. A worker runs them against an engine and reports the result,
+and the Store touches no disk and starts no thread. The
+[integration guide](../loam.md#choosing-an-integration) explains who drives
+that worker, and [SQLite operations](sqlite.md) and
+[LMDB operations](lmdb.md) cover the disk engines.
 
 ```mermaid
 flowchart LR
@@ -106,10 +104,8 @@ it:
 3. Deliver what recovery found through `Store.resolve`.
 
 Disk-engine recovery needs exclusive access and reports `Busy` while an
-operation still holds the engine. It refreshes failed engine state under the
-existing directory lock and confirms what is on disk before it returns an
-answer. If recovery fails, the write stays unknown, so keep the batch and try
-again.
+operation still holds the engine. If recovery fails, the write stays unknown,
+so keep the batch and try again.
 
 Keep the Store and engine open until recovery succeeds. Closing and reopening
 the engine starts a new Store, as a process restart does, and the new Store
@@ -136,8 +132,7 @@ the canceled result never reaches the cache.
 
 `currentView` refuses a lease on an older version, so code that decides what
 a capability may do always sees the current record. `view` still reads older
-versions. A record being intact and a lease being current are separate
-checks, and caching a record never makes an old lease current.
+versions.
 
 ## Cache and memory
 
@@ -200,34 +195,25 @@ refused if any commit lands before it completes.
 ## Adding a storage engine
 
 An engine is the technology that holds bytes, and Loam asks one thing of it:
-transactions. `beginRead` opens a read transaction with `get`, `next`, and
-`end`. `beginWrite` opens a write transaction with `get`, `next`, `put`,
-`remove`, and then `commit` or `abort`. Keys are byte strings compared in byte
-order, and `next` returns the first row under a prefix after a floor. The
-floor can sort before the prefix or lie outside it.
-
-Opening an engine takes whatever arguments it owns and is outside the contract.
-`readerCapacity` reports how many read transactions can be open at once, and
-the next one is refused as `ReaderCapacity`.
+transactions. [`core/backend.zig`](../../src/loam/core/backend.zig) states the
+contract: the read and write transaction operations, `readerCapacity`, how
+long a returned slice stays valid, and how a refused `put` or `remove` ends
+the transaction. Keys are byte strings compared in byte order, and `next`
+returns the first row under a prefix after a floor. The floor can sort before
+the prefix or lie outside it.
 
 `core.backend` derives the worker's read, commit, lookup, and recover from any
 engine once, so an engine implements no record logic. `checkEngine` and
 `checkBackend` refuse at compile time with a message that names the missing
-operation. The shared engine scenarios in `test/loam/core/engine_scenario.zig` exercise
-this contract. A test root such as `test/loam/core/engine_test.zig` runs them
-against an engine. A refused `close` while a transaction is open is `error.Busy`,
-and the engine then starts no new transaction until the close is retried.
+operation. The shared engine scenarios in `test/loam/core/engine_scenario.zig`
+exercise this contract, and a test root such as
+`test/loam/core/engine_test.zig` runs them against an engine. A refused
+`close` while a transaction is open is `error.Busy`, and the engine then
+starts no new transaction until the close is retried.
 
-A slice that `get` or `next` returns stays valid until the next `get`, `next`,
-`put`, or `remove` on that transaction, or until the transaction ends. Copy it
-if you need to keep it longer. The next operation may take that slice as input,
-and the engine must preserve the input while it runs.
-
-A refused `put` or `remove` applied nothing and ends the transaction,
-so a later `commit` can never apply part of a batch. `commit` reports a
-failure as refused only when the library's own code proves the write never
-reached its commit point, and as unknown otherwise. The engine's error
-mapping names the proof beside each refused code, and the
+`commit` reports a failure as refused only when the library's own code proves
+the write never reached its commit point, and as unknown otherwise. The
+engine's error mapping names the proof beside each refused code, and the
 [SQLite page](sqlite.md#commits) shows both outcomes.
 
 SQLite, LMDB, and the in-memory `Volatile` are the engines in this library. The

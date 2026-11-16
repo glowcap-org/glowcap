@@ -26,9 +26,9 @@ iroh. The binding parks on the driver's one readiness descriptor, steps, and
 drains one event queue. The byte-fed Host is the path for wasm and for channels
 an embedder supplies, including the keyed-relay bridge. TypeScript has one
 runtime constraint: parking is an off-thread `poll(2)`, so Bun and the wasm
-adapter keep the byte-fed path. Racket steps with zero timeout on its place's OS
-thread and parks through `unsafe-file-descriptor->semaphore`, with the reentrant
-Host lock serializing verbs against the park thread.
+adapter keep the byte-fed path. Racket parks through
+`unsafe-file-descriptor->semaphore`, and its reentrant Host lock serializes
+verbs against the park thread.
 
 ## The host loop
 
@@ -57,8 +57,7 @@ Once a hook copies, parks, or otherwise takes responsibility for an action, it
 returns OK even when the asynchronous work it scheduled may later fail.
 
 Ignoring an action can strand a call or handoff, so every action has a
-terminal path: `DIAL` reports success or failure, and `NEED_GIFT_ID` reports
-provided or failed. The shared Zig helper `embedder_pump`, the generated action
+terminal path. The shared Zig helper `embedder_pump`, the generated action
 inventory, and the C pull queue keep this loop the same across runtimes.
 
 The same commit rule covers work created by a language finalizer or a detached
@@ -75,10 +74,9 @@ progress task:
   ABI guarantees that a non-OK release committed nothing, and the core defines
   what a release means.
 
-Inbound byte streams go through `glowcap_host_session_feed_bytes`. The host
-unwraps canonical Syrup byte strings, retains a split prefix or body, and
-applies the declared-body limit. A binding should not add another scanner or
-tail buffer. `GLOWCAP_ERR_WOULD_BLOCK` from `feed_bytes` or
+Inbound byte streams go through `glowcap_host_session_feed_bytes`, which owns
+framing, split input, and the declared-body limit, so a binding adds no scanner
+or tail buffer. `GLOWCAP_ERR_WOULD_BLOCK` from `feed_bytes` or
 `glowcap_host_session_resume_feed` is outbound backpressure, not a protocol
 refusal: drain actions, wait until the session's writer has written the frames
 queued so far, then retry the call, with the same byte chunk for `feed_bytes`.
@@ -121,20 +119,18 @@ await:
   provides caretaker/attenuate and spawn/publish
 - Rust's `session_shared` holds state shared by its session handles
 
-The files follow each language's naming conventions, and the division is the
-same in all four bindings. `zig build source-check` rejects a missing module, a direct action-pop loop, or
+File names follow each language, and the division is the same in all four.
+`zig build source-check` rejects a missing module, a direct action-pop loop, or
 a binding that bypasses the generated action decoder.
 
 ### TypeScript package surface
 
-Each `@glowcap/*` directory under `bindings/ts/` is a publishable package.
-Its root is the ship surface: source that a consumer imports. Tests, harnesses,
-smokes, benches, and probes live under that package's `test/` directory (or
-under the workspace-level `test/`), not beside `mod.ts`. Every package
-`deno.json` names `test/**` in `publish.exclude`, so a broad `**/*.ts` include
-cannot ship them. `zig build source-check` refuses `*_test.ts`, `*_smoke.ts`,
-`*_bench.ts`, `*_probe.ts`, and `*_harness.ts` outside `test/` in a package,
-and a publish block that includes TypeScript without excluding `test/**`.
+Each `@glowcap/*` directory under `bindings/ts/` is a publishable package
+whose root holds only source a consumer imports. Tests, harnesses, smokes,
+benches, and probes live under the package's `test/` (or the workspace-level
+`test/`), which every package `deno.json` names in `publish.exclude`.
+`zig build source-check` refuses a test-shaped file outside `test/` and a
+publish block that does not exclude `test/**`.
 
 Host action tags and layouts are generated from one Zig table. Callback bodies
 are handwritten because they cross into language-specific I/O.
@@ -169,10 +165,9 @@ Python, and Racket generate their function bindings but keep some struct
 declarations by hand. Every one of those declarations is checked against the
 whole shape of the C struct it mirrors: its size, and each field's name, offset,
 and width, reflected off the real Zig types by
-`zig build gen-binding-ffi-layouts`. Rust checks at compile time in a `const`
-block. Python and Racket check the moment the module is imported. A mirror that
-declares no such check fails `zig build source-check`, so every mirror is
-covered.
+`zig build gen-binding-ffi-layouts`. Rust checks at compile time, and Python
+and Racket at import. A mirror that declares no such check fails
+`zig build source-check`.
 
 A C layout change must update every hand-written mirror in the same change.
 
@@ -204,8 +199,7 @@ writable, and closed events, and try-I/O never parks the runtime. Unlike iroh,
 peer creation and signaling submissions are synchronous control operations, and
 a bare locator has no authority to perform them. Every server binding dials
 through `webrtc.provider(signaling)`, which hands the library the signaling
-callbacks and lets the driver run the exchange. Rust also listens through
-`webrtc::listen` with the same callbacks. Rust, Python, and Racket also
+callbacks and lets the driver run the exchange. Rust, Python, and Racket also
 expose the raw family. The Deno entry loads the library for that dial only, and
 the browser package uses `RTCPeerConnection` directly and never loads it.
 
@@ -219,7 +213,7 @@ zig build bindings-goblins-gift
 zig build bindings-iroh-loop
 ```
 
-Each binding also has its own steps, which the package pages on the registries do not list:
+Each binding also has its own steps:
 
 | Binding | Against a glowcap peer | Against a Goblins peer | Also |
 | --- | --- | --- | --- |

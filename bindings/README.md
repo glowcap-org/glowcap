@@ -60,13 +60,12 @@ the Host. Rust, Python, and Racket load both, then install the transport archive
 you need ([Using glowcap from C](../docs/consuming-from-c.md) lists them).
 Wasm, browser WebRTC, and a bare relay locator skip the driver and feed bytes
 to the Host themselves. To listen on a wildcard interface (`0.0.0.0` or `::`),
-give an advertised host, because partners dial it and the bind address is only
-a local socket.
+give an advertised host for partners to dial.
 
 The bindings also restore saved references (sturdyrefs), pipeline calls on
-promises, attenuate, revoke, and collect references no peer still holds.
-That last one, distributed garbage collection, is on by default in Rust and
-opt-in per session elsewhere.
+promises, attenuate, revoke, and collect references no peer still holds
+(distributed garbage collection, on by default in Rust and opt-in per session
+elsewhere).
 
 Field, index, and tag projections over an unresolved remote answer use the
 `1.0` wire operations. On `glowcap-next`, await the value before projecting it
@@ -92,9 +91,8 @@ separately.
 
 Releasing a `Ref` spends that one occurrence, including its Rust clones:
 
-- Calls through a spent occurrence are refused, even if another occurrence
-  keeps the same target alive. Releasing one occurrence does not revoke the
-  others.
+- Calls through a spent occurrence are refused. Other occurrences of the
+  same target stay usable.
 - Once the release succeeds, the wrapper stays spent. Only a refusal before
   that point can be retried.
 - In Racket, a later drain failure is kept on the surviving Host and reported
@@ -106,8 +104,8 @@ original thrown value through awaiting, indexing into the result, and dependent 
 reports a scheduler or callback failure as itself, not as an invalid argument.
 
 A missing publication is either a typed local miss or a partner's exact
-bootstrap fetch refusal. Use the binding's error helper so diagnostic text is
-interpreted only with the required provenance and operation context:
+bootstrap fetch refusal. Check for it with the binding's helper, never by
+matching diagnostic text:
 
 | Binding | Missing-publication check |
 | --- | --- |
@@ -121,15 +119,14 @@ interpreted only with the required provenance and operation context:
 Each Host chooses the `glowcap` or `interop` profile as one setting. `interop`
 is CapTP `1.0` over Syrup, the baseline every peer speaks and the one Goblins
 uses. `glowcap` offers `glowcap-next` over Cap'n Proto to a peer that offers
-it too. The binding looks the name up in generated ABI constants, so an
-application never pairs a codec with a CapTP version by hand. The individual
-codec and version selectors remain for protocol tests and peers with unusual
-preferences.
+it too, so an application never pairs a codec with a CapTP version by hand.
+Separate codec and version selectors serve protocol tests and peers with
+unusual preferences.
 
-Each Host also takes optional session limits as named arguments. Limits
-for accepted frames, queued pending answers, transient outbound bytes, and
-durable sent-answer bytes are set independently. An omitted or zero field keeps the
-Host's current value, and a change applies only to sessions created afterwards.
+Each Host also takes optional session limits as named arguments, each set
+independently: accepted frames, queued pending answers, transient outbound
+bytes, and durable sent-answer bytes. An omitted or zero field keeps the Host's
+current value, and a change applies only to sessions created afterwards.
 
 ## A call can introduce another peer
 
@@ -155,12 +152,12 @@ receiver's promise with the same reason.
 
 ## Closing sessions and hosts
 
-Closing a session ends one connection. Closing a Host first stops its listeners
-accepting new sessions, then ends every session it owns, including
-connections it opened while redeeming handoffs.
+Closing a session ends one connection. Closing a Host stops its listeners,
+then ends every session it owns, including connections it opened while
+redeeming handoffs.
 
-A Runtime owns its Host and transport composition. Closing the Runtime ends its
-listeners, Host, and remaining sessions. When several parts of an application
+A Runtime owns its Host and transports, and closing it ends its listeners,
+Host, and remaining sessions. When several parts of an application
 must share one identity, hand the Runtime an existing Host: `adoptHost` in
 TypeScript, `adopt_host` in Python and Rust, and `#:adopt-host` in Racket. The
 Runtime becomes the shutdown barrier for the Host it adopts.
@@ -184,12 +181,10 @@ Runtime becomes the shutdown barrier for the Host it adopts.
   aimed at the serving thread escapes as the break and leaves the session
   live, so a later `session-serve` resumes it. Dropping Rust's `serve` future
   gives up observing the session while delivery continues. Cancelling a
-  Python `serve()` task ends that session: the loop closes the transport on
-  the way out, as it does for every other exit.
+  Python `serve()` task closes that session.
 - TypeScript, Python, and Rust keep at most <!-- value ../tools/gen/binding/policy.zig unobserved_outcome_cap -->1,024<!-- /value --> settled outcomes that no
-  caller has awaited yet, a cap the binding-policy generator writes into all
-  three. Past it, the oldest result is dropped and a late await fails. Racket
-  waits at the call site and needs no queue.
+  caller has awaited yet. Past it, the oldest result is dropped and a late
+  await fails. Racket waits at the call site and needs no queue.
 - Racket keeps its own actor vocabulary: `spawn`, `$`, `<-`, `on`, `bcom`,
   and `methods`.
 - Every binding has a regular check in which Goblins dials it as a server,
@@ -199,12 +194,11 @@ Runtime becomes the shutdown barrier for the Host it adopts.
 A `send` or `tell` to an actor spawned by the same session stays in process in
 every binding.
 
-Cleaning up a deferred reply uses the Host's `resolver_abandon` operation. It
-breaks an answer that is still live, succeeds quietly if settlement or session
-shutdown already consumed it, and refuses an id the Host never created. Rust
-calls it when a resolver is dropped, TypeScript and Python call it for
-automatic async completion cleanup, and Racket exposes `resolver-abandon!`.
-Explicit resolver fulfillment and break settle once.
+Cleaning up a deferred reply uses the Host's `resolver_abandon` operation, which
+breaks a live answer and succeeds quietly if settlement or session shutdown
+already consumed it. Rust calls it when a resolver is dropped, TypeScript and
+Python call it for automatic async completion cleanup, and Racket exposes
+`resolver-abandon!`. Explicit resolver fulfillment and break settle once.
 
 ## Transports
 
@@ -220,15 +214,13 @@ no peer proof, so each is an explicit opt-in through the provider's `profiles`. 
 without a locator's profile refuses the dial with the code `INVALID_ARGUMENT` and the
 transport-unavailable cause, so callers branch on the cause.
 
-Applications call `runtime.connect(locator)` after composing the Runtime with
-the provider or connector they need. Each optional transport package owns its
-locator construction, configuration, setup, and options, so the generic
-binding code names no transport.
+Each optional transport package owns its locator construction, configuration,
+setup, and options, so the generic binding code names no transport.
 
 A connector that cannot realize a route in its current configuration reports
-`transport_unavailable` before opening a channel. A connection attempt that
-fails keeps its I/O error. These constructors preserve that distinction through
-the Host's dial completion without interpreting diagnostic text:
+`transport_unavailable` before opening a channel, and a connection attempt
+that fails keeps its I/O error. These constructors carry that distinction
+through the Host's dial completion:
 
 | Binding | Constructor |
 | --- | --- |
@@ -268,17 +260,14 @@ The relay package exposes one Zig provider through the C ABI.
 - Managed browser and event-loop connectors use their runtime's own WebSocket,
   while the byte-fed Host still handles Noise and CapTP.
 - Failures from installing a provider, closing a listener, or releasing the
-  loop come back as one versioned failure record, which the binding reads
-  field by field.
+  loop come back as one versioned failure record.
 - If the final release is refused, the binding retries it once at each later
   safe point and stops when ownership is consumed. A release or cleanup failure
   along the way is recorded as a consequence of the original failure.
 
-At the C boundary, release returns two facts in one signed word. Negative
-results retain ownership and are ordinary error codes. Zero consumes ownership
-successfully. Positive results consume ownership and negate the failure code.
-Use `glowcap_release_result_consumed` and `glowcap_release_result_code` to read
-those facts. All four bindings use generated accessors for this contract.
+At the C boundary, a release result says whether ownership was consumed and
+with which failure, read by `glowcap_release_result_consumed` and
+`glowcap_release_result_code`. All four bindings use generated accessors for it.
 
 Rust keeps unfinished releases if their thread exits, because the C code may
 still borrow the Rust callbacks or allocator. Finish close and any required
@@ -288,9 +277,9 @@ allocated for the process lifetime.
 ### Failures with no caller
 
 Some failures have no caller left to receive them, such as a finalizer that
-refuses or a shutdown step that fails after the code that asked for it has
-moved on. Such a failure becomes one typed record in a bounded list the Host
-keeps, and the application drains that list when it chooses:
+refuses or a late shutdown step. Such a failure becomes one typed record in a
+bounded list the Host keeps, and the application drains that list when it
+chooses:
 
 - Rust: `Host::take_failures`
 - TypeScript: `host.takeFailures()`
@@ -320,8 +309,8 @@ the devcontainer includes. Each language README lists focused build steps.
 Rust's optional `loam` feature provides a storage API through
 `libglowcap_loam` and a SQLite, LMDB, or in-memory engine, using the same Host
 and capabilities as the rest of the binding. The [lifecycle
-guide](../docs/loam/c-and-rust.md) covers the API and its tests. Compiled for
-`wasm32-unknown-unknown`, the same feature stores to IndexedDB, as the [browser
-guide](../docs/loam/browser.md) describes. TypeScript, Python, and Racket have
+guide](../docs/loam/c-and-rust.md) covers the API. Compiled for
+`wasm32-unknown-unknown`, the same feature stores to IndexedDB, as the
+[browser guide](../docs/loam/browser.md) describes. TypeScript, Python, and Racket have
 no direct Loam storage API. They can call objects hosted through Loam over
 ordinary CapTP sessions.

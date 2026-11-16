@@ -45,8 +45,7 @@ storage and whether the wrapper combines writes into fewer transactions.
 The [Tasks app](../../apps/tasks/README.md) is a second application on Loam.
 [`tasks.zig`](tasks.zig) opens the app's own `Storage` (a disk engine, the
 attachment and the board behaviors) and drives it with hosted calls through the Host's local
-owning call, the same one the app uses at startup. No socket is involved, and
-nothing of the board is reimplemented here. A full run fills one board with 16
+owning call, as the app does at startup, with no socket. A full run fills one board with 16
 lists of 256 tasks. The last list stops 64 tasks short so that moves and
 watched adds have room.
 
@@ -82,8 +81,7 @@ and keep every check below.
 owner holds every resource, because owner directory pages grow with the count
 and one owner is the hardest case for a full-store scan. Setup stages 16
 resource appends and their content records per commit through
-`managed_setup.zig`. A commit retains one change batch and each append is one of
-its effects, so `ChangeBatchRecord.max_effects` bounds the batch. A sampled
+`managed_setup.zig`, bounded by `ChangeBatchRecord.max_effects`. A sampled
 resource keeps its resource and content ids, and 128 samples (16 in smoke) are
 drawn uniformly from the whole population by a fixed seed. Only the samples are
 granted a use and control endpoint, so heap and actors do not scale with the
@@ -111,10 +109,9 @@ Every run fails unless each reply is the expected value, no cold call commits
 or leaves residency above the budget, setup creates no actor, and the actor
 count after the phase equals the count after sharing. Actor counts must also
 match across populations. The larger population may add at
-most two reads to a cold call. The resource index has four fixed levels, and
-the sampled path shares its root and level-1 pages with the path the call also
-reads to the owner's parent resource while slots stay below 2^24, so only the
-lower two pages can differ. A scan would add reads in proportion to the count.
+most two reads to a cold call, because the resource index has fixed depth
+(`growth_allowance` in `scale.zig` derives the bound). A scan would add reads
+in proportion to the count.
 
 ## Collection cost
 
@@ -174,10 +171,8 @@ endpoints.
 The [managed workload](managed.zig) declares the cache, pinned-record, call,
 lease and endpoint limits, and derives its collection journal quota from
 the records initially kept and cached plus the cold call calibration window.
-Directory pages are outside the pinned-model budget, so the bound includes
-their traversal, endpoint/descriptor/header/content reads, newly restored
-retentions and each portrait's strong edges. Schema edge limits and directory
-level types supply the bound. Journal allocation grows only with actual debt.
+`collection_window_roots` there spells out what each read can add to that
+bound. Journal allocation grows only with actual debt.
 
 Calibration serializes read-only calls to one endpoint and finishes collection
 before further calls, so the quota allows no unlimited churn between batches.
@@ -189,7 +184,7 @@ include Zig-level authority evaluation and atomic grant, use/control descriptors
 and endpoint creation. Content is installed beforehand. These samples measure
 the Zig-level issuer. Hosted derivation/publication costs remain separate.
 
-Managed calls use the existing durable Host adapter. The phases are:
+Managed calls use the durable Host adapter. The phases are:
 
 - **Control attenuation:** a chain of narrowed controls (four links in smoke, 32
   in the full workload). Each step evicts the cache, checks current management
@@ -322,14 +317,8 @@ A separate conversation population uses the persistent workers in
 [`worker_pool.zig`](worker_pool.zig), with bounded admission, cache and
 pending-call limits that [`sustained.zig`](sustained.zig) checks. During these phases, only worker threads execute database reads and
 commits, each through `hosting.Worker.run`. The owner thread drives Host/Vat,
-prepares batches and installs completions.
-
-Posting a request lends its buffer to one thread, and the completion event
-hands it back after its I/O finishes. Workers wait on events between
-requests. Shutdown waits for outstanding work, installs its completions, then
-stops and joins all workers before releasing attachment or Store state. Worker
-startup precedes borrowing any Store request, and a partial startup failure
-stops and joins every worker it created.
+prepares batches and installs completions. The pool's lending, startup, and
+shutdown order are documented in `worker_pool.zig`.
 
 Each read and mixed phase admits 1,024 calls, replacing settled calls immediately.
 The mixed phase edits every eighth header and reads the others. Reports include
@@ -337,8 +326,8 @@ backend operations, allocations, per-call p50/p99 latency, throughput, maximum
 occupied workers, turns at worker capacity and peak pending bytes.
 
 This is a closed-loop load: offered traffic slows when the attachment's
-64-call window fills. It measures this bounded working set, not an open-loop arrival rate or
-maximum throughput. Concurrent commits can invalidate an in-flight read
+64-call window fills. It measures this bounded working set, not an open-loop
+arrival rate or maximum throughput. Concurrent commits can invalidate an in-flight read
 snapshot, and retries appear in the backend read counts. The owner polls worker
 completions, and idle polling cost is part of these measurements.
 
@@ -356,8 +345,6 @@ then holds a collection commit, admits 65 durable calls, verifies refusal of
 one excess call at the attachment's 64-call bound, and verifies that a transient
 actor finishes while the accepted durable calls remain fenced.
 
-Gates release and worker work completes before borrowed memory is freed,
-including error cleanup. Workers join before pool or backend teardown.
 Calibration completes its tracing cycle before adding measured garbage. The
 smoke artifact uses its build-owned deadline to detect stalls, and elapsed
 measurements have no acceptance threshold.
@@ -419,7 +406,6 @@ Actor retirement can release a remote capability while the Vat is
 opening another turn. A calibrated regression checks queued actor turns and
 synchronous near calls: execution includes destructor cleanup, top-level Host
 reentry refuses, and queued GC is pumped after the outer boundary returns.
-The frame commits its running hold before destructors can resize the actor index.
 
 ## Process memory
 
@@ -450,8 +436,8 @@ Process RSS includes them. No memory snapshot is a live CapTP session footprint.
 ## Reading the results
 
 Read and allocation counts depend only on the code. Wall-clock results depend
-on the machine, filesystem, and competing work. Repeat runs on the same system
-before drawing timing conclusions. Record the revision and command with each
+on the machine, filesystem, and competing work, so repeat runs on the same
+system before drawing timing conclusions. Record the revision and command with each
 saved report.
 
 All paths validate replies, collection totals, and complete Zig allocation

@@ -110,10 +110,9 @@ transport for all of its sessions. Call `Runtime::close` when you are done with 
 time limit applies to the whole Runtime. Set it with `RuntimeConfig::with_handshake_timeout`.
 
 An `iroh`, `noise-tcp`, `keyed-tcp`, `tcp`, or routed relay dial or listener runs on glowcap's
-driver loop, which lives in the `libglowcap_driver` C library. The loop waits on the sockets,
-accepts handshakes, moves bytes, and releases finished sessions. A `Host` you supply must be idle,
-and it moves to that loop before its first network operation. A routed relay locator adds the
-relay transport to the same loop. If your code feeds bytes itself, install connectors instead.
+driver loop, the event loop in the `libglowcap_driver` C library that owns the sockets. A `Host`
+you supply must be idle, and it moves to that loop before its first network operation. If your
+code feeds bytes itself, install connectors instead.
 
 `tcp::listen`, `tcp::keyed::listen`, and `tcp::noise::listen` return the same
 `tcp::Server`. Its `locator()` and `uri()` report what partners dial, and a
@@ -126,8 +125,7 @@ relay transport to the same loop. If your code feeds bytes itself, install conne
   instead of a direct socket address.
 
 `tcp::ListenOptions` selects the Host identity and the dialable
-`advertised_host` that a wildcard bind requires, because a bind address is not
-a reachable route.
+`advertised_host` that a wildcard bind requires.
 
 ## Sessions and actors
 
@@ -147,8 +145,8 @@ reference).
   another Host.
 - `caretaker` creates a revocable forwarder. `attenuate` restricts a reference
   to selected methods.
-- Local sends, tells, and proxy forwarding run through the Host, which tracks which actors are
-  alive and routes messages. A `tell` is a send that expects no reply.
+- Local sends, tells, and proxy forwarding run through the Host. A `tell` is a send that
+  expects no reply.
 - `Session::resolve` accepts an object or a promise through the same opaque
   reference, so callers need not inspect reference kinds. The wire-level
   `Session::listen` follows the promise rules of the CapTP version in use.
@@ -183,14 +181,14 @@ limit as a transport's own listen and dial.
 
 Several sessions can share a `Host` through `RuntimeConfig::providers([provider]).adopt_host(host)`
 and the listener's `ListenerIdentity::Host(host)` option. The shared Host has one identity and
-handles handoffs, where a peer introduces you to an object hosted by a third peer. Use
+handles handoffs, where a peer introduces an object hosted by a third peer. Use
 `send_redeeming` when you also need the session to that third peer, returned as `via`.
 
 `Host::application_state` shares one typed Rust value across all handles of a
 Host and adds no protocol state or lifecycle hook.
 
-- Stored data must not own that Host or its sessions, since those owners would
-  form a reference cycle.
+- Stored data must not own that Host or its sessions, because that forms a
+  reference cycle.
 - Recursive initialization of the same type returns an error, and an unwinding
   initializer leaves that type available for retry.
 - `same_host` compares the shared owner, independently of durable-key equality.
@@ -226,12 +224,10 @@ owned state into their behavior.
 
 ### Observing and releasing
 
-`Session::closed().await` waits for the session to end without asking it to
-close or taking over serving. Every waiter, including one that arrives after
-the end, gets the same result. Cancelling an observer leaves the
-connection running. `Session::partner_abort` returns the `PartnerAbort` the
-partner sent before ending the session, or `None`, and stays readable after
-close.
+`Session::closed().await` waits for the session to end without closing it or taking over serving.
+Every waiter, even one that arrives after the end, gets the same result, and cancelling one leaves
+the connection running. `Session::partner_abort` returns the `PartnerAbort` the partner sent before
+ending the session, or `None`, and stays readable after close.
 
 `Host::enliven_for_version` and `Host::fetch_at` can make a Runtime's first
 network operation. Each returns its own reference, even on a cache hit.
@@ -240,9 +236,9 @@ has not opted into GC. Releasing it explicitly also works, and then the drop
 does nothing.
 
 `Ref::clone` shares that occurrence, including its explicit release state.
-Use `reference.retain_for(&host)` when captured work must survive release of the
-original. It returns an independently owned occurrence that releases on final
-drop, refusing foreign, released or closed-Host inputs before acquiring a hold.
+When captured work must survive release of the original,
+`reference.retain_for(&host)` returns an independently owned occurrence that
+releases on final drop. It refuses foreign, released, or closed-Host inputs.
 
 `promise.with_owned_outcome()` gives every capability in that reply final-drop
 cleanup, including references nested in copied values. It applies even when
@@ -296,10 +292,8 @@ configure one, so `Config` names where an existing daemon listens. With
 the generic driver and yield ordinary Sessions. `onion::Netlayer` remains the
 raw frame handle. The [onion page](https://glowcap.org/transports/onion/) explains what Tor proves.
 
-The crate's own check, `zig build rust-test`, uses a fake daemon and does not test live Tor.
-Repository-level on-demand checks cross Tor with two glowcap peers, Goblins in both directions, the
-upstream conformance suite, service restoration, and Rooms, and the
-[stability page](https://glowcap.org/stability/) records that evidence.
+The crate's own check, `zig build rust-test`, uses a fake daemon. The
+[stability page](https://glowcap.org/stability/) records the on-demand checks that cross live Tor.
 
 The `iroh` and `webrtc` features link each transport's own shared library,
 which the C SDK download includes. For [iroh](https://glowcap.org/transports/iroh/), construct a
@@ -324,9 +318,7 @@ handshake deadline, and one whose signaling fails is given up at the driver's
 next step.
 
 The wire codec belongs to the host. `Host::with_codec(Codec::Capnp)?` creates a
-host whose sessions negotiate Cap'n Proto. The default is Syrup. Host
-construction and publication verbs return `Result`, including entropy,
-allocation, lifecycle, and refusal diagnostics.
+host whose sessions negotiate Cap'n Proto. The default is Syrup.
 
 ### Closing a server
 
@@ -354,8 +346,7 @@ features for IndexedDB storage.
 
 Set `GLOWCAP_LIB_DIR` to an extracted archive's `lib/` directory to use a local copy. In a source
 checkout, `zig build gen-rust-wasm-layouts` prepares the libraries under
-`zig-out/wasm/lib`. Compile-time layout assertions and runtime archive
-fingerprint checks stay enabled.
+`zig-out/wasm/lib`. Layout and archive fingerprint checks stay enabled.
 
 With `async`, the same Host, Session, reference, and vow machinery runs on a
 Tokio `LocalSet` polled by a browser executor. Driver providers and socket
@@ -403,8 +394,8 @@ The `browser` feature supplies `browser::open_websocket`, `websocket`, and
 - Both adapters bound queued bytes and message count before copying an incoming
   ArrayBuffer into Wasm, the one incoming copy. Outgoing sends borrow the
   managed frame through a synchronous browser call.
-- Their close barriers retain failure, wait for the browser close event or the
-  shared deadline, then unregister callbacks.
+- Closing retains a failure, waits for the browser close event or the shared
+  deadline, then unregisters callbacks.
 
 `browser::relay::connector()` composes keyed-relay and noise-relay from their
 locator-carried rendezvous hints. `dial_url` validates and renders the route
@@ -422,10 +413,9 @@ between that SDP and the expected key before supplying Session identity proof.
 - `into_channel` joins accepted signaling work and transfers the entire close
   barrier. An established data channel finishes closing before its parent peer
   connection closes.
-- The Host's task keeps owning that preparation, including complete SDP
-  transitions whose observers are dropped.
-- Browser events record state and wake that task, and a DOM callback spawns no
-  Tokio work.
+- The Host keeps owning SDP transitions whose observers are dropped. Browser
+  events record state and wake its task, and a DOM callback spawns no Tokio
+  work.
 - Host shutdown cancels browser promise observations and waits for their
   callbacks to retire, even when the browser leaves the original WebRTC
   operation unfinished.
@@ -448,9 +438,10 @@ backends, and reuses `Host`, `Ref`, and Session.
 
 The [lifecycle guide](https://github.com/glowcap-org/glowcap/blob/main/docs/loam/c-and-rust.md)
 describes create, share, edit, restart, reopen, receipt calls, and indeterminate creation recovery.
-`Resource::encode` is trusted local metadata, not an invokable capability. The same feature uses
+It also covers graph and owner views. `Resource::encode` is trusted local metadata, not an
+invokable capability. The same feature uses
 [IndexedDB in the browser](https://github.com/glowcap-org/glowcap/blob/main/docs/loam/browser.md)
-when compiled for Wasm. The lifecycle guide covers graph and owner views.
+when compiled for Wasm.
 
 ## Learn more
 

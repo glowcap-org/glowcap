@@ -53,11 +53,8 @@ a Tokio `LocalSet` and engine jobs on a blocking executor. The
 those steps are asynchronous.
 
 The Rust binding runs each piece of storage work as its own task on the
-`LocalSet`, so the Host goes on sending and receiving while it runs, and no caller's future holds it. When the
-work finishes, its task drives the Host again. A failure that the finished
-work cannot hand to an operation becomes the Host's background failure.
-Closing the Host or an attachment waits for the storage work in flight and
-finishes what it enabled before releasing the attachment.
+`LocalSet`, so the Host goes on sending and receiving while it runs, and no
+caller's future holds it ([`work.rs`](../../bindings/rust/src/loam/work.rs)).
 
 In Rust, prepare the resource, save its name where your program keeps private
 startup data, and only then commit it. `persist_private_resource` below is
@@ -221,30 +218,28 @@ A row carries no capability or secret name. A cursor is tied to the endpoint
 and the Store revision, so any edit invalidates it. Start again from Void on a
 conflict.
 
-A resent `issue-access` uses the same receipts as `derive`. Loam checks that
-the caller still holds management and an unrevoked source, then returns the
-original pair instead of comparing the old revision as if the request were
-new. A resent edit likewise finds its receipt first, while a new edit that
-changes nothing still checks the expected revision.
+A resent `issue-access` or edit finds its receipt first and returns the
+original result, once Loam checks that the caller still holds management and
+an unrevoked source. A new edit that changes nothing still checks the expected
+revision.
 
 A control that rejects an edit or issuance at its revision or exact-intent
 check returns `<access:control-conflict 'revision>` or
 `<access:control-conflict 'operation>`. This reply confirms that the rejected
 intent published no effects. Rust's `ControlConflict::read` decodes that
 verdict. A broken promise containing `RevisionConflict` or `OperationConflict`
-is still an uncertain failure. Its diagnostic does not establish this verdict.
+is still an uncertain failure.
 
 Management data and behavior remain application-owned. Rooms, a chat
 application built on glowcap, keeps its own, and its
 [session guide](../rooms/session.md) describes how.
 
-Rust reads management replies through the borrowed views
+Rust reads management replies through the borrowed views in
+[`descriptions.rs`](../../bindings/rust/src/loam/descriptions.rs):
 `ControlDescription`, `PolicyDescription`, `GrantDescription` and
-`InventoryPage`. They keep unsigned revisions and typed bounds without copying
-labels or keeping a copy of the grant. A full last page may need one more,
-empty page to confirm there are no more rows. A row's identity grants no
-control. The Rooms `client::access::Control` keeps a held control, expected
-revisions, and its `Issuance` request so it can resend it.
+`InventoryPage`. They copy no labels and keep no copy of the grant, and a
+row's identity grants no control. A full last page may need one more, empty
+page to confirm there are no more rows.
 
 ## Reference fields
 
@@ -267,14 +262,10 @@ share one stored entry. An aborted transaction never lends its IDs to a retry.
 
 Content that holds a graph can declare
 `ReferenceRequest::RestorePageWithUri` and borrow the stored sturdyref URI with
-`Call::page_saved_uri`.
-
-- The URI bytes for another peer stay valid until the callback returns. Local
-  and live references return `None`, and a live reference whose process has
-  ended still cannot be restored.
-- An ordinary restore keeps no copy of the URI and no lease on the stored
-  entry. `ReferenceRequest::uri_call_size_bound` gives the extra call memory.
-- Reading this URI does not let the reply hand the capability out.
+`Call::page_saved_uri` until the callback returns. Local and live references
+return `None`, and reading the URI does not let the reply hand the capability
+out. An ordinary restore keeps no copy of the URI and no lease on the stored
+entry. `ReferenceRequest::uri_call_size_bound` gives the extra call memory.
 
 `Call::append_reference`, `replace_reference` and `remove_reference` change
 fields in the same transaction as the payload. An exact disclosure returns the
@@ -316,27 +307,26 @@ and written pages:
 - A payload update keeps the page's committed fields without restoring their
   targets, so a receipt can commit even while some unrelated peer is
   unreachable. Loam checks the page's revision and the graph's capacity.
-- Handles belong to that callback and cannot be saved as durable identities.
-- The setter copies the new bytes before the Rust or C buffers go away.
 - A written page takes `GraphField::Held` for a capability the call holds and
   `GraphField::Retained { page, index }` for a field already committed on a
-  loaded page. A retained field keeps its object and stored reference without
-  restoring the target, so reorganizing pages never needs a connection to
-  another peer.
+  loaded page. A retained field keeps its saved edge without restoring the
+  target, so reorganizing pages needs no connection to another peer.
 - Index zero is the first capability field, never the resource link. Loam
   refuses tokens from another call, bad indices, and weak fields before it
   takes any capability.
 
-Loam releases each page's lease before it reads the next. Memory and limits
-follow these rules:
+Handles and the setter's copies follow the rules in
+[`content_graph.rs`](../../bindings/rust/src/loam/content_graph.rs). Loam
+releases each page's lease before it reads the next. Memory and limits follow
+these rules:
 
 - The loaded pages, the new graph, and the callback's lists all count against
-  `Limits.call_bytes`, including allocator overhead. Memory is allocated only
-  as it is needed.
-- Each call reserves its whole allowance up front. `pending_bytes` bounds all
-  of an attachment's reservations, and `ingress_bytes` bounds one session's
-  calls once they leave the queue. These allowances do not enlarge the Vat's
-  message queue, and the record and transaction limits stay separate.
+  `Limits.call_bytes`, including allocator overhead.
+- `pending_bytes` bounds all of an attachment's reserved call allowances
+  ([call memory](actors.md#call-memory)), and `ingress_bytes` bounds one
+  session's calls once they leave the queue. These allowances do not enlarge
+  the Vat's message queue, and the record and transaction limits stay
+  separate.
 - A refusal aborts the whole graph, its change event, and its receipt.
 - Resending a request whose receipt committed checks the current source and
   target grants and the saved results. It does not load the current graph or
@@ -382,21 +372,12 @@ Rules for adding the results together:
   expired history add no rows. Creating resources, editing resources or
   controls, and several managed changes in one call need their own sizing.
 - Each `call_bytes` result is one part of a call's memory, not the whole. Add
-  the reference, graph, and call parts to your own callback's needs. Store
-  staging, capability operations, registration, promise resolution, Rust
-  buffers, and Host network state have their own limits.
-- A graph bound covers the old and new graph together. Page counts leave out
-  the root, payload totals include it, and capability field counts leave out
-  the resource link and page links.
+  the reference, graph, and call parts to your own callback's needs.
+- A graph bound covers the old and new graph together.
   [ADR-0057](../decisions/adr/ADR-0057-retained-content-pages.md)
   records how graph memory is owned and counted.
-- `InvocationBounds` uses `ValueBounds`, which counts every value, each
-  struct key, the total copied bytes, and every capability. Argument bounds
-  cover the whole incoming argument list, including the `mutate` sequence and
-  method name. Reply bounds must cover both new replies and replies saved in
-  receipts. A value within these bounds can still fail to encode.
-- Single-record content and reference edits, resource and control edits,
-  sharing, observation, and forwarding to another peer need their own sizing.
+- `InvocationBounds` reply bounds must cover both new replies and replies
+  saved in receipts. A value within these bounds can still fail to encode.
 
 ## Callback context
 
@@ -415,9 +396,7 @@ revision.
 Loam reads the resource's record before the callback declares anything, and
 rebuilds this context when a newer commit makes the call run again. The C
 layer checks the protected first edge against that record before your code
-runs. A shared trace on Linux and in Chromium checks this identity through
-exact and dependent calls and a cold reopen. Rebuild against the generated
-headers after any change to them.
+runs. Rebuild against the generated headers after any change to them.
 
 ## Callbacks, memory, and limits in C
 
@@ -430,30 +409,20 @@ apart from the source callback and its observer. A zero or overflowing value
 is refused before storage opens.
 
 A receipt callback can call `Call::reserve_continuation_copying` with targets
-it holds.
-
-- The reservation borrows the callback. Its source and target getters return
-  references you own, for the application's own receipt record.
-- The returned `PendingContinuation` follows the commit and any recovery.
-  `confirmed` hands it over once, without allocating. `absent` reports a
-  confirmed absence without taking the observer, and a content callback may
-  ask it.
-- If the receipt never committed, it returns `UNCHANGED`. An unknown commit
-  holds the work until recovery decides. Dropping the observer neither decides
-  the commit nor cancels work already accepted.
+it holds. The returned `PendingContinuation` follows the commit and any
+recovery. It hands over a confirmed `Continuation` once, without allocating,
+or returns `UNCHANGED` if the receipt never committed. An unknown commit holds
+the work until recovery decides, and dropping the observer neither decides
+the commit nor cancels work already accepted
+([`continuation.rs`](../../bindings/rust/src/loam/continuation.rs)).
 
 A confirmed `Continuation` can hand out a public reference that checks the
-source again, or `execute` a target privately.
-
-- `EffectExecution::completed` reports `Ready`, `Unsent`, or `Unknown`. Only
-  `Unsent` means the target never received the call.
-- The execution owns its reply and its borrow of the attachment, so the
-  continuation can be dropped at once.
-- Each ready result returns owned Rust values and reference guards. C child
-  views expire at the next query, and each returned reference must be released
-  on its own.
-- If handing out the result is refused, the ready result is kept for a retry
-  without sending the call again.
+source again, or `execute` a target privately. `EffectExecution::completed`
+reports `Ready`, `Unsent`, or `Unknown`, and only `Unsent` means the target
+never received the call. C child views expire at the next query, and each
+returned reference must be released on its own. Ownership and retry of a
+ready result are in
+[`effect_execution.rs`](../../bindings/rust/src/loam/effect_execution.rs).
 
 The continuation sizing functions report the reservation, the C observer, the
 source call's arguments, the reply, and the Host's dispatch separately. These
@@ -467,12 +436,11 @@ Read-only content can call `Call::disclose_reads_copying` over a target it
 holds.
 
 - `ReadInterface` lists the allowed verbs. Each `ReadMethod` names the
-  interface of every capability its reply returns, in depth-first order. An
-  empty list means the reply may return no capabilities.
-- Loam keeps the original caller's request, checks it before sending and
-  after every wait, and restricts each returned capability the same way. One
-  target and interface keep one identity, even across repeated and nested
-  replies.
+  interface of every capability its reply returns
+  ([`reads.rs`](../../bindings/rust/src/loam/reads.rs)).
+- Loam checks the original caller's request before sending and after every
+  wait, and restricts each returned capability the same way. One target and
+  interface keep one identity, even across repeated and nested replies.
 - Content must declare only read operations, and callbacks that change state
   are refused on this path.
 - `ReadScopeBounds::size_bound` gives the memory it needs.
@@ -538,26 +506,15 @@ A C program runs this loop:
 3. Run it through the engine archive and join the thread that ran it.
 4. Call `glowcap_loam_work_complete` on the Host thread.
 
-Completion follows these rules:
-
-- `out_completed` says whether Loam took the result, even when the status is
-  a refusal. Zero leaves the work and everything it holds in place. One lets
-  you call `glowcap_loam_work_release`.
-- Join the worker before completing or releasing, because a result flag does
-  not show that another thread has finished.
-- After an unknown write, recovery is offered only once the original work is
-  completed and released. If recovery fails or never starts, the store keeps
-  refusing other work.
-- A read that finds damaged bytes completes with `GLOWCAP_LOAM_ERR_CORRUPT`,
-  and retrying it cannot help. When a commit's result is unknown, every other
-  call reports `GLOWCAP_ERR_IO` until recovery succeeds, so keep the Store and
-  engine open until then.
-- Each work handle is one slot of the attachment's `hosting.Worker`, so C and
-  Zig programs follow the same rules for slots, recovery, and shutdown.
-- An engine archive's attachment hands out no more reads at once than the
-  engine has readers, and `glowcap_loam_next_work` reports `WOULD_BLOCK`
-  until one completes. A write is still offered, because it needs no reader,
-  so a thread pool of any size can run every handle it receives.
+Each work handle is one slot of the attachment's `hosting.Worker`, so C and
+Zig programs follow the same rules for slots, recovery, and shutdown. The
+comments on these functions in [`glowcap_loam.h`](../../include/glowcap_loam.h)
+give the completion, release, and `WOULD_BLOCK` rules. Join the worker before
+completing or releasing, because a result flag does not show that another
+thread has finished. A read that finds damaged bytes completes with
+`GLOWCAP_LOAM_ERR_CORRUPT`, and retrying it cannot help. When a commit's
+result is unknown, every other call reports `GLOWCAP_ERR_IO` until recovery
+succeeds, so keep the Store and engine open until then.
 
 `glowcap_loam_advance` reports new Host work through `out_progress`, including
 a fetch sent while a reference is still being prepared. Run that work before
@@ -568,19 +525,17 @@ Collection runs in the same loop. `Store::collect(work_limit)` runs one
 bounded step and returns whether the cycle has more to do. A step does
 `work_limit` units of work, plus whatever finishes the unit it started, so
 call it until it returns false. Over an engine archive it calls the archive's
-`collect` function (`glowcap_loam_lmdb_collect` for LMDB) and then reads
-`glowcap_loam_store_collecting`. A C program that brings its own storage calls
-`glowcap_loam_store_collect_plan`, commits the transaction, and finishes with
-`glowcap_loam_store_finish(raw, 0, outcome)`. Collection is refused while an
-attachment exists or a resource is staged.
+`collect` function (`glowcap_loam_lmdb_collect` for LMDB). A C program that
+brings its own storage calls `glowcap_loam_store_collect_plan`, as its header
+comment describes. Collection is refused while an attachment exists or a
+resource is staged.
 
 ## Tests
 
 `zig build loam-abi-test` covers C ownership and recovery.
-`zig build loam-rust-test` runs create, share, edit, restart, and cold reopen
-over loopback TCP, plus resent requests, panics in callbacks, and worker
-cancellation. It shares its management and field traces with the Chromium
-test in the [browser guide](browser.md#limits-and-tests).
+`zig build loam-rust-test` runs the lifecycle above over loopback TCP and
+shares its management and field traces with the Chromium test in the
+[browser guide](browser.md#limits-and-tests).
 [Stability](../stability.md) says which platforms these cover.
 
 The Rooms

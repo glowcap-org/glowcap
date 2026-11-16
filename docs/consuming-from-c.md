@@ -66,8 +66,7 @@ Provider installation, listener close, and final driver release take a
 caller-owned `GlowcapDriverFailure`. Set its `abi_version` to
 `GLOWCAP_DRIVER_FAILURE_ABI_VERSION` and its `struct_size` to
 `sizeof(GlowcapDriverFailure)` before each call. A refusal or teardown failure
-fills in the result, the primary failure name, the first cleanup consequence,
-and the consequence count. The names have process lifetime.
+fills in the fields `glowcap_driver.h` documents.
 
 If listener close returns `GLOWCAP_ERR_WOULD_BLOCK`, the stop is committed but
 its provider barrier is pending. Keep the listener id, keep stepping the
@@ -191,8 +190,7 @@ Stop new calls in your application, then call `*_shutdown`. Join its
 operation leases, then call `*_release`, which must not race a thread that can
 still begin a call. Release children before their netlayer. The TCP and onion
 netlayers each own their `std.Io` backend and reserve one cancellation worker so
-shutdown stays nonblocking. iroh and WebRTC use readiness plus non-blocking
-try-I/O instead of the blocking frame shuttle.
+shutdown stays nonblocking.
 
 ## Ownership
 
@@ -257,14 +255,12 @@ foreign owner to stop new calls and join its own call leases first.
 
 Rust, TypeScript, Python, and Racket consume this same Host ABI, and their
 pumps, trampolines, and release paths show how a language runtime drives
-glowcap. See the [binding contract](../bindings/README.md).
+glowcap ([binding contract](../bindings/README.md)).
 
 ## Persistent resources
 
-The optional Loam archives attach persistence to the existing Host. Their
-[resource lifecycle guide](loam/c-and-rust.md) specifies startup, copied
-declarations, borrowed callback contexts, worker retirement, completion
-consumption, recovery, and shutdown. The generated
+The optional Loam archives attach persistence to the existing Host, and their
+[resource lifecycle guide](loam/c-and-rust.md) is the consumer path. The generated
 [portable header](../include/glowcap_loam.h) and
 [LMDB header](../include/glowcap_loam_lmdb.h),
 [SQLite header](../include/glowcap_loam_sqlite.h), and

@@ -31,8 +31,7 @@ they enter. It records names and tells watchers who is registered, relays
 introductions and WebRTC signaling, seats members and delivers room traffic,
 hosts files within the room and server limits, and keeps history when you ask.
 The [work admission guide](../../docs/rooms/admission.md) covers temporary
-refusals and operation rates. Directory diagnostics show the effective policy
-and class counters.
+refusals and operation rates.
 
 ```sh
 glowcap apps rooms directory serve --state="$HOME/rooms-state" --history
@@ -75,9 +74,8 @@ the Listeners page offers: `tcp`, `keyed-tcp`, `noise-tcp`, `iroh`,
   same options and are dialed by the server's key.
 - `--transport=noise-relay` registers at a relay named by `--relay=<ws-url>`
   or `GLOWCAP_ROOMS_RELAY_URL`. Under `rooms-web` the relay defaults to that
-  server's own `/relay`, so a browser reaches the directory through its
-  sealed relay listener with no Rooms server chosen. The relay listener
-  advertises the relay as peers dial it, so behind a port forward or a proxy `rooms-web` takes
+  server's own `/relay`. The relay listener advertises the relay as peers
+  dial it, so behind a port forward or a proxy `rooms-web` takes
   `--http-public=<url>` and a standalone server takes
   `--relay-public=<ws-url>` (or `GLOWCAP_ROOMS_RELAY_PUBLIC_URL`).
   `rooms-web` refuses `--relay-public` for its own relay, which `--http-public`
@@ -95,9 +93,9 @@ browser site data. For a Docker deployment, see
 
 ### Listeners
 
-`--transport` chooses the listener peers reach the directory through, and each
-`--listen=<transport>[,<name>=<value>...]` opens another, once per transport,
-with that transport's options as `name=value` pairs. The server starts once
+Each `--listen=<transport>[,<name>=<value>...]` opens a listener beside the
+`--transport` one, once per transport, with that transport's options as
+`name=value` pairs. The server starts once
 every listener is open. Its `/locator` then names the directory by its key
 with every listener listed, so a browser that can open one of them itself,
 such as `noise-relay`, reaches the directory with no Rooms server chosen.
@@ -108,7 +106,7 @@ option passes through as `--session-<option>`, such as `--session-bind`. The
 page is offered the session through any listener a browser can open: iroh, a
 relay, or a TCP listener this server forwards to. A relay listener registers
 at this server's own relay unless `--relay` or `--session-relay` names
-another, and `--relay-public` and `--session-relay-public` apply only then,
+another, and `--relay-public` and `--session-relay-public` are accepted only then,
 because peers dial this server's own relay at `--http-public`.
 
 ## Operator capabilities
@@ -122,8 +120,7 @@ or repeated is refused.
 
 The server keeps each capability's swiss number (the
 secret part of its link) in the state directory. At startup it prints the
-complete `ocapn://` link as a `ROOMS-*` line. A capability you did not name
-does not exist.
+complete `ocapn://` link as a `ROOMS-*` line.
 
 `glowcap apps rooms capabilities --state=<state-directory>` prints the saved
 capabilities again as complete links. Under Docker, run
@@ -181,8 +178,8 @@ either server limit, the server drops the whole history of the least recently
 active room. On
 startup it restores and validates storage before it opens the listener.
 
-**Where history is stored.** Kept lines live in JSONL files, one per room,
-under `history/` in the state directory. A server with no state directory keeps
+**Where history is stored.** Kept lines live in one JSONL file per room
+under `history/`. A server with no state directory keeps
 them in memory. A history directory that cannot be used stops startup.
 
 **File storage.** Startup is refused for a room file over
@@ -229,12 +226,10 @@ session into it. Every attached browser is a view of the same session.
 
 The access editor groups permissions into presets for reading, conversation
 actions, session changes, and managing access. A management link that can
-issue access can create narrower or equal-permission access, up to its own
-ceiling. Sharing management creates a separately narrowed management link,
+issue access creates access no broader than its own. Sharing management creates a separately narrowed management link,
 independent of the session's use permissions. A held management link can edit,
 pause, resume or revoke its scoped grants, and those changes survive restart. The session checks the initiating
-grant on every operation. A send of unknown outcome keeps its original receipt
-and waits for review instead of resending.
+grant on every operation.
 
 A password entered in an IRC bridge form is kept unencrypted in
 `bridge-secrets.json` in the state directory, only while a room still needs it.
@@ -345,7 +340,7 @@ row.
 
 Being in a bridged room means being in the channel. `/me` crosses as an
 action in both directions, and a member's own messages echoed back by the
-channel are hidden, so they never appear twice. The channel's topic is the
+channel are hidden. The channel's topic is the
 room's subject, and a member who joins later hears it too. A topic that
 cannot be a subject, such as one longer than a subject allows, is shown as a
 line, and the room then has no subject.
@@ -355,8 +350,8 @@ network policy a bot must follow, and the bounds.
 
 ## Moderation
 
-Rooms has no ranks. Ignoring someone stays in your own window, and every
-other moderation power is a link someone holds.
+Rooms has no ranks. Every moderation power except ignoring is a link someone
+holds.
 
 - **Ignoring.** `/ignore` hides someone in your own window only. No server
   learns of it.
@@ -423,15 +418,8 @@ and the page has no switch of its own.
 The `trace` capability serves the live timeline endpoint at `--trace-bind`
 (default `127.0.0.1`) and `--trace-port`
 (default <!-- value rust/services/src/server/config.rs TRACE_PORT plain -->9300<!-- /value -->, or `0` for any free port).
-The deployed stack keeps this listener private and uses `deployment trace`.
-It prints `ROOMS-TRACE-LISTENING` followed by its trace link. The locator advertises separate
+The server prints `ROOMS-TRACE-LISTENING` followed by its trace link. The locator advertises separate
 `captp-websocket` and `trace-publish` endpoints.
-
-The devcontainer sets `--trace-bind` through `GLOWCAP_ROOMS_TRACE_BIND` to
-accept Docker forwarding, with the published host port restricted to loopback.
-For `rooms-dev`, it also supplies `GLOWCAP_ROOMS_DEV_TRACE_CONNECT` and
-`GLOWCAP_ROOMS_DEV_TRACE_PUBLISH`. These become advertised-route flags for
-that launch alone. Other servers keep their in-container routes.
 
 - `/captp` opens a CapTP byte channel for a viewer. Fetching the trace
   object requires its swiss number.
@@ -454,13 +442,11 @@ glowcap apps rooms deployment trace
 Add `--json` for complete records, or `--dir` to select another deployment.
 The command starts a disposable viewer on the deployment network, so no trace
 port needs to be published. It receives replay followed by new protocol events.
-Ctrl-C closes and removes the viewer. Ordinary service logs remain available
-through `deployment logs directory`.
+Ctrl-C closes and removes the viewer.
 
 For a local server, use `glowcap apps rooms trace --state=<directory>`.
 `--url=http://127.0.0.1:<port>` selects its web address. `--print-link` prints
-the complete trace link without subscribing. Deployment startup prints that
-same link after `ROOMS-TRACE-LISTENING`.
+the complete trace link without subscribing.
 
 To subscribe from another machine, pass the full link to
 `glowcap apps rooms trace '<trace-link>'`. Its advertised WebSocket endpoint
@@ -480,17 +466,12 @@ starts the viewer from a checkout.
 Direct messages never pass through the room, so each member publishes its own
 trace to the same endpoint.
 
-- A browser tab acquires the trace link over the advertised CapTP channel and
-  publishes over the separately advertised producer route.
-- It publishes only while it holds the trace link, which the **Live trace**
-  toggle under **Holdings** takes.
 - A member's trace records who it talked to, when, which request type, and how
   many bytes, never the bytes themselves. The room server publishes its own frames
   in full.
 - A shared session publishes from the session process, and its attached tabs
   do not publish a second copy.
-- An ephemeral trace port is carried in both advertised endpoints. A proxy
-  deployment supplies its public endpoints explicitly.
+- An ephemeral trace port is carried in both advertised endpoints.
 
 ## The web launcher
 

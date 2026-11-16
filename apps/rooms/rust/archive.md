@@ -92,9 +92,8 @@ directory, and an exclusive lease on the state directory.
 The default bounds are <!-- value application/src/archive.rs MAX_RECORDS -->5,000<!-- /value --> records,
 <!-- value application/src/archive/disk.rs COMPACT_DELTA -->512<!-- /value --> extra log rows before
 compaction, and <!-- value application/src/archive/disk.rs MAX_FILE_BYTES bytes -->128 MiB<!-- /value --> per file. Parsing, indexing, and filesystem work run
-on a blocking worker. Records cross that boundary shared, not copied. A
-cancelled observation leaves the job owned, and a later operation observes
-its result first. Session documents use the same lock, read, and atomic
+on a blocking worker. Records cross that boundary shared, not copied.
+Session documents use the same lock, read, and atomic
 replacement owner with their own codec and filenames.
 
 ## Files
@@ -128,8 +127,6 @@ identity refuses reuse. The ledger is published only after atomic
 replacement is durable, and an uncertain outcome disables storage until
 reopen.
 
-Only the whole-archive root of a service can issue shares.
-
 - Each published share carries a revocation guard through every narrowed
   facet and reader. Admission checks the guard, and queued work checks it
   again before calling the backend. So a read ordered before a revocation may
@@ -151,9 +148,8 @@ peer), ordered local recording, shares, and erasure. Its queue admits
 Selection takes effect between operations. A failed selected peer stays
 unavailable rather than redirecting writes to the browser, so a member
 never has a second history they did not choose. Reads merge every archive
-the member holds, comparing full record identity, then withdrawal and edit
-state, then the current writer, then listed order, and cloning only the
-winning record handles.
+the member holds and clone only the winning record handles
+([`merge.rs`](application/src/archive/merge.rs) orders the candidates).
 
 Recording policy chooses durable messages, keeps line coordinates, maps
 edits and refiles onto the edited row, and removes text and files on

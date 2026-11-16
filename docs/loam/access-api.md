@@ -32,11 +32,10 @@ Three kinds of code call into it:
 | Hosting | Application host | Serves the model as capabilities, checks calls, and keeps or restores durable names. |
 | Use and management | Local or remote holder | Calls a resource, inspects its own access, makes permitted shares, and controls the grants it holds. |
 
-The model does no I/O and keeps no global list of grants. Hosting uses
-glowcap's public reference and actor interfaces. Passing an ordinary reference
-is an ordinary capability handoff, and managed access leaves the identities,
-reference counts, and handoff tables of [CapTP](../capabilities.md#glossary),
-the session protocol, alone.
+The model does no I/O and keeps no global list of grants. Passing an
+ordinary reference is an ordinary capability handoff, and managed access
+leaves the identities, reference counts, and handoff tables of
+[CapTP](../capabilities.md#glossary), the session protocol, alone.
 
 ## Resources and identities
 
@@ -102,19 +101,15 @@ Storage runs outside the synchronous model. While a durable change is
 pending, other conflicting changes to that owner return busy or wait in the
 application's bounded command queue. Managed access owns no work queue.
 
-The Loam transaction takes the storage result when it succeeds. A write whose
-outcome is unknown, such as one whose confirmation was lost, stops the owner
-until recovery. A write known to have changed nothing keeps the earlier
-committed state. Canceling cannot release a store while it
-is still writing.
+Storage outcomes, cancellation, and recovery follow
+[Loam's transaction rules](api.md#transactions): a write whose outcome is
+unknown stops the owner until recovery.
 
 The store commits content, tree, and grant changes that must happen together
-as one recoverable unit. Several managed changes can join that unit. Each
-one checks against the owner state the earlier ones left in the transaction,
-and all of them merge into one update to the owner's header. A change
-prepared against an older revision is refused, and the caller aborts with
-nothing written. Two unrelated stores cannot do this, so an application uses
-one shared store or its own coordinator with proven recovery. A hosted
+as one recoverable unit, and
+[several managed changes](access.md#several-changes-in-one-transaction) can
+join it. Two unrelated stores cannot do this, so an application uses one
+shared store or its own coordinator with proven recovery. A hosted
 managed call changes resources of one owner.
 
 Ordinary reads write nothing to disk. How durable a content change is follows
@@ -168,12 +163,10 @@ Rust uses the Zig implementation through a C ABI. The ABI converts data and
 hands over ownership, and every permission decision stays in Zig.
 
 [ADR-0056](../decisions/adr/ADR-0056-loam-foreign-and-browser-execution.md)
-and the [C and Rust guide](c-and-rust.md) define what you can call.
-`libglowcap_loam` owns the Store, Attachment, synchronous Call, and submitted
-Work handles. The optional `libglowcap_loam_sqlite`, `libglowcap_loam_lmdb`,
-and `libglowcap_loam_volatile` open storage and run the worker. Rust offers
-`loam::{Store, Attachment, Content, Policy}` and uses the existing `Host`,
-`Ref`, and Session types.
+and the [C and Rust guide](c-and-rust.md) define what you can call, and
+[Loam's architecture](architecture.md#modules-and-archives) lists the
+archives. Rust offers `loam::{Store, Attachment, Content, Policy}` and uses
+the existing `Host`, `Ref`, and Session types.
 
 | Part | What exists |
 | --- | --- |

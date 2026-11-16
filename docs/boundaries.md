@@ -195,8 +195,8 @@ when the sender's session ends, even when the message remains.
   session, while its listener receives a direct handoff. A custom Node
   embedding must install `Node.pipeline_projection` and dispatch its private
   callable deliveries and retirement events in FIFO order. Without that
-  callback, Node publishes the handoff but cannot forward those calls.
-  Discarding a retirement event leaves cleanup to the owning Port's teardown.
+  callback, Node publishes the handoff but cannot forward those calls. Discarding a retirement event leaves cleanup to the
+  owning Port's teardown.
 - **Published resolutions retain the imports they name** until the partner
   releases the answer, subject to retained-answer limits
   ([ADR-0070](decisions/adr/ADR-0070-stored-resolutions-hold-imports.md)).
@@ -221,8 +221,6 @@ remote peers.
   require TURN. Rooms needs a configured credential issuer, and Zig WebRTC
   applications own refresh. Standalone sessions must configure their relay or
   WebRTC route ([session connectivity](../apps/rooms/operating.md)).
-- **Deployment evidence is incomplete.** Public-certificate WSS, separate-NAT
-  reachability, live onion scale, non-Linux runtimes, and several storage and
-  performance cases lack evidence. [Stability](stability.md) and the
+- **Deployment evidence is incomplete.** [Stability](stability.md) and the
   [measurement contract](loam/access-storage.md#performance-contract-and-measurements)
-  specify coverage. The [roadmap](roadmap.md) schedules extensions.
+  name what lacks evidence, and the [roadmap](roadmap.md) schedules it.

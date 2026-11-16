@@ -28,10 +28,9 @@ which is why HTTP starts, recipient pools and bounded state are limited too.
 All services use the typed profile in
 [`admission.rs`](../../apps/rooms/rust/application/src/admission.rs).
 A page holding the diagnostics capability shows the directory's effective
-rates, row cap, aggregate multiplier, and the source of each override on the
-operator page under **Work budgets**. The session, HTTP, and browser profiles come from your own
-arguments and environment and are not reported. Arguments take precedence
-over environment values.
+profile and the source of each override under **Work budgets**. The session,
+HTTP, and browser profiles come from your own arguments and environment and
+are not reported. Arguments take precedence over environment values.
 
 | Setting | Meaning |
 | --- | --- |
@@ -116,7 +115,6 @@ edits. A click does not always cost exactly one unit:
 - Separately held capabilities still spend the grants guarding them, including
   a recipient's shared-session projections.
 - An introduction's readiness lookup also reaches the directory.
-- Byte and recipient limits remain independent.
 
 ## Effect and attribution inventory
 
@@ -169,40 +167,34 @@ Membership recovery has one worker per exact selection:
 - After that minute, a retry from the activity list resumes the failed
   workers. Ordinary workspace changes do not restart the minute. Leaving and
   rejoining also works.
-- The existing source and receipt checks still govern dispatch, uncertainty,
-  replay and retirement.
 - Confirmed current standing ends its recovery incident. A later refusal gets a
   fresh finite window.
 - An unsent standing update follows the latest persisted preference after
   cooldown, so an obsolete refused value cannot apply first.
 
-A receipt records what is known about a refusal:
+A receipt keeps a validated refusal's reason as known absence, distinct from
+an unknown observation, which never becomes advice to resend
+([`custody.rs`](../../apps/rooms/rust/application/src/content/session/custody.rs)).
+An upload claims absence only after its staged files are discarded
+([`transfer.rs`](../../apps/rooms/rust/runtime/src/session/managed/uploads/transfer.rs)).
 
-- A validated refusal retains its reason in an unsent receipt. Host refusal
-  before target admission also retains its diagnostic as known absence.
-- Unknown observations keep their distinct client type and cannot become
-  safe-to-resend advice.
-- Uploads confirm staged-file discard before claiming absence. Failed
-  compensation keeps an uncertain receipt.
-
-The CLI retires a confirmed refused admission's local observation without
-looking for a receipt that was never created. Lost admission or result
-observations retain their exact request. If local retirement fails, its error
-keeps both the original refusal and the cleanup failure.
+The CLI retires a refused admission's local observation and keeps the exact
+request of a lost one
+([tests](../../apps/rooms/rust/product/src/bin/rooms-session/commands/admission/tests.rs)).
+If local retirement fails, its error keeps both the original refusal and the
+cleanup failure.
 
 Data queues and cleanup are separate:
 
-- Each managed inbox reserves two empty-argument withdrawal slots, under a
-  session-wide count and byte ceiling. Their worker checks authority and polls
-  cleanup first, and the reserved path admits no other methods or payloads.
+- Each managed inbox reserves withdrawal slots under a session-wide count and
+  byte ceiling. Their worker checks authority and polls cleanup first, and the
+  reserved path admits no other methods or payloads.
 - Leave and withdrawal execute synchronously, outside the async data-work
   queue.
 - Directory, managed-session and direct-receiving owners also keep one fixed
-  cleanup bucket outside their subject tables. When a table is full, that
-  reserve uses the configured aggregate cleanup rate. Existing subject and
-  ancestor debt is still checked and debited, and only missing rows use the
-  reserve. Exhausted cleanup allowance still refuses work, and capability
-  checks remain mandatory.
+  cleanup reserve at the aggregate cleanup rate for when a subject table is
+  full ([`CleanupReserve`](../../apps/rooms/rust/application/src/admission.rs)).
+  Existing debt is still debited, and capability checks remain mandatory.
 - Private recording and supervision continuations require the exact owner-root
   witness. They recheck their original live grant, callback and selection
   through the ordinary requirements. Public query debt cannot block their

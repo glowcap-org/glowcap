@@ -13,10 +13,10 @@ sources:
 glowcap's software version is **0.1.7 alpha**. CapTP `1.0` names the wire
 protocol it speaks, independently of the project's release status.
 
-[What you can depend on](stability.md) says how each part is checked. glowcap speaks signed CapTP 1.0 over Syrup to
-outside implementations, and most of its regular checks against
-[Spritely Goblins](https://spritely.institute/goblins/) use the cleartext `tcp`
-testing adapter.
+glowcap speaks signed CapTP 1.0 over Syrup to outside implementations, and
+most of its regular checks against
+[Spritely Goblins](https://spritely.institute/goblins/) use the cleartext
+`tcp` testing adapter.
 
 Read [known limitations](boundaries.md) before deploying. [Capabilities](capabilities.md) introduces the model.
 
@@ -63,8 +63,7 @@ The Zig package includes optional iroh, WebRTC, relay TLS, LMDB, and SQLite modu
 The bindings combine `libglowcap_host` and `libglowcap_driver`. The driver offers one generic ABI for dialing,
 listening, and events, over a Host it has adopted.
 
-- The TCP provider package handles `noise-tcp`, `keyed-tcp`, and the testing `tcp`. Other transports register
-  through the same ABI.
+- The TCP provider package handles `noise-tcp`, `keyed-tcp`, and the testing `tcp`.
 - The iroh provider dials and listens. Zig uses `iroh.MultiplexedAdapter` with `driver.connect` and
   `driver.listen`.
 - The onion archive supplies the standard Tor transport. Zig and the Rust, TypeScript, Python, and Racket bindings host onion like any other
@@ -80,7 +79,7 @@ listening, and events, over a Host it has adopted.
   validates every message before applying it and sends a typed abort when an error closes the session.
 - **Calls and promises.** Applications fetch a bootstrap capability, call it, send without waiting, and pipeline
   calls through an unresolved answer. The `1.0` profile also supports field, index, and tag projections over
-  that answer. Next refuses those wire projection operations. Calls and listeners wait through chains of
+  that answer. Calls and listeners wait through chains of
   local promises until their requested result is available ([ADR-0003](decisions/adr/ADR-0003-promise-pipelining-and-listeners.md)),
   and a listener the engine fires or discards gives its listener object back to the partner in one `op:gc-exports`.
   Host preserves queued and late calls when an answer settles to an object on another session
@@ -139,11 +138,8 @@ listening, and events, over a Host it has adopted.
   costs no wake
   ([ADR-0060](decisions/adr/ADR-0060-completion-submission-and-parking.md)).
 - **One wake per reply on io_uring.** When every transport on a
-  `HostRuntime` has its own kernel queue, the idle thread waits inside the
-  first one's queue, and that queue also watches the other wake sources. A
-  reply then wakes the thread once instead of twice.
-  A receive set up again during a call goes out with the next wait, so a call
-  that only read its reply makes no system call as it returns
+  `HostRuntime` has its own kernel queue, a reply wakes the idle thread once,
+  and a call that only read its reply makes no system call as it returns
   ([ADR-0060](decisions/adr/ADR-0060-completion-submission-and-parking.md)).
 - **Unreturned failures.** A failure with no caller left to receive it goes into a typed, bounded log on the
   `GlowcapContext` ([ADR-0031](decisions/adr/ADR-0031-structured-diagnostics.md)).

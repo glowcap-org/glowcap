@@ -19,8 +19,7 @@ and diagrams. This guide covers the Zig integration.
 
 ## Choosing an integration
 
-A program needs a local store only for data it owns. Calling a durable object
-on another peer uses ordinary glowcap capabilities. Opening a Host does not
+A program needs a local store only for data it owns. Opening a Host does not
 open a store or make its actors durable.
 
 | Use | Who sets up storage | Who drives storage work |
@@ -30,11 +29,6 @@ open a store or make its actors durable.
 | Writing a [Rust application](loam/c-and-rust.md#setting-up) | Your startup code opens a Store, registers content, and attaches it to a Host | The binding schedules work on your Tokio executor |
 | Embedding [Zig](#a-first-durable-actor) or [C](loam/c-and-rust.md#driving-storage-from-c) | Your integration code opens a Store and attaches it to a Host when hosting actors | Your executor runs the supplied Worker or C work handles |
 | Using [local records](loam/store.md) | Your code opens a Store with schemas and limits, without a Host | Your executor runs engine operations |
-
-Stores, schemas, and attachments are initialized once for their owning
-lifetime. Object behaviors handle calls through that integration. C and Rust
-expose a smaller resource API, described in the [C/Rust guide](loam/c-and-rust.md)
-and its [browser counterpart](loam/browser.md).
 
 ## The pieces
 
@@ -102,8 +96,7 @@ lets the owner pause, resume, or revoke that access. See the
 [Example 07](../examples/zig/07_durable_card.zig) shows the Zig embedding
 interface. It stores one card in SQLite,
 moves it, shuts everything down, opens the same directory in a fresh Host,
-and finds the move still there. Its setup and work loop belong to the storage
-integration, while the card's behavior describes the application operation.
+and finds the move still there.
 
 **A schema and a behavior.** The card's payload is one integer, how many
 times it has moved. Its behavior reads the saved record and proposes new
@@ -191,9 +184,7 @@ sleepy actors.
 ## Durable actors
 
 The [durable actor guide](loam/actors.md#zig-integration) covers attachment
-setup, call memory, reference arguments, storage work, and shutdown. The
-[first example](#a-first-durable-actor) above shows the complete startup,
-call, and restart sequence.
+setup, call memory, reference arguments, storage work, and shutdown.
 
 ## Modules
 
@@ -229,21 +220,18 @@ browser reach only the fixed resource model, not general record graphs.
 
 **One process per store.** Collection traces only the store this process has
 open. Deleting a record that is not a root leaves references to it resolving
-as gone, and Loam never reuses an object's identity. The
-[browser guide](loam/browser.md) runs the same resource lifecycle on
-IndexedDB.
+as gone, and Loam never reuses an object's identity.
 
 **Managed history.** A managed owner keeps a fixed window of its recent
-change batches ([known limitations](boundaries.md#managed-access)). Grant,
-resource, content, and control changes commit in the caller's transaction,
-and an aborted or empty change adds no history. Batches older than the window
-can be collected. The [observation guide](loam/access.md#observing-held-access)
-covers reading this history, cancellation, and capacity.
+change batches ([known limitations](boundaries.md#managed-access)), and
+batches older than the window can be collected. The
+[observation guide](loam/access.md#observing-held-access) covers reading this
+history, cancellation, and capacity.
 
 [Bounded owner cleanup](loam/access.md#bounded-owner-cleanup) stops new work
 on an owner, retires its durable names, compacts deleted resources and revoked
-grants, and prunes its indexes. It keeps the counters that stop an old ID or receipt from being
-issued again. Collection then reclaims the records left behind.
+grants, and prunes its indexes. Collection then reclaims the records left
+behind.
 
 The [shipped inventory](shipped.md#resource-models) lists what is built.
 

@@ -18,9 +18,8 @@ transactions, and runs recovery.
 [ADR-0048](../decisions/adr/ADR-0048-loam-persistence-foundation.md)
 records how the work is split.
 
-Use the schemas, policies, and content registrations from the
-[C and Rust guide](c-and-rust.md). In the browser, opening, creating, and
-closing are asynchronous too:
+Schemas, policies, and content registrations are the same as in the C and
+Rust guide. Opening, creating, and closing are asynchronous:
 
 ```rust
 let mut store = Store::open("documents", identity, true, &[schema], limits).await?;
@@ -36,21 +35,18 @@ before the resource is committed. The browser store opens by name, because
 IndexedDB is the only engine there. `Store::open_bootstrap` opens the store
 for a saved identity, or creates it if it is missing. Once your program knows
 the store holds its application root, use `Store::open` with `create=false`
-so a missing store is an error. Both hold an exclusive Web Lock.
+and the same identity, so a missing store or a different identity is an error.
 
-Your application opens the Store and attaches its content to a Host. The Rust
-binding drives IndexedDB work on the browser-driven Tokio `LocalSet`, alongside
-`Host`, `Ref`, and `Session`. Storage callbacks run on the browser's main thread and queue the
-next IndexedDB requests while the current request event is still active. No
-transaction stays open across a network or user wait.
+The Rust binding drives IndexedDB work on the browser-driven Tokio `LocalSet`,
+alongside `Host`, `Ref`, and `Session`. Storage callbacks run on the browser's
+main thread and queue the next IndexedDB requests while the current request
+event is still active. No transaction stays open across a network or user
+wait.
 
 ## Opening, closing, and failure
 
-Creating and reopening are separate. Reopening uses `create = false` and the
-same identity, and a missing store or a different identity is refused.
-
 - Each open takes an exclusive Web Lock, never steals it from another tab,
-  and starts a new Store. Transactions refuse writes from an older Store or
+  and starts a new Store. A browser without Web Locks refuses the open. Transactions refuse writes from an older Store or
   revision.
 - A Store with an attachment cannot close until its Host work and callbacks
   finish. A successful detach releases content contexts once.
@@ -59,18 +55,10 @@ same identity, and a missing store or a different identity is refused.
   the lock is free.
 
 A storage task keeps its callbacks on the browser's executor until IndexedDB
-reports a final event, even if your program destroys its Tokio `LocalSet`. The
-binding creates no executor of its own.
-
-- An operation tied to the Host queues a delivery task on the `LocalSet`
-  before it starts I/O. That task finishes the work on the Host's executor and
-  releases results nobody is waiting for.
-- Restoring holds the references it restored until the caller takes them.
-- Once a result is delivered, an acknowledgement keeps the cleanup for
-  abandoned results alive. Buffered results do not hold up closing the
-  attachment or the Host once storage has shut down.
-- If the `LocalSet` ends, the next call that drives the Host finishes the
-  waiting work.
+reports a final event, even if your program destroys its Tokio `LocalSet`, and
+the binding creates no executor of its own. If the `LocalSet` ends, the next
+call that drives the Host finishes the waiting work
+([`browser.rs`](../../bindings/rust/src/loam/browser.rs)).
 
 Every Loam write requires IndexedDB's `strict` durability setting, and a
 browser that cannot provide it refuses the write. Rooms, glowcap's chat
@@ -89,12 +77,8 @@ replace a root another tab has already saved.
 
 Dropping an observer leaves the submitted transaction and its callbacks alive
 until the database reports a final event. If a creation result was abandoned,
-await `recover_creation()` to learn how it ended:
-
-- A committed creation returns its original Resource.
-- A known abort returns `UNCHANGED` and clears it.
-- A write with an unknown outcome keeps the Store refusing other work until
-  recovery decides.
+await `recover_creation()` to learn how it ended, as in the
+[C and Rust lifecycle](c-and-rust.md#the-lifecycle-step-by-step).
 
 Save resource metadata only after a successful commit or recovery.
 
@@ -126,40 +110,26 @@ only with other transactions already in flight, so the reads ahead that
 `Limits.read_ahead` allows set how much of that latency a long restore hides.
 
 `storage_statistics()` reports transactions, planning passes, database rows,
-writes, copied bytes, the largest input seen, the input limit, and the largest
-write per transaction. Copied bytes cover every row, missing key, and write
-that crosses between Rust and JavaScript. They leave out IndexedDB's own
+writes, copied bytes, the largest input seen, the input limit, the largest
+write per transaction, and the crossings between Rust and JavaScript
+(`js_calls` and `callbacks`). Copied bytes leave out IndexedDB's own
 structured cloning, the browser's database cache, and Loam's Zig code.
+[`plan.rs`](../../bindings/rust/src/loam/browser/plan.rs) defines each count.
 
-It also counts crossings between Rust and JavaScript. `js_calls` counts each
-call from Rust into the JavaScript side: one to start each transaction, one per
-queued write, and one each to open, check, and close the database. `callbacks`
-counts each call from JavaScript into Rust: one each time IndexedDB hands a
-transaction its next rows, and one for every promise Rust awaits, such as a
-transaction finishing. The JavaScript side issues each IndexedDB read and
-cursor request itself, so a request is not a crossing. A read that waits for
-a row shows up as one more planning pass.
+`zig build loam-browser-test` runs the linked program in Chromium
+([`bindings/proofs/loam_browser/`](../../bindings/proofs/loam_browser/)). It
+runs the create, share, edit, cold fetch, and resend lifecycle, and the same
+managed-child, inventory, and field traces as the disk-engine tests, with a
+page reload between steps. It also covers the Web Lock, abandoned creation,
+quota rollback, and restoring while storage is blocked or the executor is
+gone.
 
-`zig build loam-browser-test` runs the linked program in Chromium. It creates,
-shares, and edits a resource, reloads the page, fetches the original durable
-name cold, and resends a request whose receipt committed. The same run repeats
-the managed-child, inventory, and field traces that the disk-engine tests run,
-with a page reload between steps. It also covers the exclusive Web Lock,
-abandoned creation, quota rollback, record limits above the default, reopening
-right after an awaited close, and restoring while storage is blocked or the
-executor is gone.
-
-After a reload, the test measures each operation as the change in
-`storage_statistics()` around it. The data is the one resource the run created
-and shared, read through its shared reference. It prints one line per
-operation: a cold read after the reload, a warm read, an edit, a resent
-request, and a share.
-
-On an open database, JS calls equal transactions plus writes, and warm reads
-and resent requests touch no storage. The test checks both. The other numbers
-describe this one resource, and the
-[recorded results](../../bench/loam/results.md) keep them by date. They are
-not a throughput benchmark or a large-dataset measurement.
+The test prints the change in `storage_statistics()` around a cold read, a
+warm read, an edit, a resent request, and a share of its one resource. It
+checks that JS calls equal transactions plus writes on an open database, and
+that warm reads and resent requests touch no storage. The
+[recorded results](../../bench/loam/results.md) keep the other numbers by
+date. They are not a throughput benchmark or a large-dataset measurement.
 
 Two Rooms tests use the same callbacks and transactions:
 
