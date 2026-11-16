@@ -25,7 +25,7 @@ pub(super) async fn run(
 	let source = room.source.unwrap();
 	candidate
 		.conversations
-		.try_push(session::workspace::Conversation::Room(Box::new(room)))
+		.try_push(session::workspace::Conversation::Room(Box::new(room.clone())))
 		.unwrap();
 	let mappings = [custody::Role::RoomAccess, custody::Role::RoomControl].map(|role| ResultImport {
 		result: coordinate(role),
@@ -49,6 +49,37 @@ pub(super) async fn run(
 		intent.standing = rooms_application::fields::Text::new(format!("intervening edit {index}").into()).unwrap();
 		owner.replace_workspace(intent).await.unwrap();
 	}
+	// A created room has one door. The general verb refuses the same result
+	// in the state the created verb accepts, so no save skips the directory
+	// check.
+	let reports = Rc::new(std::cell::RefCell::new(Vec::<String>::new()));
+	owner
+		.on_trouble({
+			let reports = reports.clone();
+			move |_, cause| reports.borrow_mut().push(cause.to_string())
+		})
+		.unwrap();
+	let current = workspace.snapshot().await.unwrap();
+	let mut general = current.intent.clone();
+	general
+		.conversations
+		.try_push(session::workspace::Conversation::Room(Box::new(room)))
+		.unwrap();
+	let plain = command
+		.prepare_result_acquisition_with_source(current.revision, &mappings, &[], &general, Some(source))
+		.unwrap();
+	assert!(
+		plain.submit().await.is_err(),
+		"the general verb cannot save a created room"
+	);
+	assert_eq!(workspace.snapshot().await.unwrap().revision, current.revision);
+	assert!(
+		reports
+			.borrow()
+			.iter()
+			.any(|cause| cause.contains("one room result selects one field")),
+		"{reports:?}"
+	);
 	acquisition.submit().await.unwrap();
 	let adopted = workspace.snapshot().await.unwrap();
 	assert_eq!(
