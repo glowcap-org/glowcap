@@ -332,6 +332,10 @@ Releases before 0.1.7 are in the
   milliseconds for the one before it to be acknowledged, which was enough to
   show a progress ring on opening a direct message through a Rooms server on
   the same machine.
+- A service started through `glowcap-dev` with a terminal (`rooms-dev`,
+  `site-serve`, and the others) stops when that terminal closes. It kept
+  running in the container and held its ports, so the next start failed with
+  "Address already in use".
 
 ## [0.1.7] - 2026-11-11
 
