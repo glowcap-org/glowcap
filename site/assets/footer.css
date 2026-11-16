@@ -3,7 +3,7 @@
 /* ── Footer ──────────────────────────────────────────────────────────────── */
 
 /* Seated in the shell's reading column, under the article (the template says
-   why). A wide page with no outline widens both (style.css). The shell owns the
+   why). A wide page with no outline widens both (navigation.css). The shell owns the
    page's width and side padding. */
 .site-footer {
   grid-column: 2;
@@ -12,18 +12,16 @@
   color: var(--ink-soft);
 }
 
-/* The foot of every page. A reader who has finished a page is at a decision
-   point, so this offers the three directions the site actually goes rather than
-   a single line of legal text. */
+/* The brand sits before this grid so it does not keep empty columns alive. */
 .footer-cols {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 8rem), 1fr));
   gap: 1.5rem 2rem;
   margin-bottom: 1.5rem;
 }
 
 .footer-brand {
-  grid-column: 1 / -1;
+  margin-bottom: 1.5rem;
   display: flex;
   flex-direction: column;
   gap: 0.7rem;
@@ -67,10 +65,4 @@
   padding-top: 1rem;
   border-top: 1px solid var(--rule);
   font-size: 0.82rem;
-}
-
-@media (max-width: 52rem) {
-  .footer-cols {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
 }

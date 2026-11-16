@@ -9,6 +9,7 @@ site` on rendered pages, and this is the focused proof of its regexes.
 import importlib.util
 import unittest
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -82,6 +83,52 @@ class EntryLinks(unittest.TestCase):
             MODULE.ASSET_REF.sub(lambda m: f"({MODULE.assetAddress('https://glowcap.org', m.group(1))})", body),
             "open [the page](https://glowcap.org/rooms/app/) now",
         )
+
+
+class DiagramFigures(unittest.TestCase):
+    def test_scoped_svg_preserves_caption_and_accessible_name(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "drawing.svg").write_text(
+                '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 10">'
+                "<style>.node{fill:var(--ink,red)}</style>"
+                '<rect id="node" class="node" width="20" height="10"/></svg>'
+            )
+            page = '<figure><img alt="A &amp; B" src="/drawing.svg"><figcaption>Two peers</figcaption></figure>'
+            page += '<script id="preview-diagrams">previewOnly()</script>'
+            result = MODULE.inlineDiagrams(page, root / "concepts/index.html", root)
+            self.assertIn('role="img" aria-label="A &amp; B"', result)
+            self.assertIn('<template shadowrootmode="open">', result)
+            self.assertIn('viewBox="0 0 20 10"', result)
+            self.assertIn(".node{fill:var(--ink,red)}", result)
+            self.assertIn("</template></span><figcaption>Two peers</figcaption></figure>", result)
+            self.assertNotIn("<img", result)
+            self.assertNotIn("previewOnly", result)
+            self.assertEqual(MODULE.inlineDiagrams(result, root / "concepts/index.html", root), result)
+            decorative = MODULE.inlineDiagrams(page.replace("A &amp; B", ""), root / "index.html", root)
+            self.assertIn('aria-hidden="true"', decorative)
+
+    def test_relative_asset_and_external_image_keep_their_ownership(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "drawing.svg").write_text('<svg xmlns="http://www.w3.org/2000/svg"/>')
+            page = '<figure><img alt="" src="../drawing.svg"></figure>'
+            result = MODULE.inlineDiagrams(page, root / "concepts/index.html", root)
+            self.assertIn('shadowrootmode="open"', result)
+            for src in ("https://example.test/drawing.svg", "//example.test/drawing.svg", "/photo.webp"):
+                page = f'<figure><img alt="" src="{src}"></figure>'
+                self.assertEqual(MODULE.inlineDiagrams(page, root / "index.html", root), page)
+
+    def test_broken_authored_diagram_refuses_the_build(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            for content in ("<html/>", "<svg"):
+                (root / "broken.svg").write_text(content)
+                with self.subTest(content=content), self.assertRaises(SystemExit):
+                    MODULE.inlineDiagrams('<figure><img alt="" src="/broken.svg">', root / "index.html", root)
+            for src in ("/missing.svg", "../outside.svg"):
+                with self.subTest(src=src), self.assertRaises(SystemExit):
+                    MODULE.inlineDiagrams(f'<figure><img alt="" src="{src}">', root / "index.html", root)
 
 
 if __name__ == "__main__":

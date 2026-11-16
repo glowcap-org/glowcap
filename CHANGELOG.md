@@ -145,6 +145,10 @@ Releases before 0.1.7 are in the
   run long enough to be a wait, as its other waits do. It drew the
   placeholder at once, so a quick read laid the log out around it and again
   without it.
+- The site renders themed diagrams with the page, without fetching them again
+  or waiting for JavaScript. Links stay visible in prose, navigation marks the
+  current page, and footer columns fit the space beside the article. Heading
+  links clear the sticky header when it wraps.
 - A link in a Rooms message shows where it goes when its label does not
   say: the host of a web address, with its port when that is not the
   scheme's own, or the mailbox of a mail link, beside the label. A label

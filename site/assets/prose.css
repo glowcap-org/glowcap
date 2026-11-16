@@ -31,6 +31,12 @@
   mask: var(--mark-line) center / contain no-repeat;
 }
 
+.prose :is(p, li, td, th, figcaption) a:where(:not(.btn, .card)) {
+  text-decoration: underline;
+  text-underline-offset: 0.15em;
+  text-decoration-thickness: 0.06em;
+}
+
 .prose > :first-child {
   margin-top: 0;
 }
@@ -39,7 +45,7 @@ h1, h2, h3, h4 {
   line-height: 1.2;
   color: var(--ink);
   /* Keep an in-page anchor from landing under the sticky header. */
-  scroll-margin-top: 4.5rem;
+  scroll-margin-top: calc(var(--site-header-height, 4.5rem) + 0.75rem);
   /* A heading is short text, so balance its lines instead of letting a lone
      word drop to a second row. */
   text-wrap: balance;
@@ -121,31 +127,20 @@ p, li {
   border-radius: var(--radius-card);
 }
 
-/* While the swap below is in flight, the images it is about to replace are
-   hidden: they are painted in the light literals baked into each file, and on a
-   dark page that is a flash of cream artwork per diagram. Only the script that
-   performs the swap sets this class, and it removes it when every fetch has
-   settled or after three seconds, whichever comes first. */
+/* The live preview themes raw figures in the browser before showing them. */
 :root.inlining-diagrams .prose figure img[src$=".svg"] {
   visibility: hidden;
 }
 
-/* A diagram that the page can actually reach into. The script in the base
-   template swaps each hand-drawn SVG from an `img` (which renders in its own
-   document, deaf to this stylesheet) into a shadow root, where the artwork
-   reads the tokens above and follows the theme, including the header's toggle.
-   The shadow root is what makes this safe at scale: a page can carry a dozen
-   diagrams whose internal stylesheets all use names like `.arc1`, and none of
-   them collide with each other or leak into the page.
-
-   Without JavaScript the `img` simply stays, drawn in the light palette its
-   literals name. */
+/* The site build embeds each SVG in a declarative shadow root. Its styles
+   stay inside the drawing while page tokens cross the boundary, so diagrams
+   follow the theme from their first paint, including without JavaScript. */
 .prose .diagram {
   display: block;
   width: 100%;
 }
 
-/* Both kinds of drawing, the swapped-in diagrams and the inline walkthrough,
+/* Both kinds of drawing, the embedded diagrams and the inline walkthrough,
    want the lighter end of the amber and teal ramps for their strokes and
    labels. `--dia-*` carries a light identity of its own in `:root`, so this
    needs no literal fallback; in the light theme it resolves to the core value
