@@ -548,7 +548,7 @@ test "driver release retires pending accepts before listener storage" {
     try expectOk(harness.releaseLoop(server));
 }
 
-test "an unselected listener refuses accept visibly until routing policy is selected" {
+test "an arrival before a location is selected closes without failing the step" {
     const owned_server = try newLoop(0x3d);
     defer owned_server.deinit();
     const server = owned_server.raw;
@@ -564,17 +564,39 @@ test "an unselected listener refuses accept visibly until routing policy is sele
     defer silent.close(io);
 
     try expectLoopReadable(server);
-    try std.testing.expectEqual(
-        c.GLOWCAP_ERR_INVALID_ARGUMENT,
-        cdrv.glowcap_driver_step(server, 0),
-    );
-    var message: [128]u8 = undefined;
-    const message_len = cdrv.glowcap_driver_last_error(&message, message.len);
-    try std.testing.expect(std.mem.find(u8, message[0..message_len], "MissingAdvertisedLocator") != null);
-
-    try expectOk(cdrv.glowcap_driver_listener_select(server, listener));
     try expectStep(cdrv.glowcap_driver_step(server, 0));
+    try expectPeerClosed(silent.socket.handle);
+
+    // The listener still serves once the Host has a location.
+    try expectOk(cdrv.glowcap_driver_listener_select(server, listener));
+    const owned_client = try newLoop(0x3e);
+    defer owned_client.deinit();
+    const client = owned_client.raw;
+    var ticket: u64 = 0;
+    try expectOk(try dialParts(client, "tcp", locator.designator, "", &ticket));
+    var client_seen = Drained{};
+    var server_seen = Drained{};
+    var rounds: usize = 0;
+    while ((client_seen.dialed_session == null or server_seen.accepted_session == null) and rounds < 2_000) : (rounds += 1) {
+        try expectStep(cdrv.glowcap_driver_step(client, 5));
+        try drainEvents(client, &client_seen);
+        try expectStep(cdrv.glowcap_driver_step(server, 5));
+        try drainEvents(server, &server_seen);
+    }
+    try std.testing.expect(client_seen.dialed_session != null);
+    try std.testing.expectEqual(listener, server_seen.accepted_listener);
+    try expectOk(cdrv.glowcap_driver_session_release(client, client_seen.dialed_session));
+    try expectOk(cdrv.glowcap_driver_session_release(server, server_seen.accepted_session));
     try expectOk(harness.closeListener(server, listener));
+}
+
+/// The peer closed this socket: it turns readable within a second and reads
+/// end of stream.
+fn expectPeerClosed(fd: std.posix.fd_t) !void {
+    var fds = [_]std.posix.pollfd{.{ .fd = fd, .events = std.posix.POLL.IN, .revents = 0 }};
+    try std.testing.expectEqual(@as(usize, 1), try std.posix.poll(&fds, 1_000));
+    var byte: [1]u8 = undefined;
+    try std.testing.expectEqual(@as(usize, 0), try std.posix.read(fd, &byte));
 }
 
 test "listener close preserves an ACCEPTED event committed by an earlier step" {

@@ -222,7 +222,8 @@ int32_t glowcap_driver_listener_restoration_state(GlowcapDriverLoop *loop, uint6
    view while preserving its transport and identity posture. The loop clones the
    value before returning. */
 int32_t glowcap_driver_listener_advertise(GlowcapDriverLoop *loop, uint64_t listener, const GlowcapLocatorView *locator);
-/* Select this listener locator as the Host's acceptable location. */
+/* Select this listener locator as the Host's acceptable location. A connection
+   that arrives while the Host has no selected location is closed. */
 int32_t glowcap_driver_listener_select(GlowcapDriverLoop *loop, uint64_t listener);
 /* Stop one listener and remove its advertised locator without releasing the
    loop or accepted session handles. GLOWCAP_ERR_WOULD_BLOCK means stop is committed

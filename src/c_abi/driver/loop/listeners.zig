@@ -255,7 +255,8 @@ pub export fn glowcap_driver_listener_advertise(
 
 /// Select an active listener's retained locator as the Host's
 /// `acceptable-location`. This changes policy without reallocating or
-/// rebuilding locator metadata.
+/// rebuilding locator metadata. A connection that arrives while the Host has
+/// no selected location is closed.
 pub export fn glowcap_driver_listener_select(raw: ?*c.GlowcapDriverLoop, listener: u64) i32 {
     shared.lastErrorClear();
     const inst = instanceFrom(raw) orelse return GLOWCAP_ERR_NULL_POINTER;
