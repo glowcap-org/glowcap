@@ -43,6 +43,7 @@
          driver-loop-has-transport?
          check/driver
          loop-running?
+         note-driver-closed-session!
          loop-ffi-live?
          call-with-live-loop
          loop-drain!
@@ -83,7 +84,7 @@
 ;; `dials` maps an admitted operation's id to its waiter; `listeners` owns the
 ;; setup event and accepted-session queue for each listener; `closed-ptrs` records a
 ;; SESSION_CLOSED handle no wrapper had claimed yet, retaining its exact failure
-;; so a later wrap starts closed instead of parking on a dead wire; `state` is binding lifetime only:
+;; (or #t) so the later wrap retires and releases it; `state` is binding lifetime only:
 ;; open, retiring while the FFI driver owns the session barrier, stopping
 ;; while teardown joins the park thread, or released after the handle is freed.
 (struct driver-loop
@@ -442,26 +443,13 @@
            ;; The pump's EOF choreography, one tier up: record local teardown,
             ;; then retire the dead handle post-lock. The FFI close already
             ;; broke the far vows and classified their FAIL completions.
-            (when failure
-              (set-box! (session-close-result c) failure)
-              (record-session-wire-failure! c failure))
-            (set-box! (session-closing-state c) #t)
-            (set-box! (session-transport-lost? c) #t)
-            (set-box! (async-connection-closed? (session-async c)) #t)
-            (pending-writes-clear! (session-pending-writes c))
-            (cons (lambda ()
-                    (close-session-transport! c)
-                    (with-handlers ([raised-failure?
-                                     (lambda (error)
-                                       (record-session-wire-failure! c error)
-                                       (void))])
-                      (abandon-session! c)))
-                  fires)]
+            (cons (note-driver-closed-session! c failure) fires)]
            [else
             ;; No wrapper claimed this handle yet (queued on the accept
             ;; channel, or a loop-internal redeem leg). It stays valid until
-            ;; released, so record the closure and let a later wrap start
-            ;; closed; the loop's release frees stragglers.
+            ;; released, so record the closure. The later wrap retires and
+            ;; releases it (`wrap-loop-session`); the loop's release frees
+            ;; handles no one ever wraps.
             (hash-set! (driver-loop-closed-ptrs lp)
                        (session-key ptr)
                        (or failure #t))
@@ -469,6 +457,27 @@
         [(driver-event-completion? e)
          (append (reverse (settle-completion! m (driver-event-completion-action e))) fires)])))
   (drain-effects (reverse fires) #f (pair? events)))
+
+;; Record that the driver closed `c`'s wire and return the post-lock fire that
+;; retires its handle. Both the projection of SESSION_CLOSED to an existing
+;; wrapper and the wrap of a session closed before any wrapper existed use it,
+;; so a closed session is released exactly once whichever came first. Call it
+;; under the host lock; run the fire after the lock is released.
+(define (note-driver-closed-session! c failure)
+  (when failure
+    (set-box! (session-close-result c) failure)
+    (record-session-wire-failure! c failure))
+  (set-box! (session-closing-state c) #t)
+  (set-box! (session-transport-lost? c) #t)
+  (set-box! (async-connection-closed? (session-async c)) #t)
+  (pending-writes-clear! (session-pending-writes c))
+  (lambda ()
+    (close-session-transport! c)
+    (with-handlers ([raised-failure?
+                     (lambda (error)
+                       (record-session-wire-failure! c error)
+                       (void))])
+      (abandon-session! c))))
 
 ;; A COMPLETION carries the byte-fed queue's own SETTLE or FAIL shape; route
 ;; it through the same vow table. The core's FAIL result is authoritative.

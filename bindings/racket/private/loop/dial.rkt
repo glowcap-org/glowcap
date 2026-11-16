@@ -102,37 +102,41 @@
 ;; byte pump's tail-resume never applies.
 (define (wrap-loop-session lp ptr time-travel?)
   (define m (driver-loop-host lp))
-  (call-with-host m
-    (lambda ()
-      (define c (build-session m ptr (loop-transport) time-travel?))
-      (set-box! (async-connection-tail-resumed? (session-async c)) #t)
-      ;; Post-open setup happens between accept (or dial) and serve; the hook
-      ;; is how serve tells the loop to start delivering this session's
-      ;; inbound (early bytes replay in order). Idempotent on the FFI side.
-      ;; The handle is read under the host lock, where every release commits,
-      ;; so a session the loop already closed and released is never served.
-      (set-box! (async-connection-serve-hook (session-async c))
-                (lambda ()
-                  (call-with-host*
-                   m
-                   void
-                   (lambda ()
-                     (unless (session-released? c)
-                       ;; Serving releases frames parked behind the handshake
-                       ;; and may invoke a hosted behavior before returning.
-                       (define-values (callback-failure rc)
-                         (call-latching-callbacks
-                          (lambda ()
-                            (parameterize ([current-deliver-owner m])
-                              (glowcap_driver_session_serve (driver-loop-handle lp) ptr)))))
-                       (when callback-failure (raise callback-failure))
-                       (check/driver rc))))))
-      (define terminal (hash-ref (driver-loop-closed-ptrs lp) (session-key ptr) #f))
-      (when terminal
+  (define-values (c retire!)
+    (call-with-host m
+      (lambda ()
+        (define c (build-session m ptr (loop-transport) time-travel?))
+        (set-box! (async-connection-tail-resumed? (session-async c)) #t)
+        ;; Post-open setup happens between accept (or dial) and serve; the hook
+        ;; is how serve tells the loop to start delivering this session's
+        ;; inbound (early bytes replay in order). Idempotent on the FFI side.
+        ;; The handle is read under the host lock, where every release commits,
+        ;; so a session the loop already closed and released is never served.
+        (set-box! (async-connection-serve-hook (session-async c))
+                  (lambda ()
+                    (call-with-host*
+                     m
+                     void
+                     (lambda ()
+                       (unless (session-released? c)
+                         ;; Serving releases frames parked behind the handshake
+                         ;; and may invoke a hosted behavior before returning.
+                         (define-values (callback-failure rc)
+                           (call-latching-callbacks
+                            (lambda ()
+                              (parameterize ([current-deliver-owner m])
+                                (glowcap_driver_session_serve (driver-loop-handle lp) ptr)))))
+                         (when callback-failure (raise callback-failure))
+                         (check/driver rc))))))
+        (define terminal (hash-ref (driver-loop-closed-ptrs lp) (session-key ptr) #f))
         (hash-remove! (driver-loop-closed-ptrs lp) (session-key ptr))
-        (when (exn? terminal) (set-box! (session-close-result c) terminal))
-        (set-box! (async-connection-closed? (session-async c)) #t))
-      c)))
+        ;; The driver closed this session before any wrapper existed, so no
+        ;; SESSION_CLOSED projection will retire its handle. Retire it the same
+        ;; way, after the lock: a later close or serve then finds it released
+        ;; instead of waiting for an event already consumed.
+        (values c (and terminal (note-driver-closed-session! c (and (exn? terminal) terminal)))))))
+  (when retire! (run-drain-effects! m (drain-effects (list retire!) #f #t)))
+  c)
 
 ;; Dial through the loop and wrap the opened session.
 (define (loop-connect-session lp locator-uri [options #f])
