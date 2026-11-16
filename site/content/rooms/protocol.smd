@@ -19,8 +19,7 @@ promises, and introductions from the ground up, and
 # The objects
 
 Each card is one object: how you come to hold it, the calls it answers, and
-what it hands back. They form a chain from the one published name down to a
-single line of text. Cool cards live on the server, warm cards are handed to
+what it hands back. Cool cards live on the server, warm cards are handed to
 you to use or pass on, and the inbox is the one you make yourself.
 
 ```=html
@@ -136,12 +135,11 @@ you to use or pass on, and the inbox is the one you make yourself.
 </div>
 ```
 
-The reference determines which object you can call, and that object's
-methods enforce its limits. Editing a line requires its line reference.
-You can pass that reference to someone else, giving them access to edit or
-take down the line. A bot holding the subject reference can update the
-subject through the same methods as any other holder. A subject reference
-works for as long as the seat it came with, and joining again gives a new one.
+Editing a line requires its line reference. You can pass that reference to
+someone else, giving them access to edit or take down the line. A bot holding
+the subject reference can update the subject through the same methods as any
+other holder. A subject reference works for as long as the seat it came with,
+and joining again gives a new one.
 
 A subject is a description, and it can also link an object the room is about,
 such as a board or a game, by its `ocapn://` sturdyref. The room checks that
@@ -198,8 +196,7 @@ about the room's label, and the label says nothing about the link.
 # An introduction, call by call
 
 A direct conversation is the introduction OCapN calls a three-party handoff.
-Here it is as the calls that make it, with Mira asking to message the lead
-bot:
+Here Mira asks to message the lead bot:
 
 | Step | Who calls | Call | What happens |
 | --- | --- | --- | --- |

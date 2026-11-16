@@ -145,12 +145,6 @@ original authority. Encoding writes those down. It never picks a stronger
 reference, creates authority, or treats CapTP import and export positions as
 identities.
 
-Saving a capability that cannot outlive the process into durable content
-fails. Saving a reference to another peer may need a call to that peer before
-the local commit, and that is not a distributed transaction. The result it
-keeps, and any save that is abandoned, each need an owner that releases and
-cleans them up.
-
 ## Transactions and protected calls
 
 Each store has one writer at a time, ordered by its Vat or by your program.
@@ -178,8 +172,8 @@ sequenceDiagram
     Host->>Caller: Send the change event to whoever may see it
 ```
 
-The last step is a sketch, since an event's recipients may differ from the
-caller. Each event delivery checks permissions again, and a missed event can
+An event's recipients may differ from the caller. Each event delivery checks
+permissions again, and a missed event can
 never let someone use access they have lost on their next call.
 
 The application declares every effect, and managed access checks each one
@@ -210,22 +204,11 @@ scratch space, kept history, and queued completions. A session reserves no
 part of an application graph or database snapshot.
 
 A sleeping actor keeps its identity and the references it holds while its
-state leaves memory. The first eventual call wakes it, together with any other
-calls to it, and the Vat keeps its limits and call order while your program
-reads from disk. A near call needs the target in memory already and never
-blocks on disk. The [actor guide](actors.md) covers waking and sleeping.
-
-What stays alive is separate from what is in memory. Roots, strong edges,
-held capabilities, leases, and kept versions keep objects alive, and weak
-edges do not. Collection reads stored edges without waking actors. Cycles need
-tracing, because reference counting alone cannot free them. Collection works
-in small steps against a consistent version, checks current roots and writes
-before deleting anything, and never reuses an identity that is still live.
-
-The [collection guide](collection.md) covers how tracing works and what it
-costs. Collection never reaches into another peer's objects, and
-[stored references](references.md) are saved before Loam loads or waits for
-another owner.
+state leaves memory, and the [actor guide](actors.md) covers waking and
+sleeping. What stays alive is separate from what is in memory: the
+[collection guide](collection.md) covers what keeps a record alive and how
+tracing frees cycles in bounded steps. Collection reads stored edges without
+waking actors and never reaches into another peer's objects.
 
 Containment, capability dependency, what keeps an object alive, and where the
 interface shows it are four separate things. In a graph with sharing and

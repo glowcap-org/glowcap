@@ -80,8 +80,7 @@ The website source is `site/`: SuperMD pages in `site/content/`, layouts,
 and assets, rendered by [Zine](https://zine-ssg.io/). `zig build site` renders
 them into `zig-out/site/`, adds the autodoc for the public `glowcap` module
 under `reference/api/`, and validates the output. The code tabs come from
-`site/examples/` through `gen-site-examples`. The Rooms pictures are captured
-from the shipped page when `site/assets/` has none cached. The performance
+`site/examples/` through `gen-site-examples`. The performance
 figures are committed snapshots that change only when someone runs
 `zig build bench-site-report` and lands the result
 ([benchmark index](../bench/README.md)).
@@ -91,12 +90,10 @@ Locally, `zig build site-serve` previews the site with the Rooms page at
 `zig build site-render-check` renders every built page at four widths in the
 pinned Chromium.
 
-The pages workflow runs when `main` moves. It confirms that the commit is
-still `main` and passed the full check, builds the site in the devcontainer,
-and deploys `zig-out/site/` to GitHub Pages. The site build exports the Rooms
-page into the site's assets first, so the deployment carries it at
-`rooms/app/`. It refuses to deploy if `main` moved during the build. A change
-to the site reaches glowcap.org only through `dev`, promotion, and that run.
+The pages workflow runs when `main` moves, builds the site in the
+devcontainer, and deploys `zig-out/site/` to GitHub Pages. It refuses to
+deploy if `main` moved during the build. A change to the site reaches
+glowcap.org only through `dev`, promotion, and that run.
 
 ## Integrating locally
 
@@ -178,8 +175,8 @@ repositories, including divergent and checked-out branches.
 ## Promoting to main
 
 `main` is a fast-forward of `dev`, so the commit the checks ran on is the
-commit that publishes: the same hash, signature, and evidence note. Every push
-to `dev` runs full validation. A run in progress finishes when a newer push
+commit that publishes: the same hash, signature, and evidence note. A run in
+progress finishes when a newer push
 arrives, and the newest waiting push runs next, so `main` trails `dev` by at
 most two runs however often `dev` moves.
 
@@ -189,9 +186,7 @@ its commit as the [promotion app](#promotion-app), and that push deploys the
 site. A rerun of an older run finds `main`
 past its commit and moves nothing. The main ruleset judges that move like any
 push: it accepts only a fast-forward of signed commits whose `gates` and
-`macos-runtime` checks passed, with no bypass. A merge, a squash, or a rewrite
-would replace the checked commit with one no check ran on, so none is
-accepted.
+`macos-runtime` checks passed, with no bypass.
 
 GitHub does not count a manually started run toward the ruleset, and only a
 push run starts promotion. Retry a failed job in the push run with
@@ -216,20 +211,19 @@ needs no correction. Reruns use the tagged workflow, including its defects.
 A manual `check` defaults to full validation. Select `suite=fuzz` for the
 separate long fuzz search.
 
-The site is published at `glowcap.org`. The custom domain is set in the
-repository's Pages settings, because a Pages deployment from Actions ignores a
-`CNAME` file in its artifact. The DNS records live with the domain's DNS host
-and the domain verification in the maintainer's GitHub account settings.
+The `glowcap.org` domain is set in the repository's Pages settings, because a
+Pages deployment from Actions ignores a `CNAME` file in its artifact. The DNS
+records live with the domain's DNS host and the domain verification in the
+maintainer's GitHub account settings.
 
-Each `ci/gates.py` run records the commit, working-tree hash and dirty state,
-submodule revisions, toolchain pins, host, and each gate's exit status and
-duration. A full local run writes `zig-out/evidence/<commit>.json` and, on a
-clean checkout, attaches a Git note under `refs/notes/evidence`. A phase run
-writes `zig-out/evidence/<phase>/<commit>.json` without attaching a note.
-
-CI uploads these records as `evidence-<commit>-<phase>` artifacts on success
-and failure. A green sequence whose record step fails exits 70. To publish
-notes from a full local run, use `git push origin refs/notes/evidence`.
+Each `ci/gates.py` run writes an evidence record of what ran, on what, and how
+each gate ended ([`ci/evidence.py`](../ci/evidence.py)). A full local run
+writes `zig-out/evidence/<commit>.json` and, on a clean checkout, attaches a
+Git note under `refs/notes/evidence`. A phase run writes
+`zig-out/evidence/<phase>/<commit>.json` without attaching a note. CI uploads
+these records as `evidence-<commit>-<phase>` artifacts on success and failure.
+To publish notes from a full local run, use
+`git push origin refs/notes/evidence`.
 
 ## Releasing a version
 
@@ -243,12 +237,10 @@ published release and its assets as they were.
 Each change lands with its entry under `Unreleased` in `CHANGELOG.md`. The
 release itself is two commands and two workflows.
 
-1. Run `zig build set-version -Dversion=<version>`. One command moves every
-   stated version in one diff: `abi_version` in `build.zig`, the C ABI
-   constants and header, `build.zig.zon`, the archive-resolution contract and
-   its package copies, every tracked package manifest and lock file, the pages
-   that state the release version, and the generated mirrors that embed it.
-   It dates the `Unreleased` entries as the version's changelog section.
+1. Run `zig build set-version -Dversion=<version>`. It moves every stated
+   version and generated mirror in one diff
+   ([`set_version.py`](../tools/gen/set_version.py) names each file) and dates
+   the `Unreleased` entries as the version's changelog section.
    `source-check` and the locked builds refuse a tree where one disagrees.
    Land the bump on `dev` and let promotion move `main`.
 2. Run `tools/release-tag.py <version>` on the host that
@@ -261,10 +253,10 @@ release itself is two commands and two workflows.
    section before it builds. Each host attests the build provenance of the
    archives it builds, and each Linux host proves the Rooms image from its
    exact product archive. One job then publishes the image by digest with its
-   provenance and software bill of materials, renders the release page from
-   the verified archives, and fills a draft release with every asset and its
-   provenance bundle. The draft becomes public only when it holds every asset,
-   and the public release dispatches the
+   provenance and software bill of materials, and fills a draft release that
+   becomes public only when it holds every asset and its provenance bundle
+   ([`github_release.py`](../ci/github_release.py)). The public release
+   dispatches the
    [publish workflow](../.github/workflows/publish.yml) at the tag.
 4. The publish workflow checks out the tag and verifies the public release.
    It uploads the crate, the wheel, and the JSR packages as each registry's
@@ -288,8 +280,7 @@ A manual run of the release workflow rehearses the builds and the image proofs
 without attesting or publishing. The
 [validation workflow](../.github/workflows/validate-release.yml) runs weekly
 and on demand: it installs the newest release through the site's installer on
-each host and installs every published package from its registry, so a reader
-never finds the drift first.
+each host and installs every published package from its registry.
 
 Every archive, the checksum file, and the image carry a build provenance
 attestation signed by the release workflow. The release page shows the
@@ -304,22 +295,17 @@ gh attestation verify --repo glowcap-org/glowcap <archive>
 PyPI, crates.io, and JSR trust `publish.yml` in this repository through an
 OpenID Connect binding that names the workflow file and a GitHub environment.
 The Racket catalog has no such binding or token, so the `racket` environment
-holds the catalog account's email and password as secrets. The job edits the
-entry through the catalog's own API, the call its website makes when a person
-saves the edit form. The environments `pypi`, `crates-io`, `jsr`, and
-`racket` hold the maintainer as a required reviewer, so each publication waits
-for approval, and a deployment branch policy admits `v*` tags, so the dispatch
-at the tag can enter them.
+holds the catalog account's email and password as secrets. The environments
+`pypi`, `crates-io`, `jsr`, and `racket` hold the maintainer as a required
+reviewer, so each publication waits for approval, and a deployment branch
+policy admits `v*` tags, so the dispatch at the tag can enter them.
 
 `tools/release-publishers.py` is the one command for this setup. It verifies
 each registry against what the registry and GitHub answer, and creates or
 repairs the environments itself. For a step only a person can take in a
 browser it prints the page and the exact values, opens the page, and verifies
 again once the step is confirmed. `--check` verifies without prompts or
-effects, so a script can run it. The names it enters come from the tree: the
-JSR scope and packages from the TypeScript workspace, the crate and the PyPI
-project from their manifests, the Racket catalog's names from
-`ci/racket_catalog.py`, and the repository from `gh`.
+effects, so a script can run it. The names it enters come from the tree.
 
 | Registry | What a person does once |
 | --- | --- |
@@ -332,11 +318,11 @@ project from their manifests, the Racket catalog's names from
 
 The promote workflow acts as an organization-owned GitHub App, because a
 workflow's own token may not move a branch across commits that change workflow
-files. The app holds four repository permissions on this repository alone:
-Contents and Workflows, both read and write, which promotion needs, and
-Administration and Code scanning alerts, both read-only, which the
-[repository policy workflow](../.github/workflows/repository-policy.yml) needs.
-Its client ID is the `PROMOTE_APP_CLIENT_ID` variable and its private key the
+files. It is installed on this repository alone. Promotion uses its Contents
+and Workflows permissions, and the
+[repository policy workflow](../.github/workflows/repository-policy.yml) its
+read-only Administration and Code scanning alerts permissions. Its client ID
+is the `PROMOTE_APP_CLIENT_ID` variable and its private key the
 `PROMOTE_APP_PRIVATE_KEY` secret. Until both exist, promotion fails at its
 first step and `main` stays where it was.
 
@@ -373,11 +359,9 @@ the organization then accepts the change under **Installed GitHub Apps**.
 The repository's settings and rulesets are data in this tree, and one command
 holds GitHub to them.
 [`repository-policy.json`](../.github/repository-policy.json) states the
-settings: the merge method, secret scanning with push protection, Dependabot
-alerts and updates, private vulnerability reporting, immutable releases, code
-scanning, and the Actions policy. The Actions policy requires every action to
-be pinned to a commit, gives workflows a read-only token, and forbids them
-from approving pull requests. A workflow run from an outside contributor's
+settings. Its Actions policy requires every action to be pinned to a commit,
+gives workflows a read-only token, and forbids them from approving pull
+requests. A workflow run from an outside contributor's
 fork waits for the maintainer's approval, who reads its workflow changes
 first. The [main ruleset](../.github/rulesets/main.json),
 [dev ruleset](../.github/rulesets/dev.json),
@@ -411,9 +395,6 @@ and verify each new commit with `git verify-commit` before pushing. If the
 signing key is unavailable, stop and report it rather than making an unsigned
 commit. GitHub also signs the squash commit it creates. The administrator's
 pull-request bypass does not apply to pushes or to `main`.
-
-Immutable releases hold a published release and its assets as they were, which
-is the policy the release workflow already follows.
 
 Four checks watch the posture without being asked. The `workflows` job of
 the check workflow audits every workflow and action file with

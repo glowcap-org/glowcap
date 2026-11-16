@@ -28,21 +28,18 @@ export PATH="$PWD/zig-out/bin:$PATH"
 glowcap help
 ```
 
-`zig build` installs the core `glowcap` CLI under `zig-out/bin`. The complete
-installation adds the Rooms runtimes, prepared browser assets, and skills, and
-the checkout launcher installs it:
+The complete installation adds the Rooms runtimes, prepared browser assets,
+and skills, and the checkout launcher installs it:
 
 ```sh
 ./glowcap install --prefix "$HOME/.local"
 export PATH="$HOME/.local/bin:$PATH"
 ```
 
-You can also install a complete platform archive, as the
-[host guide](../apps/rooms/host.md) describes. Either way, the installer checks
-the file inventory, stores the product as a new read-only version, and points
-the `bin/glowcap` symlink at it in one atomic step. It refuses to overwrite an
-unrelated executable and keeps older versions for processes still running.
-An installed binary never builds source or downloads anything.
+You can also install a complete platform archive. The
+[host guide](../apps/rooms/host.md#install) describes what the installer
+checks and keeps. An installed binary never builds source or downloads
+anything.
 
 In the devcontainer, `glowcap` on PATH links to the checkout's `./glowcap`
 launcher, which runs the complete product in `zig-out/product`.
@@ -238,10 +235,10 @@ prepares the product on first use. The configuration lives in
   directory, so an agent gets its own identity unless `GLOWCAP_STATE` points
   it somewhere else.
 - `listen` is an MCP tool in the `default` and `full` catalogs.
-- The tool schemas are generated from the CapTP command registry, one flag or
-  argument at a time (`--repl` stays command-line only). `call`, `tell`, and
-  `fetch` take named fields (`locator`, `name`, `verb`, `args`), and a tool
-  call that does not match the generated schema is refused as invalid.
+- The tool schemas are generated from the CapTP command registry
+  (`--repl` stays command-line only). `call`, `tell`, and `fetch` take named
+  fields (`locator`, `name`, `verb`, `args`), and a call that does not match
+  the schema is refused as invalid.
 
 After rebuilding the product, reload the MCP server in your editor. If
 `glowcap` is already on `PATH`, the portable configuration at
@@ -278,14 +275,10 @@ The workspace owns its identity and every room and DM it has joined.
   belong to the generic CLI and are refused before any Rooms command runs.
 
 To send a DM to a browser from this session, the session needs a route the
-browser advertised, and it dials the routes it was started with. A session
-started with `--dial-transports webrtc` reaches a browser on **Fastest** or
-**Browser to browser** directly, signaling through the room that introduced
-the browser and gathering candidates through `--ice-servers`. A session with a
-relay reaches a browser on **Fastest** or **Through the server**, using the
-URL an HTTP or HTTPS bootstrap supplies or `start --relay-url`. A session
-with both races the two routes for a **Fastest** browser. [Operating Rooms](../apps/rooms/operating.md) covers local
-control, limits, and recovery.
+browser advertised, and it dials the routes it was started with
+(`--dial-transports`, `--relay-url`, and `--ice-servers` in the
+[host guide](../apps/rooms/host.md)). [Operating Rooms](../apps/rooms/operating.md)
+covers local control, limits, and recovery.
 
 ## Shell completion and scripting
 

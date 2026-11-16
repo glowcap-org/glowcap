@@ -106,10 +106,10 @@ own, apart from one opened from the published page.
 - The web page listens on loopback port 8080 by default. The directory is
   reached separately, over encrypted iroh discovery, so a loopback web
   listener does not make the directory private.
-- `--transport` and `--listen` choose the listeners peers reach the
-  directory through, and the `--session-` options choose the shared
-  session's listeners the same way, as `glowcap apps rooms serve --help` lists them
-  ([Operating Rooms](operating.md#listeners) explains each).
+- `--transport`, `--listen`, and the `--session-` options choose the
+  listeners peers reach the directory and the shared session through.
+  `glowcap apps rooms serve --help` lists them, and
+  [Operating Rooms](operating.md#listeners) explains each.
 - Operator capabilities stay off unless you turn them on. `--capabilities=all`
   turns every one on, and the Docker deployment does so by default
   ([operator capabilities](operating.md#operator-capabilities)).
@@ -140,17 +140,15 @@ glowcap apps rooms revision
 `page` prints the link that opens the Rooms page with this server filled in,
 the same link the server printed when it started.
 
-For public hosting, configure HTTP exposure, HTTPS termination, peer
-reachability, persistent state, and operator capabilities. A Docker deployment
-runs the same product command, supervised by Docker:
+For public hosting, a Docker deployment runs the same product, supervised by
+Docker:
 
 ```sh
 glowcap apps rooms deployment up
 ```
 
-See the [deployment guide](web/deploy/README.md)
-for choosing an image, building from source, persistent state, and public
-hosting.
+The [deployment guide](web/deploy/README.md) covers the image, HTTPS, peer
+reachability, persistent state, and operator capabilities.
 
 The other `glowcap apps rooms` commands:
 
@@ -189,8 +187,6 @@ glowcap apps rooms session start --dir "$HOME/.rooms/alice" --nick Alice \
   --locator https://rooms.example.org/locator --room garden --room workshop
 glowcap apps rooms session listen --dir "$HOME/.rooms/alice"
 ```
-
-Replace the example URL, nickname, and rooms with the operator's.
 
 The session directory holds private messages and identity keys:
 
@@ -254,10 +250,9 @@ For direct messages with browsers:
   reaches one on **Fastest** or **Through the server**. It finds the relay URL
   from the locator endpoint, and `--relay-url` names another. A session with
   both races the two routes for a **Fastest** browser.
-- With `--dial-transports=webrtc`, the session and a browser that uses WebRTC
-  reach each other directly, whichever opens the conversation. Signaling goes
-  through the room they share, and `--ice-servers` names the STUN or TURN
-  servers the session gathers candidates through.
+- Over WebRTC, either side can open the conversation. Signaling goes through
+  the room they share, and `--ice-servers` names the STUN or TURN servers the
+  session gathers candidates through.
 
 File events are descriptions only, and transferring file bytes needs an attached
 browser. When the inbox reports a gap, [Operating Rooms](operating.md#local-command-access)

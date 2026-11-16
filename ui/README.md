@@ -42,14 +42,9 @@ readable accent text on both surfaces.
   - `--mycelium` / `--mycelium-pulse` for the threads under both pages and the
     light that runs through them
 
-  `zig build source-check` refuses:
-  - a stylesheet that never closes a comment, string, or brace
-  - a stylesheet that hides a `--token:` declaration inside a comment, because
-    the browser would drop everything after a dropped `*/`
-  - a surface that restates `--accent-ink`, `--on-accent`, or `--page-bg`
-  - a surface that never uses `--accent-ink`, `--on-accent`, `--page-bg`,
-    `--frost`, or `--radius-card`
-  - a rooms sheet that never uses `--type-ui`
+  `zig build source-check` refuses an unclosed comment, string, or brace, a
+  token declared inside a comment, and a surface that restates or never uses a
+  shared product token ([`ui.zig`](../tools/check/source_check/ui.zig)).
 - **Mycelium:** `ui/mycelium/` grows the network of threads
   behind both surfaces on devices with a fine pointer and hover. Touch-first
   devices and browsers without WebGPU use the plain background. Hidden tabs
@@ -100,7 +95,6 @@ three forms, chosen by what the mark is doing there:
 - **The live shader**, where the mark is an event. It runs only where it is
   large enough to justify the device work and where arriving is the point:
   the Rooms opening screen, Rooms session setup, and the home page's hero.
-  Running it everywhere would turn it into wallpaper.
 - **The still artwork**, where the mark says whose page this is: the tab icon,
   the header and footer lockups, and the project README. The README uses the
   one still version that shows light.
@@ -130,21 +124,16 @@ The generated files are:
   project README uses it.
 - **The mark blocks in `tokens.css`**, described below.
 
-The still artwork is traced from the shader's own render in its settled pose.
-That render is cel-shaded, with brightness in four flat tones and almost nothing
-between them, so the artwork is exactly four flat fills.
+The still artwork is traced from the shader's cel-shaded render in its settled
+pose, so it is exactly four flat fills.
 
 ### The lit version
 
-The lamps in `mark-lit.svg` are not a fifth tone. The generator finds them by
-comparing the lit render with the unlit one and keeping what the light added,
-which is the only way to capture the line of light under the brim. The lamp
-color is measured from the same comparison.
-
-SVG has no emission or bloom, so the glow is drawn as passes of the lamp
-shape: a wide, soft wash and a tight, bright one, under the lamps themselves.
-The blurred passes are clipped to the mushroom, which makes them read as light
-inside it rather than a halo around it.
+The lamps in `mark-lit.svg` are not a fifth tone. The generator takes them, and
+their color, from what the light adds between the lit and unlit renders
+([`light.ts`](../tools/gen/mark/light.ts)). SVG has no emission, so the glow is
+passes of the lamp shape clipped to the mushroom
+([`emit.ts`](../tools/gen/mark/emit.ts)).
 
 ### The two CSS forms
 
@@ -156,29 +145,22 @@ inside it rather than a halo around it.
 masks keeps the drawing as one geometry, so a theme is four colors and
 there are never two whole drawings to keep in step.
 
-The tones are measured from the shader in each theme. The shader keeps one
-mushroom and lights it differently, so on the cream background the flesh and rim
-come up warm and open. The windows stay as dark as at night, because they are
-holes, not surfaces.
+The tones are measured from the shader in each theme. On the cream background
+the flesh and rim come up warm and open, and the windows stay as dark as at
+night, because they are holes.
 
-**Linework.** `--mark-line` is the same trace as one-color line art.
+**Linework.** `--mark-line` is the same trace as one-color line art, for the
+line drawing above.
 
-- It is for ornaments that want a drawn mark rather than a picture, such as a
-  card's lead mark or the rule at the end of a page, and for controls where
-  the mark is one glyph among others, such as Rooms' two mark buttons.
 - In a control it paints through the mask over `currentColor`, like the
   stroked icons beside it, so it follows the control's color in every state.
-- The line is the shader's rim band itself, the region between each outline
-  and the flesh inside it. So it keeps the shader's varying thickness instead
-  of an even stroke.
-- A second band, traced from the cap rendered without its stalk, carries the
-  brim across the stalk with its bend. That band is what shows the cap is in
-  front.
-- The windows are filled, not outlined, because these ornaments appear at
+- The line is the shader's rim band, so it keeps the shader's varying
+  thickness, and a second band from the stalkless cap shows the cap in front
+  ([`line.ts`](../tools/gen/mark/line.ts)).
+- A card's lead mark and the end-of-page rule are pseudo-elements or bare
+  spans, so a mask is the only way to give them the mushroom.
+- The windows are filled, not outlined, because those two marks appear at
   twenty to forty pixels, where a small ring would close up.
-- Both ornaments are pseudo-elements or bare spans, so a mask is the only way
-  to give them the mushroom, and a mask takes its color from whatever paints
-  it.
 
 ### Sizing and motion
 

@@ -84,9 +84,6 @@ records the limits and the alternatives.
 `access.records.profile.schemas` alongside the application's schemas.
 
 - Managed access needs a record limit of at least 64 KiB and <!-- value ../../src/loam/access/records/grant_record.zig max_edges -->514<!-- /value --> edges.
-- Unsupported record formats are refused. Follow the
-  [alpha policy](../maintaining.md#release-status) for upgrades and any
-  required state reset.
 - Inside a transaction, `storage.stage.createOwner` returns a reference to the
   owner's header record. Keep it after the commit is confirmed, to reopen the
   owner. The header saves the policy, revisions, ID counters, directory roots,
@@ -112,22 +109,18 @@ capacity each fail with their own error.
 
 1. Prepare a `storage.Append` for the resource or grant table and run its
    `advance` with the same read and completion loop.
-2. To add a resource, call `prepareResource(parent)`. It loads the parent's
-   ancestors and child list before `stage.appendResource` can write.
+2. To add a resource, call `prepareResource(parent)`.
 3. To change a grant, prepare the shared `GrantPlan` from the Read's views and
    the saved policy. A new grant takes the header's next grant slot with
    generation one, and other changes keep the grant's identity.
-4. Call `storage.stage.prepareGrant(read, plan)`. It loads the history and the
-   ancestors needed to update child lists.
+4. Call `storage.stage.prepareGrant(read, plan)`.
 5. Begin your Store transaction and write the change with
    `storage.stage.appendResource` or `storage.stage.grant`, together with the
-   content. Loam's prepare, write, complete, and recover steps commit the whole
-   batch.
+   content, and commit the batch.
 6. Publish new identities and events only after the commit is confirmed.
 
-Your owner code must confirm the caller may manage access before preparing a
-plan. A failure after managed
-writing starts aborts the whole batch, content included.
+Your owner code must confirm the caller may manage access before preparing
+a plan.
 
 ### Several changes in one transaction
 
@@ -138,8 +131,8 @@ update per owner.
 - A preparation made from older resource, grant, or control state is refused,
   and the caller that began the batch must abort it, discarding the earlier
   changes too.
-- A failure after a participant starts writing aborts the batch. Hosted calls
-  leave the abort to their transaction runner.
+- A failure after a participant starts writing aborts the whole batch,
+  content included. Hosted calls leave the abort to their transaction runner.
 - A Read that has seen uncommitted owner state belongs to that transaction.
   Reopen it after the batch ends, including after an abort or after recovery
   finds nothing was written.
@@ -278,8 +271,7 @@ Store transaction as content. It returns the proposed change and, when
 sharing, a `derived_use` grant reference. The child grant and its record
 commit together, so before committing, either make that record a root or point
 a strong edge at it from content. Calling `storage.stage.grant` directly
-returns the proposed change and a reference to the grant record. Restore or
-publish anything only after the commit is confirmed.
+returns the proposed change and a reference to the grant record.
 
 An operation keeps its source reference alive, so the holder may drop its own
 copy while work is pending.
@@ -300,16 +292,13 @@ Memory:
 - Allow two leases for the grant and the owner header, plus the records the
   check needs and one directory page. Operations running at once share the
   cache and lease limits.
-- Checks on loaded records call no allocator.
 - Every commit makes old operations stale. After an unknown write, they refuse
   until recovery decides.
 
 [ADR-0052](../decisions/adr/ADR-0052-managed-owner-lifecycle.md)
-defines how references are restored. These Zig calls tie a permission check
-to its content change at the same revision, and the
-[managed endpoints](access-endpoints.md) do the same for hosted calls.
-Controls can also narrow themselves, be revoked on their own, and inspect
-their scope through the [management methods](#managing-a-held-control).
+defines how references are restored. Controls can also narrow themselves, be
+revoked on their own, and inspect their scope through the
+[management methods](#managing-a-held-control).
 Powers never change, so narrowing creates a new, dependent control. A grant's
 status and terms stay editable.
 
@@ -350,9 +339,6 @@ an exact-intent or expected-revision conflict. Its symbol names `operation`
 or `revision`. This admission result publishes no effects. Generic broken
 promise diagnostics do not prove that result. Content methods keep the
 failure contract in the table.
-
-A revocation, deletion, or loss of scope since the first attempt can stop a
-retry.
 
 A pause, resume, or revoke sent through `mutate` keeps its first Boolean
 result, even when a later bare call would return false. A `mutate` call that
@@ -422,8 +408,7 @@ The tagged `access:description` reply uses stable permission and constraint
 keys, laid out as
 [ADR-0046](../decisions/adr/ADR-0046-resource-scopes-and-permissions.md) defines. It
 reveals no ancestor identity, other resources, owner revision, or unrelated
-event counter. Holding a description grants nothing, and each protected call
-checks current permissions.
+event counter.
 
 Zig code uses `GrantUse.describe(target)` or
 `storage.Operation.describe(target)`. The second returns owned values with
@@ -435,8 +420,7 @@ their policy's fixed vocabulary.
 - Encoding and the reply share the call's bounded memory, so larger
   vocabularies need enough call and frame capacity.
 - The largest-policy test uses all <!-- value ../../src/loam/access/core/policy.zig max_permissions -->64<!-- /value --> permissions and <!-- value ../../src/loam/access/core/policy.zig max_constraints -->16<!-- /value --> constraints across the
-  three policies within the default <!-- value ../../src/loam/hosting/attachment.zig call_bytes bytes -->64 KiB<!-- /value --> of call memory. Frame capacity is a
-  separate limit, and the test measures no throughput.
+  three policies within the default <!-- value ../../src/loam/hosting/attachment.zig call_bytes bytes -->64 KiB<!-- /value --> of call memory.
 
 ## Observing held access
 
@@ -477,27 +461,20 @@ The child grant, its use record, an optional control record and endpoint, the
 use's rooted durable name, the retry receipt, and the source's new sequence
 commit in one Store batch.
 
-- `Call.result` runs between Host turns, after the Vat work and before the
-  write is submitted. It reserves the child actor and a hidden durable name
-  through `Host.reserveDurableCapability`, and no fetch can find that
-  reservation.
-- `Call.confirmation` turns the reservation on, without allocating, once the
-  commit is confirmed and before the reply is built.
+- The child actor and a durable name no fetch can find are reserved before
+  the write is submitted, and turned on without allocating once the commit is
+  confirmed. `Call.result` and `Call.confirmation` in
+  [`behavior.zig`](../../src/loam/hosting/behavior.zig) own these steps.
 - An abort releases the reservation, and an unknown write keeps it until
   recovery.
 - Move durable name reservations along, then commit or cancel them, before
   tearing down the Host.
 
 The source keeps its last <!-- value ../../src/loam/access/records/retry_window.zig capacity -->8<!-- /value --> receipts, found directly by sequence
-through ordered strong edges.
-
-- A matching request returns the same child.
-- Different terms give `OperationConflict`, an older sequence gives
-  `ReceiptExpired`, and a future one gives `OperationOutOfOrder`. An expired
-  sequence can never create a child again.
-- Everyone holding one endpoint shares the sequence, as for edits.
-- Retries check the source and child at the current revision, so a retry
-  cannot get around a pause or revocation.
+through ordered strong edges. A matching request returns the same child, and
+other requests fail as [edit retries](#retrying-mutations) do. An expired
+sequence can never create a child again, and a retry cannot get around a
+pause or revocation.
 
 When a receipt leaves the window, its edge is dropped and collection can free
 it. The child's durable name stays, so retire names yourself when they should
@@ -516,8 +493,8 @@ Costs and limits:
 - A retry holds three more record leases and a child operation while it
   checks permissions. A managed retry also holds its control endpoint and a
   bounded control operation.
-- Issuing uses the Zig Append's memory. The actor and durable name are
-  allocated before the write is submitted and may be refused under pressure.
+- Issuing uses the Zig Append's memory, and reserving the actor and durable
+  name may be refused under pressure.
 
 [ADR-0052](../decisions/adr/ADR-0052-managed-owner-lifecycle.md) records
 these rules.
@@ -547,31 +524,23 @@ and sequence.
   through the executor that owns the Store.
 - Each operation is tied to one Store revision. An abort, an unknown outcome,
   or another commit in between needs a fresh preparation.
-- Submitted reads keep their ticket and buffer through cancellation until
-  they complete, and `deinit` refuses while any are outstanding.
 
 ### What cleanup visits
 
 Cleanup walks the observation index, the weak identity directory, grants, and
 resources. Each step looks up one path at most four levels deep and checks one
-bounded chain of permissions, so it never scans other owners.
+bounded chain of permissions, so it never scans other owners. It retires the
+identities of revoked controls, revoked grant branches, and deleted content
+targets, and empty directories keep their highest allocated ID.
 
-- Revoked controls, revoked branches of grants, and deleted content targets
-  have their identities retired.
-- Pruning a grant lowers its surviving parent's child count and records the
-  change in its child list's history.
-- Empty directories keep their highest allocated ID.
-
-Finished endpoints and grant records lose their payload and links and become
-empty records. Endpoint records keep the lowest valid sequence for both
-receipt kinds while dropping the receipts themselves. A reference someone
-still holds sees that empty record, and a retry is refused instead of
+Finished endpoints and grant records become empty records, and endpoint
+records keep the lowest valid sequence for both receipt kinds. A reference
+someone still holds sees that empty record, and a retry is refused instead of
 creating a new result.
 
-Retiring an owner first stops pending ordinary work and cancels its
-receivers. It then compacts its identities and records before dropping the
-resource and event roots. The small owner header keeps the ID counters and
-how far cleanup got.
+Retiring an owner stops pending ordinary work and cancels its receivers
+before it compacts identities and drops the resource and event roots. The
+owner header keeps the ID counters and how far cleanup got.
 
 ### Durable names
 
@@ -587,9 +556,8 @@ same handling of unknown outcomes.
 
 ### Freeing the space
 
-Loam's collection frees the space. It keeps anything held at run time,
-anything a stored strong reference reaches, and old versions a lease still
-holds, and frees disconnected pages and payloads once nothing holds them.
+Loam's [collection](collection.md) frees disconnected pages and payloads once
+nothing holds them.
 
 - Each durable name keeps its index entry forever: one name key and one
   object identity, before engine overhead.

@@ -29,8 +29,6 @@ existing Host and Vat:
 - Behavior backed by a record, with bounded waking, local capability fields,
   durable names that can be restored and retired, and replies that wait for
   the commit ([ADR-0049](../decisions/adr/ADR-0049-record-backed-hosting.md)).
-  A stored record nobody references takes no endpoint. A held reference keeps
-  only a little routing data, plus any state you pin.
 - Calls that load the records they need and take part in transactions
   ([ADR-0052](../decisions/adr/ADR-0052-managed-owner-lifecycle.md)). A managed use
   endpoint is tied to one resource and its content, and a control prepares
@@ -38,24 +36,16 @@ existing Host and Vat:
   again, and it finishes any reads it submitted before releasing its state.
 - Sharing one resource, with bounded receipts
   ([ADR-0052](../decisions/adr/ADR-0052-managed-owner-lifecycle.md)).
-  Records are prepared on the Vat, the new durable name's entry is reserved
-  when the Host finishes its turn, and the name works only after a confirmed
-  commit.
 - Capability arguments the call owns, and local capability edges returned
   through the Host and CapTP. Typed [local and remote fields](references.md)
   keep exactly the authority they saved and what restoring it depends on.
-- Retiring a durable name through the attachment's write queue. Lookups stop
-  once the retirement commits, stay stopped if the outcome is unknown, and
-  come back if recovery shows the retirement never landed.
-- Looking up a durable name only when a peer asks, which shares fetches
-  through the same cache and restores the exact target without scanning or
-  creating endpoints early
+- [Durable names](publications.md) that load only when a peer asks and retire
+  through the attachment's write queue
   ([ADR-0007](../decisions/adr/ADR-0007-sturdyrefs-and-publication.md)).
 
 Not supported: general narrowing of returned capabilities and durable outgoing
-events. Timers, subscriptions, OS handles, and unresolved promises cannot be
-saved, and waiting calls live only in memory. The [browser guide](browser.md)
-covers the single-resource model in the browser.
+events. [Limits](../loam.md#limits) lists what cannot be saved, and the
+[browser guide](browser.md) covers the single-resource model in the browser.
 
 ## Identity, waking, and what stays alive
 
@@ -93,12 +83,10 @@ source keeps the order it promises, including for messages that arrive while
 the actor is going to sleep. Waiting calls and loads are counted against
 their limits before any memory is allocated for them.
 
-A near call cannot quietly wait on disk. Its fast path needs the target in
-memory and pinned for the call, and an asynchronous acquire can bring it into
-memory first. A near call to an actor on disk reports that the target must be
-loaded, without running it. It never blocks, pauses a stack, or runs a caller
-again that may already have had effects. Code that walks a large graph on
-disk uses eventual calls or bounded prefetching.
+A near call to an actor on disk reports that the target must be loaded,
+without running it ([near calls](#near-calls-and-capability-arguments)). It
+never blocks, pauses a stack, or runs a caller again that may already have had
+effects.
 
 Canceling a call ends the caller's interest in it, as usual. It does not
 abandon a load in progress or a write that may have committed. When the last
@@ -133,8 +121,7 @@ protected capability, Loam checks the grant as it is now. A cached copy of
 the content or an earlier event never stands in for that check.
 
 Sleeping does not mean a message was durably accepted, and waiting calls can
-be lost if the process dies. A durable inbox or outbox would need its own
-receipt and retry rules before Loam could promise that. A local snapshot never
+be lost if the process dies. A local snapshot never
 takes back access that peers have already seen over the network. State kept
 by a snapshot is charged on its own and can keep memory in use even after the
 actor sleeps.
@@ -161,8 +148,7 @@ sleep and wake latency or capacity for an application.
 ## Zig integration
 
 The [first durable actor example](../loam.md#a-first-durable-actor) shows a
-complete program. The following sections cover setup, call lifetimes, and
-shutdown for applications using the same Host and Store integration.
+complete program.
 
 ### Attaching a store
 
@@ -186,10 +172,10 @@ state before it sends the reply, and a behavior error throws it away. The
 record keeps its existing edges.
 
 Keep a behavior's effects inside its proposed record changes. Loam can
-discard state that fails to commit but cannot unsend an email. Loam saves records, not
-Zig structs or thread stacks, and it does not sandbox a behavior from the rest
-of the process. A behavior that changes several records uses the hooks
-described under [managed endpoints](access-endpoints.md).
+discard state that fails to commit but cannot unsend an email, and it does
+not sandbox a behavior from the rest of the process. A behavior that changes
+several records uses the hooks described under
+[managed endpoints](access-endpoints.md).
 
 ### Restoring and saving references
 
@@ -210,9 +196,9 @@ the process stops, and refuses use after a restart.
 
 Eventual calls use the Vat and CapTP promises you already have. When a call
 arrives, Loam copies its plain-data arguments into the call's own bounded
-memory and keeps the original message. Calls to the same sleeping actor share
-one load, each actor's calls run in the order they arrived, and ready calls
-queue on the Vat. Calls from the network resume through `Host.flushSession`,
+memory and keeps the original message. Ready calls queue on the Vat
+([calls and ordering](#calls-and-ordering)). Calls from the network resume
+through `Host.flushSession`,
 so the Host's usual scheduling and session closing still apply.
 
 Your main loop calls `attachment.advance()` and carries out each item from
@@ -241,9 +227,8 @@ The worker follows these rules:
 - It receives borrowed read requests and write batches and answers through
   `attachment.completeRead` or `completeWrite` on the thread that owns the
   attachment. It never calls into the Host.
-- If a write's outcome is unknown, the store refuses other work. Once every
-  other request has finished, the worker's next request is the attachment's
-  `recoveryBatch`, and completing it calls `attachment.resolve`.
+- After a write with an unknown outcome, its next request is recovery
+  ([unknown outcomes](store.md#when-a-writes-outcome-is-unknown)).
 - Host work resumes through your usual loop. Purely local calls keep running
   through the Vat's own bounded drive.
 
@@ -304,9 +289,7 @@ capability keeps working. `pin` returns a Store lease, and a pin or a waiting
 call keeps an actor awake. By default the cache keeps busy records and drops
 the least recently used ones that are allowed to sleep.
 `sleep_policy = .every_turn` puts an actor to sleep after every call, which
-is useful in tests. Sleeping is neither
-deletion nor revocation. Once nobody holds a capability to an actor, the Vat
-frees its endpoint as usual, so stored objects alone take no endpoints.
+is useful in tests.
 
 ### Capacity and cost
 

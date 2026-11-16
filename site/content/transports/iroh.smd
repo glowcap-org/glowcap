@@ -218,8 +218,7 @@ can use.
 
 # The durable key and session key have separate jobs
 
-Each endpoint has a durable Ed25519 keypair. Its public key has two related
-roles:
+Each endpoint has a durable Ed25519 keypair. Its public key has two roles:
 
 - It is the **iroh node id** the transport authenticates the QUIC channel against.
 - It is the **designator**, the peer's name inside an OCapN locator, the part
@@ -267,9 +266,6 @@ language keeps it optional:
   `glowcap.iroh`, `glowcap-iroh.rkt`, and Rust's opt-in `iroh` feature.
 - A program loads it only by installing the iroh provider, so one that speaks
   only TCP never does. Rust compiles it in behind the feature instead.
-
-Otherwise `listen` and `connect` work as they do on TCP. Only the address
-differs.
 
 # Scale: many connections, one thread
 

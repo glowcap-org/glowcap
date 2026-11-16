@@ -37,9 +37,6 @@ Set `GLOWCAP_LIB_DIR` to use archives from another directory. Run the client
 with `deno run --allow-all client.ts`. Loading a downloaded SDK needs
 environment, filesystem, subprocess, and FFI permissions as well as network access.
 
-WebRTC tabs show how to connect application-owned signaling. Supply its
-offer, answer, and candidate exchange before using those snippets.
-
 # The same round-trip
 
 This is the [Start building]($link.page('start')) round-trip on Deno.
@@ -269,15 +266,12 @@ for await (const accepted of server) {
 <!-- /site-examples:listen:ts -->
 ```
 
-Over iroh there is no host and port to bind. The server reports its node-id
-locator through `server.uri`.
-
 # Async
 
 Sessions return JavaScript promises, and a session is disposable: connect with
-`await using` and it closes when the block ends, with no explicit
-`session.close()`. [Concepts]($link.page('concepts')) explains how one call can
-pipeline on another before it resolves.
+`await using` and it closes when the block ends.
+[Concepts]($link.page('concepts')) explains how one call can pipeline on
+another before it resolves.
 
 # Actors
 

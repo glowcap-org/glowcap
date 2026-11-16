@@ -66,7 +66,6 @@ The component folders follow visual ownership:
 - `settings/` holds the settings surface and its sections.
 - `ops/`, `sidebar/`, `composer/`, and `message/` each own a narrower domain.
 - The shared [UI renderers](../../../../ui/) draw the mushroom and the threads beneath the page.
-  `mycelium/link.ts` connects the background to Rooms connection state.
 - Reusable controls and composition helpers stay at this directory's root.
 
 State lives in three places:
@@ -148,8 +147,7 @@ the platform's control cannot be styled.
 The operator page is built for a directory with more rows than fit on one page.
 
 - Each inventory offers its rows as sources with two parts: the lowercased text a search matches, which every row
-  provides, and the work of building the row, which only rows on the requested page pay for. Searching a hundred
-  thousand rooms costs a hundred thousand string tests, not a hundred thousand member lists.
+  provides, and the work of building the row, which only rows on the requested page pay for.
 - A count is the directory's own number of matches, not the number of rows sent.
 - Every category is the wire row plus the action that retires it where one exists, so search, paging, and bulk retire
   are written once.
@@ -213,9 +211,8 @@ The connection words separate a directory that never answered from one that answ
 
 - **Connecting…**: the first answer is still on its way.
 - **Reconnecting…**: the directory answered before, dropped, and the page is trying again.
-- **Not connected**: the directory answered before and is still unreachable. After sixty seconds of failed automatic
-  reconnects, the directory shows **Not connected**, and its card offers **Retry connection**, which starts a fresh reconnect
-  window.
+- **Not connected**: the directory answered before and is still unreachable. Its card offers **Retry connection**, which
+  starts a fresh reconnect window.
 
 When a directory drops, the rooms you already joined stay in the sidebar and show **Not connected**. These words describe a
 directory. The roster lists current room members, and leaving removes that membership while their messages remain.
@@ -262,7 +259,6 @@ A success is also shown where the action happened:
 Pending work belongs to the action that started it. `session/managed/lifecycle.ts` records its owner, phase and
 outcome separately.
 
-- Every step, from preparing to completing, stays owned while notifications arrive.
 - The session-effect bar lists kept changes that lost their owner after a failure or a restore. A reply that was cut
   off never proves that a change failed.
 - **Session settings** opens the same list while any change is unfinished, including final unknown outcomes nobody
@@ -270,21 +266,13 @@ outcome separately.
 
 `session/managed/gestures.ts` covers the generated list of commands:
 
-- Pressing one control again shares the request it already sent. A new post gets its own operation identity even when
-  its text is the same.
-- Two changes to one line conflict, and so does retiring a conversation or directory while it is in use. Separate rooms
-  carry on. Only admission waits its turn on the workspace revision, and settling and draft sync run on their own.
+- Two changes to one line conflict, and so does retiring a conversation or directory while it is in use.
 - The effect limit caps how many actions are kept. At the cap, the page asks the reader to finish or recover work it
   already holds.
-- `local_limits.ts` limits queued saves and shared workspace reads. Composer sends queue one beside the one sending.
-  History has one reader at a time.
 - The caller limits how long it watches each receipt, the runtime owns the executor's watch windows, and the page adds
   no retry loop of its own.
 - A revision conflict means the workspace intent changed after the gesture was prepared. Receipts and held storage
   committing beside it never cause one ([ADR-0072](../../../../docs/decisions/adr/ADR-0072-workspace-intent-fence.md)).
-  Only a proven conflict allows preparing again, up to `MAX_CONFLICT_REPREPARATIONS` times, each checked against the
-  original selection. A simple workspace setting is fenced at its original value, and retention also fences
-  an unfinished erasure. Supervising unrelated rooms leaves these settings available.
 - Diagnostics on a kept change show its elapsed time, owners and last eight phase changes, without message bodies or
   capabilities. Session resource counts cover active workers, reads, receipts, listeners and subscriptions, and return
   to zero on close.
@@ -299,54 +287,33 @@ Presentation follows `presentation.ts`:
 | Failure, permission change, disabling a conflicting control, releasing a settled control | Immediate                    |
 | Supported Stop action                                                                    | Immediate, in reserved space |
 
-Each run has a monotonic start time and a retirement token, and a background-tab wake reads elapsed time and current
-state. A feedback slot may hand off to a confirmed result for the rest of its 500ms minimum. A surface with no real
+A feedback slot may hand off to a confirmed result for the rest of its 500ms minimum. A surface with no real
 result to show clears its progress at once. Neither the minimum nor a delayed spinner extends the effect, keeps a
 settled control disabled, or postpones a failure.
 
-`useAsyncAction` owns a control's refusal and cancellation signal. Stop requests cancellation at the worker, and its
-run stays shared until it drains. Closing a card drops its presentation, while the session keeps admitted work and its
-original receipt.
-
-- A committed effect with a failed acquisition recovers that acquisition.
-- A partial file send retains its posted line, and no recovery path creates a replacement send from the bubble's text.
-- Closing a surface or choosing a different conversation prevents a late completion from reopening the original
-  controls.
+`useAsyncAction` owns a control's refusal and cancellation signal. Closing a card drops its presentation, while the
+session keeps admitted work and its original receipt. A partial file send retains its posted line, and no recovery path
+creates a replacement send from the bubble's text.
 
 How each kind of change shows while it is pending:
 
-- Text edits project a pending version over the accepted line, and a newer accepted update wins when the edit settles.
-- Withdrawing a line hides only that line's pending change, and its place and any refusal stay visible. A standing
-  change shows as pending over the accepted state.
+- Withdrawing a line hides only that line's pending change, and its place and any refusal stay visible.
 - Draft synchronization keeps editable local text and one persistent retry notice inside the composer above its text
   field. Long diagnostics open through the notice's detail card, and retry requires current participation access.
-- A kept request that already committed finishes without opening receipt recovery, which needs more permission.
-- Access edits keep conflict and uncertain-result recovery beside the original control, with the current name or
-  permission summary when the control can inspect a conflicting edit. Recovery stays reachable when refresh removes
-  editing powers. Entry action groups wrap within their row on phones.
+- Access edits keep recovery beside the original control. Entry action groups wrap within their row on phones.
 - Typing expires with its authority and records a bounded diagnostic instead of a toast per keystroke.
 - Typing starts at a keystroke, never at focus on a draft kept from earlier, a draft put back after a refused send,
-  or a change to a line already said. While a member keeps typing, the page renews the level on a timer shorter
-  than a reader's wait. A stop names the conversation that heard the start.
-- A line is its author's typing stop. While a line with no files to upload is on its way, its conversation's typing
-  waits: no stop goes beside the line, typing for the next draft follows it, and a line the room refuses is
-  followed by the level the composer asked for last. A start still on its way when the line leaves reaches the
-  conversation ahead of the line, so the line ends it too.
-- A member still typing when a line they sent lands, an uploaded one included, is said again, because the line
-  ended what the room heard before it. A line picked up after a reload lands with no word to typing, and the next
-  renewal says a member who is typing again.
-- A reader's page clears the author's indicator when the line arrives, and clears a member's indicator when that
-  member leaves or goes offline. The Send button keeps the caret in the field, so pressing it is not a pause.
+  or a change to a line already said. `test/store/typing_test.ts` proves how typing renews, and
+  `test/session/managed_typing_test.ts` proves how a line stops it. A line picked up after a reload lands with no
+  word to typing, and the next renewal says a member who is typing again.
+- A reader's page clears a member's indicator when that member leaves or goes offline.
+- The Send button keeps the caret in the field, so pressing it is not a pause.
 - Sidebar-close and archive-drop refusals stay on their rows.
 
 A room post carries a bounded operation identity to its own membership's notification. The page reconciles that
-identity with its optimistic bubble before rendering an echo.
-
-- Nickname, text and arrival order establish no match.
-- The optimistic DOM node survives confirmation, and other viewers' posts stay distinct.
-- The room on screen follows its lasting conversation id. A new membership generation still retires authority over old
-  lines.
-- Archive refresh preserves unaffected rows, and a retired request cannot resurrect a revoked row.
+identity with its optimistic bubble before rendering an echo, and nickname, text, and arrival order never establish a
+match (`test/session/send_receipt_projection_test.ts`). A new membership generation retires authority over old lines,
+and in an archive refresh a retired request cannot bring back a revoked row.
 
 Progress and results use scoped status regions, and refusals use the initiating surface's alert. Keyboard and pointer
 activation share one guard. Reduced motion changes animation without removing state information or Stop.
@@ -375,6 +342,6 @@ Every sentence a reader sees lives in `lib/text/`.
 The log does not jump as files arrive: the sender measures a picture before posting it, the message records that size,
 and the reader reserves that space, shimmering until the bytes arrive.
 
-The viewer is an overlay beside Settings in `App.tsx`, not inside a message. Clicking its backdrop dismisses it, as does
+The viewer is an overlay beside Settings in `shell/App.tsx`, not inside a message. Clicking its backdrop dismisses it, as does
 Escape, which dismisses every overlay. It has none of Settings' frame: Settings is a form with fields and a title, and a
 picture is the content itself.

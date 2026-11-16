@@ -9,8 +9,8 @@ sources:
 
 # OCapN conformance manifest
 
-Each row below records the adoption state of one draft section or upstream
-suite source, against the pinned upstream text. That pin tracks reviewed
+Each row records the adoption state of one draft section or upstream suite
+source against the pinned upstream text. That pin tracks reviewed
 upstream text independently of what glowcap implements, so moving it changes
 neither the opening grammar nor the Goblins interoperability target.
 
@@ -117,19 +117,17 @@ not stronger ordering between an introducing route and a redeemed direct route.
 ## Upstream suite review
 
 This table covers every Python source in the separately pinned suite: test
-modules, shared session setup, message types, and netlayers. A shared hello
-change therefore fails the check even when no test module moved.
+modules, shared session setup, message types, and netlayers.
 
-The baseline TCP runner runs
-all discovered test modules except `tests.op_abort`, replaced by the strict
-portable abort probe. These rows are execution policy: every pending source blocks
-the run, a deferred module reports its decision, and an adopted module must run
-without skips. The onion runner has its own exclusions.
+The baseline TCP runner runs all discovered test modules except
+`tests.op_abort`, replaced by the strict portable abort probe. These rows are
+execution policy: every pending source blocks the run, a deferred module
+reports its decision, and an adopted module must run without skips. The onion
+runner has its own exclusions.
 
 `zig build ocapn-conformance-next` first runs the baseline lane, then the
 adopted upstream assertions through a next wire fixture and locally written draft
-cases. The fixture verifies a signed next offer using the retained hello,
-requires draft delivery shapes, and chooses 32-byte gift IDs before signing.
+cases ([suite notes](../conformance/ocapn-conformance/README.md)).
 
 | Suite source | Profile | State | Evidence | Decision | Text |
 | --- | --- | --- | --- | --- | --- |

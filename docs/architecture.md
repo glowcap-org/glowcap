@@ -96,7 +96,7 @@ embeds glowcap behind another runtime.
 | `driver_core.Host` | Your runtime feeds bytes and drains actions without letting glowcap own I/O. The bindings that load the C library hand this Host to the driver. The browser package feeds it itself. |
 
 Consumers reach Host through `driver.core`. The files under `host/` are
-implementation. They are not a second public API.
+implementation, not a second public API.
 
 The actor layer sits between the protocol peer and these application APIs.
 `actors.Vat` hosts local objects, turns incoming calls into actor turns, and
@@ -129,19 +129,17 @@ as the [integration guide](loam.md#choosing-an-integration) describes.
 - **`records`** owns storage identities and checked Syrup envelopes.
 - **`core`** builds transaction and lease state on top of `records`. The
   optional SQLite and LMDB engines and the volatile engine share its batch
-  validator.
-  It also owns incremental tracing with insertion barriers. Marks and queue
-  entries are stored, so traversal stays out of the actor working set, and
-  bounded live retention and pinned snapshots protect objects during a sweep.
+  validator. It also owns incremental tracing, whose stored mark queue bounds
+  memory use independently of the stored graph size
+  ([`collection.zig`](../src/loam/core/collection.zig)).
 - **`hosting`** attaches record-backed actors to the existing Vat and Host. It
   owns bounded pending calls and lazy restoration of local capabilities, and
   ordinary Host promises carry the replies that wait for commit.
-- **`access`** supplies resource permissions and joins Store transactions. It is
-  described below.
+- **`access`** supplies resource permissions and joins Store transactions
+  ([Managed access](#managed-access)).
 
 Loam's persistence core does not depend on managed access, the Host, or CapTP
-session state. Optional integration modules connect them, and the facade
-offers managed access without requiring resource state for ordinary objects.
+session state, and ordinary objects need no resource state.
 The [Rooms session guide](rooms/session.md) shows this layering in an application. The
 [Loam API](loam/api.md) separates record schemas, storage encoding, reference
 restoration, and wire codecs.
@@ -191,9 +189,8 @@ received chunk from the backend's pool and keeping no buffer on an idle wire
 
 iroh is the multiplexed case: `iroh.MultiplexedAdapter` drives every
 connection from the endpoint's one readiness descriptor, and the C ABI uses the
-same adapter state. A Server accepts connections through the runtime's listener
-lifecycle, and a session it hands out keeps working after the Server is
-destroyed. WebRTC has no socket to poll, so it joins a Host through a
+same adapter state. A session a Server hands out keeps working after the
+Server is destroyed. WebRTC has no socket to poll, so it joins a Host through a
 completion backend once signaling is configured (`zig build webrtc-loop`, and
 `zig build webrtc-redeem` for redeem). A bare locator without signaling set up
 is refused. The Host resolves crossed connections, where both peers dial at once,
@@ -238,7 +235,7 @@ beside its option in the code.
 | `SessionLimits.max_queued_call_bytes` | Owned bytes of pipelined calls a session holds queued against answers that have not settled, summed across the session. Zig only. |
 | `driver_core.Host.Options.max_sessions` / `GlowcapSessionLimitOptions.max_sessions` | How many live sessions one Host holds, dialed and accepted together. A mint at the cap is refused. `null` in Zig turns the cap off. |
 | `driver_core.Host.Options.local_turn_budget` / `glowcap_host_new(... local_turn_budget ...)` | How many local actor turns one session may set off during one drive before the Host ends that session. `null` in Zig or `GLOWCAP_LOCAL_TURN_BUDGET_UNBOUNDED` in C turns the cap off. A bare `Served` is unbounded. |
-| `driver_core.Host.Options.release_on_drop` / `glowcap_host_new(... release_on_drop ...)`, read with `glowcap_host_release_on_drop` and set with `glowcap_host_set_release_on_drop` | Whether a binding releases its hold on a far capability when the language reports that it went out of scope. The Host stores the setting and attaches no behavior to it ([ADR-0025](decisions/adr/ADR-0025-capability-release.md)). Rust turns it on. TypeScript, Python, and Racket turn it off, because their release runs from a finalizer, and keep the per-session opt-in. |
+| `driver_core.Host.Options.release_on_drop` / `glowcap_host_new(... release_on_drop ...)` | Whether a binding releases its hold on a far capability when the language reports that it went out of scope. The Host stores the setting and attaches no behavior to it ([ADR-0025](decisions/adr/ADR-0025-capability-release.md)). Rust turns it on. TypeScript, Python, and Racket turn it off, because their release runs from a finalizer, and keep the per-session opt-in. |
 | Raw transport `max_frame_bytes` / `maxFrameBytes` / `max-frame` default | The largest frame a raw blocking transport handle accepts before a Host owns the session. |
 | `net.completion.BackendOptions.read_buffer_bytes` | The size of each buffer in the loop's shared read pool. |
 | `net.completion.Options.outbound_high_water_bytes` | Bytes waiting to be sent before the loop stops reading from that connection. |
@@ -250,11 +247,10 @@ resource configuration. [Stability](stability.md) lists the checks for TLS and r
 carriers, and [benchmarks](../bench/README.md) hold connection
 footprints.
 
-`HostRuntime` retries a staged dial above the loop on `driver.DialPolicy`,
-which classifies dial failures and sets the discovery budget. A transient
-fault parks the open for one interval and re-issues the dial on the same
-session, and a permanent fault fails the open at once. The protocol core has
-no reconnect policy.
+`HostRuntime` retries a staged dial above the loop on `driver.DialPolicy`
+([`dial_retry.zig`](../src/driver/dial_retry.zig)), which retries only
+transient faults and sets the discovery budget. The protocol core has no
+reconnect policy.
 
 ## Session tables
 
@@ -280,22 +276,16 @@ local promise retirement release exactly the bytes each row was charged
 Near references, promises, and answers share one internal slot type. The codec
 works out the matching wire descriptor only when it renders a frame.
 
-A far import's position was chosen by the remote peer, so its row needs two
-retain counts. The first counts the references the partner granted by
-mentioning it. The second counts how many of those the session itself will
-release, held next to the closure that spends them. With both on one row,
-pipelining, settlement, and handoff read the same state, and an application's
-release can never spend a retain the session still needs
+A far import's row holds two retain counts: the references the partner
+granted by mentioning it, and how many of those the session itself will
+release. With both on one row, pipelining, settlement, and handoff read the
+same state, and an application's release can never spend a retain the session
+still needs
 ([ADR-0027](decisions/adr/ADR-0027-wire-retains-and-export-admission.md)).
 
 `SessionLimits.max_nesting_depth` limits recursive values. Session state also
 decides which messages are legal while negotiating, open, or closed, and an
 invalid transition is refused before it can mutate a table.
-
-A partner may reuse an import position after release. The final decrement
-removes every sturdyref cache entry and clears the import row's routing
-generation, so an old host route fails closed even if its map row is
-reclaimed after the partner reuses the position.
 
 ## Frame ownership and copies
 
@@ -339,14 +329,13 @@ classification stay in `driver_core` or `driver`. The C layer validates ABI
 layout and lossless representation, marshals values, owns opaque-handle and
 event-delivery storage, and passes on the Zig result. Bindings own host-language
 I/O tasks and resource idioms, and join their effects at completion barriers.
-Protocol state and lifecycle decisions remain in Zig.
 
 Broken results carry `BreakCause` beside their diagnostic text. The operation
 that knows the cause sets it, and local forwarding preserves it. A wire break
 arrives with cause `partner`. A refused bootstrap fetch keeps its cause and
-gains the `fetch` context at the Host's fetch boundary. C and binding
-predicates read this cause. Display and wire output render its label without
-treating partner text as a local diagnosis.
+gains the `fetch` context. C and binding predicates read this cause.
+Display and wire output render its label without treating partner text as a
+local diagnosis.
 
 A failure that can be returned stays in ordinary control flow. When no caller
 or close barrier is left to receive it, the `diagnostics` layer turns it into a
@@ -357,9 +346,8 @@ trace stay separate because each describes a different fact
 ([ADR-0031](decisions/adr/ADR-0031-structured-diagnostics.md)).
 
 There is no umbrella library. A C program links the shared OCapN vocabulary and
-only the Host, driver, and transport archives it needs. [The C
-guide](consuming-from-c.md) has the archive table, build commands, provider
-install, and a complete program.
+only the Host, driver, and transport archives it needs
+([the C guide](consuming-from-c.md)).
 
 Every separately loaded archive, including the core, Host, and driver, exposes
 a reflected callable/constant/layout fingerprint. Binding-projected rows in the
@@ -369,16 +357,16 @@ Binding loaders compare every archive before an ordinary call.
 Implementation-only edits do not perturb the contract (ADR-0024).
 
 The fingerprints check the public ABI, so archives sharing opaque Host and
-actor owners are built together. Private compatibility across different builds
-is outside that check. Actor callbacks use stable protocol tokens and
+actor owners are built together. Actor callbacks use stable protocol tokens and
 diagnostic text across archive copies, with typed Zig errors local to their
 compilation ([ADR-0022](decisions/adr/ADR-0022-composable-c-archives.md)).
 
 Bindings that load the C library use `libglowcap_host` and `libglowcap_driver`. The driver
 takes an idle Host and runs the loop. The binding waits on one readiness
-descriptor, arms one timer from `glowcap_driver_step_wait_ms`, calls `glowcap_driver_step`, and drains one event queue. The driver decides
-which pending operation owns the nearest deadline, and the binding turns
-that duration into a timer on its scheduler.
+descriptor, arms one timer from `glowcap_driver_step_wait_ms`, calls
+`glowcap_driver_step`, and drains one event queue. The driver decides
+which pending operation owns the nearest deadline, and the binding only
+schedules the wait it reports.
 
 The browser package and any application that already owns I/O drive the Host
 themselves: feed bytes, pump and drain, take outbound frames. glowcap creates
@@ -396,12 +384,9 @@ The rules for providers:
 
 - Listener ids key the routing of accepted connections in every binding. The
   driver owns each listener's canonical public locator.
-- A provider compares its own effective configuration, apart from which
-  profiles each package registers. A profile that an installed package
-  already serves under an equal configuration stays with that package, and
-  the driver installs only the profiles nothing serves yet. A conflicting
-  package is refused whole. Bindings keep no separate registry of providers
-  or credentials.
+- The driver settles overlap between provider packages
+  (`glowcap_driver_add_provider` in `glowcap_driver.h` states the rule).
+  Bindings keep no separate registry of providers or credentials.
 - A provider may expose opaque local restoration bytes, read through a
   size query and a caller-supplied buffer. Those bytes never enter the
   locator, and only that provider package interprets them. The onion package

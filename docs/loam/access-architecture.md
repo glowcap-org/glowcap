@@ -45,9 +45,7 @@ plain objects can share one Loam transaction.
 modules and archives. `core` holds the Zig model, `records` the managed
 record encoding, and `storage` ties record views and changes to Loam leases
 and transactions. `hosting` registers checked behaviors on an existing Host,
-backed by Loam. The [C and Rust guide](c-and-rust.md) covers fixed resources
-through Loam's optional archive and lists what that API includes. The general
-owner and tree APIs are not available there.
+backed by Loam.
 
 The module reuses Loam's cache, storage executor, and actor wake-up.
 
@@ -145,9 +143,6 @@ The protocol, actors, and an ordinary Host never depend on managed access,
 and a Host holds no owner, tree, or grant state unless an application creates
 one. One Host can serve many owners and unrelated actors.
 
-The build keeps core and hosting imports apart. C ABI code converts values
-and reports outcomes, and makes no policy or recovery decisions.
-
 ## Who owns which state
 
 A managed access owner owns its resource and grant records, its policy
@@ -155,8 +150,7 @@ schemas, its revisions, and its resources' durable name recipes and receipts.
 Loam owns storing them and the transaction state, and only the records in use
 stay in memory ([store](store.md)). An owner has no connection list, wire
 reference table, promise registry, or worker queue, and the application's
-executor runs the work it asks for. Under load, a call gets a typed busy
-result or waits in the application's bounded command queue.
+executor runs the work it asks for.
 
 | State | Its one owner |
 | --- | --- |
@@ -174,10 +168,9 @@ identity they serve. Dropping a typed client wrapper releases its reference
 and neither revokes a grant nor destroys a resource. An endpoint is freed when
 its actor and references are released, with no separate collector.
 
-An owner has one active hosting registration on one Host, and that Host can
-serve many owners. Shared stored state needs one writer, which the deployment
-or storage provides, and restoring the same access in two processes at once
-is not supported replication. Owners combine through capabilities they hold,
+An owner has one active hosting registration on one Host. Shared stored state
+needs one writer, which the deployment or storage provides, and restoring the
+same access in two processes at once is not supported replication. Owners combine through capabilities they hold,
 never through shared grant tables.
 
 Retiring an owner stops new calls and durable names and retires pending
@@ -210,9 +203,8 @@ public Host and driver APIs, never their private internals.
 
 [Actor caretakers and attenuators](../../src/actors/ocap.zig) provide
 revocable forwarding and method filtering. A managed facet reuses their
-forwarding without also keeping a caretaker flag beside the stored grant
-status, which would give two answers to the same question. It checks its
-current grant and uses an ordinary actor behavior to act or refuse.
+forwarding but keeps no caretaker flag beside the stored grant status. It
+checks its current grant and uses an ordinary actor behavior to act or refuse.
 
 No global Host hook checks resource policy. Only behaviors that managed
 access registers apply it, and calls to ordinary actors keep their path and
@@ -231,9 +223,8 @@ lead to later delivery or sharing must also declare how permissions apply.
 
 Zig owns the shared access rules. Applications register bounded descriptions
 of their permission sets, how constraints combine, and what each change
-needs. The vocabulary is permissions, which combine by intersection, and
-lower or upper bounds on numeric facts. Zig checks schemas,
-evaluates scope, combines terms, and walks local grant chains.
+needs. The [managed access model](access-api.md#scope-and-policy) states what
+Zig checks and what an application hook may add.
 
 Rooms supplies what its operations mean and the committed content facts. For
 example, editing a message needs a declared edit permission and the author
@@ -250,18 +241,6 @@ application code.
 | Pause, resume, revoke, and checking dependent outputs | UI and typed application methods |
 | Permission transactions and restoring | Running storage and fitting into the executor |
 | Registration and checking handles at run time | Ownership wrappers, error conversion, and callback plumbing |
-
-Applications never implement generic intersection, narrowing, or walking up a
-grant chain. A missing general constraint operator is added to the shared Zig
-model with tests. A domain-specific check can be a bounded, synchronous
-application hook, but it cannot override scope, limits, status, or the grant
-chain. Unsupported policy schemas fail.
-
-Zig compile-time helpers and Rust generics describe schemas and give typed views over the same model, and
-neither creates a separate grant implementation. Bindings may cache
-descriptions for display, never to authorize anything. Remote callers use
-application interfaces over OCapN and need not run managed access
-themselves.
 
 Rooms' portable content model does not depend on how the Host runs, and its
 runtime combines content proposals with managed access checks and storage.
@@ -282,17 +261,11 @@ A protected change follows one path:
    prepares the content changes, in one recoverable transaction. No
    capability or content change is visible before the commit.
 4. The embedding or binding runs the storage work. Loam takes the result and applies each
-   participant's changes, managed access included. An unknown write stops the
-   owner until recovery. Conflicting changes cannot overtake a pending
-   transaction and invalidate its check.
+   participant's changes, managed access included. Conflicting changes cannot
+   overtake a pending transaction and invalidate its check.
 5. Hosting delivers the results, checking current permissions again where
    delivery was queued. Returned managed references carry the grants they
    need and the access to their target.
-
-Ordinary reads write nothing to the grant records. Waiting work finishes
-before the final check, so an old check cannot allow a later change after a
-revoke. The storage worker runs this sequence and holds no permission state of
-its own.
 
 A message's attachment facet depends on both the message grant and the held
 file capability, and returning it cannot reveal the file's original access.
@@ -300,11 +273,6 @@ The same rule covers subscriptions, nested replies, and continuations.
 Application code with its own original access decides which handoffs it
 allows, and managed access cannot stop it handing that access out through
 another API.
-
-Remote dependencies run through the capabilities held from upstream. Local
-records say nothing certain about remote access, and a network split never
-turns a remote change into a commit. Each owner reports its own committed
-outcome.
 
 ## Locators and restoring
 
@@ -344,14 +312,9 @@ grant control cannot unwrap its source.
 
 Policy descriptors use stable permission and constraint keys. Display
 labels, presets, and UI grouping are separate. Issued grants store their
-terms explicitly, so changing a preset cannot widen them. Supported
-constraint operators share Zig rules for narrowing and intersection.
-A requirement lists the permissions an effect needs and bounds on checked
-facts, and every one must hold.
-
-Applications map operations onto requirements and supply facts from their
-committed content. A custom check refines a
-domain requirement and cannot change how the vocabulary combines.
+terms explicitly, so changing a preset cannot widen them. A requirement
+lists the permissions an effect needs and bounds on checked facts, and every
+one must hold.
 
 Each call uses one grant, and managed access never combines permissions from
 separate capabilities. An operation that needs several capabilities declares
@@ -360,10 +323,9 @@ and kept in a fixed order. Remote dependencies are held references whose
 owner keeps enforcing them.
 
 The direct local API and actor calls go through the same checks. Holding the
-reference you call is what lets you use its grant. Zig use and control references tie that permission to
-committed grant records, and actor hosting calls them through the same
-checks. Applications can use managed access on local content without
-connecting to anyone.
+reference you call is what lets you use its grant, and Zig use and control
+references tie that permission to committed grant records. Applications can
+use managed access on local content without connecting to anyone.
 
 ## Observable access changes
 
@@ -392,23 +354,13 @@ hidden ancestor IDs, policies, siblings, or unrelated activity. Raw owner
 events and revision stamps are internal and never a wire format.
 
 The UI uses these events to refresh access and status, and running services
-use them to stop or recheck protected streams and pending work. A revoked
-watcher sees only its status. Watching follows the watcher's own permission,
-including while its use is paused.
-
-Each receiver keeps an opaque scoped cursor. When the history a cursor needs
-has expired, the reply says to start over and carries a fresh snapshot the
-watcher may see with a matching cursor, so no change is skipped silently. Managed access
-owns ordering and checking cursors, and your program runs storage and
+use them to stop or recheck protected streams and pending work. Managed
+access owns ordering and checking cursors, and your program runs storage and
 delivery without a second event system.
 
 Protected calls and deferred delivery check current permissions, so a lost or
 late event never keeps access alive, and a revoke needs no broadcast or
-acknowledgement. The stored owner keeps grant, resource, content, and control
-changes in order, in bounded committed batches, with scoped revision stamps
-and the affected paths. [Observing held access](access.md#observing-held-access)
-provides receipt-backed registration, receive and cancel endpoints, catching
-up within what the watcher may see, and opaque cursors.
+acknowledgement.
 
 ## Atomic content and access changes
 
@@ -458,10 +410,8 @@ goes through the access module's revision and permission checks.
 
 Managed access owns the shared application interfaces for describing access,
 sharing, controlling a grant, and inspecting the resources a holder may see.
-Their schemas live with hosting and generate its Zig and binding method
-definitions. Rooms owns content methods such as posting and editing a
-message, with their permissions, and its generator refers to the shared
-schema instead of copying its methods.
+Rooms owns content methods such as posting and editing a message, with their
+permissions.
 
 These interfaces are ordinary application objects sent over CapTP. They add
 no protocol message, transport extension, special bootstrap access, or
@@ -470,10 +420,10 @@ management calls apart from application methods. An application's schema
 identity fixes which permission vocabulary a grant uses, and a description
 or type label from a remote peer cannot create access.
 
-A peer can use a published interface without running the Zig library. A peer
-without it returns an unsupported result, and clients never retry through a
-broader capability. Generic protocol fixtures belong to managed access, and
-Rooms fixtures test its content-specific requirements on top of them.
+A peer without a published interface returns an unsupported result, and
+clients never retry through a broader capability. Generic protocol fixtures
+belong to managed access, and Rooms fixtures test its content-specific
+requirements on top of them.
 
 ## Zig, C, and browser builds
 
@@ -497,10 +447,9 @@ and application Zig types never pick a different grant algorithm.
 Rust's portable content crate keeps its content types, and runtime binding
 code converts typed requirements and borrowed fact views to the shared ABI.
 Content changes are opaque to Zig, and allocations and kept callbacks each
-have an explicit owner who releases them. No Rust callback implements the
-access rules. Callbacks from other languages are synchronous and cannot call
-back in, and asynchronous work returns through completion handles the
-executor drives.
+have an explicit owner who releases them. Callbacks from other languages are
+synchronous and cannot call back in, and asynchronous work returns through
+completion handles the executor drives.
 
 Process builds link managed access with the Host, the chosen driver, and
 transports. Rooms browser builds link managed access, the byte-fed Host, and
@@ -540,7 +489,3 @@ Each name in the last column is a test file or a `zig build` step that
 | Shutdown | Closing the Host settles storage work in flight, and late storage results and callbacks never reach freed memory. | `bindings/rust/src/loam/tests/close.rs`, `test/loam/hosting/actors_test.zig` |
 | Browser cost | Each operation's IndexedDB transactions, JavaScript calls, rows, and copied bytes are counted, and a resident read or receipt replay records none. | `loam-browser-test` |
 | Callback reentry | A storage callback that calls back into Loam is refused. | `test/c_abi/loam_execution_test.zig` |
-
-Unsupported stored formats are refused. The
-[alpha release policy](../maintaining.md#release-status) covers upgrades and
-any required operator-controlled reset.

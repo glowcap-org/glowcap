@@ -21,10 +21,9 @@ Host runs.
 | scope | A registry that lets several attachments on one Host and store name each other. |
 | disclosure | Handing a saved capability to a caller in a reply. A managed reply must declare what it hands out. |
 
-`glowcap.loam.hosting.references` saves capabilities the application holds:
-edges within one attachment, references into another attachment on the same
-Host and store, and established sturdyrefs to another Host. It never saves
-CapTP export positions, pointers, or grant identities it would have to guess.
+`glowcap.loam.hosting.references` saves capabilities the application holds.
+It never saves CapTP export positions, pointers, or grant identities it would
+have to guess.
 [ADR-0053](../decisions/adr/ADR-0053-returned-capability-authority.md)
 records these rules.
 
@@ -81,10 +80,9 @@ remote callers come in only through capabilities they hold.
 ## Live fields
 
 For a capability that should end at restart, declare `.save_live = held` and
-configure a bounded `hosting.LiveScope`. Its table in memory holds the exact
-capability under the recipe's committed identity. The stored recipe holds
-only an epoch number and one strong edge to that epoch's record. It holds no
-runtime handle and cannot bring the capability back after a restart. Register
+configure a bounded `hosting.LiveScope`, which holds the exact capability in
+memory and stores no runtime handle
+([`live_scope.zig`](../../src/loam/hosting/live_scope.zig)). Register
 `hosting.LiveEpoch.schema` alongside the reference schema when you set up a
 Zig Store.
 
@@ -107,9 +105,6 @@ target.
 - Collection releases the capability once it removes the last recipe that
   names it.
 - Closing an idle scope releases everything it holds.
-
-[ADR-0053](../decisions/adr/ADR-0053-returned-capability-authority.md)
-records these rules.
 
 ## Preparing and editing fields
 
@@ -157,10 +152,8 @@ The Set belongs to its `hosting.Call`: send its reads through that
 preparation, pass their results to `completeRead`, and let the call's cleanup
 release it.
 
-- Direct edges restore when they are first used. Recipe edges need a declared
-  and completed Set before `Call.storedEdge` can restore them.
-- Restoring or saving a capability only holds it. A managed reply must still
-  declare that it hands the capability out.
+Direct edges restore when they are first used. Recipe edges need a declared
+and completed Set before `Call.storedEdge` can restore them.
 
 ## Handing capabilities out
 
@@ -195,11 +188,10 @@ changes cannot run it again. Its reply keeps nested capabilities and the
 target's failure text, and settles like any other promise. The Host owns how
 those capabilities cross the wire or reach local listeners.
 
-Local Vat calls pass only plain data in arguments and results. Use the
-Host's value delivery for capability values the call owns. Receipt arguments
-and results can hold durable capabilities from the same attachment, and other
-kinds of capability are refused before any content is written. Unresolved
-promises, subscriptions, timers, and OS handles cannot be saved in a field.
+Receipt arguments and results can hold durable capabilities from the same
+attachment, and other kinds of capability are refused before any content is
+written. [Near calls](actors.md#near-calls-and-capability-arguments) covers
+capability arguments on local calls.
 
 ## Limits
 
@@ -216,20 +208,16 @@ separate.
 
 `Host.callCapability(allocator, session, target, verb, values, reply_bytes)`
 returns an opaque `Host.Call` that owns bounded storage for its result.
-
-- Results borrow the call. Keep it while you read them, or take your own
-  references.
-- Call `deinit` from your main loop before destroying the Host.
-- Canceling a pending call detaches its observer without allocating.
-- The call never takes from the Host's public action queue, and an unresolved
-  target is refused before anything is sent.
+Results borrow the call, so keep it while you read them or take your own
+references, and call `deinit` from your main loop before destroying the Host.
+Canceling a pending call detaches its observer without allocating.
+[`owned_call.zig`](../../src/driver/core/host/owned_call.zig) states the rest
+of its contract.
 
 ## Tests
 
 The `reference_test.zig` files under `test/loam/hosting/`, `test/loam/access/`
-and `test/loam/lmdb/` cover restoring references, managed identities and
-dependent grants, and compaction on LMDB. The
+and `test/loam/lmdb/` cover these fields, and the
 [process test](../../test/loam_references_crash.zig) kills each kind of field
-write before the commit, after the commit, and after the Store takes it in but
-before the reply. [Stability](../stability.md) says which platforms and
+write around its commit. [Stability](../stability.md) says which platforms and
 failures these cover.

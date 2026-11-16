@@ -63,9 +63,8 @@ only limits the damage.
 
 A valet key starts the car but will not open the trunk. A capability is a
 valet key for software: a reference to one thing, such as one folder or one
-calendar, where holding it grants access. An application can also check
-identity when its rules require it. A capability system can add two things a
-car key lacks:
+calendar, where holding it grants access. A capability system can add two
+things a car key lacks:
 
 - The owner can switch one key off without touching the others, like
   re-keying one lock after a key goes missing.
@@ -246,10 +245,9 @@ Most of these are drafts or company programs.
   [x402 Foundation](https://www.linuxfoundation.org/press/linux-foundation-announces-operational-launch-of-x402-foundation-to-standardize-internet-native-payments-for-ai-agents-and-applications),
   launched in July 2026, puts it to work.
 
-The upside of these efforts is that they fit the web as it is. Naming bots also
-lets a site admit only the bots it recognizes, which favors large operators
-and can shut out small tools, including assistive agents some disabled people
-rely on.
+These efforts fit the web as it is. Naming bots also lets a site admit only
+the bots it recognizes, which favors large operators and can shut out small
+tools, including assistive agents some disabled people rely on.
 
 Applications can use capabilities for narrow passes, spending caps, and
 records of who granted access. Signed tokens can carry restrictions too, as

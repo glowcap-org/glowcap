@@ -401,19 +401,17 @@ registering: the peer publishes its key at the relay and waits there.
 
 # Transport details
 
-The sockets are the same ones `keyed-tcp` uses. The designator is the peer's
-durable public key, and the bound address rides in the `direct-addresses`
-hint:
+The designator is the peer's durable public key, and the bound address rides
+in the `direct-addresses` hint:
 
 ```
 ocapn://<64 hex chars>.noise-tcp?direct-addresses=127.0.0.1%3A9099
 ```
 
 A listener binds a durable key, and the advertised locator is what partners
-dial. In Zig, pass the `glowcap.net.tcp.noise` profile to `driver.connect` or
-`driver.listen` to open sealed sessions. The C driver loop and the Rust, Python,
-TypeScript, and Racket bindings dial and listen through the TCP provider
-package, which owns `noise-tcp`, `keyed-tcp`, and testing `tcp` together.
+dial. The C driver loop and the Rust, Python, TypeScript, and Racket bindings
+dial and listen through the TCP provider package, which owns `noise-tcp`,
+`keyed-tcp`, and testing `tcp` together.
 
 # Through the relay
 

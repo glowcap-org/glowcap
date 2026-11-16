@@ -11,10 +11,7 @@ sources:
 
 glowcap checks its protocol behavior against a pinned OCapN suite and pinned
 Goblins source. Full CI validation schedules both, as
-[`ci/groups.py`](../ci/groups.py) lists. Development runs select jobs by
-changed files, as the [CI guide](../CONTRIBUTING.md#continuous-integration)
-explains. A successful run establishes results only for the checks it ran on
-that commit.
+[`ci/groups.py`](../ci/groups.py) lists.
 
 glowcap has not asked to be listed as an OCapN implementation. Because the work is AI-assisted,
 it sends no unsolicited patches, issues, or comments to projects whose policies
@@ -64,8 +61,7 @@ handoff that a Goblins vat redeems.
 
 - Handoff coverage is split across transports. Over TCP, live Goblins
   covers glowcap as gifter, recipient, and exporter. Over iroh and onion, the
-  separate checks in the evidence table cover different role sets. No single
-  check covers every role on every transport.
+  separate checks in the evidence table cover different role sets.
 - Goblins indexes an exporter session by the complete locator. glowcap
   sends the peer's own advertised locator unchanged. That is stable for
   Goblins onion. An iroh endpoint can change its `direct-addresses`, and the
@@ -92,11 +88,12 @@ pinned CapTP draft with the profile that implements it and the check below
 that proves it.
 
 A **yes** in the CI column means the step appears in `ci/groups.py`, the
-full validation inventory. It does not establish that a development run selected it or that it passed.
-The [checks workflow](https://github.com/glowcap-org/glowcap/actions/workflows/check.yml)
-must succeed for the commit under review. `zig build source-check`
-derives this column from the inventory, so a removed step cannot remain marked as
-a recurring check.
+full validation inventory, and `zig build source-check` derives the column
+from it. Development runs select jobs by changed files
+([CI guide](../CONTRIBUTING.md#continuous-integration)), so a run establishes
+results only for the checks it ran on that commit. The
+[checks workflow](https://github.com/glowcap-org/glowcap/actions/workflows/check.yml)
+must succeed for the commit under review.
 
 | Evidence | CI | Proves | Does not prove |
 | -------- | -- | ------ | -------------- |
@@ -104,8 +101,8 @@ a recurring check.
 | `zig build ocapn-conformance` | no | The upstream modules against the production Host/Node wire and authority paths, composed with canonical conformance actors and three suite-only interceptors that drive those library entry points. Plus handshake refusal and a portable pre-setup abort check. | An application with no conformance interceptors, future suite netlayers, or transport recovery after abort. The raw upstream `tests.op_abort` rejects Linux TCP reset. |
 | `zig build ocapn-conformance-next` | yes | Baseline conformance, manifest-selected upstream assertions on negotiated next, draft wire cases, and fixture failure tests. | Deferred crypto transition, next onion execution, and arbitrary future suite changes without fixture review. |
 | `zig build ocapn-findings-check` | yes | The pinned sources still disagree on each recorded finding, among them the `op:listen` operand type and locator-hints typing. | Which form upstream should choose. |
-| `zig build goblins-interop` | yes | A live Goblins session in both directions over Syrup/TCP. Covers handshake, bootstrap, calls, promise settlement, bignums, enlivenment, pipelining, answerless delivers, and actor calls. Projection and answer-argument probes translate requests authored here while retaining Goblins' allocated questions and resolvers. Goblins settles their vows, receives the resolver releases, and answers another ordinary call on the same session. | A public Goblins application API for outbound projections or `desc:answer` arguments, live `op:untag`, onion, or iroh. |
-| `zig build goblins-rooms` | yes | A real Goblins vat and a glowcap member exchange room traffic while the same server records the Goblins session on Syrup/v1.0 and the glowcap session on Cap'n Proto/next. | Direct messages, browser behavior, or a secure transport. Those have separate rows. |
+| `zig build goblins-interop` | yes | A live Goblins session in both directions over Syrup/TCP. Covers handshake, bootstrap, calls, promise settlement, bignums, enlivenment, pipelining, answerless delivers, and actor calls. Projection and answer-argument probes run on Goblins' own questions and resolvers ([probe list](../conformance/goblins-peer/README.md)). | A public Goblins application API for outbound projections or `desc:answer` arguments, live `op:untag`, onion, or iroh. |
+| `zig build goblins-rooms` | yes | A real Goblins vat and a glowcap member exchange room traffic while the same server records the Goblins session on Syrup/v1.0 and the glowcap session on Cap'n Proto/next. | Direct messages, browser behavior, or a secure transport. |
 | `zig build goblins-rooms-peering` | yes | A real Goblins vat enters a foreign room through a glowcap directory publication over Syrup/v1.0, continues using the handed room after its publication is revoked, and lets the source reclaim and reuse the public name. | Browser behavior, a secure transport, or revocation of authority already handed to a member. |
 | `zig build goblins-rooms-irc` | yes | Both shipped IRC application edges compose with a real Goblins vat. Fixture IRC traffic crosses the bridge both ways. Through the Rooms IRC server, an ordinary IRC client and Goblins exchange room lines. IRC then initiates a direct message, and Goblins replies on its arriving v1.0/Syrup TCP session. | A public IRC network, browser behavior, or the Rooms IRC server's iroh deployment posture. The fixture is local and deterministic. |
 | `zig build goblins-onion` | no | Live Goblins sessions both ways over the Goblins onion netlayer and glowcap's Tor resident. | Recurring CI (needs `tor` and outbound network), live scale, or hinted-onion sturdyrefs. |
@@ -124,7 +121,7 @@ a recurring check.
 | Binding `*-goblins-interop` steps | yes | TypeScript, Python, Rust, and Racket dial Goblins, enliven a sturdyref, and call it. Each also releases two occurrences of a Goblins object, proves the retained occurrence survives, and observes remote collection after capability release and answer-wrapper finalization, before session close. | Bun, automatic capability finalizers, or the reciprocal listener direction, which the sibling listener matrix owns. | <!-- ci-gate: bindings-goblins-interop -->
 | Binding `*-goblins-listen` steps | yes | Goblins dials TypeScript, Python, Rust, and Racket binding Hosts, enlivens one published actor, calls it, and reads its exact reply. | Bun, whose synchronous FFI cannot host the driver loop. | <!-- ci-gate: bindings-goblins-listen -->
 | Binding `*-goblins-handoff` / `*-goblins-gift` | yes | TypeScript, Python, Rust, and Racket act as recipient and gifter against Goblins. Each gifter lifts a delegated capability from an ordinary vendor reply, returns it twice in one nested value, and Goblins redeems and calls both gives directly. | Bun or live recursive Tagged/user-record interop, which pinned Goblins does not implement. | <!-- ci-gate: bindings-goblins-handoff, bindings-goblins-gift -->
-| Introducing-session promise proxy | yes | In-tree Node and Host coverage projects complete nested object/promise settlements through Host identity under both codecs, with independent recipient pressure and one signed give per object occurrence. The separate live recipient check covers glowcap's `listenTo` path against Goblins. | A second outside implementation beyond Goblins. | <!-- ci-gate: check -->
+| Introducing-session promise proxy | yes | In-tree Node and Host coverage projects complete nested object/promise settlements through Host identity under both codecs, with independent recipient pressure and one signed give per object occurrence. | A second outside implementation beyond Goblins. | <!-- ci-gate: check -->
 | `zig build fuzz` | yes | Coverage-guided inputs exercise codecs, framing, sessions, handoff, locators, the host, actors, persistent collections, and completion-loop accounting. Saved crashes replay under `check`. | Agreement with the specification, unreached code, or a well-formed but wrong decode. The recurring search is shallow. |
 | `zig build cli-test` / `glowcap` | yes | CLI budgets, hang-proof dial, listen/call behavior, REPL, and MCP. | OCapN suite or Goblins behavior. | <!-- ci-gate: check -->
 

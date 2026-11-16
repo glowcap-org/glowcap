@@ -33,9 +33,8 @@ collection.insert(share.access)
 ```
 
 `resources` is optional. Creating and sharing a managed resource use the same
-transactions as a plain record. Opening an existing store and creating a new
-one are separate calls, and a failed open never creates an empty store or
-falls back to memory.
+transactions as a plain record. [Opening a store](store.md#opening-a-store)
+gives the open and create rules.
 
 ## Identities and records
 
@@ -83,9 +82,8 @@ peer can call needs the authority of the capability it called.
 
 When a transaction saves a capability field, it holds the reference and asks
 the Host for its saved form. A local managed facet keeps its link to its
-grant. A reference to another peer must have an established way to restore
-it. Saving a reference that cannot outlive the process returns `NotDurable`,
-though an in-memory record can hold it while the process runs.
+grant. [Stored capability fields](references.md) gives the rules for each kind
+of target.
 
 Replacing a field drops the old reference only when the new payload and edge
 commit. An abort releases what the transaction held. If the completion is
@@ -93,10 +91,9 @@ lost, Loam keeps enough to tell whether the old or the new references
 survived. Cleanup outside the store after a commit has an owner and a bounded
 number of retries.
 
-Returning a field is separate from loading it. The behavior decides whether
-the reply hands over the saved capability as it is or a version that checks
-every call against the caller's own grant. Encoding the reply cannot change
-that choice.
+Returning a field is separate from loading it. The behavior chooses how the
+reply [hands it out](references.md#handing-capabilities-out), and encoding the
+reply cannot change that choice.
 
 ## Reads and leases
 
@@ -222,10 +219,8 @@ once.
 
 ## Storage work and failure
 
-The Store emits bounded read, commit, and recover work. In Zig and C, the
-embedding submits and completes work through the supplied helpers. The Rust
-binding schedules SQLite and LMDB work on the application's blocking executor.
-In the browser, it runs each prepared batch in one IndexedDB transaction.
+The Store emits bounded read, commit, and recover work, and each integration
+runs it as [the Loam guide](../loam.md#choosing-an-integration) lists.
 
 | Outcome | Meaning |
 | --- | --- |
@@ -265,32 +260,15 @@ Only `run` may happen on another thread, and you join that thread before
 attachment has no work. When the attachment's own write has an unknown
 outcome, its next request is recovery. Recovery waits until no other slot is
 busy, and other work waits for recovery. The worker starts no thread and owns
-no engine.
-
-The worker takes the engine's `readerCapacity` when it starts and runs no more
-reads and lookups at once than that, while still offering the write. Recovery
-runs alone, with no other engine work beside it.
-
-A durable actor's record names its behavior type and version and its state
-edges. A sleeping actor keeps its identity, whether it can be published, and
-the references it holds, but not its behavior's state. Eventual calls queue on
-the Vat. Each target loads and checks its state once before its calls run, and
-a deleted target or an out-of-date load is never put in the cache.
-
-A near call needs its target already in memory and pinned, or loaded on
-purpose before the call. An actor with uncommitted changes stays in memory
-until they commit. A paused call keeps its bounded state and is handled at
-shutdown. Saving actor state does not keep pending promises, accepted calls,
-or network sessions across a restart.
+no engine, and it runs no more reads at once than the engine's
+[`readerCapacity`](store.md#opening-a-store).
 
 ## C, Rust, and the browser
 
-`libglowcap_loam` gives C the Store, the attachment, borrowed calls, and
-storage work. `libglowcap_loam_sqlite` and `libglowcap_loam_lmdb` add the disk
-engines, and Rust exposes all of it under `loam`. The
-[C and Rust guide](c-and-rust.md) covers what that API includes, how it is
-tested, and what it leaves out. Zig schemas and typed wrappers follow the same
-rules.
+The [archives](architecture.md#modules-and-archives) give C and Rust the
+Store, the attachment, borrowed calls, and storage work, and the
+[C and Rust guide](c-and-rust.md) covers that API. Zig schemas and typed
+wrappers follow the same rules.
 
 - Borrowed inputs last for the call. Inputs kept past the call have an
   explicit owning handle.

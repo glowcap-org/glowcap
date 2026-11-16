@@ -24,8 +24,7 @@ The [startup guide](../../CONTRIBUTING.md#preview-startup) explains cold builds,
 cached launches, and when a delay needs investigation.
 
 `rooms-web` and `rooms-dev` use iroh by default. Select TCP or onion with
-`-Dtransport=tcp` or `-Dtransport=onion`. `rooms-dev` uses Vite Fast Refresh by
-default. With `-Dhot-reload=false` it serves compiled generations through the
+`-Dtransport=tcp` or `-Dtransport=onion`. With `-Dhot-reload=false`, `rooms-dev` serves compiled generations through the
 web front instead, with the same state, grants, and transport: it recompiles
 changed sources on request and reloads the page. It does not select a
 different production compiler.
@@ -53,16 +52,12 @@ the document, because its Host, session and React root each live as long as
 one document.
 
 An open page reloads itself onto a new build after its server restarts.
-Every directory session goes through the server's relay, so a restart leaves
-the page with no connection. The page then asks `/ui-version` which build the
+It asks `/ui-version` which build the
 server serves: when its last connection goes, on a beat while it has none, and
 when one comes back. It reloads when the answer differs from the build it was
-served as (`web/ui/build_link.ts`).
-
-A tab never reloads twice in a row for the same build, so a server whose page
-and `/ui-version` disagree cannot loop it. A build published while the page's
-connections hold waits for the next restart. In development the build is named
-by the Wasm application file, so component edits keep using Fast Refresh.
+served as (`web/ui/build_link.ts`, proved by `test/build_link_test.ts`). In
+development the build is named by the Wasm application file, so component
+edits keep using Fast Refresh.
 
 The browser proofs run concurrently, so name every proof you need in one
 `zig build` invocation, or run the whole family with `rooms-web-proofs`. The
@@ -76,26 +71,9 @@ Joining a room adds the conversation without opening it. The
 [openings module](web/ui/session/managed/openings.ts) cancels and cleans up
 each attempt, and hands off to
 [navigation](web/ui/session/managed/navigation.ts) before the open
-conversation changes. When a join is cancelled and its outcome is unknown:
-
-- Cancelling before the join is sent releases what was prepared. After it is
-  sent, the original receipt stays.
-- The receipt's owner finishes the join once on its own. If the cancelled
-  join did get a membership, it leaves through an exact departure command.
-- Saving the join's result and cleaning up the departure settle separately,
-  so a lost departure reply resumes the departure without joining again.
-- If finishing on its own fails, the diagnostic stays so the person can
-  recover by hand.
-- While the departure is pending or refused, the room stays off the screen,
-  so a late snapshot cannot show it as joined.
-- Navigation saves what is on screen separately, so hiding a successful form
-  cannot cancel its receipt. A choice the person makes leaves the directory
-  view at once, and selections saved in the background keep that view and
-  its draft.
-
-Reconnecting a saved direct conversation closes its new route and keeps saved
-messages and drafts. The session tests and the browser departure and
-responsiveness scenes exercise these rules.
+conversation changes. `test/session/managed_navigation_test.ts`,
+`test/session/managed_cancellation_test.ts`, and the browser departure scene
+(`test/page/departure.ts`) prove how a cancelled join settles.
 
 ### Browser compiler boundary
 
@@ -209,9 +187,7 @@ from the devcontainer as the image build context.
 
 The Dockerfile copies the complete product into the image and mounts no
 checkout, compiler output, or browser source at runtime, so a rebuild cannot
-replace executables underneath the daemon. The distroless Debian base supplies
-glibc, the GCC runtime, and certificates, without a shell or package manager.
-Directory and session containers share the same image layers. Dependency pins
+replace executables underneath the daemon. Dependency pins
 live in [pins.sh](../../.devcontainer/pins.sh). The
 [deployment guide](web/deploy/README.md) covers the deployment itself.
 
@@ -463,8 +439,7 @@ member who leaves or goes offline the same way.
 A session asks the directory about its registered name (`signalCheck`) when
 a signaling route starts, after a retry or a failure, before it answers an
 offer, and at a workspace change once the last answer has grown old. The
-directory withdraws a name without telling its holder, so the last of these
-is how a session still in use hears of it.
+directory withdraws a name without telling its holder.
 
 A managed session forwards what one session source is asked in the order it
 was asked: the session host starts an operation only once every earlier one
@@ -483,18 +458,13 @@ room is told as separate notices: what the room carries, its policy, its
 listing, the join, the roster, who is offline, one notice per member who is
 away, and the subject.
 
-The subject facet carries `setSubject(description, link?)`. Every participant
-is answered with one, and because it is a reference rather than a rank, a
-member can pass it to somebody who is not even in the room. It comes with
-one seat and answers for as long as that seat lasts. A member who joins
-again is answered with a new one.
+The subject facet carries `setSubject(description, link?)`.
 
 A subject is a description every client can show. It may also carry the
 sturdyref of an object the room is about, such as a shared board or a game.
 The Rooms server parses the link before it accepts it and shares it with
 everyone who reads the room, but it never calls the object. Whoever set the
-link hosts the object and decides what the shared reference may do. A
-subject with no link is the plain topic an IRC channel has. A description
+link hosts the object and decides what the shared reference may do. A description
 never starts with `ocapn://`, so typed text such as
 `/subject ocapn://… the board` or an IRC `TOPIC` always tells the link from
 the words describing it.
@@ -502,17 +472,11 @@ the words describing it.
 The files facet is the same idea for files: `attach` and `postFiles` go to it,
 a room hands it out when it can hold bytes and answers null when it cannot,
 which is how a room bridged to IRC says so. The page draws the attach control
-from whether the membership holds that facet. Two parts of a message are
-description rather than authority, and the room states them at arrival on the
-`carries` tag: whether it keeps the link previews a line names, and whether it
-relays the typing signal.
+from whether the membership holds that facet.
 
 `post` answers a reference to the line it made, and holding that reference
 is the authority to `edit(text)` or `withdraw()` that one line. `postFiles`
-answers the same kind of reference. `refile(caption, ...keep)` changes the
-files, keeping the ones whose indices it names and adding the connection's
-freshly staged uploads. Refiling down to no files and no caption withdraws
-the line. Line references restart with a room generation and never enter
+answers the same kind of reference, which also takes `refile`. Line references restart with a room generation and never enter
 durable history, so a new room cannot govern a row restored from an earlier
 one.
 

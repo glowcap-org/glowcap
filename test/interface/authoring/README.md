@@ -50,8 +50,8 @@ and `--named --direct` selects the method named `--direct`.
 
 Targets are `description`, `rust`, `ts`, and the existing
 `zig` creation projection. Syrup input is read and validated before emission.
-Text compilation checks the parsed nodes once and returns that Model with its
-canonical bytes. Emission reuses the Model without rereading those bytes.
+Text compilation checks the parsed nodes once, and emission reuses that Model
+([`tools/interface/README.md`](../../../tools/interface/README.md)).
 
 Requested function names survive emission unchanged. Private helper and import
 names cannot conflict with them. Duplicate exports and names already exported
@@ -68,13 +68,10 @@ Expected selection, type and export refusals identify the input, target,
 receiver, selector and generated API name without a compiler stack trace. Unsupported type
 normalization also reports its source position, including imported aliases.
 
-`interface-test` compares exact independent descriptions and checked selections.
-It changes the Name bound to 32, Reader.read's reply to undefined, and the `a-b`
-wire name to `renamed`, then checks the affected existing emitters. It refuses
-invalid bounds, unresolved names, nontrailing optional parameters, duplicates,
-and unsupported syntax. Long module prefixes consume the existing output byte
-budget before expanded names allocate scratch. Adversarial references refuse
-without growing allocation demand after that budget is exhausted.
+`interface-test` compares exact independent descriptions and checked
+selections, edits a bound, a reply, and a wire name to check the affected
+emitters, and covers refusals and allocation budgets
+([`authoring_test.zig`](../../../tools/interface/authoring_test.zig)).
 
 Syntax diagnostics include a file, byte offset, line and column.
 Imported bounds and unknown references retain their authoring locations during
@@ -97,19 +94,17 @@ text, and full signed-64-bit replies.
 
 The scratch library reuses the conversation crate's
 dependencies, lockfile, and Cargo caches. Deno checks TypeScript consumers.
-Both compilers check exports matching private helpers and imports, plus multiple
-selected functions in one module. Rust also checks bounded decoder names and
-private module name allocation. Scratch modules exercise the emitted private TypeScript bound helpers against
-UTF-16 and bigint cases, including a bound mutation that must fail before its
-exact source bytes are restored. These checks add no network calls.
+Both compilers check export and helper name collisions
+([`check_generated.py`](check_generated.py)), and scratch modules exercise the
+emitted TypeScript bound helpers against UTF-16 and bigint cases, including a
+bound mutation that must fail. These checks add no network calls.
 
 The adapter has no new production dependency. A compilation arena owns tokens,
 description nodes, cached sources and canonical bytes. The pure single-source
 convenience returns a separate owned canonical byte copy.
 The shared reader's input, node, and depth limits also bound this
 adapter. Handwritten parser, checker, tests, and generated output are counted
-separately when comparing authoring cost. The measured generation report is
-unchanged by this comparison.
+separately when comparing authoring cost.
 
 ## Imported modules
 
@@ -139,8 +134,9 @@ Filesystem paths and source positions remain outside canonical descriptions.
 under two aliases, with a cycle back to the Tasks-like entry. Its observation
 has five positional fields, and its tagged tuple keeps one nested payload.
 Its expected description was authored with the pinned upstream Python encoder.
-`interface-test` checks exact bytes, imported diagnostics, duplicate declarations,
-allocation failures, missing files, root escapes, symlinks and aggregate limits.
+`interface-test` checks its exact bytes, diagnostics, refusals, and aggregate
+limits ([`text_bundle_test.zig`](../../../tools/interface/text_bundle_test.zig),
+[`check_cli.py`](check_cli.py)).
 `interface-conversation-check` compiles generated Rust observation, list, tuple,
 and record replies with warnings denied. These imported callers are not run in
 a separate live conversation.
@@ -235,8 +231,8 @@ Python's standard library owns only the measurement process.
 | Proposed source / direct Syrup | 27 / 1 |
 
 The direct Syrup file is canonical serialized data, so its single line is not an
-editing-cost advantage. The text adapter adds 263 lines to the shared checked
-compiler and emitters. Tests and generated output do not offset that cost.
+editing-cost advantage. Tests and generated output do not offset the text
+adapter's lines.
 The [generation report](../../../bench/interface/results.md) retains its own
 measured revision and is unchanged.
 

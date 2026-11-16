@@ -12,8 +12,7 @@ zig build rooms-irc-bridge -- \
   --irc-realname="glowcap Rooms bridge bot; admin: YOUR_LIBERA_NICK"
 ```
 
-The command builds and runs the `rooms-irc-bridge` executable.
-`zig build rooms-irc-bridge-build` installs it without starting a service.
+`zig build rooms-irc-bridge-build` installs the executable without starting it.
 By default it follows Libera's `#ocapn` over TLS and offers a `libera/#ocapn`
 room on an iroh listener. The command prints the room's address and name. Join
 them with any Rooms client. IRC members appear as `irc/<nick>`.
@@ -67,8 +66,7 @@ network's rules.
 
 ### Read-only and two-way modes
 
-The bridge is read-only by default, and the room says so in terms every Rooms
-client already understands. A read-only bridge seats each reader as an
+The bridge is read-only by default. A read-only bridge seats each reader as an
 observer, so the browser's message box shows the room is read-only before
 anything is typed.
 
@@ -187,17 +185,10 @@ connection's aliases, and a reconnect never reuses its old inbox.
 ## Tests
 
 The in-tree tests (`../test/irc/`) run inside
-`zig build rooms-server-test`, which `zig build runtime-check` depends on. The IRC server
-scenario starts the installed room server and IRC server and checks channel traffic,
-metadata, and introduced direct messages in both directions over Noise. TLS
-scenarios cover separate clients and rooms, direct messages between two IRC
-clients, and leaving, with Noise over both TCP and iroh inboxes. A reconnect reuses its nickname
-without reviving the previous connection's inbox. Rust unit tests cover bounded
-nickname ownership and asynchronous socket failures reaching the direct sender.
-`zig build goblins-rooms-irc` runs both edges against
-a real Goblins vat: fixture IRC through the bridge both ways, ordinary IRC
-through the IRC server with channel traffic and an IRC-initiated direct message
-the vat answers.
+`zig build rooms-server-test`, which `zig build runtime-check` depends on. They
+start the installed room server, bridge, and IRC server, and check channel
+traffic, metadata, and direct messages over Noise on TCP and iroh.
+`zig build goblins-rooms-irc` runs both edges against a real Goblins vat.
 
 ## Files
 
@@ -206,7 +197,6 @@ policy they share lives in `../rust/application/src/server/irc/`.
 
 - `../rust/services/src/irc_bridge/`: the standalone bridge executable
   adapter, configuration, capability serving and outbound ownership.
-  `../rust/application/src/server/irc/` owns portable IRC policy.
   `../rust/services/src/irc/` owns sockets, TLS and serialized writes.
 - `../rust/services/src/irc_server/`: the IRC server's listener, each client's
   capability ownership, room pumps and direct-message receipts. Portable

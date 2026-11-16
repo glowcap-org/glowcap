@@ -16,14 +16,10 @@ and bearer tokens. A credential can grant an entire account's access or just
 one operation on one resource. HTTP leaves that choice to the application.
 
 The example below starts with a service that offers only an account-wide
-token. Sharing it gives a helper all the account's access. Scoped tokens
-could narrow that access too. OCapN makes passing callable object references
-part of the protocol, including introductions between peers.
+token. Scoped tokens could narrow that access. OCapN makes passing callable
+object references part of the protocol, including introductions between peers.
 
 # One job, delegated two ways
-
-The steps below hand work to a thumbnailer, first with a bearer token and then
-with capabilities.
 
 ```=html
 <figure class="capwalk" id="capwalk">
@@ -298,9 +294,8 @@ protects a session and establishes peer identity.
 You still need a first reference, and you get it the usual way. You sign in
 once, or you redeem a durable link called a sturdyref, an unguessable address
 that names one published object. After that, access moves by passing
-references inside sessions. A sturdyref does work like a bearer secret, but it
-names a published object. That object's methods determine how much access
-it grants.
+references inside sessions. A sturdyref does work like a bearer secret, and
+the methods of the object it names determine how much access it grants.
 
 # Where the idea comes from
 
@@ -354,8 +349,9 @@ member, and the exchange bypasses the room.
 - The [CapTP CLI]($link.page('cli')) ships a REPL with a guided mode: run
   `glowcap repl`, then type `guide`, and it walks these ideas against a live
   session while you type the verbs.
-- [Start building]($link.page('start')) walks a client line by line in Zig
-  and links the C ABI and every binding.
+- [Start building]($link.page('start')) runs a complete example, then shows
+  dialing and listening on each transport, with a guide for the C ABI and
+  every binding.
 - The glossary in
   [capabilities](https://github.com/glowcap-org/glowcap/blob/main/docs/capabilities.md)
   gives every term here a one-line definition.

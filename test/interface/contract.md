@@ -11,7 +11,7 @@ sources:
 
 The [Syrup description](contracts.syrup) is the independent expected Tasks and
 callback corpus. [Authored modules](authoring/contracts/contracts.interface)
-supply generation input. This reference specifies encoding, mappings and acceptance cases.
+supply generation input.
 
 ## Description version 1
 
@@ -21,7 +21,7 @@ A description is one canonical Syrup record:
 <glowcap:interface 1 profiles definitions>
 ```
 
-The notation here omits Syrup length prefixes. The record label is a symbol.
+The notation omits Syrup length prefixes. The record label is a symbol.
 `profiles` maps strings to integer versions. `definitions` maps fully qualified
 names to declarations. All referenced definitions are included: imported
 libraries resolve into this graph, without machine paths or ambient lookup.
@@ -112,8 +112,7 @@ may remain unused, but unknown profiles and unsupported versions are refused.
 Both authoring adapters omit the receipt profile when no method uses it.
 The existing comparison corpus retains both supported profile entries.
 The ordinary Rust projection does not require the binding's `loam` feature.
-These build requirements do not change the session profiles `1.0` and
-`glowcap-next`. A description cannot change a live session.
+A description cannot change a live session.
 
 ## Tasks and shared Loam
 
@@ -150,7 +149,7 @@ These are separate views of capabilities, not inheritance or runtime type
 casts. Managed use/control endpoints support observation. Dependent facets do
 not. Generating an Observable wrapper does not authorize observation. Durable
 name, derivation, policy editing, and other management operations remain outside
-this Tasks contract and belong to their later migration.
+this Tasks contract.
 
 ## Generated API and ownership
 
@@ -232,8 +231,7 @@ runtime shortening and terminal promise-wrapper behavior.
 Tasks' Rust client uses generated add, move, observe, poll, and cancel calls.
 Registration requires exactly two capabilities, without certifying their remote
 interfaces. Move checks the declared count result and cancel requires a Boolean,
-including false. If the first poll fails after observe commits, the application
-attempts cancellation once and preserves the primary failure.
+including false.
 
 An identical replayed promise is observed once. The current Host observation
 path exposes the one settling listener glowcap-next permits across the wire.
@@ -315,8 +313,8 @@ and iteration. Fixed tuples retain precise numeric positions and literal length.
 The pinned TypeScript check also qualifies positional destructuring. Array-only
 methods require an explicit caller conversion, such as `Array.from`.
 
-Wire lists arrive as `Argument[]`. Local sends can preserve `BigInt64Array`,
-which represents the same list of integers. Both representations keep their
+Wire lists arrive as `Argument[]`. Local sends can preserve `BigInt64Array`
+for the same list of integers. Both representations keep their
 original objects. Tagged positional records retain their actual array payload,
 exact tag, and field count. Generated aliases share nested types and helpers.
 
@@ -373,7 +371,7 @@ belongs to the server. Zig read handlers use generated argument and scalar reply
 checks. Storage conversion stays with the application.
 
 Bounded arguments return a local validation result around `Pending<T>`.
-Invalid input creates no call or error promise. Valid calls send immediately.
+Invalid input creates no call or error promise.
 Zero-argument reads return `Pending<T>` directly. Typed observation reports
 `InvalidReply` for wrong reply types or bounds and preserves runtime failures
 and independent raw observation. Bounded text decoders move the binding's

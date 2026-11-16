@@ -48,8 +48,8 @@ kind of storage engine needs measurements against the existing ones.
 
 - [SQLite](sqlite.md) is the default disk engine. [LMDB](lmdb.md) meets the
   same contract, and [IndexedDB](browser.md) serves the browser.
-- Content and managed access records changed by one operation share one
-  engine transaction.
+- Content, stored references, and the managed access records for resources
+  and grants that one operation changes share one engine transaction.
 - A volatile engine serves local applications that keep nothing between runs,
   and passes the same tests.
 - You choose the engine explicitly. Failing to open durable storage never
@@ -65,9 +65,6 @@ up front. Record-backed owners load records within Loam's cache limits.
 These layouts stay out of the ABI so they can change.
 
 ## Content and access in one transaction
-
-Loam commits an application's content, its stored references, and the managed
-access records for its resources and grants in the same transaction.
 
 A held resource reference allows its operations under current permissions,
 and a stored reference is a value whose access can be restored. Row keys,
@@ -106,27 +103,12 @@ stores the local recipe for restoring a held capability, or a remote sturdyref
 the program already has. It never builds a reference from
 resource and grant IDs. Typed bindings use it instead of serializing run-time
 handle bytes. Loading the field rebuilds the reference under the field's
-declared rules for returning it, and copying it creates no grant.
+declared rules for returning it.
 
-The reference index updates with the payload in one transaction. Removing or
-replacing a field releases the edge that kept the old reference alive only
-when the change commits. A live-only capability can sit in volatile content,
-and a durable field refuses it unless its source can save that access. A
-durable remote reference may need a remote call before the local
-transaction, and is never a made-up remote record ID.
-
-A method either hands over the saved capability or keeps the called endpoint
-as a dependency:
-
-- `ContentCall.discloseExact` hands over a strong field the call declared
-  ([ADR-0053](../decisions/adr/ADR-0053-returned-capability-authority.md)).
-- `ContentCall.discloseDependent` returns a facet whose target method must
-  pass both current grants
-  ([ADR-0053](../decisions/adr/ADR-0053-returned-capability-authority.md)).
-- `replaceReference` and `removeReference` change declared strong fields in
-  the content transaction.
-
-The [stored capability field guide](references.md) covers local
+Field edits and their edges commit with the payload, and a method hands a
+saved capability out exactly or as a dependent facet
+([returned references](access-api.md#returned-references)). The
+[stored capability field guide](references.md) covers local
 dependencies, checked remote saves, and preparing a restore. The storage
 encoding cannot choose or widen how a capability is handed out.
 
@@ -150,14 +132,14 @@ A durable commit decides what recovery finds. The owner moves the revision
 that calls see before the change's result returns. Reads during a pending
 write may use the last applied revision, and a read from disk that finds a
 newer revision waits for the Store to take it in or for recovery, instead of
-showing part of the write. Bytes already delivered cannot be taken back.
+showing part of the write.
 
 Atomicity ends at the owner's transaction. Remote calls, email, and other
-outside effects cannot roll back with the local store. An application that
+outside effects cannot roll back with the local store, and a local receipt
+gives no exactly-once remote effect. An application that
 needs a durable outside action records what it means to do in the same
 transaction and does it afterward under the receiving interface's retry
-rules. Local receipts give no exactly-once remote effects and no distributed
-transactions.
+rules.
 
 ## Who owns each part
 
@@ -175,9 +157,7 @@ transactions.
 The record encoding imports only the lower layers it needs. A storage engine
 may depend on its database library and sits outside `access/core` as optional
 I/O, so builds of the core alone and browser builds link neither LMDB nor
-SQLite. The portable `loam_access_records` and `loam_access_storage` modules
-exist beside the optional LMDB and SQLite engines, which block. The C archive
-keeps each engine's symbols separate.
+SQLite.
 
 Rooms shows both patterns. Its
 [document worker](../../apps/rooms/rust/services/src/documents.rs) keeps
@@ -193,9 +173,8 @@ or call into the Host from their thread.
 ## Stored records and indexes
 
 An owner is a boundary for permissions and transactions, not necessarily a
-database file, and one database can hold several owners. Loam allows one
-prepared write per store, with one writer per owner taking part. Owners in
-one file or LMDB environment still share that engine's single writer. Moving
+database file, and one database can hold several owners. Owners in one file
+or LMDB environment share that engine's single writer. Moving
 content between owners is an explicit capability operation, and a shared
 database gives no atomic control across owners.
 
@@ -219,14 +198,10 @@ and SQLite engines all run this layout.
 The directories add a bounded number of lookups above the engine's own index,
 so measure that cost before adding an index for one engine. An index never
 authorizes a result without checking the current record. The one index that
-exists is engine-neutral and resident: `Capabilities` keeps the last few
-owners' decoded headers and resolved directory slots at their committed header
-revision, because a directory edit always re-proposes the header. A repeat
-operation on one of those owners copies the header and binds each demanded
-slot without walking, and a transaction that has staged the owner bypasses
-the index until commit. A committed resource row decodes once per revision:
-the binding keeps its reply for the Read, and the index keeps it for the
-next Read at the same revision.
+exists is engine-neutral and resident: the
+[owner index](../../src/loam/access/storage/owner_index.zig) keeps recently
+used owners' decoded headers and directory slots at one committed header
+revision.
 
 Managed access owns a versioned record encoding, built on Syrup, with field
 names, limits, and schema identities.
@@ -274,13 +249,11 @@ receipt, and events. It moves the owner revision forward once. An operation
 stores only what changed, and the storage worker never turns a storage error
 into an access decision.
 
-An unknown outcome blocks protected access to that owner. Recovery waits for
-the old write to finish, then looks up its receipt from a view the engine
-guarantees is current. A receipt with a different request is a conflict, not
-a retry. Absence means nothing changed only once the old writer provably
-cannot commit later, and a worker timeout or abandoned future proves nothing.
-After a restart, reload committed metadata and affected records before
-allowing calls again.
+An unknown outcome blocks protected access to that owner until
+[recovery](store.md#when-a-writes-outcome-is-unknown) looks up its receipt
+from a view the engine guarantees is current. A receipt with a different
+request is a conflict, not a retry. After a restart, reload committed
+metadata and affected records before allowing calls again.
 
 Managed access uses Loam's [receipt rules](api.md#retries-and-receipts). A
 request's sequence belongs to the capability it came through. Looking up and
@@ -311,18 +284,10 @@ application.
 - Report a commit only on the completion event.
 - Never hold a transaction open across a network wait or user interaction.
 
-Ask for strict durability on writes that change access, and report what the
-engine promises. The browser can still evict storage, and a durability hint
-is not a promise to keep data forever. A failure or full quota refuses to
-publish instead of falling back to memory.
-
-With several tabs open, the hosting tab holds an exclusive
-[Web Lock](https://www.w3.org/TR/web-locks/) for the owner without stealing
-it, and stops stale commits by comparing the owner's generation atomically.
-Without Web Locks this setup refuses to run, because a lease with a timeout
-would let a suspended tab serve stale access. Any script with access to the
-origin's storage is trusted, and nothing here protects scripts on that origin
-from each other.
+The [browser guide](browser.md#opening-closing-and-failure) covers strict
+durability, quota refusals, eviction, the exclusive
+[Web Lock](https://www.w3.org/TR/web-locks/) that keeps a second tab from
+serving the store, and why any script on the origin is trusted.
 
 ## Content size
 
@@ -342,11 +307,9 @@ records. Storage workers supply records and revisions, never answers such as
 request, and only a confirmed absence produces `Gone`.
 
 An operation that needs records from disk keeps a bounded record of where it
-is: its capability, requirements, targets, requested keys, and expected
-revisions. It returns a read request to your program. The result carries the
-owner generation, the request identity, and the snapshot revision, and a
-stale or mismatched result is dropped. The operation then resumes against
-current state, with a limit on restarts. A lookup that found nothing is also
+is and returns a read request to your program ([reading](access.md#reading)).
+A stale or mismatched result is dropped, the operation resumes against
+current state with a limit on restarts, and a lookup that found nothing is
 tied to its revision. A remote reference stays a held capability, and loading
 a remote grant record never replaces calling it.
 
@@ -365,25 +328,20 @@ unchanged cached records stay valid across a whole local change. Cached
 decisions are keyed by the owner's revision, and a read from an older engine
 snapshot cannot overwrite newer records in memory.
 
-Pinned, changed, and prepared bytes have their own limits, apart from cache
-bytes that can be evicted. A check reserves its memory before taking the
-write slot, and reports pressure instead of starting a transaction it cannot
-finish. Eviction drops only unpinned, unchanged records and changes nothing
-stored. Opening an owner
+A check reserves its memory before taking the write slot, and reports
+pressure instead of starting a transaction it cannot finish. Eviction drops
+only unpinned, unchanged records and changes nothing stored. Opening an owner
 allocates nothing in proportion to a large store on disk.
 
 The tree stores parent edges. Depth is computed or a checked index value, so
 moving a resource rewrites none of its descendants. Checks for cycles and
 maximum depth stay in Zig.
 
-Moving a large subtree first runs a bounded check that can pause and resume,
-over one owner revision, to learn the subtree's height and who gains or loses
-access. A commit checked against that revision follows. The check reads each
-descendant once, so its cost grows with the subtree, while the commit
-rewrites only the moved resource's edges and two directory indexes. A limit
-on elapsed work may refuse an oversized move before anything changes, a
-newer revision restarts the move or reports a conflict, and a move that was
-only partly checked never commits.
+Moving a subtree first runs a
+[bounded check](access.md#resource-moves-deletion-and-children) over one owner
+revision, which can pause and resume. The commit rewrites only the moved resource's edges and two directory
+indexes. A newer revision reports a conflict, and a move that was only partly
+checked never commits.
 
 ## Who owns each buffer
 
@@ -416,16 +374,14 @@ language's future or promise, and the Zig API returns storage requests.
 | Change | Load facts, prepare one bounded change, reserve memory and durable name room, run one commit, apply it synchronously without allocating, then send events and answer. |
 | Pass on existing access | Keep and pass the existing capability through the Host. No new grant or storage write unless new durability or a durable name is asked for. |
 | Issue a durable facet | Commit the grant, optional control, durable name recipe, and receipt together. Return the durable name after the commit. |
-| Long read or listing | Use bounded chunks or pages and check current permissions on each delivery. Release database snapshots between pages. A scoped cursor may report a conflict after the tree changes. |
+| Long read or listing | Use bounded chunks or pages and check current permissions on each delivery. Release database snapshots between pages. |
 | Remote dependency | Use the existing send, forward, and deferred-answer operations. Never hold a local database transaction while waiting on the network, and never report a remote timeout as a successful revoke. |
 
 Local hosted calls use near calls (direct and synchronous) and eventual sends
-(queued, answered by a promise). An operation with its
-records in memory may finish in its turn, and one that needs storage defers
-through the Host's answer mechanism. Direct Zig calls outside hosting use the
-same core and storage requests without connecting to anyone. Blocking helper
-APIs say so in their names and are forbidden on the Host's thread. No
-synchronous core lookup hides an I/O wait.
+(queued, answered by a promise). An operation that needs storage defers
+through the Host's answer mechanism. Blocking helper APIs say so in their
+names and are forbidden on the Host's thread. No synchronous core lookup
+hides an I/O wait.
 
 Clients may pipeline CapTP promises, sending calls to one before it settles. A promise for a capability resolves only
 after its access is committed and applied, so a pipelined call can never use
@@ -461,8 +417,7 @@ locators need.
 Opening an owner loads its header, schemas, recovery data, and the records
 asked for. A durable name is found by an indexed lookup that loads only its
 resource, grant, and control records, so startup neither lists every durable
-name nor starts every actor. The Host owns the registry of active durable
-names, and the access store owns the recipes for restoring them.
+name nor starts every actor.
 
 Issuing reserves room for the endpoint or durable name before it commits, and
 looking up a durable name that is not in memory waits while its recipe loads
@@ -493,17 +448,14 @@ buffers.
 Freeing space uses explicit deletion and bounded cleanup, not distributed
 garbage collection. Access is revoked or retired in a transaction, and
 payloads are freed once no durable dependency or active pin needs them.
-Reference counting cannot free cycles of content links, so bounded tracing or
-deleting the owner decides whether they are still reachable. Remote holders
-of a sturdyref never report that they dropped it, so an active durable name
-stays a root until its owner retires it.
+Remote holders of a sturdyref never report that they dropped it, so an active
+durable name stays a root until its owner retires it.
 
 Finished grants and removed durable names shrink to a record of dead
 identities. An old grant, control, or durable name identity is never reused,
-a slot is never read as something else after its generation resets, and an
-expired receipt never allows issuing again. A missing ancestor that was
-compacted away refuses access, and surviving dependents never become roots of
-their own.
+and a slot is never read as something else after its generation resets. A
+missing ancestor that was compacted away refuses access, and surviving
+dependents never become roots of their own.
 
 A backup must keep one consistent owner revision, the durable name and
 restore records, schemas, and the lowest valid sequences for retirement and
