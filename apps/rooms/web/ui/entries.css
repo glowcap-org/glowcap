@@ -109,11 +109,10 @@
 		flex: 1 1 100%;
 	}
 }
-/* An entry that cannot act fades as one piece. The sentence saying why keeps
-   full ink so the reason stays readable. */
-.entry[data-idle="true"] .entry-name,
-.entry[data-idle="true"] > .hint:first-of-type {
-	opacity: .55;
+/* An entry that cannot act steps back by its name, which takes the quieter
+   ink. Every sentence under it keeps its reading contrast. */
+.entry[data-idle="true"] .entry-name {
+	color: var(--ink-soft);
 }
 /* Nothing to list says so in the well, quietly, instead of an empty grid. */
 .card-plane .empty {

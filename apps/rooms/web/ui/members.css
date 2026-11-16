@@ -131,7 +131,11 @@ a shadow takes a colour, not a gradient. */
 }
 #members .offline {
 	color: var(--ink-soft);
-	opacity: .7;
+}
+/* An offline member recedes by chip, the way the reader's own does in the
+   sidebar's foot, so the name beside it keeps its reading contrast. */
+#members .offline .avatar-chip {
+	opacity: .55;
 }
 #members .offline .name {
 	color: var(--ink-soft);

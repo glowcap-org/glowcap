@@ -487,9 +487,9 @@
 	flex: 1 1 auto;
 	min-width: 0;
 	padding: 5px 8px;
-	border: 1px solid var(--rule);
+	border: 1px solid var(--field-rule);
 	border-radius: var(--radius-chip);
-	background: var(--paper);
+	background: var(--field-fill);
 	color: var(--ink);
 	font: inherit;
 	font-size: var(--type-caption);

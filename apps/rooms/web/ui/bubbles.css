@@ -154,13 +154,12 @@
 
 /* Quoted from somewhere else. A rule down the side rather than a fill, because a
    quote inside a bubble is already on a surface and a second one would read as a
-   box within a box. The ink stays the bubble's, only quieter: this is still the
-   line's own text, said by somebody else. */
+   box within a box. The ink stays the bubble's: this is still the line's own
+   text, said by somebody else, and the rule is what marks it. */
 .bubble blockquote {
 	margin: 4px 0;
 	padding: 2px 0 2px 10px;
 	border-left: 3px solid color-mix(in srgb, currentColor 28%, transparent);
-	opacity: .82;
 }
 /* Hidden until it is asked for. Covered, it is a control and looks like one to a
    pointer. Opened, it is ordinary text and stops being pressable, because there
@@ -336,13 +335,13 @@
 .line-acts.open {
 	display: flex;
 }
-/* Where there is no pointer to hover with, the mark is there. Quiet
-   until it is aimed at, because it sits beside every message and a row of them
-   down the log would read as decoration. */
+/* Where there is no pointer to hover with, the mark is there. Quieter
+   until it is aimed at, because it sits beside every message, and still at
+   three to one against the message, the least a control needs to be found. */
 @media (hover: none) {
 	.line-acts {
 		display: flex;
-		opacity: .45;
+		opacity: .75;
 	}
 	.line-acts:focus-within {
 		opacity: 1;

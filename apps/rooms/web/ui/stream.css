@@ -73,16 +73,17 @@
 	cursor: default;
 	text-wrap: pretty;
 }
-#dmList li.off {
+/* A conversation whose member is offline recedes by chip, the way the
+   reader's own does in the sidebar's foot, so the name keeps its ink.
+
+   A conversation whose member has gone is not the same as offline (offline
+   comes back, and this does not) so it reads as spent rather than dimmed. A
+   departed member is offline too, by every test the roster can make, so the
+   row is left out here and does not say the milder of the two states on top
+   of the truer one. The line through the name is what tells that one. The
+   open conversation is left out too: it is the one being read. */
+#dmList li.off:not(.closed, .here) .avatar-chip {
 	opacity: .55;
-}
-/* A conversation whose member has gone. Not the same as offline (offline comes
-   back, and this does not) so it reads as spent rather than dimmed. A departed
-   member is offline too, by every test the roster can make, so the row would
-   otherwise carry the dim as well and say the milder of the two states on top of
-   the truer one. The line through the name is what tells this one. */
-#dmList li.off.closed {
-	opacity: 1;
 }
 #dmList li.closed .rname {
 	text-decoration: line-through;
@@ -94,9 +95,6 @@
 	letter-spacing: .04em;
 	text-transform: uppercase;
 	color: var(--ink-soft);
-}
-#dmList li.off.here {
-	opacity: 1;
 }
 
 /* A direct line to a member the room says is reachable, marked with two
