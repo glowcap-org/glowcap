@@ -50,7 +50,7 @@ import { useHeldModal, useModalDialog } from "../modal.ts";
 import { type TabFace, Tabs } from "../Tabs.tsx";
 import { anyOpsHeld, type OpsHeld } from "../ops/capabilities.ts";
 import type { DirView } from "../directory.ts";
-import type { RoomsSettingsTab } from "../../../lib/view_state.ts";
+import type { RoomsSettingsTab, Theme } from "../../../lib/view_state.ts";
 import type { ArchiveTargetView } from "../archive_model.ts";
 import { SessionSettings } from "./Session.tsx";
 import { Holdings } from "./Holdings.tsx";
@@ -66,7 +66,7 @@ import { Choice, Choices } from "../Choices.tsx";
 
 interface SettingsProps {
 	open: boolean;
-	theme: "light" | "dark";
+	theme: Theme;
 	notifyOn: boolean;
 	/** The directory this page came from, while this tab still holds it. Null
 	 * before it has answered and after it has been given back, when Settings

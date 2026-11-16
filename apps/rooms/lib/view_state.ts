@@ -5,8 +5,12 @@
 import * as z from "zod/mini";
 import { OPERATIONS_CAPABILITIES, type OperationsCapability } from "./application_data.ts";
 
+export const ThemeSchema = z.enum(["light", "dark"]);
+/** The Rooms page theme. */
+export type Theme = z.infer<typeof ThemeSchema>;
+
 export const RoomsViewStateSchema = z.strictObject({
-	theme: z.enum(["light", "dark"]),
+	theme: ThemeSchema,
 	notifyOn: z.boolean(),
 	railOpen: z.boolean(),
 	rosterOpen: z.boolean(),

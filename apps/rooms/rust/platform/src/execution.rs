@@ -19,16 +19,10 @@ impl rooms_glowcap::client::Entropy for HostPlatform {
 		Ok(rooms_application::room::invitation::Receipt::from_entropy(bytes))
 	}
 }
-pub struct HostTask(tokio::task::JoinHandle<()>);
-impl Drop for HostTask {
-	fn drop(&mut self) {
-		self.0.abort();
-	}
-}
 impl rooms_glowcap::client::Tasks for HostPlatform {
-	type Task = HostTask;
-	fn spawn(&self, work: impl core::future::Future<Output = ()> + 'static) -> HostTask {
-		HostTask(tokio::task::spawn_local(work))
+	type Task = rooms_runtime::platform::OwnedTask;
+	fn spawn(&self, work: impl core::future::Future<Output = ()> + 'static) -> rooms_runtime::platform::OwnedTask {
+		rooms_runtime::platform::OwnedTask::spawn_local(work)
 	}
 }
 impl rooms_glowcap::client::Deadline for HostPlatform {

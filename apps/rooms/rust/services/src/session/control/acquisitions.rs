@@ -7,6 +7,7 @@ use rooms_glowcap::client::{
 	workspace::{Import, ResultImport, Submission},
 };
 use rooms_platform::HostPlatform;
+use rooms_runtime::platform::OwnedTask;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use tokio::sync::{Mutex, watch};
@@ -45,13 +46,7 @@ struct Pending {
 	canonical: String,
 	bytes: usize,
 	result: watch::Receiver<Option<Result<(), Failure>>>,
-	_task: Task,
-}
-struct Task(tokio::task::JoinHandle<()>);
-impl Drop for Task {
-	fn drop(&mut self) {
-		self.0.abort();
-	}
+	_task: OwnedTask,
 }
 impl Pending {
 	async fn completed(result: &mut watch::Receiver<Option<Result<(), Failure>>>) -> Result<(), Failure> {
@@ -91,7 +86,7 @@ impl Acquisitions {
 			}
 			let app = app.clone();
 			let (completed, result) = watch::channel(None);
-			let task = tokio::task::spawn_local(async move {
+			let task = OwnedTask::spawn_local(async move {
 				completed.send_replace(Some(request.run(&app).await));
 			});
 			pending.insert(
@@ -100,7 +95,7 @@ impl Acquisitions {
 					canonical,
 					bytes,
 					result,
-					_task: Task(task),
+					_task: task,
 				},
 			);
 		}

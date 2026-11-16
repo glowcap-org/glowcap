@@ -12,7 +12,7 @@ import type { AttachmentView } from "../conversation.ts";
 import type { DirId } from "../directory.ts";
 import type { MemberRef } from "../member_ref.ts";
 import type { OperationsCapability } from "../application_data.ts";
-import type { RoomsSettingsTab } from "../../../lib/view_state.ts";
+import type { RoomsSettingsTab, Theme } from "../../../lib/view_state.ts";
 import type { ToastKind } from "../toast.ts";
 import type { DraftPreview, OpenGraphMetadata, PreviewFailure } from "../link_preview.ts";
 
@@ -36,7 +36,7 @@ export interface RoomsBrowserController {
 	openSettings(): void;
 	closeSettings(): void;
 	setSettingsTab(tab: RoomsSettingsTab): void;
-	setTheme(theme: "light" | "dark"): void;
+	setTheme(theme: Theme): void;
 	/** Open Help, on the tab a control asked for when it names one. */
 	openHelp(tab?: HelpTab): void;
 	setHelpTab(tab: HelpTab): void;

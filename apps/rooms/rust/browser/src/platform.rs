@@ -77,16 +77,10 @@ impl rooms_glowcap::client::Entropy for Platform {
 	}
 }
 
-pub struct Task(tokio::task::JoinHandle<()>);
-impl Drop for Task {
-	fn drop(&mut self) {
-		self.0.abort();
-	}
-}
 impl rooms_glowcap::client::Tasks for Platform {
-	type Task = Task;
-	fn spawn(&self, work: impl Future<Output = ()> + 'static) -> Task {
-		Task(tokio::task::spawn_local(work))
+	type Task = rooms_runtime::platform::OwnedTask;
+	fn spawn(&self, work: impl Future<Output = ()> + 'static) -> rooms_runtime::platform::OwnedTask {
+		rooms_runtime::platform::OwnedTask::spawn_local(work)
 	}
 }
 impl rooms_glowcap::client::Deadline for Platform {

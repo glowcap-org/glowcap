@@ -6,6 +6,7 @@
 // the verbs here answer for the layout in force rather than making every
 // control know which one it is on.
 
+import type { Theme } from "../../../lib/view_state.ts";
 import { type AttachmentView, conversationCarries, type ViewerDirection } from "../conversation.ts";
 import type { DiagnosticRow, ListenerRow } from "../../../lib/room/client.ts";
 import type { DirId } from "../directory.ts";
@@ -368,7 +369,7 @@ export function dismissDirectoryView(projection: PageProjection, key: string): v
 	else switchTo(projection, next);
 }
 
-export function setTheme(projection: PageProjection, theme: "light" | "dark"): void {
+export function setTheme(projection: PageProjection, theme: Theme): void {
 	projection.set({ theme });
 }
 

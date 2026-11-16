@@ -33,7 +33,7 @@ impl rooms_glowcap::client::Deadline for ObservedDeadline {
 	}
 }
 impl rooms_glowcap::client::Tasks for ObservedDeadline {
-	type Task = super::HostTask;
+	type Task = rooms_runtime::platform::OwnedTask;
 	fn spawn(&self, work: impl Future<Output = ()> + 'static) -> Self::Task {
 		HostPlatform.spawn(work)
 	}
