@@ -274,6 +274,9 @@ Releases before 0.1.7 are in the
 
 ### Fixed
 
+- In Rooms, **Issue moderator link** stays usable while the room reconnects, when
+  the room manager is held and no other authority change is running. It no
+  longer waits for the room to be joined.
 - A Zig `HostRuntime` that runs out of memory while draining queued work no
   longer fails the loop. A step, a settle, a session release, a deferred
   release, a close, and a mailbox turn keep the queued work and retry it after
