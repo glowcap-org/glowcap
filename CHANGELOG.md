@@ -13,6 +13,13 @@ Releases before 0.1.7 are in the
 
 ### Breaking
 
+- `net.completion.BufferPool.acquire` returns `Allocator.Error!?u16`. Null
+  still means every buffer is leased, and a refused lazy allocation is now
+  `error.OutOfMemory` instead of looking like exhaustion. A caller that
+  unwrapped the old optional adds `try`. A data receive whose buffer
+  allocation is refused completes once with that error and retires only its
+  wire, where it used to wait for a recycle that never came and time out the
+  handshake. Signal and wake receives drain or re-arm instead.
 - Values nest at most 64 deep on every path (`model.max_value_depth`), and
   one count decides it: a top-level argument sits at depth 0, a container's
   items one deeper, and any container at depth 64, an empty one included, is

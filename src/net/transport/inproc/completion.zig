@@ -369,7 +369,7 @@ pub fn CompletionBackend(comptime Platform: type) type {
         pub fn dispatchOwned(self: *Self, comp: completion.Completion) !void {
             if (comp.borrowed.active()) self.platform.recycleBorrowed(comp);
             self.wake_armed = false;
-            if (!comp.recv_no_buffer and comp.result <= 0) return error.SignalReadFailed;
+            if (!comp.receiveMemoryPressure() and comp.result <= 0) return error.SignalReadFailed;
             self.sink.wake.drain() catch |err| {
                 self.sink.wake_failure.record(err);
                 return err;

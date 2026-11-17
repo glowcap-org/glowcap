@@ -54,6 +54,10 @@ pub fn Machines(
                 Lifecycle.fail(backend, c);
             }
 
+            pub fn failRelayWith(backend: *Self, c: *RelayConn, cause: anyerror) void {
+                Lifecycle.failWith(backend, c, .receive, cause);
+            }
+
             pub fn queueControlFrame(
                 backend: *Self,
                 c: *RelayConn,

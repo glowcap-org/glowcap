@@ -3,6 +3,7 @@ const glowcap = @import("glowcap");
 const net = glowcap.net;
 const linux = std.os.linux;
 const completion = net.completion;
+const pool_refusal = @import("../support/recv_pool_refusal.zig");
 
 test "Linux completion selection reports implementation and fallback reason" {
     try std.testing.expectEqualStrings(
@@ -295,6 +296,11 @@ test "epoll pool starvation releases and reuses the exact borrowed buffer" {
     try std.testing.expect(completions[0].borrowed.kind == .recv);
     backend.recycleBorrowed(completions[0]);
     try std.testing.expectEqual(@as(usize, 0), white_box.pendingCount(&backend));
+}
+
+test "epoll refused buffer growth fails the receive once and exhaustion still waits for a recycle" {
+    const white_box = net.epoll_white_box;
+    try pool_refusal.expectRefusalThenSaturationRecovery(white_box.TestBackend, white_box.pendingCount);
 }
 
 test "epoll dialed and accepted sockets disable Nagle" {

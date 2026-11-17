@@ -266,7 +266,7 @@ pub fn Machine(comptime Backend: type, comptime Inner: type, comptime Types: typ
                     }
                     if (comp.result < 0 or comp.borrowed.recvBytes() == null) {
                         if (comp.borrowed.active()) backend.inner.recycleBorrowed(comp);
-                        return fail(backend, error.ControlConnectionLost);
+                        return fail(backend, comp.failure orelse error.ControlConnectionLost);
                     }
                     if (comp.result == 0) {
                         if (comp.borrowed.active()) backend.inner.recycleBorrowed(comp);

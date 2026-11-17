@@ -448,7 +448,15 @@ pub fn CompletionBackend(comptime Inner: type) type {
             }
             if (comp.result < 0 or comp.borrowed.recvBytes() == null) {
                 if (comp.borrowed.active()) self.inner.recycleBorrowed(comp);
-                self.fail(c);
+                // Keep the exact receive cause (an allocator refusal included).
+                // A SOCKS handshake receive fails the pending connect.
+                if (comp.failure) |cause| {
+                    const phase: carrier_failure.Phase = switch (c.state) {
+                        .greeting_recv, .reply_recv => .connect,
+                        else => .receive,
+                    };
+                    Leg.failWith(self, &self.inner, c, phase, cause);
+                } else self.fail(c);
                 return;
             }
             if (comp.result == 0) {

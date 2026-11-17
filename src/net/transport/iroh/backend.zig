@@ -564,7 +564,7 @@ pub fn CompletionBackend(comptime Platform: type) type {
             // A pool-starved recv still proves descriptor readiness. Both
             // signal sources own stack-buffered drain APIs, so progress must not
             // depend on a general transport buffer becoming available.
-            if (!comp.recv_no_buffer and comp.result <= 0)
+            if (!comp.receiveMemoryPressure() and comp.result <= 0)
                 return error.SignalReadFailed;
             switch (signal) {
                 .readiness => try self.harvestSidecar(),

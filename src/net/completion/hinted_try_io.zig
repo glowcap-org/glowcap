@@ -79,7 +79,7 @@ pub fn HintedTryIo(comptime Backend: type, comptime Ops: type) type {
                 Ops.publish(backend, comp);
                 return;
             }
-            if (backend.buffer_pool.acquire()) |idx| {
+            if (backend.buffer_pool.acquire()) |slot| if (slot) |idx| {
                 const buf = backend.buffer_pool.buffer(idx);
                 switch (Ops.tryRead(entry, buf)) {
                     .transferred => |n| {
@@ -111,6 +111,12 @@ pub fn HintedTryIo(comptime Backend: type, comptime Ops: type) type {
             } else {
                 comp.recv_no_buffer = true;
                 // Keep the hint: the loop re-arms once a buffer recycles.
+            } else |err| {
+                // A refused acquisition creates no lease, so no recycle is
+                // owed: latch the cause on this connection.
+                comp.failure = err;
+                entry.pending.readable_hint = false;
+                latch(entry, err);
             }
             entry.pending.read_ud = null;
             Ops.publish(backend, comp);

@@ -20,7 +20,8 @@
 //! performs the `recv` into it and lends it to the loop on the completion.
 //! `recycleBorrowed` reclaims it. Buffers are allocated lazily up to the pool
 //! size, and a read-ready fd that finds the pool empty completes with
-//! `Completion.recv_no_buffer`: pool contention, never a connection error.
+//! `Completion.recv_no_buffer`: pool contention, never a connection error. A
+//! refused buffer allocation completes the receive with `error.OutOfMemory`.
 //!
 //! `zig build check` runs `cross-check`, which compiles the whole library for
 //! `aarch64-macos`. This catches type errors from a Linux host, but it cannot

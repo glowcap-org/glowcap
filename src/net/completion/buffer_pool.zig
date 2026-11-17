@@ -3,7 +3,9 @@
 //! Buffers grow lazily to a fixed count and remain pool-owned for its lifetime.
 //! A borrower holds an index until the operation that lent the bytes is
 //! explicitly recycled. Exhaustion is ordinary bounded pressure, never a
-//! connection failure and never permission to allocate outside the pool.
+//! connection failure and never permission to allocate outside the pool. A
+//! refused lazy allocation is a different outcome: it creates no lease, so no
+//! recycle is owed to the waiter and `acquire` reports an error instead.
 
 const std = @import("std");
 
@@ -48,12 +50,13 @@ pub const BufferPool = struct {
     }
 
     /// Take one buffer, allocating lazily up to the configured count. Returns
-    /// null while every buffer is leased or when lazy allocation is refused.
-    pub fn acquire(self: *BufferPool) ?u16 {
+    /// null while every buffer is leased, and a later release wakes the waiter.
+    /// A refused lazy allocation returns `error.OutOfMemory` and creates no new lease.
+    /// The caller cannot rely on a recycle to resume this acquisition.
+    pub fn acquire(self: *BufferPool) std.mem.Allocator.Error!?u16 {
         if (self.free.pop()) |idx| return idx;
         if (self.items.items.len >= self.cap) return null;
-        // tolerant: refused growth reads as an exhausted pool; the receive waits for a returned buffer.
-        const buf = self.allocator.alloc(u8, self.bytes) catch return null;
+        const buf = try self.allocator.alloc(u8, self.bytes);
         self.items.appendAssumeCapacity(buf);
         return @intCast(self.items.items.len - 1);
     }

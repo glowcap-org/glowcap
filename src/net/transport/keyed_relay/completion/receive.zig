@@ -131,7 +131,13 @@ pub fn Machine(
                         return .lent_to_caller;
                     }
 
-                    const idx = backend.buffer_pool.acquire() orelse {
+                    // A refused acquisition creates no lease, so no recycle is
+                    // owed: this wire retires with the exact cause.
+                    const slot = backend.buffer_pool.acquire() catch |err| {
+                        Access.failRelayWith(backend, c, err);
+                        return .recycle;
+                    };
+                    const idx = slot orelse {
                         backend.ready.appendAssumeCapacity(.{
                             .user_data = ud,
                             .result = -1,

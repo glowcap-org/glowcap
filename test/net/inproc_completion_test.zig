@@ -118,6 +118,31 @@ fn readableNow(fd: std.posix.fd_t) !bool {
     return try std.posix.poll(&fds, 0) > 0;
 }
 
+// Projection proof: the completion is the one the epoll backend produces for a
+// refused buffer growth. The allocator refusal itself is proved at the epoll
+// pool in `linux_completion_test.zig`.
+test "inproc completion: a wake receive that lacked a buffer to grow drains instead of latching" {
+    const allocator = std.testing.allocator;
+    var exchange = Exchange.init(allocator);
+    defer exchange.deinit();
+    var server = try Backend.init(allocator, .{ .exchange = &exchange }, 32, 4, 64);
+    defer server.deinit();
+    const wake_ud: u64 = 0; // dispatchOwned reads the result, not the tag
+
+    _ = try server.sink.wake.nudge();
+    server.wake_armed = true;
+    try server.dispatchOwned(.{ .user_data = wake_ud, .result = -1, .failure = error.OutOfMemory });
+    try std.testing.expect(!server.wake_armed);
+    try std.testing.expect(!try readableNow(server.sink.wake.read));
+
+    // Any other failed receive still latches the resident.
+    server.wake_armed = true;
+    try std.testing.expectError(
+        error.SignalReadFailed,
+        server.dispatchOwned(.{ .user_data = wake_ud, .result = -1, .failure = error.ConnectionResetByPeer }),
+    );
+}
+
 test "inproc completion: a writer nudges only a parked reader" {
     const allocator = std.testing.allocator;
     var exchange = Exchange.init(allocator);
