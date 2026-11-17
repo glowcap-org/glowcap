@@ -241,7 +241,10 @@ int32_t glowcap_driver_readiness_fd(GlowcapDriverLoop *loop, int32_t *out_fd);
 int32_t glowcap_driver_step(GlowcapDriverLoop *loop, int32_t timeout_ms);
 /* End the current thread's exclusive claim at a quiescent handoff boundary. */
 int32_t glowcap_driver_detach_thread(GlowcapDriverLoop *loop);
-/* Wake a parked loop from any thread. */
+/* Wake a parked loop from any thread. The caller keeps the loop alive until each
+   wake returns and synchronizes every waking thread before release. A refusal
+   during release teardown neither extends the handle's lifetime nor makes
+   concurrent final destruction safe. */
 int32_t glowcap_driver_wake(GlowcapDriverLoop *loop);
 /* Pop one event, or GLOWCAP_ERR_WOULD_BLOCK. Borrowed views last until the
    next pop. */

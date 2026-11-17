@@ -65,6 +65,7 @@ pub export fn glowcap_driver_has_transport(
 ) i32 {
     shared.lastErrorClear();
     const inst = instanceFrom(raw) orelse return GLOWCAP_ERR_NULL_POINTER;
+    if (events.releaseRefusal(inst, "has_transport")) |code| return code;
     const slot = out_present orelse return GLOWCAP_ERR_NULL_POINTER;
     const name = shared.sliceFromC(transport, transport_len) catch |err| return shared.marshalErrorToCode(err);
     if (name.len == 0) {

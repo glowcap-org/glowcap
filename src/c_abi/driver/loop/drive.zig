@@ -12,7 +12,8 @@ const GLOWCAP_ERR_NULL_POINTER = shared.GLOWCAP_ERR_NULL_POINTER;
 const GLOWCAP_ERR_WOULD_BLOCK = shared.GLOWCAP_ERR_WOULD_BLOCK;
 const instanceFrom = Internal.instanceFrom;
 const errToCode = Internal.errToCode;
-const reentrancyCode = @import("events.zig").reentrancyCode;
+const events = @import("events.zig");
+const reentrancyCode = events.reentrancyCode;
 const operationErrorCode = @import("events.zig").operationErrorCode;
 const releaseRetiredListenerMetadata = lifecycle.releaseRetiredListenerMetadata;
 
@@ -84,10 +85,14 @@ pub export fn glowcap_driver_detach_thread(raw: ?*c.GlowcapDriverLoop) i32 {
 /// Make a parked loop return from its wait, from any thread. It is the one
 /// cross-thread verb on this family. The wake channel exists from
 /// `glowcap_driver_take_host` on, so a loop pointer may be shared with a
-/// waking thread as soon as it is returned.
+/// waking thread as soon as it is returned. The caller keeps the loop alive
+/// until each wake returns and synchronizes every waking thread before
+/// release. A refusal during release teardown neither extends the handle's
+/// lifetime nor makes concurrent final destruction safe.
 pub export fn glowcap_driver_wake(raw: ?*c.GlowcapDriverLoop) i32 {
     shared.lastErrorClear();
     const inst = instanceFrom(raw) orelse return GLOWCAP_ERR_NULL_POINTER;
+    if (events.releaseRefusal(inst, "wake")) |code| return code;
     inst.runtime.wakeReadiness() catch |err| return errToCode(err);
     return GLOWCAP_OK;
 }

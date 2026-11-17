@@ -79,8 +79,9 @@ const Instance = struct {
     /// Set for the whole of `glowcap_driver_release`: no projection survives
     /// it, so the completion sink refuses and the close observer only gives
     /// its reserved seat back, while both stay installed on the runtime for
-    /// its teardown.
-    releasing: bool = false,
+    /// its teardown, and the loop refuses reentry from provider and hosted
+    /// callbacks. Atomic because `glowcap_driver_wake` reads it from any thread.
+    releasing: std.atomic.Value(bool) = .init(false),
 
     pub fn io(self: *Instance) std.Io {
         return self.threaded.io();
