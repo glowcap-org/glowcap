@@ -243,6 +243,7 @@ comptime {
             _ = @import("driver/host_runtime_multiplexed/provider_test.zig");
             _ = @import("driver/session_wire_fault_test.zig");
             _ = @import("driver/host_runtime_step/dial_retry_test.zig");
+            _ = @import("driver/host_runtime_step/accept_refusal_test.zig");
         }
         if (@import("builtin").target.os.tag == .linux or @import("builtin").target.os.tag.isDarwin())
             _ = @import("driver/host_runtime_step/serve_test.zig");
@@ -267,6 +268,7 @@ comptime {
         _ = @import("driver/host_runtime_multiplexed/stream_stack_test.zig");
         _ = @import("driver/session_loopback_test.zig");
         _ = @import("driver/session_fault_test.zig");
+        _ = @import("driver/server_accept_refusal_test.zig");
         _ = @import("driver/served_byte_fed_test.zig");
         _ = @import("driver/host_runtime_handoff_test.zig");
         _ = @import("driver/core_host/close_test.zig");
@@ -530,6 +532,7 @@ comptime {
         _ = @import("c_abi/driver_loop/readiness_contract_test.zig");
         _ = @import("c_abi/driver_loop/teardown_contract_test.zig");
         _ = @import("c_abi/driver_loop/listener_test.zig");
+        _ = @import("c_abi/driver_loop/accept_pressure_test.zig");
         _ = @import("c_abi/driver_loop/stream_listen_failure_test.zig");
         _ = @import("c_abi/driver_loop/archive_test.zig");
         _ = @import("c_abi/driver_loop/loopback_test.zig");

@@ -14,6 +14,8 @@ pub const CountingHost = struct {
     free_calls: usize = 0,
     live_bytes: usize = 0,
     fail_allocations: bool = false,
+    /// Allocations this host refused, whichever knob refused them.
+    refused: usize = 0,
     allocations_before_failure: ?usize = null,
 
     pub fn spec(self: *CountingHost) c.GlowcapAllocator {
@@ -26,9 +28,15 @@ pub const CountingHost = struct {
 
     fn hostAlloc(user_data: ?*anyopaque, size: usize, alignment: usize) callconv(.c) ?*anyopaque {
         const self: *CountingHost = @ptrCast(@alignCast(user_data.?));
-        if (self.fail_allocations) return null;
+        if (self.fail_allocations) {
+            self.refused += 1;
+            return null;
+        }
         if (self.allocations_before_failure) |remaining| {
-            if (remaining == 0) return null;
+            if (remaining == 0) {
+                self.refused += 1;
+                return null;
+            }
             self.allocations_before_failure = remaining - 1;
         }
         const al = std.mem.Alignment.fromByteUnits(alignment);

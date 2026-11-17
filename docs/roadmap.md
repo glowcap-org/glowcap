@@ -46,8 +46,10 @@ review needs that review before its first step.
    cannot silently strand recovery. Support Unix-socket Tor endpoints
    through Zig's public runtime. Project explicit promise-to-reference
    retention into TypeScript, Python, and Racket. Done when public API tests
-   cover those provider contracts, successful and refused shutdown, and
-   retained promise lifetimes ([plan to plan](planning/plan-to-plan.md)).
+   cover those provider contracts, successful and refused shutdown, retained
+   promise lifetimes, and a refused adopt or re-arm that leaves a completion
+   listener and loop serving ([#216](https://github.com/glowcap-org/glowcap/issues/216),
+   [plan to plan](planning/plan-to-plan.md)).
 3. **Interop coverage.** Extend live binding checks to automatic capability
    finalization, and live Goblins relay checks to Python, Rust and Racket.
    Keep the exact role and transport coverage in community review. Work that

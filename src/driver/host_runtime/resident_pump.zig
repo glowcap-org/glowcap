@@ -18,6 +18,16 @@ const ResidentRequestKey = resident_state.RequestKey;
 const SessionAcceptObservation = lifecycle.SessionAcceptObservation;
 const Wire = HostRuntime.Wire;
 
+/// Ensure a provider cause is latched for a check a provider answers (a drain
+/// or remote-key error): an adapted provider has already latched its exact
+/// chain, which a second latch would only pad with a duplicate, and a Zig
+/// resident latches nothing of its own. A violation only the runtime sees
+/// latches through `failProviderContract` whatever is already held, so it
+/// joins the chain as a consequence.
+fn ensureProviderCause(self: *HostRuntime) void {
+    if (self.terminal_failure == null) self.failProviderContract();
+}
+
 /// Drain and answer one resident's ready records: dial completions release their
 /// awaiting dials, readable connections feed the core, writable ones resume
 /// retained outbound, and closed ones close their wires. `own` carries the
@@ -26,11 +36,19 @@ const Wire = HostRuntime.Wire;
 pub fn serviceResident(self: *HostRuntime, resident_index: usize, own: ?*driver_core.HostSession) !usize {
     const resident = self.residents.items[resident_index].resident;
     var own_fed: usize = 0;
-    const events = try resident.drainReady(&self.event_scratch);
+    const events = resident.drainReady(&self.event_scratch) catch |err| {
+        // The provider's own violation: a count past the buffer, or a
+        // provider that already failed and reports `ProviderContract` for
+        // every later drain. No caller caused it, and no record of the drain
+        // survives.
+        ensureProviderCause(self);
+        return err;
+    };
     // `drainReady` already took every record from the resident, so one
     // event's refusal must not abandon the siblings drained behind it: each
     // is served, and the first refusal is reported afterward, as the
     // completion loop's `dispatchBatch` holds.
+    const latched_before = self.terminal_failure != null;
     var first_err: ?anyerror = null;
     for (events) |event| {
         own_fed += handleResidentEvent(self, resident_index, event, own) catch |err| blk: {
@@ -39,6 +57,12 @@ pub fn serviceResident(self: *HostRuntime, resident_index: usize, own: ?*driver_
         };
     }
     if (first_err) |err| return err;
+    // An arrival's own catch absorbs its refusal, but a provider violation or
+    // a failed claimed close latches terminal failure inside the batch. Every
+    // caller, session waits included, learns of it here and stops.
+    if (!latched_before) {
+        if (self.terminal_failure) |failure| return failure.chain.cause;
+    }
     return own_fed;
 }
 
@@ -94,6 +118,11 @@ fn handleResidentEvent(
             },
         };
         defer if (conn.deinit()) |failure| Internal.noteTerminalFailureChain(self, failure);
+        // A claim that borrows no connection breaks the accept contract.
+        const conn_id = conn.borrow() orelse {
+            self.failProviderContract();
+            return error.ProviderContract;
+        };
         // The provider already removed this connection from its accept queue. An
         // over-limit arrival closes here without a session or retained buffers.
         // Level-shaped readiness brings the next accept through a later step.
@@ -103,17 +132,24 @@ fn handleResidentEvent(
         // session cannot open without one. An arrival in that window closes,
         // so a peer's timing never fails the step.
         if (self.core.acceptableLocator() == null) return 0;
-        try startAcceptedConn(
+        // A local failure admitting this arrival retires only the arrival:
+        // `conn`'s deferred release closes it, and the listener, its siblings
+        // and the runtime carry on.
+        startAcceptedConn(
             self,
             resident_index,
             &conn,
+            conn_id,
             listener.transport,
             listener.observation,
-        );
+        ) catch |err| retireArrival(self, listener.observation, err);
         return 0;
     }
     if (event.events & er.ev_connect != 0) {
-        const dialer = self.residents.items[resident_index].resident.dialer() orelse return error.ProviderContract;
+        const dialer = self.residents.items[resident_index].resident.dialer() orelse {
+            self.failProviderContract();
+            return error.ProviderContract;
+        };
         const request_key = ResidentRequestKey{ .resident = resident_index, .request = event.subject };
         if (self.pending_resident_dials.get(request_key)) |wait| {
             wait.ready = true;
@@ -163,12 +199,26 @@ fn handleResidentEvent(
     return own_fed;
 }
 
+/// Report an arrival refused before any session took it. A closing Host and
+/// the pending-open ceiling are ordinary refusals, as `can_accept` is, and a
+/// provider violation was already latched where it was found. Anything else
+/// reaches the observer's arrival channel, which leaves its listener open.
+fn retireArrival(self: *HostRuntime, observation: SessionAcceptObservation, err: anyerror) void {
+    if (err == driver_core.Error.HostClosing or err == driver_core.Error.PendingOpenLimitReached) return;
+    if (self.terminal_failure != null) return;
+    const observer = observation.observer;
+    if (observer.arrival_failed) |notify| notify(observer.ctx, observation.tag, OperationFailure.fromError(err));
+}
+
 /// Adopt one connection claimed from a resident accept queue and park its
-/// CapTP handshake under the same observer path as a stream listener.
+/// CapTP handshake under the same observer path as a stream listener. Every
+/// failure rolls back whatever the arrival took, and `conn` keeps the
+/// connection until adoption transfers it.
 fn startAcceptedConn(
     self: *HostRuntime,
     resident_index: usize,
     conn: *net.multiplexed_resident.ClaimedConnection,
+    conn_id: usize,
     transport: []const u8,
     observation: SessionAcceptObservation,
 ) !void {
@@ -183,8 +233,11 @@ fn startAcceptedConn(
     const row = try self.allocator.create(PendingOpen);
     errdefer self.allocator.destroy(row);
     try self.pending_opens.ensureUnusedCapacity(self.allocator, 1);
-    const conn_id = conn.borrow() orelse return error.ProviderContract;
-    if (try resident.connRemoteKey(conn_id)) |key| {
+    const remote_key = resident.connRemoteKey(conn_id) catch |err| {
+        ensureProviderCause(self);
+        return err;
+    };
+    if (remote_key) |key| {
         session.served.port.peer.bindVerifiedChannelKey(key);
     }
     try Internal.adoptResidentConn(self, session, resident_index, conn);

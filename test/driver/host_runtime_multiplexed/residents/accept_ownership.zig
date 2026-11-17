@@ -38,6 +38,14 @@ pub const AcceptOwnershipResident = struct {
     pending_listener: ?usize = null,
     fail_drain: bool = false,
     fail_listener_finish: bool = false,
+    /// When set, `connRemoteKey` breaks the provider contract.
+    fail_remote_key: bool = false,
+    /// When set, a drain reports more records than its buffer holds.
+    overreport_drain: bool = false,
+    /// When set, closing the accepted connection reports this failure.
+    close_failure: ?glowcap.foundation.FailureChain = null,
+    /// A record the drain reports after the accept record, in the same batch.
+    trailing_record: ?net.multiplexed_resident.ReadyEvent = null,
     cancel_connect_calls: usize = 0,
     cancel_listen_calls: usize = 0,
     fail_cancel_connect: bool = false,
@@ -156,6 +164,7 @@ pub const AcceptOwnershipResident = struct {
         self.drain_calls += 1;
         if (!self.keep_ready) self.wake.drain() catch unreachable;
         if (self.fail_drain) return error.ProviderContract;
+        if (self.overreport_drain) return out.len + 1;
         if (out.len == 0) return 0;
         if (self.held_record) |record| {
             self.held_record = null;
@@ -172,6 +181,11 @@ pub const AcceptOwnershipResident = struct {
             .subject = self.accept_route orelse return 0,
             .events = net.multiplexed_resident.ev_accept,
         };
+        if (self.trailing_record) |record| {
+            self.trailing_record = null;
+            out[1] = record;
+            return 2;
+        }
         return 1;
     }
 
@@ -331,10 +345,12 @@ pub const AcceptOwnershipResident = struct {
         const self = of(ctx);
         std.debug.assert(conn == conn_id);
         self.close_calls += 1;
+        if (self.close_failure) |failure| return .{ .failed = failure };
         return .complete;
     }
 
-    fn connRemoteKey(_: *anyopaque, _: usize) net.multiplexed_resident.ContractError!?glowcap.foundation.crypto.PeerKey {
+    fn connRemoteKey(ctx: *anyopaque, _: usize) net.multiplexed_resident.ContractError!?glowcap.foundation.crypto.PeerKey {
+        if (of(ctx).fail_remote_key) return error.ProviderContract;
         return null;
     }
 };

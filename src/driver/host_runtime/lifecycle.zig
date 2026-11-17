@@ -115,8 +115,12 @@ pub const SessionAcceptObserver = struct {
     ctx: *anyopaque,
     /// Ordinary queue pressure refuses this arrival without failing the host.
     can_accept: *const fn (ctx: *anyopaque) bool = canAcceptAlways,
-    /// An arrival failed after admission. Reservation release remains with
-    /// abandoned. Blocking consumers may additionally report its exact cause.
+    /// One arrival failed locally, while the runtime admitted it or after.
+    /// No arrival reservation is held when this runs. During admission, `reserve`
+    /// refused or the runtime called `release`. After a pending row exists,
+    /// or after `opened` refused (which leaves its reservation held), the
+    /// runtime called `abandoned`. So not every call follows an `abandoned`.
+    /// Blocking consumers may additionally report the exact cause.
     arrival_failed: ?*const fn (ctx: *anyopaque, tag: u64, failure: OperationFailure) void = null,
     reserve: *const fn (ctx: *anyopaque, tag: u64) anyerror!void = reserveNoop,
     release: *const fn (ctx: *anyopaque, tag: u64) void = releaseNoop,

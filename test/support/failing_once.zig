@@ -16,6 +16,8 @@ pub const FailingOnce = struct {
     allocated_bytes: usize = 0,
     freed_bytes: usize = 0,
     induced: bool = false,
+    /// The size of the most recent refused allocation.
+    refused_len: usize = 0,
     lasting: bool = false,
     return_addresses: [frame_count]usize = @splat(0),
 
@@ -53,6 +55,7 @@ pub const FailingOnce = struct {
             const trace = std.debug.captureCurrentStackTrace(.{ .first_address = return_address }, &self.return_addresses);
             @memset(self.return_addresses[@min(trace.return_addresses.len, frame_count)..], 0);
             self.induced = true;
+            self.refused_len = len;
             return null;
         }
         const pointer = self.backing.rawAlloc(len, alignment, return_address) orelse return null;

@@ -197,6 +197,7 @@ says when it runs. "Refusal proved by" is the test that pins the refusal.
 - Refusal proved by:
   - `net/completion_resident_test.zig` (a listener stops accepting at the unclaimed bound and resumes on a claim, and an accept refused for descriptor quota reaches the claim as a failure and does not re-arm)
   - `net/completion_loop_backpressure_test.zig` (an arrival-local accept failure leaves the loop serving and the next arrival is admitted, and a descriptor-quota failure returns from `run`)
+  - `driver/host_runtime_step/accept_refusal_test.zig` (an allocation refused anywhere the runtime admits a handed-over connection retires that arrival alone: the connection closes once, the sibling session keeps serving, and the next arrival is admitted)
   - `driver/host_runtime_step/flood_test.zig` (the slots all held by handshakes that never finish, the next arrival refused, the accepted count held, and an honest session opening once the deadline frees them). The same file holds redeem dials to their share while an accept and an application dial still admit
   - `driver/host_runtime_handoff_test.zig` (a zero share or one above the pool is refused at construction)
   - `driver/host_runtime_step/serve_test.zig` (an arrival while a slot is held closes with no session)
