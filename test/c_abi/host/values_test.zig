@@ -8,7 +8,7 @@ const cd = @import("c_abi_host");
 const glowcap = @import("glowcap");
 const model = glowcap.ocapn.model;
 
-test "C integer runs and lists share marshal depth for borrowed and owned values" {
+test "C marshal admits a leaf at the ceiling and refuses every container there, an empty one included" {
     const Refused = struct {
         fn reference(_: void, _: shared.GlowcapReference) !model.Reference {
             return error.UnexpectedReference;
@@ -19,6 +19,7 @@ test "C integer runs and lists share marshal depth for borrowed and owned values
     };
     const words = [_]i64{7};
     const integer = argInt(7);
+    const pair = [_]c.GlowcapArgument{ argStr("k"), integer };
     var run = argBase();
     run.kind = c.GLOWCAP_ARG_INTEGERS;
     run.bytes = @ptrCast(&words);
@@ -27,23 +28,41 @@ test "C integer runs and lists share marshal depth for borrowed and owned values
     list.kind = c.GLOWCAP_ARG_LIST;
     list.items = @ptrCast(&integer);
     list.items_len = 1;
+    var record = argBase();
+    record.kind = c.GLOWCAP_ARG_STRUCT;
+    record.items = @ptrCast(&pair);
+    record.items_len = 2;
     var empty_run = run;
     empty_run.bytes_len = 0;
     var empty_list = list;
     empty_list.items_len = 0;
+    var empty_record = record;
+    empty_record.items_len = 0;
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
+    const shapes = [_]struct { arg: c.GlowcapArgument, leaf: bool }{
+        .{ .arg = integer, .leaf = true },
+        .{ .arg = run, .leaf = false },
+        .{ .arg = empty_run, .leaf = false },
+        .{ .arg = list, .leaf = false },
+        .{ .arg = empty_list, .leaf = false },
+        .{ .arg = record, .leaf = false },
+        .{ .arg = empty_record, .leaf = false },
+    };
     inline for (.{ false, true }) |own_bytes| {
-        for ([_]shared.GlowcapArgument{ run, list, empty_run, empty_list }, 0..) |arg, shape| {
-            for ([_]usize{ shared.max_marshal_depth - 1, shared.max_marshal_depth }) |depth| {
-                const plain = shared.argumentFromCWith(anyerror, {}, Refused.reference, arena.allocator(), arg, depth, own_bytes);
-                const host_value = shared.valuesFromCWith(glowcap.driver.core.Value, anyerror, {}, Refused.capability, arena.allocator(), @ptrCast(&arg), 1, depth, own_bytes);
-                if (depth == shared.max_marshal_depth and shape < 2) {
-                    try std.testing.expectError(error.UnsupportedValue, plain);
-                    try std.testing.expectError(error.UnsupportedValue, host_value);
-                } else {
+        for (shapes) |shape| {
+            for ([_]usize{ model.max_value_depth - 1, model.max_value_depth, model.max_value_depth + 1 }) |depth| {
+                // A leaf below a refused container is never reached.
+                if (shape.leaf and depth > model.max_value_depth) continue;
+                const plain = shared.argumentFromCWith(anyerror, {}, Refused.reference, arena.allocator(), shape.arg, depth, own_bytes);
+                const host_value = shared.valuesFromCWith(glowcap.driver.core.Value, anyerror, {}, Refused.capability, arena.allocator(), @ptrCast(&shape.arg), 1, depth, own_bytes);
+                const admitted = shape.leaf or depth < model.max_value_depth;
+                if (admitted) {
                     _ = try plain;
                     _ = try host_value;
+                } else {
+                    try std.testing.expectError(error.UnsupportedValue, plain);
+                    try std.testing.expectError(error.UnsupportedValue, host_value);
                 }
             }
         }

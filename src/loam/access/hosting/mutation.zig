@@ -14,7 +14,6 @@ pub const Mutation = struct {
         const key_bytes = loam.ObjectId.key_bytes;
         var bound: hosting.references.AllocationBound = .{};
         try bound.include(@sizeOf(Mutation), @alignOf(Mutation), 1);
-        try bound.include(try std.math.mul(usize, try std.math.add(usize, arguments.values, 2), @sizeOf(driver.Value)), @alignOf(driver.Value), 1);
         if (dependent) try bound.include(key_bytes, 1, 1);
         const intent = try records.ValueRecord.encodedSizeBound(driver.Value, try std.math.add(usize, arguments.values, 3), arguments.struct_entries, try std.math.add(usize, arguments.bytes, if (dependent) key_bytes else 0), arguments.capabilities);
         const result = try records.ValueRecord.encodedSizeBound(driver.Value, reply.values, reply.struct_entries, reply.bytes, reply.capabilities);
@@ -54,13 +53,15 @@ pub const Mutation = struct {
 
     pub fn init(call: *hosting.Call, endpoint: *const records.EndpointRecord, sequence: u64, verb: []const u8, args: []const driver.Value, dependent: ?loam.ObjectId) !Mutation {
         var self: Mutation = .{ .call = call, .endpoint = endpoint, .sequence = sequence };
-        const items = try call.arena().alloc(driver.Value, args.len + 2);
-        items[0] = .{ .string = verb };
-        items[1] = .{ .bytes = if (dependent) |target| try call.arena().dupe(u8, &target.key()) else &.{} };
-        @memcpy(items[2..], args);
-        const request: driver.Value = .{ .list = items };
-        try request.forEachCapability(&self, captureArgument);
-        self.intent = try records.ValueRecord.encode(call.arena(), request, &self);
+        // The intent is the list `[verb, dependent, args...]`. Its envelope is
+        // not part of the value, so each argument counts from depth 0, as the
+        // session counted it.
+        const head = [_]driver.Value{
+            .{ .string = verb },
+            .{ .bytes = if (dependent) |target| try call.arena().dupe(u8, &target.key()) else &.{} },
+        };
+        for (args) |*arg| try arg.forEachCapability(&self, captureArgument);
+        self.intent = try records.encodeEnvelope(call.arena(), &head, args, &self);
         return self;
     }
 

@@ -176,7 +176,7 @@ pub fn validateInboundListen(self: *Session, listen: anytype) RecvViewError!void
 /// settle listen records. Symmetrically with a
 /// deliver's args, the fulfill payload's references are validated and
 /// depth-bounded: a `near` must name one of our exports, a `far` is a fresh
-/// introduction, and the payload tree may not nest past `max_nesting_depth`.
+/// introduction, and the payload tree may not nest past `model.max_value_depth`.
 /// Without this, a fulfill carrying a `near` to a non-existent export would
 /// be accepted while the identical reference in a deliver arg is rejected.
 ///

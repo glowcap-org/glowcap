@@ -12,6 +12,8 @@ pub const DerivationRecord = @import("derivation_record.zig").DerivationRecord;
 pub const RetryWindow = @import("retry_window.zig").RetryWindow;
 pub const MutationRecord = @import("mutation_record.zig").MutationRecord;
 pub const ValueRecord = @import("value_record.zig").ValueRecord;
+/// Internal to the access layer: the supported root does not publish it.
+pub const encodeEnvelope = @import("value_record.zig").encodeEnvelope;
 pub const ObservationRecord = @import("observation_record.zig").ObservationRecord;
 pub const ObservationIndexRecord = @import("observation_index_record.zig").ObservationIndexRecord;
 pub const ObservationEndpointRecord = @import("observation_endpoint_record.zig").ObservationEndpointRecord;

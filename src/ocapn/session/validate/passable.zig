@@ -317,6 +317,14 @@ pub fn ReferenceError(comptime T: type) type {
         Error;
 }
 
+/// The depth of the items of a container at `depth`, or `NestingTooDeep` when
+/// `model.mayHoldItems` refuses them. Every session walk over a value tree
+/// takes this step at each container, empty or not.
+pub inline fn itemsDepth(depth: usize) error{NestingTooDeep}!usize {
+    if (!model.mayHoldItems(depth)) return error.NestingTooDeep;
+    return depth + 1;
+}
+
 pub fn validateInboundArguments(
     self: *Session,
     args: anytype,
@@ -324,7 +332,6 @@ pub fn validateInboundArguments(
     introduced: *IntroducedImports,
     comptime carrier: Carrier,
 ) RecvViewError!void {
-    if (depth > self.limits.max_nesting_depth) return error.NestingTooDeep;
     if (comptime @TypeOf(args) == model.view.Args) {
         // A word run holds integers only, bounded by the codec that read
         // it, so there is no element here to visit.
@@ -351,9 +358,9 @@ pub inline fn validateInboundArgument(
             if (reference == .far) try introduced.noteFar(self, reference.far);
             introduced.reference_slots += 1;
         },
-        .list => |items| try validateInboundArguments(self, items, depth + 1, introduced, carrier),
+        .list => |items| try validateInboundArguments(self, items, try itemsDepth(depth), introduced, carrier),
         .set => |items| {
-            try validateInboundArguments(self, items, depth + 1, introduced, carrier);
+            try validateInboundArguments(self, items, try itemsDepth(depth), introduced, carrier);
             const scratch = self.recv_scratch.allocator();
             if (comptime @TypeOf(items) == model.view.Args) {
                 try set_uniqueness.checkBorrowed(scratch, items, &introduced.compare_budget);
@@ -361,8 +368,8 @@ pub inline fn validateInboundArgument(
                 try set_uniqueness.checkOwned(scratch, items, &introduced.compare_budget);
             }
         },
-        .tagged => |tagged| try validateInboundArguments(self, tagged.value, depth + 1, introduced, carrier),
-        .@"struct" => |entries| try validateInboundStructEntries(self, entries, depth + 1, introduced, carrier),
+        .tagged => |tagged| try validateInboundArguments(self, tagged.value, try itemsDepth(depth), introduced, carrier),
+        .@"struct" => |entries| try validateInboundStructEntries(self, entries, try itemsDepth(depth), introduced, carrier),
         // Exhaustive: a new Argument arm must decide here whether it
         // can carry a reference. The struct arm above was once missed behind an
         // `else`, which let a struct-wrapped reference dodge this walk entirely.
@@ -429,7 +436,6 @@ fn validateInboundStructEntries(
     introduced: *IntroducedImports,
     comptime carrier: Carrier,
 ) RecvViewError!void {
-    if (depth > self.limits.max_nesting_depth) return error.NestingTooDeep;
     if (comptime @TypeOf(entries) == model.view.StructEntries) {
         var it = entries.iterator();
         while (try it.nextRef()) |entry| try validateInboundArgument(self, &entry.value, depth, introduced, carrier);

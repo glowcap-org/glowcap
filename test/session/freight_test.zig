@@ -1,6 +1,5 @@
 //! What a session certifies in a borrowed outbound tree, freight, before
-//! the encoder reads it (ADR-0064): the nesting bound the owned inventory
-//! applies, set and struct-key uniqueness, the refusal of any reference or
+//! the encoder reads it (ADR-0064): set and struct-key uniqueness, the refusal of any reference or
 //! handoff, and the measure an owned copy of the tree would retain.
 
 const std = @import("std");
@@ -68,28 +67,6 @@ test "freight refuses a reference or handoff anywhere in the tree" {
     try std.testing.expectError(session.Error.MalformedMessage, s.certifyFreight(.fromViews(&far), NoMeter));
     const nested = [_]view.Argument{ .{ .integer = 1 }, .{ .list = .fromViews(&far) } };
     try std.testing.expectError(session.Error.MalformedMessage, s.certifyFreight(.fromViews(&nested), NoMeter));
-}
-
-test "freight and an owned tree refuse at the same nesting depth" {
-    var s = session.Session.initWith(a, .{ .limits = .{ .max_nesting_depth = 3 } });
-    defer s.deinit();
-    // Four nested lists sit at depths 1 to 4 around the leaf.
-    const leaf = [_]model.Argument{.{ .integer = 1 }};
-    const d4 = [_]model.Argument{.{ .list = &leaf }};
-    const d3 = [_]model.Argument{.{ .list = &d4 }};
-    const d2 = [_]model.Argument{.{ .list = &d3 }};
-    const d1 = [_]model.Argument{.{ .list = &d2 }};
-    const leaf_v = [_]view.Argument{.{ .integer = 1 }};
-    const d4_v = [_]view.Argument{.{ .list = .fromViews(&leaf_v) }};
-    const d3_v = [_]view.Argument{.{ .list = .fromViews(&d4_v) }};
-    const d2_v = [_]view.Argument{.{ .list = .fromViews(&d3_v) }};
-    const d1_v = [_]view.Argument{.{ .list = .fromViews(&d2_v) }};
-
-    try std.testing.expectError(session.Error.NestingTooDeep, s.inventoryArguments(&d1, NoMeter));
-    try std.testing.expectError(session.Error.NestingTooDeep, s.certifyFreight(.fromViews(&d1_v), NoMeter));
-    const ok = try s.inventoryArguments(&d2, NoMeter);
-    ok.deinit(a);
-    _ = try s.certifyFreight(.fromViews(&d2_v), NoMeter);
 }
 
 test "freight refuses a duplicate set element and a duplicate struct key" {

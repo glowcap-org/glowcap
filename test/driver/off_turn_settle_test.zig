@@ -11,6 +11,7 @@ const BreakCause = @import("glowcap").foundation.break_cause.BreakCause;
 const std = @import("std");
 const glowcap = @import("glowcap");
 const wait = @import("../support/wait.zig");
+const shapes = @import("../support/depth_shapes.zig");
 
 const model = glowcap.ocapn.model;
 const driver = glowcap.driver;
@@ -65,6 +66,33 @@ test "settle mailbox: full, oversized, and capability-bearing posts refuse loudl
     // One slot: the second unapplied post is backpressure, not growth.
     try mb.post(io, 1, .{ .broken = .{ .detail = "first", .cause = BreakCause{} } });
     try std.testing.expectError(error.MailboxFull, mb.post(io, 2, .{ .broken = .{ .detail = "second", .cause = BreakCause{} } }));
+}
+
+test "settle mailbox post: the plain-data depth count and the slot's byte bound are separate refusals" {
+    // A slot holds `slot_payload_bytes` (512), too few for a cloned tree 63
+    // or 64 containers deep, so the mailbox cannot admit a deep value whole.
+    // The two owners answer separately instead: a shape the plain-data count
+    // refuses returns NotPlainData before any clone, and a shape it admits
+    // reaches the independent byte bound and returns ValueTooLarge. Either
+    // way nothing is queued, and a shallow post still fits afterwards.
+    const allocator = std.testing.allocator;
+    var threaded = std.Io.Threaded.init(allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+    const mb = try driver.SettleMailbox.init(allocator, 1);
+    defer mb.deinit();
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+
+    for (shapes.owned) |shape| for (shapes.sweep) |depth| {
+        const args = try shapes.ownedArgs(arena.allocator(), depth, shape);
+        const expected = if (shapes.admitted(shape, depth)) error.ValueTooLarge else error.NotPlainData;
+        try std.testing.expectError(expected, mb.post(io, 1, .{ .fulfilled = args[0] }));
+        try std.testing.expectEqual(@as(usize, 0), mb.count);
+    };
+    // The slot stayed usable: a shallow value fits and queues.
+    try mb.post(io, 1, .{ .fulfilled = .{ .integer = 1 } });
+    try std.testing.expectEqual(@as(usize, 1), mb.count);
 }
 
 // --- The shared deferring behavior and worker -------------------------------

@@ -248,12 +248,14 @@ fn measureResolution(total: *usize, resolution: model.Resolution) model.view.Pro
 }
 
 fn measureArgument(total: *usize, argument: model.Argument, depth: usize) model.view.ProjectError!void {
-    if (depth > model.max_value_depth) return error.MalformedView;
     addShallowOwnedBytes(total, argument);
     switch (argument) {
-        .list, .set => |items| try measureArgumentSlice(total, items, depth + 1),
-        .tagged => |tagged| try measureArgumentSlice(total, tagged.value, depth + 1),
-        .@"struct" => |entries| for (entries) |entry| try measureArgument(total, entry.value, depth + 1),
+        .list, .set => |items| try measureArgumentItems(total, items, depth),
+        .tagged => |tagged| try measureArgumentItems(total, tagged.value, depth),
+        .@"struct" => |entries| {
+            if (!model.mayHoldItems(depth)) return error.MalformedView;
+            for (entries) |entry| try measureArgument(total, entry.value, depth + 1);
+        },
         else => {},
     }
 }
@@ -299,9 +301,10 @@ pub fn addArgumentSliceOwnedBytes(total: *usize, len: usize) void {
     addProduct(total, len, @sizeOf(model.Argument));
 }
 
-fn measureArgumentSlice(total: *usize, items: []const model.Argument, depth: usize) model.view.ProjectError!void {
-    if (depth > model.max_value_depth) return error.MalformedView;
-    for (items) |item| try measureArgument(total, item, depth);
+/// The items of the container at `depth`.
+fn measureArgumentItems(total: *usize, items: []const model.Argument, depth: usize) model.view.ProjectError!void {
+    if (!model.mayHoldItems(depth)) return error.MalformedView;
+    for (items) |item| try measureArgument(total, item, depth + 1);
 }
 
 fn measureReference(total: *usize, reference: model.Reference) void {

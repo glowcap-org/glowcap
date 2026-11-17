@@ -1,6 +1,7 @@
 //! Bounded passable receipt data uses durable identities for capability leaves.
 const std = @import("std");
 const loam = @import("loam_records");
+const model = @import("model");
 const syrup = @import("syrup");
 const s = syrup.RecordSyntax;
 const WalkError = syrup.WalkError;
@@ -8,6 +9,23 @@ const WalkError = syrup.WalkError;
 pub const ValueRecord = struct {
     pub const max_bytes = 32 * 1024;
     pub const max_depth = 64;
+
+    comptime {
+        // The receipt codec and every Host walk admit one nesting.
+        std.debug.assert(max_depth == model.max_value_depth);
+    }
+
+    /// The depth of the items of a container the writer visits at `depth`.
+    inline fn writeItemsDepth(depth: usize) WalkError!usize {
+        if (!model.mayHoldItems(depth)) return error.UnsupportedArgument;
+        return depth + 1;
+    }
+
+    /// The depth of the items of a container the reader visits at `depth`.
+    inline fn readItemsDepth(depth: usize) error{ValueTooDeep}!usize {
+        if (!model.mayHoldItems(depth)) return error.ValueTooDeep;
+        return depth + 1;
+    }
 
     /// Scalar topology allowance for accepted values. Byte leaves include key
     /// and tag bytes. Capability IDs are emitted by this codec, not the caller.
@@ -50,7 +68,6 @@ pub const ValueRecord = struct {
     fn write(sink: anytype, value: anytype, context: anytype, depth: usize) WalkError!void {
         // A value nested past what `read` accepts is one the codec cannot
         // encode, the same refusal the walk gives invalid text.
-        if (depth > max_depth) return error.UnsupportedArgument;
         if (comptime @hasField(@TypeOf(value), "integers")) {
             // A run of integers is stored as the list it means (ADR-0064),
             // so the durable form has one shape and reads back as a list.
@@ -75,19 +92,22 @@ pub const ValueRecord = struct {
                 try s.writeBytes(sink, integer.digits);
             },
             .list, .set => |items| {
+                const items_depth = try writeItemsDepth(depth);
                 try s.writePositiveInt(sink, items.len);
-                for (items) |item| try write(sink, item, context, depth + 1);
+                for (items) |item| try write(sink, item, context, items_depth);
             },
             .tagged => |tagged| {
+                const items_depth = try writeItemsDepth(depth);
                 try s.writeBytes(sink, tagged.tag);
                 try s.writePositiveInt(sink, tagged.value.len);
-                for (tagged.value) |item| try write(sink, item, context, depth + 1);
+                for (tagged.value) |item| try write(sink, item, context, items_depth);
             },
             .@"struct" => |items| {
+                const items_depth = try writeItemsDepth(depth);
                 try s.writePositiveInt(sink, items.len);
                 for (items) |item| {
                     try s.writeBytes(sink, item.key);
-                    try write(sink, item.value, context, depth + 1);
+                    try write(sink, item.value, context, items_depth);
                 }
             },
         }
@@ -101,7 +121,7 @@ pub const ValueRecord = struct {
     }
 
     fn writeIntegerList(sink: anytype, words: []const i64, depth: usize) WalkError!void {
-        if (words.len != 0 and depth == max_depth) return error.UnsupportedArgument;
+        _ = try writeItemsDepth(depth);
         try writeHeader(sink, "list");
         try s.writePositiveInt(sink, words.len);
         for (words) |word| {
@@ -124,7 +144,6 @@ pub const ValueRecord = struct {
     }
 
     fn read(comptime To: type, allocator: std.mem.Allocator, bytes: []const u8, cursor: *usize, context: anytype, depth: usize) !To {
-        if (depth > max_depth) return error.ValueTooDeep;
         try s.readByte(bytes, cursor, '<');
         const tag = try s.readSymbol(bytes, cursor);
         const result: To = result: {
@@ -146,6 +165,7 @@ pub const ValueRecord = struct {
             }
             if (std.mem.eql(u8, tag, "big_integer")) break :result .{ .big_integer = .{ .negative = try s.readBool(bytes, cursor), .digits = try s.readBytes(bytes, cursor) } };
             if (std.mem.eql(u8, tag, "list") or std.mem.eql(u8, tag, "set") or std.mem.eql(u8, tag, "tagged")) {
+                const items_depth = try readItemsDepth(depth);
                 const label = if (std.mem.eql(u8, tag, "tagged")) try s.readBytes(bytes, cursor) else null;
                 const items = try allocator.alloc(To, try count(bytes, cursor));
                 var initialized: usize = 0;
@@ -154,13 +174,14 @@ pub const ValueRecord = struct {
                     allocator.free(items);
                 }
                 for (items) |*item| {
-                    item.* = try read(To, allocator, bytes, cursor, context, depth + 1);
+                    item.* = try read(To, allocator, bytes, cursor, context, items_depth);
                     initialized += 1;
                 }
                 break :result if (label) |name| .{ .tagged = .{ .tag = name, .value = items } } else if (std.mem.eql(u8, tag, "list")) .{ .list = items } else .{ .set = items };
             }
             if (std.mem.eql(u8, tag, "struct")) {
                 const Item = std.meta.Elem(@FieldType(To, "struct"));
+                const items_depth = try readItemsDepth(depth);
                 const items = try allocator.alloc(Item, try count(bytes, cursor));
                 var initialized: usize = 0;
                 errdefer {
@@ -168,7 +189,7 @@ pub const ValueRecord = struct {
                     allocator.free(items);
                 }
                 for (items) |*item| {
-                    item.* = .{ .key = try s.readBytes(bytes, cursor), .value = try read(To, allocator, bytes, cursor, context, depth + 1) };
+                    item.* = .{ .key = try s.readBytes(bytes, cursor), .value = try read(To, allocator, bytes, cursor, context, items_depth) };
                     initialized += 1;
                 }
                 break :result .{ .@"struct" = items };
@@ -207,3 +228,27 @@ pub const ValueRecord = struct {
         return @intCast(length);
     }
 };
+
+/// The record of the list `[head..., args...]` where the list is an envelope
+/// and not part of the value: each element is written at depth 0, so an
+/// argument the session admitted is never refused for the envelope around it.
+/// When `ValueRecord.encode` admits the wrapped list, the bytes are equal. An
+/// intent may hold an argument at the ceiling that the ordinary encode and
+/// decode refuse because of the wrapper, so intents are compared as bytes and
+/// never decoded as a `ValueRecord`.
+pub fn encodeEnvelope(allocator: std.mem.Allocator, head: anytype, args: anytype, context: anytype) ![]u8 {
+    const length = try syrup.render.measureRecord(writeEnvelope, .{ head, args, context });
+    if (length > ValueRecord.max_bytes) return error.RecordTooLarge;
+    const bytes = try allocator.alloc(u8, length);
+    errdefer allocator.free(bytes);
+    try syrup.render.renderRecordInto(bytes, writeEnvelope, .{ head, args, context });
+    return bytes;
+}
+
+fn writeEnvelope(sink: anytype, head: anytype, args: anytype, context: anytype) WalkError!void {
+    try ValueRecord.writeHeader(sink, "list");
+    try s.writePositiveInt(sink, head.len + args.len);
+    for (head) |item| try ValueRecord.write(sink, item, context, 0);
+    for (args) |item| try ValueRecord.write(sink, item, context, 0);
+    try s.endRecord(sink);
+}

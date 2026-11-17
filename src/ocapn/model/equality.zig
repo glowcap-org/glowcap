@@ -18,11 +18,9 @@ const std = @import("std");
 const model = @import("mod.zig");
 
 // The recursion ceiling is `model.max_value_depth`, the one shared value-tree
-// depth bound. In practice we only ever compare trees the session already
-// validated (its `max_nesting_depth` sits far below it) or values we built
-// ourselves, so real data never gets close. A tree deeper than that couldn't
-// have crossed an OCapN network anyway, so calling such a comparison unequal and
-// stopping there is the safe move.
+// depth bound. Every tree compared here is one the session validated or one a
+// Host walk admitted at that ceiling, so a comparison never reaches past it. A
+// deeper tree is unequal and the walk stops, so the stack stays bounded.
 
 // One spine. Every comparison and hash below runs over the borrowed
 // `model.view.*` shape, and the owned entry points project through

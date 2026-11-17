@@ -68,7 +68,7 @@ fn queueMessage(
     var retained: std.ArrayList(capability.Ref) = .empty;
     errdefer promise_values.rollbackRetains(self, retained.items);
     const owned_verb = if (verb) |method| try arena.allocator().dupe(u8, method) else null;
-    const owned_values = try promise_values.cloneValues(self, arena.allocator(), values, &retained);
+    const owned_values = try promise_values.cloneForSend(self, arena.allocator(), values, &retained);
     const result_vow = switch (kind) {
         .send => try self.mintDeferredVow(source, .{
             .owner = @backingInt(id),

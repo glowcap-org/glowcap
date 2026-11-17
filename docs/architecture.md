@@ -283,7 +283,7 @@ same state, and an application's release can never spend a retain the session
 still needs
 ([ADR-0027](decisions/adr/ADR-0027-wire-retains-and-export-admission.md)).
 
-`SessionLimits.max_nesting_depth` limits recursive values. Session state also
+`model.max_value_depth` limits recursive values on every path. Session state also
 decides which messages are legal while negotiating, open, or closed, and an
 invalid transition is refused before it can mutate a table.
 

@@ -1,12 +1,20 @@
 //! Bounded recursive read interfaces over an immutable source intent.
 const std = @import("std");
 const driver = @import("driver_core");
+const model = @import("model");
 const h = @import("attachment.zig");
 const calls = @import("calls.zig");
 const values = @import("values.zig");
 const memory = @import("call_memory.zig");
 const Continuation = @import("continuation.zig").Continuation;
 const actors = @import("actors");
+
+/// The depth of the items of a container at `depth`, or `ValueTooDeep` when
+/// `model.mayHoldItems` refuses them.
+fn itemsDepth(depth: usize) error{ValueTooDeep}!usize {
+    if (!model.mayHoldItems(depth)) return error.ValueTooDeep;
+    return depth + 1;
+}
 
 pub const Scope = struct {
     /// Trusted content declares read verbs and the interface of every returned
@@ -190,7 +198,6 @@ pub const Scope = struct {
         count.* = try std.math.add(usize, count.*, 1);
     }
     fn transform(method: *HeldMethod, call: *h.Call, value: driver.Value, index: *usize, depth: usize) !driver.Value {
-        if (depth > driver.Value.max_depth) return error.ValueTooDeep;
         switch (value) {
             .capability => |target| {
                 try call.held.ensureUnusedCapacity(call.arena(), 1);
@@ -205,8 +212,9 @@ pub const Scope = struct {
                     .set => value.set,
                     else => value.tagged.value,
                 };
+                const items_depth = try itemsDepth(depth);
                 const out = try call.arena().alloc(driver.Value, items.len);
-                for (out, items) |*destination, item| destination.* = try transform(method, call, item, index, depth + 1);
+                for (out, items) |*destination, item| destination.* = try transform(method, call, item, index, items_depth);
                 return switch (value) {
                     .list => .{ .list = out },
                     .set => .{ .set = out },
@@ -214,8 +222,9 @@ pub const Scope = struct {
                 };
             },
             .@"struct" => |items| {
+                const items_depth = try itemsDepth(depth);
                 const out = try call.arena().alloc(driver.Value.StructEntry, items.len);
-                for (out, items) |*destination, item| destination.* = .{ .key = item.key, .value = try transform(method, call, item.value, index, depth + 1) };
+                for (out, items) |*destination, item| destination.* = .{ .key = item.key, .value = try transform(method, call, item.value, index, items_depth) };
                 return .{ .@"struct" = out };
             },
             else => return value,

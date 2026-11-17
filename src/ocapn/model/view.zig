@@ -291,6 +291,13 @@ pub const Reference = union(enum) {
     }
 };
 
+/// The depth of the items of a container at `depth`, or `MalformedView` when
+/// the ceiling forbids them.
+inline fn itemsDepth(depth: usize) ProjectError!usize {
+    if (!model.mayHoldItems(depth)) return error.MalformedView;
+    return depth + 1;
+}
+
 /// Borrowed mirror of `model.Argument`, carrying every arm.
 /// Nested containers are lazy `Args`, so the tree stays borrowed with no
 /// per-node allocation until `Argument.toOwned`.
@@ -379,18 +386,18 @@ pub const Argument = union(enum) {
             .string => |string| .{ .string = try leaf(allocator, string, leaves) },
             .integer => |integer| .{ .integer = integer },
             .boolean => |boolean| .{ .boolean = boolean },
-            .list => |items| .{ .list = try items.toSliceDepth(allocator, depth + 1, leaves) },
+            .list => |items| .{ .list = try items.toSliceDepth(allocator, try itemsDepth(depth), leaves) },
             .void => .{ .void = {} },
             .float64 => |float64| .{ .float64 = float64 },
-            .set => |items| .{ .set = try items.toSliceDepth(allocator, depth + 1, leaves) },
+            .set => |items| .{ .set = try items.toSliceDepth(allocator, try itemsDepth(depth), leaves) },
             .tagged => |tagged| blk: {
                 const tag = try leaf(allocator, tagged.tag, leaves);
                 errdefer if (leaves == .copied) allocator.free(tag);
-                const value = try tagged.value.toSliceDepth(allocator, depth + 1, leaves);
+                const value = try tagged.value.toSliceDepth(allocator, try itemsDepth(depth), leaves);
                 break :blk .{ .tagged = .{ .tag = tag, .value = value } };
             },
             .keyword => |keyword| .{ .keyword = try leaf(allocator, keyword, leaves) },
-            .@"struct" => |entries| .{ .@"struct" = try entries.toSliceDepth(allocator, depth + 1, leaves) },
+            .@"struct" => |entries| .{ .@"struct" = try entries.toSliceDepth(allocator, try itemsDepth(depth), leaves) },
             .big_integer => |big| .{ .big_integer = .{
                 .negative = big.negative,
                 .digits = try leaf(allocator, big.digits, leaves),

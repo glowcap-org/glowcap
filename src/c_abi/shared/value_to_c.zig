@@ -97,16 +97,6 @@ fn walkToC(
     value: Input,
     depth: usize,
 ) (MarshalError || RefError || ReadError(Input))!GlowcapArgument {
-    if (comptime Input == model.view.Argument) {
-        // The lift refuses a node past the limit and a list, set, or tagged
-        // value whose children would sit past it, so those refuse one level
-        // earlier. A struct's refusal comes from its values.
-        const children: usize = switch (value) {
-            .list, .set, .tagged => 1,
-            else => 0,
-        };
-        if (depth + children > model.max_value_depth) return error.NestingTooDeep;
-    }
     var c_arg = zero_argument;
     switch (value) {
         .integer => |v| {
@@ -129,15 +119,15 @@ fn walkToC(
         .void => c_arg.kind = GLOWCAP_ARG_VOID,
         .list => |items| {
             c_arg.kind = GLOWCAP_ARG_LIST;
-            setItems(&c_arg, try childrenToC(Input, RefError, ref_ctx, ref_to_c, arena, items, depth + 1));
+            setItems(&c_arg, try childrenToC(Input, RefError, ref_ctx, ref_to_c, arena, items, try itemsDepth(Input, depth)));
         },
         .set => |items| {
             c_arg.kind = GLOWCAP_ARG_SET;
-            setItems(&c_arg, try childrenToC(Input, RefError, ref_ctx, ref_to_c, arena, items, depth + 1));
+            setItems(&c_arg, try childrenToC(Input, RefError, ref_ctx, ref_to_c, arena, items, try itemsDepth(Input, depth)));
         },
         .tagged => |tagged| {
             c_arg = leafToC(GLOWCAP_ARG_TAGGED, tagged.tag);
-            setItems(&c_arg, try childrenToC(Input, RefError, ref_ctx, ref_to_c, arena, tagged.value, depth + 1));
+            setItems(&c_arg, try childrenToC(Input, RefError, ref_ctx, ref_to_c, arena, tagged.value, try itemsDepth(Input, depth)));
         },
         .big_integer => |big| {
             c_arg = leafToC(GLOWCAP_ARG_BIG_INTEGER, big.digits);
@@ -145,7 +135,7 @@ fn walkToC(
         },
         .@"struct" => |entries| {
             c_arg.kind = GLOWCAP_ARG_STRUCT;
-            setItems(&c_arg, try entriesToC(Input, RefError, ref_ctx, ref_to_c, arena, entries, depth + 1));
+            setItems(&c_arg, try entriesToC(Input, RefError, ref_ctx, ref_to_c, arena, entries, try itemsDepth(Input, depth)));
         },
         inline else => |payload, tag| {
             const name = @tagName(tag);
@@ -162,6 +152,16 @@ fn walkToC(
         },
     }
     return c_arg;
+}
+
+/// The depth of the items of a container at `depth`. A view comes from a
+/// frame and refuses at the model's ceiling (`model.mayHoldItems`), where the
+/// lift does. A Host value passed the Host's own walks already.
+inline fn itemsDepth(comptime Input: type, depth: usize) ReadError(Input)!usize {
+    if (comptime Input == model.view.Argument) {
+        if (!model.mayHoldItems(depth)) return error.NestingTooDeep;
+    }
+    return depth + 1;
 }
 
 /// One container's children, one `GlowcapArgument` array in `arena`. `items`

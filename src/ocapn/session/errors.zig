@@ -86,8 +86,8 @@ pub const Error = error{
     /// promise. Later callbacks may extend an admitted path. This is a work
     /// budget, not a forest-depth invariant. Projects to `resource_exhausted`.
     ShorteningChainTooLong,
-    /// An inbound argument tree nested deeper than
-    /// `SessionLimits.max_nesting_depth`. The recursive validate / install walk
+    /// An argument tree nested deeper than `model.max_value_depth`. The
+    /// recursive validate / install walk
     /// is bounded so a deeply nested frame fails loud instead of
     /// overflowing the call stack. Projects to `resource_exhausted`.
     NestingTooDeep,

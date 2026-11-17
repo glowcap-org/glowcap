@@ -96,12 +96,20 @@ pub const parseExporterRouteBundleUri = route_bundle.fromExporterUri;
 pub const parseRouteBundleLocator = route_bundle.fromPeerLocator;
 pub const parseIdRouteBundle = route_bundle.fromIdLocator;
 
-/// The one hard ceiling on value-tree recursion depth, shared by `view`'s
-/// owned materialization and `equality`'s comparison walk so the two bounds
-/// cannot drift apart. The session validates inbound data against its own,
-/// lower `SessionLimits.max_nesting_depth` first. This is the model-layer
-/// backstop for trees that skipped session validation.
-pub const max_value_depth: usize = 256;
+/// How deep a value nests on every path: session validation, send inventory,
+/// owned materialization and measure, lift and lower, the C marshal, the Host
+/// value walks, and Loam records. The top-level argument is depth 0 and a
+/// container's items sit one level deeper than it, an empty container
+/// included. `mayHoldItems` states that rule once.
+pub const max_value_depth: usize = 64;
+
+/// Whether a container at `depth` may hold items. Every walk asks this at each
+/// container, so no walk restates the threshold. A leaf at `max_value_depth` is
+/// admitted and an empty container there is refused. The ceiling is comptime,
+/// so the answer is one compare.
+pub inline fn mayHoldItems(depth: usize) bool {
+    return depth < max_value_depth;
+}
 
 /// The words two peers settle on at handshake (`negotiated`): which codec frames
 /// the bytes, which CapTP version is spoken, and which optional features both

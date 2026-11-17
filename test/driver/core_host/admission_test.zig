@@ -132,7 +132,7 @@ test "Host aggregate footprint and supported verb shapes stay within their budge
     // the callback-time release list is one pointer (8 bytes), and each node
     // lives in the operation that queued it. The Vat's failed-turn slot
     // holds a break, its text and cause, one per Host.
-    try std.testing.expectEqual(@as(usize, 2880), @sizeOf(Host));
+    try std.testing.expectEqual(@as(usize, 2872), @sizeOf(Host));
     try std.testing.expectEqual(@as(usize, 8), @alignOf(Host));
     try std.testing.expectEqual(@as(usize, 88), @sizeOf(driver.core.HostAction));
 }

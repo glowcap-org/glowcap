@@ -19,6 +19,7 @@ const capability = @import("../../capability.zig");
 const capability_promise = @import("../../capability_promise.zig");
 const value_mod = @import("../../value.zig");
 const identity = @import("identity.zig");
+const itemsDepth = @import("depth.zig").itemsDepth;
 
 const Host = host_mod.Host;
 const HostSession = host_mod.HostSession;
@@ -201,20 +202,23 @@ fn countValueCapabilitiesAt(
     values: []const value_mod.Value,
     depth: usize,
 ) error{ OutOfMemory, NestingTooDeep }!usize {
-    if (depth > model.max_value_depth) return error.NestingTooDeep;
     var count: usize = 0;
     for (values) |*value| {
         const added: usize = switch (value.*) {
             .capability => 1,
-            .integers => if (depth == model.max_value_depth) return error.NestingTooDeep else 0,
-            .list, .set => |items| try countValueCapabilitiesAt(items, depth + 1),
-            .tagged => |tagged| try countValueCapabilitiesAt(tagged.value, depth + 1),
+            .integers => blk: {
+                _ = try itemsDepth(depth);
+                break :blk 0;
+            },
+            .list, .set => |items| try countValueCapabilitiesAt(items, try itemsDepth(depth)),
+            .tagged => |tagged| try countValueCapabilitiesAt(tagged.value, try itemsDepth(depth)),
             .@"struct" => |entries| blk: {
+                const items_depth = try itemsDepth(depth);
                 var nested: usize = 0;
                 for (entries) |entry| nested = std.math.add(
                     usize,
                     nested,
-                    try countValueCapabilitiesAt(&.{entry.value}, depth + 1),
+                    try countValueCapabilitiesAt(&.{entry.value}, items_depth),
                 ) catch return error.OutOfMemory;
                 break :blk nested;
             },
@@ -236,17 +240,19 @@ fn retainValueCapabilitiesInto(
     index: *usize,
     depth: usize,
 ) !void {
-    if (depth > model.max_value_depth) return error.NestingTooDeep;
     for (values) |*value| switch (value.*) {
         .capability => |ref| {
             const target = self.capabilities.resolve(ref) orelse return error.UnknownCapability;
             out[index.*] = try self.capabilities.retain(self.allocator, target);
             index.* += 1;
         },
-        .list, .set => |items| try retainValueCapabilitiesInto(self, items, out, index, depth + 1),
-        .tagged => |tagged| try retainValueCapabilitiesInto(self, tagged.value, out, index, depth + 1),
-        .@"struct" => |entries| for (entries) |entry|
-            try retainValueCapabilitiesInto(self, &.{entry.value}, out, index, depth + 1),
+        .list, .set => |items| try retainValueCapabilitiesInto(self, items, out, index, try itemsDepth(depth)),
+        .tagged => |tagged| try retainValueCapabilitiesInto(self, tagged.value, out, index, try itemsDepth(depth)),
+        .@"struct" => |entries| {
+            const items_depth = try itemsDepth(depth);
+            for (entries) |entry|
+                try retainValueCapabilitiesInto(self, &.{entry.value}, out, index, items_depth);
+        },
         else => {},
     };
 }
@@ -485,7 +491,6 @@ fn lowerValueInner(
     depth: usize,
     out: *model.Argument,
 ) LowerError!void {
-    if (depth > model.max_value_depth) return error.NestingTooDeep;
     const arena = prepared.arena;
     out.* = switch (value.*) {
         .bytes => |v| .{ .bytes = v },
@@ -496,7 +501,7 @@ fn lowerValueInner(
             // A promise that settled to data is that data (ADR-0068): the
             // row's arena holds it for as long as the capability is held.
             if (target == .deferred) if (capability_promise.settledData(self, target.deferred)) |data|
-                return lowerValueInner(self, session, prepared, data, depth + 1, out);
+                return lowerValueInner(self, session, prepared, data, depth, out);
             const lowered = try lowerTargetTracked(self, session, ref, target);
             if (lowered.receipt) |receipt| prepared.receipts.appendAssumeCapacity(receipt);
             switch (lowered.reference) {
@@ -509,27 +514,28 @@ fn lowerValueInner(
         .string => |v| .{ .string = v },
         .integer => |v| .{ .integer = v },
         .integers => |words| blk: {
-            if (depth == model.max_value_depth) return error.NestingTooDeep;
+            _ = try itemsDepth(depth);
             const lowered = try arena.alloc(model.Argument, words.len);
             for (words, lowered) |word, *item| item.* = .{ .integer = word };
             break :blk .{ .list = lowered };
         },
         .boolean => |v| .{ .boolean = v },
-        .list => |items| .{ .list = try lowerValuesInner(self, session, prepared, items, depth + 1) },
+        .list => |items| .{ .list = try lowerValuesInner(self, session, prepared, items, try itemsDepth(depth)) },
         .void => .{ .void = {} },
         .float64 => |v| .{ .float64 = v },
-        .set => |items| .{ .set = try lowerValuesInner(self, session, prepared, items, depth + 1) },
+        .set => |items| .{ .set = try lowerValuesInner(self, session, prepared, items, try itemsDepth(depth)) },
         .tagged => |tagged| .{ .tagged = .{
             .tag = tagged.tag,
-            .value = try lowerValuesInner(self, session, prepared, tagged.value, depth + 1),
+            .value = try lowerValuesInner(self, session, prepared, tagged.value, try itemsDepth(depth)),
         } },
         .keyword => |v| .{ .keyword = v },
         .big_integer => |v| .{ .big_integer = v },
         .@"struct" => |entries| blk: {
+            const items_depth = try itemsDepth(depth);
             const lowered = try arena.alloc(model.StructEntry, entries.len);
             for (entries, 0..) |*entry, i| {
                 lowered[i].key = entry.key;
-                try lowerValueInner(self, session, prepared, &entry.value, depth + 1, &lowered[i].value);
+                try lowerValueInner(self, session, prepared, &entry.value, items_depth, &lowered[i].value);
             }
             break :blk .{ .@"struct" = lowered };
         },
@@ -577,7 +583,6 @@ fn lowerValuesInner(
     values: []const value_mod.Value,
     depth: usize,
 ) LowerError![]model.Argument {
-    if (depth > model.max_value_depth) return error.NestingTooDeep;
     const out = try prepared.arena.alloc(model.Argument, values.len);
     for (values, 0..) |*value, i|
         try lowerValueInner(self, session, prepared, value, depth, &out[i]);

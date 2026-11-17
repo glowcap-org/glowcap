@@ -182,6 +182,10 @@ when the sender's session ends, even when the message remains.
 
 - **Locators permit at most <!-- value ../src/ocapn/model/hints.zig max_count -->32<!-- /value --> hints.**
   Unknown names within that resource bound are preserved and ignored.
+- **Values nest at most <!-- value ../src/ocapn/model/mod.zig max_value_depth -->64<!-- /value --> deep on every path.**
+  A leaf may sit at that depth and any container there, an empty one included,
+  is refused. The session, the Host, the C ABI, and Loam share the count, and a
+  send past it is refused at the call.
 - **Profiles and negotiated features constrain routing.** Only the Node selects
   a route bundle. A physical-session open refuses one, and a give falls back to
   a single claimed location unless both sessions negotiated multi-location

@@ -341,12 +341,12 @@ test "decodeOwned bounds nesting depth: an over-deep frame fails loud, never ove
     // Build one argument nested in single-element lists `depth` deep, the shape a
     // untrusted peer would craft to drive the decoder's recursion off the stack. The
     // encoder has no depth limit, so it produces exactly the over-deep frame the
-    // decoder must reject. 260 sits just past the shared view materializer's bound
-    // (`model.view.max_owned_depth`, 256), which is the one owned path because
+    // decoder must reject. Four lists past `model.max_value_depth` sit beyond the
+    // shared view materializer's ceiling, the one owned path because
     // `decodeOwned` is `decodeBody` + `toOwned`.
     var arg: model.Argument = .{ .void = {} };
     var i: usize = 0;
-    while (i < 260) : (i += 1) {
+    while (i < model.max_value_depth + 4) : (i += 1) {
         const slice = try arena.alloc(model.Argument, 1);
         slice[0] = arg;
         arg = .{ .list = slice };

@@ -388,13 +388,6 @@ pub fn LazySequence(comptime OwnedElem: type, comptime ViewElem: type, comptime 
         /// The one materializing walk: every element in its owned form at
         /// `depth`, byte leaves treated as `leaves` says.
         pub fn toSliceDepth(self: Self, allocator: std.mem.Allocator, depth: usize, comptime leaves: Leaves) Error![]OwnedElem {
-            // The session sets its own, lower inbound cap
-            // (`SessionLimits.max_nesting_depth`) and validates before it
-            // materializes anything, so real wire data never reaches this. The
-            // shared ceiling is the model-layer backstop for a borrowed view
-            // that skipped session validation: a pathologically nested tree
-            // fails with `MalformedView` rather than overflowing the stack.
-            if (depth > model.max_value_depth) return error.MalformedView;
             const count = try self.len();
             const out = try allocator.alloc(OwnedElem, count);
             errdefer allocator.free(out);

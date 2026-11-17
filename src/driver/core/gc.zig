@@ -94,8 +94,7 @@ fn emitExportsForDeliver(peer: *engine.Peer, event: *engine.Event) !void {
     if (event.introduced_far_imports) |mentions| {
         for (mentions) |import_position| try batch.add(import_position.int());
     } else {
-        const max_depth = peer.limits().max_nesting_depth;
-        try addIntroducedFarsInArgs(&batch, deliver.args, 0, max_depth);
+        try addIntroducedFarsInArgs(&batch, deliver.args, 0);
     }
 
     try batch.flush();
@@ -105,35 +104,40 @@ fn emitExportsForDeliver(peer: *engine.Peer, event: *engine.Event) !void {
 /// its set is spelled from the non-recursive steps it takes.
 const IntroducedFarsError = model.view.ProjectError || foundation.error_sets.Of(GcExportBatch.add);
 
-/// One pass over a borrowed argument list, feeding every introduced `far` into
-/// the batch. An iterator decode error propagates rather than silently ending
-/// the walk. Depth past the session's already-validated nesting limit remains a
-/// defensive stop.
-fn addIntroducedFarsInArgs(batch: *GcExportBatch, args: model.view.Args, depth: usize, max_depth: usize) IntroducedFarsError!void {
-    if (depth > max_depth) return;
+/// One pass over a borrowed argument list at `depth`, feeding every
+/// introduced `far` into the batch. An iterator decode error propagates rather
+/// than silently ending the walk. A container the session's ceiling forbids
+/// refuses with `MalformedView`: validation admitted the tree, so it cannot
+/// occur.
+fn addIntroducedFarsInArgs(batch: *GcExportBatch, args: model.view.Args, depth: usize) IntroducedFarsError!void {
     var it = args.iterator();
-    while (try it.next()) |arg| try addIntroducedFars(batch, arg, depth, max_depth);
+    while (try it.next()) |arg| try addIntroducedFars(batch, arg, depth);
 }
 
-fn addIntroducedFars(batch: *GcExportBatch, arg: model.view.Argument, depth: usize, max_depth: usize) IntroducedFarsError!void {
+fn addIntroducedFars(batch: *GcExportBatch, arg: model.view.Argument, depth: usize) IntroducedFarsError!void {
     switch (arg) {
         .reference => |ref| switch (ref) {
             .far => |far| try batch.add(far.import_position.int()),
             else => {},
         },
-        .list, .set => |items| try addIntroducedFarsInArgs(batch, items, depth + 1, max_depth),
-        .tagged => |tagged| try addIntroducedFarsInArgs(batch, tagged.value, depth + 1, max_depth),
-        .@"struct" => |entries| try addIntroducedFarsInStruct(batch, entries, depth + 1, max_depth),
+        .list, .set => |items| try addIntroducedFarsInArgs(batch, items, try itemsDepth(depth)),
+        .tagged => |tagged| try addIntroducedFarsInArgs(batch, tagged.value, try itemsDepth(depth)),
+        .@"struct" => |entries| try addIntroducedFarsInStruct(batch, entries, try itemsDepth(depth)),
         // Exhaustive, mirroring the session's install walk: a new Argument arm
         // must decide here whether it can carry a reference.
         .bytes, .symbol, .string, .keyword, .integer, .big_integer, .boolean, .float64, .void, .@"error", .handoff => {},
     }
 }
 
-fn addIntroducedFarsInStruct(batch: *GcExportBatch, entries: model.view.StructEntries, depth: usize, max_depth: usize) IntroducedFarsError!void {
-    if (depth > max_depth) return;
+fn addIntroducedFarsInStruct(batch: *GcExportBatch, entries: model.view.StructEntries, depth: usize) IntroducedFarsError!void {
     var it = entries.iterator();
-    while (try it.next()) |entry| try addIntroducedFars(batch, entry.value, depth, max_depth);
+    while (try it.next()) |entry| try addIntroducedFars(batch, entry.value, depth);
+}
+
+/// The depth of the items of a container at `depth`.
+inline fn itemsDepth(depth: usize) model.view.ProjectError!usize {
+    if (!model.mayHoldItems(depth)) return error.MalformedView;
+    return depth + 1;
 }
 
 /// Collect the event's exact answer identities with bounded stack storage.

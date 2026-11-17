@@ -51,8 +51,6 @@ pub const SessionLimits = struct {
     /// Max resolved sturdyref enlivenments cached for dedup. Overflow evicts
     /// oldest because a miss costs one bootstrap fetch, not correctness.
     max_sturdyref_cache_entries: usize = 256,
-    /// Max inbound argument nesting before validation refuses the frame.
-    max_nesting_depth: usize = 64,
     /// Max element visits spent proving set/struct uniqueness after equal-hash
     /// grouping. This bounds the adversarial multiset-compare case.
     max_compare_visits: usize = 1 << 16,
