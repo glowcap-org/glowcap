@@ -85,8 +85,12 @@ custody costs.
   - Poll scratch grows once and then allocates nothing.
 - **Pending open rows**: `HostRuntime.startDial`, a resident listener's
   accept, and the redeem drain into `HostRuntime.stageDial` (ADR-0024). One gpa
-  row per in-flight dial or accept, carrying stage, deadline, and outcome route.
-  No byte payload, because the locator is consumed at stage time.
+  row per in-flight dial or accept, carrying stage, outcome route, and, for a
+  redeem, the verdict it owns until the core commits it (the open session or the
+  exact failure). Active stages own their handshake deadline, and report stages
+  own none.
+  An application row owns a cloned locator for retries; a redeem row rereads
+  the core route and owns no locator bytes.
   - The shared `max_pending_opens` admission bound limits these rows and their
     pre-open sessions/wires across every route. A blocking dial consumes the same
     counter while it pumps without owning a row, and an arrival over the bound

@@ -15,6 +15,7 @@ const driver_core = @import("driver_core");
 const lifecycle = @import("lifecycle.zig");
 const pending = @import("pending.zig");
 const dial_retry = @import("../dial_retry.zig");
+const verdicts = @import("open_verdicts.zig");
 const host_runtime = @import("../host_runtime.zig");
 const OperationFailure = @import("../operation_failure.zig").OperationFailure;
 
@@ -127,9 +128,7 @@ pub fn startAdoptExternal(
     try self.pending_opens.ensureUnusedCapacity(self.allocator, 1);
     row.* = .{
         .admission = admission,
-        .session = session,
-        .stage = .handshake,
-        .deadline_ms = handshakeDeadline(self),
+        .stage = .{ .handshake = .{ .session = session, .deadline_ms = handshakeDeadline(self) } },
         .outcome = .{ .operation = .{ .observer = observer, .tag = tag } },
     };
     // Publish the ownership row before bytes move. A synchronous EOF must
@@ -139,10 +138,29 @@ pub fn startAdoptExternal(
     Internal.startAdoptedWire(self, session);
 }
 
+/// Everything `stageDial` proves before a row owns the dial. Each field is
+/// already acquired, so `dispatchDial` has no error edge: an allocation or
+/// admission refusal can only happen while this value is built, and it leaves
+/// the route undecided for the core action's retry owner.
+const PreparedDial = struct {
+    admission: OpenAdmission,
+    session: *driver_core.HostSession,
+    row: *PendingOpen,
+    dial_locator: ?model.PeerLocator,
+    deadline_ms: ?i64,
+    resident_index: usize,
+    dialer: net.MultiplexedResident.Dialer,
+    request_id: usize,
+    origin: net.DialOrigin,
+};
+
 /// The shared staged-dial mint behind `startDial` and the
 /// redeem drain: open the dialed half, start the transport connect, and
 /// park a `PendingOpen` row for the pump to settle. `locator` is
-/// borrowed for the call. Nothing of it is retained.
+/// borrowed for the call. Nothing of it is retained. An error is a refusal
+/// before the row owns anything, and commits no verdict: a redeem route stays
+/// undecided. Once `dispatchDial` runs the row owns the dial and its result,
+/// including an immediate provider failure, which it queues for the reporter.
 pub fn stageDial(
     self: *HostRuntime,
     locator: model.PeerLocator,
@@ -150,11 +168,18 @@ pub fn stageDial(
     outcome: PendingOpen.Outcome,
     authority: OpenAdmissionAuthority,
 ) !void {
+    const prepared = (try prepareDial(self, locator, outcome, authority)) orelse return;
+    dispatchDial(self, prepared, locator, options, outcome);
+}
+
+fn prepareDial(
+    self: *HostRuntime,
+    locator: model.PeerLocator,
+    outcome: PendingOpen.Outcome,
+    authority: OpenAdmissionAuthority,
+) !?PreparedDial {
     var admission = try Internal.acquireOpenAdmission(self, authority);
-    // Set once the row owns what the errdefers below would otherwise retire,
-    // so a failure after the hand-off never frees or releases anything twice.
-    var row_owns_cleanup = false;
-    errdefer if (!row_owns_cleanup) admission.release();
+    errdefer admission.release();
     // A routed dial knows its candidates before it has a session. Prove the
     // provider for this attempt first so an unavailable route cannot become
     // this node's advertised location before fallback. Application dials keep
@@ -181,13 +206,13 @@ pub fn stageDial(
                 try self.core.ensureAdvertisedLocator(locator.transport);
             break :blk try self.core.openPendingDial(redeem.ticket, redeem.route_index) orelse {
                 admission.release();
-                return;
+                return null;
             };
         },
     };
-    errdefer if (!row_owns_cleanup) Internal.abandonFreshSession(self, session);
+    errdefer Internal.abandonFreshSession(self, session);
     const row = try self.allocator.create(PendingOpen);
-    errdefer if (!row_owns_cleanup) self.allocator.destroy(row);
+    errdefer self.allocator.destroy(row);
     try self.pending_opens.ensureUnusedCapacity(self.allocator, 1);
     // The row owns a copy of the caller's borrowed locator so a transient
     // failure can re-issue the dial after the call returns (ADR-0018).
@@ -196,53 +221,66 @@ pub fn stageDial(
     // clone leaves no attempt behind.
     const dial_locator: ?model.PeerLocator =
         if (authority == .application) try model.clonePeerLocator(self.allocator, locator) else null;
-    errdefer if (!row_owns_cleanup) if (dial_locator) |owned| model.freePeerLocator(self.allocator, owned);
+    errdefer if (dial_locator) |owned| model.freePeerLocator(self.allocator, owned);
     const deadline_ms = handshakeDeadline(self);
     const provider = pending_provider orelse
         Internal.providerFor(self, locator.transport) orelse return Error.UnknownTransport;
     const resident_index = provider.resident;
     const runtime = &self.residents.items[resident_index];
-    const resident = runtime.resident;
-    const dialer = resident.dialer() orelse return Error.UnknownTransport;
+    const dialer = runtime.resident.dialer() orelse return Error.UnknownTransport;
     const request_id = try Internal.mintRuntimeId(&runtime.next_request);
     const origin: net.DialOrigin = switch (outcome) {
         .redeem => |redeem| try pendingDialOrigin(self, redeem.ticket, redeem.route_index),
         .operation, .listener_accept => .application,
     };
-    var attempt = switch (dialer.startDial(
-        request_id,
-        locator,
-        options,
-        origin,
-    )) {
+    return .{
+        .admission = admission,
+        .session = session,
+        .row = row,
+        .dial_locator = dial_locator,
+        .deadline_ms = deadline_ms,
+        .resident_index = resident_index,
+        .dialer = dialer,
+        .request_id = request_id,
+        .origin = origin,
+    };
+}
+
+/// Start the provider connect for a prepared dial and publish its row. No
+/// step here can fail: a provider refusal is the row's own verdict.
+fn dispatchDial(
+    self: *HostRuntime,
+    prepared: PreparedDial,
+    locator: model.PeerLocator,
+    options: net.OperationOptions,
+    outcome: PendingOpen.Outcome,
+) void {
+    const row = prepared.row;
+    var attempt = switch (prepared.dialer.startDial(prepared.request_id, locator, options, prepared.origin)) {
         .admitted => |attempt| attempt,
         .failed => |failure| {
             row.* = .{
-                .admission = admission,
-                .session = session,
-                .stage = .handshake,
-                .deadline_ms = deadline_ms,
+                .admission = prepared.admission,
+                .stage = .{ .handshake = .{ .session = prepared.session, .deadline_ms = prepared.deadline_ms } },
                 .outcome = outcome,
-                .dial_locator = dial_locator,
+                .dial_locator = prepared.dial_locator,
             };
             self.pending_opens.appendAssumeCapacity(row);
-            pending.remove(&self.pending_opens, row);
-            row_owns_cleanup = true;
-            try failPendingOpenFailure(self, row, .fromDialFailure(failure));
+            verdicts.failPendingOpenFailure(self, row, .fromDialFailure(failure));
             return;
         },
     };
     defer if (attempt.deinit()) |failure| Internal.noteTerminalFailureChain(self, failure);
     row.* = .{
-        .admission = admission,
-        .session = session,
+        .admission = prepared.admission,
         .stage = .{ .resident_dial = .{
-            .resident = resident_index,
+            .session = prepared.session,
+            .deadline_ms = prepared.deadline_ms,
+            .resident = prepared.resident_index,
             .attempt = attempt.take(),
         } },
-        .deadline_ms = deadline_ms,
         .outcome = outcome,
-        .dial_locator = dial_locator,
+        .dial_locator = prepared.dial_locator,
     };
     self.pending_opens.appendAssumeCapacity(row);
 }
@@ -254,6 +292,8 @@ fn pendingDialOrigin(self: *HostRuntime, ticket: u64, route_index: usize) !net.D
     const designator = try self.core.pendingDialIntroducer(ticket, route_index) orelse return .application;
     return .{ .introducer = designator };
 }
+
+pub const discardPendingOpen = verdicts.discardPendingOpen;
 
 pub fn handshakeDeadline(self: *const HostRuntime) ?i64 {
     return switch (self.opts.handshake) {
@@ -280,7 +320,7 @@ pub fn cancelAccepts(self: *HostRuntime, tag: u64) void {
             continue;
         }
         std.debug.assert(self.pending_opens.swapRemove(i) == row);
-        var discarded = discardPendingOpen(self, row);
+        var discarded = verdicts.discardPendingOpen(self, row);
         if (discarded.cleanup) |cleanup| Internal.noteTerminalFailureChain(self, cleanup);
         const obs = observation.?.observer;
         obs.abandoned(obs.ctx, tag);
@@ -289,80 +329,72 @@ pub fn cancelAccepts(self: *HostRuntime, tag: u64) void {
 }
 
 /// Settle every pending open the pump has decided: a session whose
-/// handshake opened reports opened, a closed wire or an expired deadline
-/// reports failed. Runs after every action drain in the pump loops, so a
-/// open advances no matter which wait is driving the host. Rows
-/// are removed before their notification runs, because a notification
-/// may stage further dials. The result helpers queue their consequences and
-/// never drain, because an open decided inside `Exec.dial` or `startDial`
-/// must not run a drain beneath its caller. This is the top-level owner that
-/// answers them: it attempts one drain after each decided row, before the
-/// next row's verdict. A shortage of memory leaves them queued behind the
-/// retry deadline instead of failing the sweep.
+/// handshake opened, a closed wire, or an expired deadline is a verdict. A
+/// non-redeem row reports through its observer and leaves the list. A redeem
+/// row keeps its place as an opened or failed report that the common
+/// operational attempt commits to the core (`redeem_reports.zig`), so this
+/// sweep never reports. Runs after every action drain in the pump loops, so
+/// an open advances no matter which wait is driving the host. The result
+/// helpers queue their consequences and never drain, because an open decided
+/// inside `Exec.dial` or `startDial` must not run a drain beneath its caller.
+/// This is the top-level owner that answers them: it attempts one drain after
+/// each decided row, before the next row's verdict. A shortage of memory
+/// leaves them queued behind the retry deadline instead of failing the sweep.
+/// The drain can cancel or remove rows below the cursor, so the sweep restarts
+/// at the first row after every decided one. A latched terminal failure stops
+/// the sweep: terminal cleanup owns every remaining row.
 pub fn advancePendingOpens(self: *HostRuntime) !void {
     var i: usize = 0;
-    while (i < self.pending_opens.items.len) {
-        const row = self.pending_opens.items[i];
-        if (row.stage == .retry_wait) {
+    while (i < self.pending_opens.items.len and self.terminal_failure == null) {
+        switch (try advanceRow(self, self.pending_opens.items[i])) {
+            .kept => i += 1,
+            .decided => {
+                try answerQueued(self);
+                i = 0;
+            },
+        }
+    }
+}
+
+fn advanceRow(self: *HostRuntime, row: *PendingOpen) !RowOutcome {
+    switch (row.stage) {
+        .retry_wait => |wait| {
             // The handshake budget still owns the row's whole life: a wait
             // that outlives it fails the dial even though the interval has
             // not yet elapsed.
             const now_ms = self.nowMs();
-            if (row.deadline_ms) |deadline| {
+            if (wait.deadline_ms) |deadline| {
                 if (now_ms >= deadline) {
-                    std.debug.assert(self.pending_opens.swapRemove(i) == row);
-                    try failPendingOpen(self, row, Error.HandshakeTimedOut);
-                    try answerQueued(self);
-                    continue;
+                    verdicts.failPendingOpen(self, row, Error.HandshakeTimedOut);
+                    return .decided;
                 }
             }
-            if (now_ms >= row.stage.retry_wait.due_ms) {
-                // A failed re-issue removed the row, and the list's last row
-                // now sits under the cursor. Its observer may have started a
-                // dial, so the outcome rather than the list's length says so.
-                switch (try reissueRetryingDial(self, row)) {
-                    .removed => {
-                        try answerQueued(self);
-                        continue;
-                    },
-                    .kept => {},
-                }
-            }
-            i += 1;
-            continue;
-        }
-        if (row.stage == .handshake) {
-            const wire = self.wires.get(row.session.peer_handle);
+            if (now_ms >= wait.due_ms) return try reissueRetryingDial(self, row);
+            return .kept;
+        },
+        .handshake => |hs| {
+            const wire = self.wires.get(hs.session.peer_handle);
             if (wire == null or (wire.?.closed and wire.?.carrierClosed())) {
-                std.debug.assert(self.pending_opens.swapRemove(i) == row);
-                try failPendingOpenFailure(self, row, row.close_cause orelse OperationFailure.fromError(Error.ConnectionClosed));
-                try answerQueued(self);
-                continue;
+                verdicts.failPendingOpenFailure(self, row, hs.close_cause orelse OperationFailure.fromError(Error.ConnectionClosed));
+                return .decided;
             }
-            if (wire.?.closed) {
-                i += 1;
-                continue;
+            if (wire.?.closed) return .kept;
+            if (hs.session.sessionOpen()) {
+                completePendingOpen(self, row);
+                return .decided;
             }
-            if (row.session.sessionOpen()) {
-                std.debug.assert(self.pending_opens.swapRemove(i) == row);
-                try completePendingOpen(self, row);
-                // The settle queued post-open work (withdraws, parked
-                // enlivens, the observer's own effects); answer it before the
-                // next row's verdict.
-                try answerQueued(self);
-                continue;
-            }
-        }
-        if (row.deadline_ms) |deadline| {
-            if (self.nowMs() >= deadline) {
-                std.debug.assert(self.pending_opens.swapRemove(i) == row);
-                try failPendingOpen(self, row, Error.HandshakeTimedOut);
-                try answerQueued(self);
-                continue;
-            }
-        }
-        i += 1;
+            return expireActive(self, row, hs.deadline_ms);
+        },
+        .resident_dial => |dial| return expireActive(self, row, dial.deadline_ms),
+        .opened_report, .failed_report, .reporting => return .kept,
     }
+}
+
+fn expireActive(self: *HostRuntime, row: *PendingOpen, deadline_ms: ?i64) RowOutcome {
+    const deadline = deadline_ms orelse return .kept;
+    if (self.nowMs() < deadline) return .kept;
+    verdicts.failPendingOpen(self, row, Error.HandshakeTimedOut);
+    return .decided;
 }
 
 /// One drain attempt for what a decided row queued. Memory the drain lacks
@@ -374,127 +406,70 @@ fn answerQueued(self: *HostRuntime) !void {
 /// Hand the opened session to its observer. A refusal releases the wire,
 /// latches any release failure onto the refusal, and reports it, and the row
 /// is then complete.
-fn reportOpened(self: *HostRuntime, observation: anytype, row: *PendingOpen) bool {
+fn reportOpened(self: *HostRuntime, observation: anytype, session: *driver_core.HostSession) void {
     const obs = observation.observer;
-    obs.opened(obs.ctx, observation.tag, row.session) catch |err| {
+    obs.opened(obs.ctx, observation.tag, session) catch |err| {
         var failure = self.operationFailure(err);
-        self.releaseWire(row.session) catch |cleanup| failure.noteFailure(self.operationFailure(cleanup));
+        self.releaseWire(session) catch |cleanup| failure.noteFailure(self.operationFailure(cleanup));
         obs.failed(obs.ctx, observation.tag, failure);
-        return false;
     };
-    return true;
 }
 
 /// Hand an accepted session to its listener's observer. A refusal retires
 /// this arrival only: the observer releases its reservation and may hear the
 /// cause, and the listener stays open. A wire that cannot be released leaves
 /// a session no one owns, so that failure latches.
-fn reportAcceptOpened(self: *HostRuntime, observation: SessionAcceptObservation, row: *PendingOpen) bool {
+fn reportAcceptOpened(self: *HostRuntime, observation: SessionAcceptObservation, session: *driver_core.HostSession) void {
     const obs = observation.observer;
-    obs.opened(obs.ctx, observation.tag, row.session) catch |err| {
+    obs.opened(obs.ctx, observation.tag, session) catch |err| {
         var failure = self.operationFailure(err);
-        self.releaseWire(row.session) catch |cleanup| {
+        self.releaseWire(session) catch |cleanup| {
             failure.noteFailure(self.operationFailure(cleanup));
             self.noteTerminalOperationFailure(failure);
         };
         obs.abandoned(obs.ctx, observation.tag);
         if (obs.arrival_failed) |notify| notify(obs.ctx, observation.tag, failure);
-        return false;
     };
-    return true;
 }
 
-/// Report one completed session open and queue its consequences without
-/// draining them. For a redeem row, a refused
-/// `exporterDialed` fails closed: the ticket's action was consumed at
-/// stage time, so there is no drain retry to lean on. The session
-/// unwinds and the waiting redeems break rather than strand.
-fn completePendingOpen(self: *HostRuntime, row: *PendingOpen) !void {
-    defer {
-        if (row.dial_locator) |locator| model.freePeerLocator(self.allocator, locator);
-        row.admission.release();
-        self.allocator.destroy(row);
-    }
+/// Settle one completed session open and queue its consequences without
+/// draining them. A redeem row becomes a ready opened report that keeps the
+/// session, the wire and the close cause until the reporter commits it.
+fn completePendingOpen(self: *HostRuntime, row: *PendingOpen) void {
+    const hs = row.stage.handshake;
     switch (row.outcome) {
-        .operation => |observation| if (!reportOpened(self, observation, row)) return,
-        .redeem => |redeem| {
-            const adopted = self.core.exporterDialed(redeem.ticket, redeem.route_index, row.session) catch |err| {
-                try self.releaseWire(row.session);
-                const failure = self.operationFailure(err);
-                try self.core.dialFailed(redeem.ticket, redeem.route_index, failure.routeFailure(), failure.chain.primaryName());
-                return err;
-            };
-            if (!adopted) {
-                try self.releaseWire(row.session);
-                return;
-            }
-        },
-        .listener_accept => |observation| if (!reportAcceptOpened(self, observation, row)) return,
-    }
-}
-
-/// Unwind and report one failed session open. The still-parked
-/// resident connect is canceled. A bound wire drops with its session. The
-/// consequences stay queued for the caller's drain: the failure may arrive
-/// inside `Exec.dial` or `startDial`, where a drain would nest.
-fn failPendingOpen(self: *HostRuntime, row: *PendingOpen, err: anyerror) !void {
-    return failPendingOpenFailure(self, row, self.operationFailure(err));
-}
-
-fn failPendingOpenFailure(self: *HostRuntime, row: *PendingOpen, original_failure: OperationFailure) !void {
-    const outcome = row.outcome;
-    var discarded = discardPendingOpen(self, row);
-    defer discarded.admission.release();
-    var failure = original_failure;
-    if (discarded.cleanup) |cleanup| failure.noteChain(cleanup);
-    switch (outcome) {
+        .redeem => row.stage = .{ .opened_report = .{
+            .session = hs.session,
+            .close_cause = hs.close_cause,
+            .wait = .ready,
+        } },
         .operation => |observation| {
-            const obs = observation.observer;
-            obs.failed(obs.ctx, observation.tag, failure);
+            var admission = verdicts.releaseRow(self, row);
+            reportOpened(self, observation, hs.session);
+            admission.release();
         },
-        .redeem => |redeem| try self.core.dialFailed(redeem.ticket, redeem.route_index, failure.routeFailure(), failure.chain.primaryName()),
         .listener_accept => |observation| {
-            const obs = observation.observer;
-            obs.abandoned(obs.ctx, observation.tag);
-            if (obs.arrival_failed) |notify| notify(obs.ctx, observation.tag, failure);
+            var admission = verdicts.releaseRow(self, row);
+            reportAcceptOpened(self, observation, hs.session);
+            admission.release();
         },
     }
 }
 
-/// Infallibly retire the transport and session owned by a failed pending
-/// open. Outcome notification and action draining stay with the caller:
-/// listener close uses this after admission is sealed and must not become
-/// half-closed because an unrelated queued action failed to drain.
-const DiscardedOpen = struct {
-    admission: OpenAdmission,
-    cleanup: ?foundation.FailureChain = null,
-};
-
-pub fn discardPendingOpen(self: *HostRuntime, row: *PendingOpen) DiscardedOpen {
-    defer self.allocator.destroy(row);
-    if (row.dial_locator) |locator| model.freePeerLocator(self.allocator, locator);
-    const admission = row.admission;
-    var cleanup: ?foundation.FailureChain = null;
-    switch (row.stage) {
-        .resident_dial => cleanup = row.stage.resident_dial.attempt.deinit(),
-        .handshake, .retry_wait => {},
-    }
-    Internal.dropWire(self, row.session.peer_handle);
-    if (Internal.releaseCoreSession(self, row.session)) |release_failure| foundation.latchFailure(&cleanup, release_failure);
-    return .{ .admission = admission, .cleanup = cleanup };
-}
-
+/// The row whose parked resident connect carries `request_id`.
 pub fn pendingOpenByRequest(self: *HostRuntime, resident_index: usize, request_id: usize) ?*PendingOpen {
     for (self.pending_opens.items) |row| switch (row.stage) {
         .resident_dial => |dial| if (dial.resident == resident_index and dial.attempt.id() == request_id) return row,
-        .handshake, .retry_wait => {},
+        .handshake, .retry_wait, .opened_report, .failed_report, .reporting => {},
     };
     return null;
 }
 
+/// The row that actually owns `session`. A failed or in-flight report owns no
+/// session, so a recycled pointer cannot match it.
 pub fn pendingOpenFor(self: *const HostRuntime, session: *driver_core.HostSession) ?*PendingOpen {
     for (self.pending_opens.items) |row| {
-        if (row.session == session) return row;
+        if (row.stage.session() == session) return row;
     }
     return null;
 }
@@ -503,10 +478,10 @@ fn reportDialOutcome(self: *HostRuntime, outcome: dial_retry.DialOutcome, attemp
     if (self.opts.dial_outcome) |observer| observer.report(observer.ctx, outcome, attempt);
 }
 
-/// Whether a retry decision left its row in `pending_opens`. `.removed` means
-/// the row failed and its result helper already ran, so the sweep revisits
-/// the index it holds.
-const RowOutcome = enum { kept, removed };
+/// Whether a sweep decision left its row in the active set. `.decided` means
+/// the row reached its next verdict: its result helper already ran, and the
+/// sweep restarts because the answering drain may have changed the list.
+const RowOutcome = enum { kept, decided };
 
 /// A failed resident finish either parks the row for its retry interval or
 /// fails it as before (ADR-0018 executes ADR-0030's policy). The retry
@@ -520,14 +495,18 @@ fn retryOrFailResidentDial(
     row: *PendingOpen,
     resident_index: usize,
     failure: net.netlayer.DialFailure,
-) !RowOutcome {
+) RowOutcome {
     const policy = self.opts.dial_retry;
     const now_ms = self.nowMs();
     const interval_ms: i64 = std.math.cast(i64, policy.retry_interval_ms) orelse std.math.maxInt(i64);
     const transient = dial_retry.isTransient(failure.classification);
-    const deadline_leaves_room = row.deadline_ms == null or row.deadline_ms.? >= now_ms +| interval_ms;
+    const session = row.stage.session().?;
+    const deadline_ms = row.stage.deadlineMs();
+    const deadline_leaves_room = deadline_ms == null or deadline_ms.? >= now_ms +| interval_ms;
     if (transient and row.dial_attempt < policy.max_attempts and deadline_leaves_room) {
         row.stage = .{ .retry_wait = .{
+            .session = session,
+            .deadline_ms = deadline_ms,
             .resident = resident_index,
             .attempt = row.dial_attempt,
             .due_ms = now_ms +| interval_ms,
@@ -538,9 +517,8 @@ fn retryOrFailResidentDial(
     const verdict: dial_retry.DialOutcome =
         if (!transient or !deadline_leaves_room) .permanent else .exhausted;
     reportDialOutcome(self, verdict, row.dial_attempt);
-    pending.remove(&self.pending_opens, row);
-    try failPendingOpenFailure(self, row, .fromDialFailure(failure));
-    return .removed;
+    verdicts.failPendingOpenFailure(self, row, .fromDialFailure(failure));
+    return .decided;
 }
 
 /// Re-issue a retry_wait row's resident dial once its interval has elapsed:
@@ -553,9 +531,8 @@ fn reissueRetryingDial(self: *HostRuntime, row: *PendingOpen) !RowOutcome {
     const runtime = &self.residents.items[wait.resident];
     const resident = runtime.resident;
     const dialer = resident.dialer() orelse {
-        pending.remove(&self.pending_opens, row);
-        try failPendingOpen(self, row, Error.UnknownTransport);
-        return .removed;
+        verdicts.failPendingOpen(self, row, Error.UnknownTransport);
+        return .decided;
     };
     const request_id = try Internal.mintRuntimeId(&runtime.next_request);
     const locator = if (row.dial_locator) |owned| owned else blk: {
@@ -564,17 +541,15 @@ fn reissueRetryingDial(self: *HostRuntime, row: *PendingOpen) !RowOutcome {
             .operation, .listener_accept => unreachable,
         };
         const view = self.core.node.pendingDial(redeem.ticket, redeem.route_index) orelse {
-            pending.remove(&self.pending_opens, row);
-            try failPendingOpen(self, row, error.ProviderContract);
-            return .removed;
+            verdicts.failPendingOpen(self, row, error.ProviderContract);
+            return .decided;
         };
         break :blk view.locator;
     };
     const origin: net.DialOrigin = switch (row.outcome) {
         .redeem => |redeem| pendingDialOrigin(self, redeem.ticket, redeem.route_index) catch |err| {
-            pending.remove(&self.pending_opens, row);
-            try failPendingOpen(self, row, err);
-            return .removed;
+            verdicts.failPendingOpen(self, row, err);
+            return .decided;
         },
         .operation, .listener_accept => .application,
     };
@@ -583,10 +558,12 @@ fn reissueRetryingDial(self: *HostRuntime, row: *PendingOpen) !RowOutcome {
     row.dial_attempt = wait.attempt + 1;
     var attempt = switch (dialer.startDial(request_id, locator, .inherit, origin)) {
         .admitted => |attempt| attempt,
-        .failed => |failure| return try retryOrFailResidentDial(self, row, wait.resident, failure),
+        .failed => |failure| return retryOrFailResidentDial(self, row, wait.resident, failure),
     };
     defer if (attempt.deinit()) |failure| Internal.noteTerminalFailureChain(self, failure);
     row.stage = .{ .resident_dial = .{
+        .session = wait.session,
+        .deadline_ms = wait.deadline_ms,
         .resident = wait.resident,
         .attempt = attempt.take(),
     } };
@@ -597,38 +574,32 @@ fn reissueRetryingDial(self: *HostRuntime, row: *PendingOpen) !RowOutcome {
 /// channel-proved key and the wire, move the row to the handshake stage, and
 /// start the wire. `DialAttempt.finish` consumes the request,
 /// so a failure settles the row failed with nothing left to cancel.
-pub fn adoptPendingResidentDial(self: *HostRuntime, resident_index: usize, row: *PendingOpen) !void {
-    std.debug.assert(row.stage.resident_dial.resident == resident_index);
+pub fn adoptPendingResidentDial(self: *HostRuntime, resident_index: usize, row: *PendingOpen) void {
+    const dial = &row.stage.resident_dial;
+    std.debug.assert(dial.resident == resident_index);
+    const session = dial.session;
+    const deadline_ms = dial.deadline_ms;
     const resident = self.residents.items[resident_index].resident;
-    var conn = switch (row.stage.resident_dial.attempt.finish()) {
+    var conn = switch (dial.attempt.finish()) {
         .connected => |conn| blk: {
             reportDialOutcome(self, .ok, row.dial_attempt);
             break :blk conn;
         },
         .failed => |failure| {
             // The servicing step drains whatever a failed dial queued.
-            _ = try retryOrFailResidentDial(self, row, resident_index, failure);
+            _ = retryOrFailResidentDial(self, row, resident_index, failure);
             return;
         },
     };
     defer if (conn.deinit()) |failure| Internal.noteTerminalFailureChain(self, failure);
-    const conn_id = conn.borrow() orelse {
-        pending.remove(&self.pending_opens, row);
-        return failPendingOpen(self, row, error.ProviderContract);
-    };
-    const remote_key = resident.connRemoteKey(conn_id) catch |err| {
-        pending.remove(&self.pending_opens, row);
-        return failPendingOpen(self, row, err);
-    };
-    row.stage = .handshake;
+    const conn_id = conn.borrow() orelse return verdicts.failPendingOpen(self, row, error.ProviderContract);
+    const remote_key = resident.connRemoteKey(conn_id) catch |err| return verdicts.failPendingOpen(self, row, err);
+    row.stage = .{ .handshake = .{ .session = session, .deadline_ms = deadline_ms } };
     if (remote_key) |key| {
-        row.session.served.port.peer.bindVerifiedChannelKey(key);
+        session.served.port.peer.bindVerifiedChannelKey(key);
     }
-    Internal.adoptResidentConn(self, row.session, resident_index, &conn) catch |err| {
-        pending.remove(&self.pending_opens, row);
-        return failPendingOpen(self, row, err);
-    };
+    Internal.adoptResidentConn(self, session, resident_index, &conn) catch |err| return verdicts.failPendingOpen(self, row, err);
     // The hello's flush action drained to a no-op while the wire did not
     // exist yet. The start writes that queued frame.
-    Internal.startAdoptedWire(self, row.session);
+    Internal.startAdoptedWire(self, session);
 }

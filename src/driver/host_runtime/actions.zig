@@ -170,7 +170,15 @@ pub fn attemptWith(
             remembered = true;
             break :blk false;
         };
-        if (intent == .park and !flushed and !remembered and !due) return .complete;
+        // A ready report keeps a park from returning only when this attempt
+        // can run it: terminal cleanup runs no report, so it must not force a drain.
+        if (intent == .park and !flushed and !remembered and !due and !(gated and Internal.readyReportWaiting(self))) return .complete;
+    }
+    // The one reporter of retained redeem verdicts. It is gated like the
+    // drain below, and never runs under a callback, where the core refuses
+    // re-entry. An actual refusal is debt exactly as a flush refusal is.
+    if (gated and !self.withinCallback()) {
+        if (Internal.reportRedeems(self)) remembered = true;
     }
     drainLoop(self, effect_mode) catch |err| {
         if (!gated) return err;
@@ -187,6 +195,9 @@ pub fn attemptWith(
         return .retained;
     }
     clearMemoryDebt(self);
+    // A report the drain staged, or one a due attempt's renewed deadline
+    // suppressed a wake for, is runnable now that the deadline is clear.
+    Internal.nudgeReadyReports(self);
     return .complete;
 }
 
@@ -279,12 +290,13 @@ const Exec = struct {
     }
 };
 
-/// Stage a redeem dial so the active pump advances its handshake and reports
-/// the result through `exporterDialed` / `dialFailed`. A provider that
-/// refuses at once is reported by the staging helper itself, and any other
-/// staging error reports `dialFailed` here. Both queue their consequences:
-/// the drain loop already running this action executes them, so staging
-/// never drains.
+/// Stage a redeem dial so the active pump advances its handshake. The row it
+/// stages keeps its verdict until `redeem_reports.zig` commits it
+/// (`exporterDialed` / `dialFailed`). A provider that refuses at once leaves a
+/// ready failed report on that row rather than reporting here. A staging error
+/// before any row exists reports `dialFailed` here, inside the drain already
+/// running this action, and a memory refusal commits nothing. Staging never
+/// drains.
 fn answerDial(self: *HostRuntime, ticket: engine.Node.PendingId, route_index: usize) !void {
     const pending = self.core.pendingDial(ticket, route_index) orelse return;
     // The pending row owns every locator slice until the ticket settles;
@@ -293,6 +305,9 @@ fn answerDial(self: *HostRuntime, ticket: engine.Node.PendingId, route_index: us
         .ticket = ticket,
         .route_index = route_index,
     } }, .pending_dial) catch |err| {
+        // A refusal before the row owns the dial commits no verdict: the
+        // core action's retry owner re-runs it once memory is due.
+        if (err == error.OutOfMemory) return err;
         const failure = self.operationFailure(err);
         try self.core.dialFailed(ticket, route_index, failure.routeFailure(), failure.chain.primaryName());
         return;

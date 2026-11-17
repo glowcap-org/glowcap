@@ -302,15 +302,19 @@ fn deinitImpl(self: *HostRuntime, cancel_core: bool) void {
     Internal.closeOwnedListeners(self);
     Internal.detachClosingListeners(self);
     for (self.pending_opens.items) |row| switch (row.stage) {
-        .resident_dial => {
-            if (row.stage.resident_dial.attempt.deinit()) |failure| Internal.noteTerminalFailureChain(self, failure);
-            if (Internal.releaseCoreSession(self, row.session)) |failure| Internal.noteTerminalFailureChain(self, failure);
+        .resident_dial => |*dial| {
+            if (dial.attempt.deinit()) |failure| Internal.noteTerminalFailureChain(self, failure);
+            if (Internal.releaseCoreSession(self, dial.session)) |failure| Internal.noteTerminalFailureChain(self, failure);
         },
-        .handshake => {},
+        // A wired handshake or opened report has its session released by the
+        // wire loop below. A failed report retired its resources and owns
+        // none. A session kept by a precommit ownership violation stays owned
+        // by the core.
+        .handshake, .opened_report, .failed_report, .reporting => {},
         // A retrying dial has no wire and no attempt to cancel, but its
         // session still needs the same release the wire loop gives the rest.
-        .retry_wait => {
-            if (Internal.releaseCoreSession(self, row.session)) |failure| Internal.noteTerminalFailureChain(self, failure);
+        .retry_wait => |wait| {
+            if (Internal.releaseCoreSession(self, wait.session)) |failure| Internal.noteTerminalFailureChain(self, failure);
         },
     };
     var wires = self.wires.valueIterator();

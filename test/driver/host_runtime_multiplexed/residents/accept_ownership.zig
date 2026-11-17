@@ -24,6 +24,10 @@ pub const AcceptOwnershipResident = struct {
     held_record: ?net.multiplexed_resident.ReadyEvent = null,
     /// How often the runtime said it was about to park.
     before_wait_calls: usize = 0,
+    /// Runs as the runtime is about to park, so a test can move its clock
+    /// during the wait the way elapsed time does.
+    before_wait_hook: ?*const fn (*anyopaque) void = null,
+    before_wait_ctx: *anyopaque = undefined,
     reap_calls: usize = 0,
     /// A record that appears on this reap, as a reply landing inside a
     /// spinning runtime's window would.
@@ -65,10 +69,17 @@ pub const AcceptOwnershipResident = struct {
     /// When set, the first read hands over these bytes instead.
     read_once: ?[]const u8 = null,
     read_calls: usize = 0,
+    /// A close that stays pending until the test clears this: a carrier the
+    /// resident completes on its own terms, with no abort to cut it short.
+    close_pending: bool = false,
+    /// A resident that can abort a close the partner never reads: the carrier
+    /// close deadline then completes the close with no descriptor I/O.
+    abortable: bool = false,
+    abort_calls: usize = 0,
 
     pub const transport = "x-accept-ownership";
     pub const alternate_transport = "x-accept-ownership-alt";
-    const conn_id: usize = 41;
+    pub const conn_id: usize = 41;
 
     const Listener = struct {
         resident: *AcceptOwnershipResident,
@@ -106,7 +117,20 @@ pub const AcceptOwnershipResident = struct {
     }
 
     pub fn multiplexedResident(self: *AcceptOwnershipResident) net.MultiplexedResident {
-        return .{ .ctx = self, .vtable = &vtable };
+        return .{ .ctx = self, .vtable = if (self.abortable) &abortable_vtable else &vtable };
+    }
+
+    const abortable_vtable = abortable: {
+        var table = vtable;
+        table.conn_abort = connAbort;
+        break :abortable table;
+    };
+
+    fn connAbort(ctx: *anyopaque, conn: usize) net.multiplexed_resident.TeardownOutcome {
+        const self = of(ctx);
+        std.debug.assert(conn == conn_id);
+        self.abort_calls += 1;
+        return .complete;
     }
 
     pub const vtable = net.MultiplexedResident.VTable{
@@ -150,7 +174,9 @@ pub const AcceptOwnershipResident = struct {
     }
 
     fn beforeWait(ctx: *anyopaque, _: net.multiplexed_resident.AfterTurn) void {
-        of(ctx).before_wait_calls += 1;
+        const self = of(ctx);
+        self.before_wait_calls += 1;
+        if (self.before_wait_hook) |hook| hook(self.before_wait_ctx);
     }
 
     fn reap(ctx: *anyopaque) void {
@@ -348,6 +374,7 @@ pub const AcceptOwnershipResident = struct {
         const self = of(ctx);
         std.debug.assert(conn == conn_id);
         self.close_calls += 1;
+        if (self.close_pending) return .pending;
         if (self.close_failure) |failure| return .{ .failed = failure };
         return .complete;
     }

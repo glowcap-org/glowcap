@@ -21,115 +21,12 @@ const fixtures = @import("../host_runtime_multiplexed/residents.zig");
 const AcceptOwnershipResident = fixtures.AcceptOwnershipResident;
 const ObservedOpen = fixtures.ObservedOpen;
 const SteppedClock = @import("../../support/stepped_clock.zig").SteppedClock;
-
-const retry_ms = HostRuntime.testing.memory_retry_ms;
-const transport = AcceptOwnershipResident.transport;
-const handshake_ms = 50;
-
-/// The completion sink, counting and optionally refusing the reservation.
-const Sink = struct {
-    runtime: *HostRuntime,
-    refuse: bool = false,
-    reserves: usize = 0,
-    takes: usize = 0,
-    /// `driver_depth` at the last reservation: one call frame per nested
-    /// drain a stack holds.
-    depth_seen: usize = 0,
-
-    fn of(ctx: *anyopaque) *Sink {
-        return @ptrCast(@alignCast(ctx));
-    }
-
-    fn reserve(ctx: *anyopaque) anyerror!void {
-        const self = of(ctx);
-        self.reserves += 1;
-        self.depth_seen = self.runtime.driver_depth;
-        if (self.refuse) return error.OutOfMemory;
-    }
-
-    fn take(ctx: *anyopaque, _: driver_core.HostAction) bool {
-        of(ctx).takes += 1;
-        return false;
-    }
-
-    fn install(self: *Sink) void {
-        self.runtime.drive.stepped.completion_sink = .{ .ctx = self, .reserve = reserve, .take = take };
-    }
-};
-
-/// A stepped runtime over the scripted resident, on a clock the test moves.
-const Fixture = struct {
-    threaded: std.Io.Threaded,
-    clock: SteppedClock,
-    resident: AcceptOwnershipResident,
-    observed: ObservedOpen = .{},
-    runtime: HostRuntime,
-    sink: Sink,
-
-    fn start(self: *Fixture, handshake: @FieldType(driver.SessionOptions, "handshake")) !void {
-        return self.startRetrying(handshake, .{ .max_attempts = 1 });
-    }
-
-    fn startRetrying(
-        self: *Fixture,
-        handshake: @FieldType(driver.SessionOptions, "handshake"),
-        policy: @FieldType(driver.SessionOptions, "dial_retry"),
-    ) !void {
-        self.observed = .{};
-        self.threaded = std.Io.Threaded.init(std.testing.allocator, .{});
-        self.clock = SteppedClock.init(self.threaded.io(), 0, std.time.ns_per_us);
-        self.resident = try AcceptOwnershipResident.init();
-        var options = self.observed.steppedOpts();
-        options.handshake = handshake;
-        options.dial_retry = policy;
-        self.runtime = try HostRuntime.init(std.testing.allocator, self.clock.io(), .{}, .ephemeral, options);
-        _ = try self.runtime.addResident(
-            .{ .symbol = transport, .designator_scheme = .address },
-            self.resident.multiplexedResident(),
-        );
-        try self.runtime.core.ensureAdvertisedLocator(transport);
-        self.sink = .{ .runtime = &self.runtime };
-        self.sink.install();
-    }
-
-    fn stop(self: *Fixture) void {
-        self.runtime.deinit();
-        self.resident.deinit();
-        self.threaded.deinit();
-    }
-
-    fn locator() model.PeerLocator {
-        return .{ .transport = transport, .designator = "remote.test:1", .hints = model.Hints.emptyFalse() };
-    }
-
-    /// Ask the core to dial the peer: a redeem open with no other route.
-    fn enliven(self: *Fixture) !void {
-        _ = try self.runtime.core.enlivenSelectOrDial(.{ .peer = locator(), .swissnum = "not-published" });
-    }
-
-    /// The same, toward a second peer.
-    fn enlivenOther(self: *Fixture) !void {
-        var peer = locator();
-        peer.designator = "other.test:1";
-        _ = try self.runtime.core.enlivenSelectOrDial(.{ .peer = peer, .swissnum = "not-published" });
-    }
-
-    fn startDial(self: *Fixture) !void {
-        try self.runtime.startDial(locator(), .inherit, 5, .{
-            .ctx = &self.observed,
-            .reserve = ObservedOpen.reserve,
-            .release = ObservedOpen.release,
-            .opened = ObservedOpen.opened,
-            .failed = ObservedOpen.failed,
-        });
-    }
-};
-
-fn refuseDial(resident: *AcceptOwnershipResident) void {
-    var chain = glowcap.foundation.FailureChain.initNamed(error.ProviderIo, "ImmediateRefusal");
-    chain.noteChain(.initNamed(error.ProviderIo, "Cleanup"));
-    resident.dial_failure = .fromChain(error.ConnectionRefused, chain);
-}
+const fx = @import("open_fixture.zig");
+const Fixture = fx.Fixture;
+const refuseDial = fx.refuseDial;
+const retry_ms = fx.retry_ms;
+const transport = fx.transport;
+const handshake_ms = fx.handshake_ms;
 
 test "an open the provider refuses inside Exec.dial drains once, from the loop already running" {
     var f: Fixture = undefined;

@@ -224,7 +224,20 @@ pub fn nudgeIfWorkRemains(self: *HostRuntime) void {
             return;
         }
     }
-    if (Internal.sweepWorkRemains(self, null)) rs.postWake() catch |err| self.noteTerminalFailure(err);
+    if (Internal.readyReportRunnable(self) or Internal.sweepWorkRemains(self, null))
+        rs.postWake() catch |err| self.noteTerminalFailure(err);
+}
+
+/// Post the stepped readiness wake for a ready redeem report that a permitted
+/// attempt can run now (`redeem_reports.readyReportRunnable`). A report
+/// waiting on memory or a carrier posts nothing: its own deadline or carrier
+/// completion wakes it.
+pub fn nudgeReadyReports(self: *HostRuntime) void {
+    const rs = switch (self.drive) {
+        .blocking => return,
+        .stepped => |*stepped| &stepped.ready_set,
+    };
+    if (Internal.readyReportRunnable(self)) rs.postWake() catch |err| self.noteTerminalFailure(err);
 }
 
 /// The turn is ending: every resident hands its staged sends to the kernel
@@ -329,18 +342,24 @@ pub fn clampTimeoutToPendingWork(self: *const HostRuntime, timeout_ms: i32) i32 
     const now_ms = self.nowMs();
     const core_wait = self.core.closeWaitMs(now_ms);
     var nearest_wait: ?i64 = if (core_wait >= 0) core_wait else null;
-    for (self.pending_opens.items) |row| {
-        var deadline = row.deadline_ms;
-        // A retrying dial also parks until its interval elapses. The wait
-        // must wake for that due even when no handshake deadline binds.
-        if (row.stage == .retry_wait) {
-            const due = row.stage.retry_wait.due_ms;
-            deadline = if (deadline) |bound|
-                (if (bound < due) bound else due)
-            else
-                due;
+    // Terminal cleanup runs neither the active sweep nor the report pass, so
+    // no pending-open deadline or ready report can shorten its wait.
+    if (self.terminal_failure == null) {
+        for (self.pending_opens.items) |row| {
+            var deadline = row.stage.deadlineMs();
+            // A retrying dial also parks until its interval elapses. The wait
+            // must wake for that due even when no handshake deadline binds.
+            if (row.stage == .retry_wait) {
+                const due = row.stage.retry_wait.due_ms;
+                deadline = if (deadline) |bound|
+                    (if (bound < due) bound else due)
+                else
+                    due;
+            }
+            noteDeadline(&nearest_wait, deadline orelse continue, now_ms);
         }
-        noteDeadline(&nearest_wait, deadline orelse continue, now_ms);
+        // A ready report waits for no clock: the next attempt runs it.
+        if (Internal.readyReportRunnable(self)) noteDeadline(&nearest_wait, now_ms, now_ms);
     }
     if (self.nearest_carrier_close_ms) |deadline| noteDeadline(&nearest_wait, deadline, now_ms);
     if (self.core.memory_retry_due_ms) |deadline| noteDeadline(&nearest_wait, deadline, now_ms);

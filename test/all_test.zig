@@ -262,6 +262,13 @@ comptime {
         _ = @import("driver/host_runtime_step/core_retry_test.zig");
         _ = @import("driver/host_runtime_step/core_retry_callers_test.zig");
         _ = @import("driver/host_runtime_step/core_retry_open_test.zig");
+        _ = @import("driver/host_runtime_step/redeem_report_test.zig");
+        _ = @import("driver/host_runtime_step/redeem_report_edges_test.zig");
+        _ = @import("driver/host_runtime_step/redeem_report_faces_test.zig");
+        _ = @import("driver/host_runtime_step/redeem_report_exits_test.zig");
+        _ = @import("driver/host_runtime_step/redeem_report_waits_test.zig");
+        _ = @import("driver/host_runtime_step/redeem_report_closes_test.zig");
+        _ = @import("driver/host_runtime_step/redeem_report_terminal_test.zig");
         _ = @import("driver/host_runtime_step/unattended_close_test.zig");
         _ = @import("driver/host_runtime_step/sweep_edges_test.zig");
         _ = @import("driver/host_runtime_multiplexed/external_resident_test.zig");
