@@ -263,7 +263,7 @@ fn callWithOrigin(self: *Vat, source: Source, id: u64, msg: Dispatch, origin: @F
             .returned => |value| value,
             .viewed => |value| copied: {
                 if (turn.forwarded) break :copied .{ .void = {} };
-                const owned = value.toOwned(arena) catch |err| break :copied err;
+                const owned = value.toTreeDepth(arena, 0, .copied, .local) catch |err| break :copied err;
                 reply_copied = true;
                 break :copied owned;
             },

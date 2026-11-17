@@ -67,7 +67,7 @@ pub fn deferTurn(self: *Host, maybe_session: ?*HostSession, turn: *actors.Turn) 
 /// capability authority.
 pub fn fulfill(self: *Host, resolver_id: u64, value: model.Argument) !void {
     try self.refuseReentry();
-    if (!model.argumentIsPlainData(&value)) return error.ForeignArgument;
+    if (!try model.argumentIsPlainData(&value)) return error.ForeignArgument;
     if (self.resolver_index.get(resolver_id)) |entry| {
         const row = self.vows.get(entry.vow_id) orelse unreachable;
         if (row.forwarded == .owning) {

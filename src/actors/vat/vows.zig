@@ -222,8 +222,10 @@ pub fn endSettle(self: *Vat) void {
 ///
 /// The turn has already run by the time this is called, so its waiter has
 /// no other producer. A refused clone therefore fires the listener broken
-/// with the exact failure name and then returns that failure to the driver,
-/// leaving the rest of the queue live. The far arms in `serve` keep their
+/// with the exact failure name. A reply nested past the ceiling is its
+/// handler's invalid result and is complete once that waiter is broken, so
+/// the drive continues. Any other refusal is returned to the driver, leaving
+/// the rest of the queue live. The far arms in `serve` keep their
 /// listener parked on a refusal instead. That is open to them only because
 /// their producer survives it: a Host action stays parked for a retry, and a
 /// refused frame retires the session, whose release runs `breakFarVows`.
@@ -240,7 +242,7 @@ pub fn settleLocal(self: *Vat, vow_id: u64, outcome: Outcome, retirement: ?*Queu
     const owned = ownOutcome(arena, outcome) catch |err| {
         if (retirement) |delivery| delivery.retire(@errorName(err));
         if (listener) |observer| fireLocalListener(self, observer, .{ .broken = Broken.unnamed(@errorName(err)) });
-        return err;
+        return if (err == error.ValueTooDeep) {} else err;
     };
     if (retirement) |delivery| delivery.retire(if (owned == .broken) owned.broken.detail else null);
     if (listener) |observer| fireLocalListener(self, observer, owned.resolution());

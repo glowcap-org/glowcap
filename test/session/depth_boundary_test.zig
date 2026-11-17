@@ -15,11 +15,11 @@ const view = model.view;
 const NoMeter = session.inventory.NoMeter;
 const allocator = std.testing.allocator;
 
-fn expectOutcome(shape: shapes.Shape, depth: usize, result: anytype) !void {
+fn expectOutcome(shape: shapes.Shape, depth: usize, result: anytype, comptime refusal: anyerror) !void {
     if (shapes.admitted(shape, depth)) {
         try result;
     } else {
-        try std.testing.expectError(session.Error.NestingTooDeep, result);
+        try std.testing.expectError(refusal, result);
     }
 }
 
@@ -48,7 +48,7 @@ test "inbound deliver admits a leaf at the ceiling and an empty container one le
             .target = .{ .near = .{ .export_position = .from(7) } },
             .args = args,
             .answer = null,
-        } }));
+        } }), error.NestingTooDeep);
     };
 }
 
@@ -63,7 +63,7 @@ test "inbound deliver of borrowed views counts the same, an integer run included
             .target = view.Reference.fromOwned(&target),
             .args = try shapes.viewArgs(arena.allocator(), depth, shape),
         } };
-        try expectOutcome(shape, depth, s.recordRecvView(body));
+        try expectOutcome(shape, depth, s.recordRecvView(body), error.NestingTooDeep);
     };
 }
 
@@ -84,7 +84,7 @@ test "inbound fulfill counts as a deliver's arguments do" {
             .answer = .from(11),
             .resolution = .{ .fulfill = try args.at(0) },
         } };
-        try expectOutcome(shape, depth, s.recordRecvView(body));
+        try expectOutcome(shape, depth, s.recordRecvView(body), error.NestingTooDeep);
     };
 }
 
@@ -102,7 +102,7 @@ test "send-side deliver refuses at the same depth, before any export retain" {
         args[0] = .{ .reference = .{ .near = .{ .export_position = .from(1) } } };
         args[1] = nested[0];
         const result = s.recordSend(.{ .deliver = .{ .target = .{ .far = model.FarRef.object(2) }, .args = args, .answer = null } });
-        try expectOutcome(shape, depth, result);
+        try expectOutcome(shape, depth, result, error.ValueTooDeep);
         try expectRetain(shape, depth, before, s.exportRefcount(.from(1)));
     };
 }
@@ -136,7 +136,7 @@ test "send-side fulfill refuses at the same depth, before any export retain" {
             return err;
         };
         const result = s.recordSend(.{ .resolve = .{ .answer = .from(11), .resolution = .{ .fulfill = .{ .list = items } } } });
-        try expectOutcome(shape, depth, result);
+        try expectOutcome(shape, depth, result, error.ValueTooDeep);
         try expectRetain(shape, depth, before, s.exportRefcount(.from(2)));
     };
 }
@@ -154,9 +154,9 @@ test "a send inventory and freight certification agree with the owned measure at
             const freight = try s.certifyFreight(view.Args.fromOwnedSlice(args), NoMeter);
             try std.testing.expectEqual(try model.measureArgumentSliceOwnedBytes(args), freight.owned_bytes);
         } else {
-            try std.testing.expectError(session.Error.NestingTooDeep, s.inventoryArguments(args, NoMeter));
-            try std.testing.expectError(session.Error.NestingTooDeep, s.certifyFreight(view.Args.fromOwnedSlice(args), NoMeter));
-            try std.testing.expectError(error.MalformedView, model.measureArgumentSliceOwnedBytes(args));
+            try std.testing.expectError(session.Error.ValueTooDeep, s.inventoryArguments(args, NoMeter));
+            try std.testing.expectError(session.Error.ValueTooDeep, s.certifyFreight(view.Args.fromOwnedSlice(args), NoMeter));
+            try std.testing.expectError(error.ValueTooDeep, model.measureArgumentSliceOwnedBytes(args));
         }
     };
 }
@@ -169,6 +169,6 @@ test "freight of a borrowed integer run refuses where the run's items would sit 
         defer s.deinit();
         const args = try shapes.viewArgs(arena.allocator(), depth, shape);
         const result = s.certifyFreight(args, NoMeter);
-        if (shapes.admitted(shape, depth)) _ = try result else try std.testing.expectError(session.Error.NestingTooDeep, result);
+        if (shapes.admitted(shape, depth)) _ = try result else try std.testing.expectError(session.Error.ValueTooDeep, result);
     };
 }

@@ -19,7 +19,7 @@ const capability = @import("../../capability.zig");
 const capability_promise = @import("../../capability_promise.zig");
 const value_mod = @import("../../value.zig");
 const identity = @import("identity.zig");
-const itemsDepth = @import("depth.zig").itemsDepth;
+const itemsDepth = @import("../../value.zig").itemsDepth;
 
 const Host = host_mod.Host;
 const HostSession = host_mod.HostSession;
@@ -201,7 +201,7 @@ fn unshared(session: *HostSession, position: u64) bool {
 fn countValueCapabilitiesAt(
     values: []const value_mod.Value,
     depth: usize,
-) error{ OutOfMemory, NestingTooDeep }!usize {
+) error{ OutOfMemory, ValueTooDeep }!usize {
     var count: usize = 0;
     for (values) |*value| {
         const added: usize = switch (value.*) {
@@ -229,7 +229,7 @@ fn countValueCapabilitiesAt(
     return count;
 }
 
-fn countValueCapabilities(values: []const value_mod.Value) error{ OutOfMemory, NestingTooDeep }!usize {
+fn countValueCapabilities(values: []const value_mod.Value) error{ OutOfMemory, ValueTooDeep }!usize {
     return countValueCapabilitiesAt(values, 0);
 }
 
@@ -544,7 +544,7 @@ fn lowerValueInner(
 
 /// Everything the value lowering walk can refuse. The walk is recursive, so
 /// its set is spelled from the non-recursive steps it takes.
-pub const LowerError = error{ NestingTooDeep, UnknownCapability } ||
+pub const LowerError = error{ ValueTooDeep, UnknownCapability } ||
     std.mem.Allocator.Error ||
     foundation.error_sets.Of(lowerTargetTracked) ||
     foundation.error_sets.Of(CapabilityLoweringReceipts.ensureOne) ||

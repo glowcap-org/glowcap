@@ -73,7 +73,7 @@ test "raw routing admits the depth limit and refuses the next node without mutat
         .{ .void = {} },
     );
     try std.testing.expectError(
-        error.NestingTooDeep,
+        error.ValueTooDeep,
         host.routeSend(source, target, &.{over}),
     );
 
@@ -117,11 +117,11 @@ test "turn routing shares the bounded raw-argument policy" {
     const vows = host.vows.count();
 
     try std.testing.expectError(
-        error.NestingTooDeep,
+        error.ValueTooDeep,
         host.routeTurnTarget(session, actor.nearRef(), &.{over}),
     );
     try std.testing.expectError(
-        error.NestingTooDeep,
+        error.ValueTooDeep,
         host.routeTurnCapability(session, capability, &.{over}),
     );
     try std.testing.expectEqual(pending, session.pendingOperations());

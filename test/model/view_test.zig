@@ -405,7 +405,7 @@ test "a lent tree allocates its spines in the arena and aliases every byte leaf"
 
     const source = lentTreeSource();
     const root = view.Argument.fromOwned(&source);
-    const lent = try root.toTreeDepth(audit.allocator(), 0, .lent);
+    const lent = try root.toTreeDepth(audit.allocator(), 0, .lent, .partner);
     try expectLent(&audit, source, lent);
     try std.testing.expect(!audit.invalid_free);
 }
@@ -423,7 +423,7 @@ test "a lent walk reports OutOfMemory at every allocation and frees only what it
     var counting: Audit = .{ .backing = counting_arena.allocator() };
     defer counting.deinit();
     var counter = FailingOnce.init(counting.allocator(), std.math.maxInt(usize));
-    _ = try root.toTreeDepth(counter.allocator(), 0, .lent);
+    _ = try root.toTreeDepth(counter.allocator(), 0, .lent, .partner);
     const total = counter.alloc_index;
     try std.testing.expect(total >= lent_tree_spines);
 
@@ -433,8 +433,24 @@ test "a lent walk reports OutOfMemory at every allocation and frees only what it
         var audit: Audit = .{ .backing = arena.allocator() };
         defer audit.deinit();
         var failing = FailingOnce.init(audit.allocator(), index);
-        try std.testing.expectError(error.OutOfMemory, root.toTreeDepth(failing.allocator(), 0, .lent));
+        try std.testing.expectError(error.OutOfMemory, root.toTreeDepth(failing.allocator(), 0, .lent, .partner));
         try std.testing.expect(failing.induced);
         try std.testing.expect(!audit.invalid_free);
     }
+}
+
+test "a materialize past the ceiling is the author's refusal: a partner's tree MalformedView, a local tree ValueTooDeep" {
+    const shapes = @import("../support/depth_shapes.zig");
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const over = try shapes.ownedArgs(arena.allocator(), model.max_value_depth + 1, .leaf);
+    const root = view.Argument.fromOwned(&over[0]);
+    try std.testing.expectError(error.MalformedView, root.toTreeDepth(std.testing.allocator, 0, .copied, .partner));
+    try std.testing.expectError(error.ValueTooDeep, root.toTreeDepth(std.testing.allocator, 0, .copied, .local));
+    try std.testing.expectError(error.ValueTooDeep, model.cloneArgument(std.testing.allocator, over[0]));
+    try std.testing.expectError(error.ValueTooDeep, model.measureArgumentSliceOwnedBytes(over));
+
+    const fits = try shapes.ownedArgs(arena.allocator(), model.max_value_depth, .leaf);
+    const owned = try model.cloneArgument(std.testing.allocator, fits[0]);
+    model.freeArgument(std.testing.allocator, owned);
 }

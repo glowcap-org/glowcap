@@ -14,7 +14,6 @@ const host_mod = @import("../../host.zig");
 const value_mod = @import("../../value.zig");
 const host_pump = @import("../pump.zig");
 const identity = @import("identity.zig");
-const itemsDepth = @import("depth.zig").itemsDepth;
 const receipt_list = @import("receipt_list.zig");
 const capability_promise = @import("../../capability_promise.zig");
 
@@ -25,6 +24,13 @@ const CapabilityLift = identity.CapabilityLift;
 /// The lifts one transaction committed so far, with how many of them came
 /// from wire references rather than inline gives.
 const inline_capacity = 8;
+
+/// The depth of the items of a container at `depth`, or `NestingTooDeep` when
+/// `model.mayHoldItems` refuses them: a partner's tree past the ceiling.
+inline fn itemsDepth(depth: usize) error{NestingTooDeep}!usize {
+    if (!model.mayHoldItems(depth)) return error.NestingTooDeep;
+    return depth + 1;
+}
 
 const CapabilityLiftReceipts = struct {
     list: receipt_list.ReceiptList(CapabilityLift, inline_capacity) = .{},

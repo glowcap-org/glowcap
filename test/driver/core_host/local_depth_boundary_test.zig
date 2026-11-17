@@ -8,6 +8,7 @@ const std = @import("std");
 const glowcap = @import("glowcap");
 const shapes = @import("../../support/depth_shapes.zig");
 const support = @import("../../support/core_host.zig");
+const h = @import("harness.zig");
 
 const model = glowcap.ocapn.model;
 const driver = glowcap.driver.core;
@@ -119,8 +120,9 @@ test "resolverFulfill of an owned argument follows the plain-data count and stay
             try std.testing.expect(call.result() == .ready);
             try std.testing.expectEqual(@as(usize, 0), host.resolver_index.count());
         } else {
-            // The plain-data predicate refuses before any settle work.
-            try std.testing.expectError(error.ForeignArgument, result);
+            // The plain-data walk refuses before any settle work, as a depth
+            // refusal and not as capability authority.
+            try std.testing.expectError(error.ValueTooDeep, result);
             // The resolver is still live, so a later settle can succeed.
             try std.testing.expect(call.result() == .pending);
             try std.testing.expectEqual(@as(usize, 1), host.resolver_index.count());
@@ -128,4 +130,104 @@ test "resolverFulfill of an owned argument follows the plain-data count and stay
             try std.testing.expect(call.result() == .ready);
         }
     };
+}
+
+/// A Vat actor, not a Host capability, so its reply is a `model.Argument`
+/// the settlement boundary copies: a list `max_value_depth + 1` deep when asked.
+const RawDeep = struct {
+    /// Each deep reply stages a tell to this actor first, a turn effect that
+    /// commits with the turn.
+    counter: ?glowcap.actors.Ref = null,
+    pub fn handle(self: *RawDeep, turn: *glowcap.actors.Turn, msg: glowcap.actors.Delivery) !model.Argument {
+        if (!msg.is("deep")) return .{ .integer = 5 };
+        if (self.counter) |counter| try turn.tell(counter, .{ .verb = "bump" });
+        return (try shapes.ownedArgs(turn.arena, model.max_value_depth + 1, .leaf))[0];
+    }
+};
+
+const Bump = struct {
+    count: *usize,
+    pub fn handle(self: *Bump, _: *glowcap.actors.Turn, _: glowcap.actors.Delivery) !model.Argument {
+        self.count.* += 1;
+        return .{ .void = {} };
+    }
+};
+
+const Hop = struct {
+    target: driver.Capability,
+    pub fn handle(self: *Hop, turn: *driver.HostTurn, verb: ?[]const u8, args: driver.Args) !driver.Value {
+        defer turn.releaseArguments(args);
+        return turn.forward(self.target, verb, try args.values());
+    }
+};
+
+const Outcome = struct {
+    fired: bool = false,
+    broken: bool = false,
+    detail: [32]u8 = undefined,
+    detail_len: usize = 0,
+    integer: ?i64 = null,
+
+    fn record(ctx: ?*anyopaque, resolution: glowcap.actors.Resolution) void {
+        const self: *Outcome = @ptrCast(@alignCast(ctx.?));
+        self.fired = true;
+        switch (resolution) {
+            .broken => |b| {
+                self.broken = true;
+                self.detail_len = @min(b.detail.len, self.detail.len);
+                @memcpy(self.detail[0..self.detail_len], b.detail[0..self.detail_len]);
+            },
+            .fulfilled => |value| if (value == .integer) {
+                self.integer = value.integer;
+            },
+            else => {},
+        }
+    }
+};
+
+test "a served forward to a local actor whose reply is past the ceiling breaks that answer, keeps the pump and session, and the next call completes" {
+    var client = support.init(allocator, @splat(0xD1), h.nextRouteOptions());
+    defer client.deinit();
+    var server = support.init(allocator, @splat(0xD2), h.nextRouteOptions());
+    defer server.deinit();
+    var dials: std.ArrayList(h.ParkedDial) = .empty;
+    defer h.deinitParked(allocator, &dials);
+    const pair = try h.openPair(allocator, &client, &server, "127.0.0.1:7981", &dials);
+    const hosts = [_]*driver.Host{ &client, &server };
+    const pairs = [_]h.Pair{pair};
+
+    const reservation = try server.reserveFreshCapability(null);
+    var bumps: usize = 0;
+    const counter = try server.vat.spawn(Bump, .{ .count = &bumps });
+    const actor = try server.vat.spawn(RawDeep, .{ .counter = counter });
+    const raw = server.adoptReservedLocalCapability(reservation, actor);
+    defer server.releaseCapabilityTerminal(raw, null);
+    const hop = try spawn(&server, Hop, .{ .target = raw });
+    defer server.releaseCapabilityTerminal(hop, null);
+    const name = try server.publishDurableCapability(@splat(0x84), hop);
+    var found: h.CapturedRef = .{};
+    try client.vowOn(try client.fetch(pair.a, name.slice()), .{ .ctx = &found, .func = h.CapturedRef.record });
+    try h.pumpToQuiescence(allocator, &hosts, &pairs, &dials);
+    const remote = try client.liftCapability(pair.a, try found.require());
+    defer client.releaseCapabilityTerminal(remote, null);
+
+    for ([_]struct { verb: []const u8, broken: bool }{
+        .{ .verb = "deep", .broken = true },
+        .{ .verb = "ok", .broken = false },
+    }) |call| {
+        var outcome: Outcome = .{};
+        const vow = try client.sendValues(pair.a, remote, call.verb, &.{}, allocator);
+        try client.vowOn(vow, .{ .ctx = &outcome, .func = Outcome.record });
+        try h.pumpToQuiescence(allocator, &hosts, &pairs, &dials);
+        try std.testing.expect(outcome.fired);
+        try std.testing.expectEqual(call.broken, outcome.broken);
+        if (call.broken) {
+            try std.testing.expectEqualStrings("ValueTooDeep", outcome.detail[0..outcome.detail_len]);
+            // The staged tell committed with the turn that broke its answer.
+            try std.testing.expectEqual(@as(usize, 1), bumps);
+        } else try std.testing.expectEqual(@as(?i64, 5), outcome.integer);
+        try std.testing.expect(pair.a.served.port.peer.lastAbort() == null);
+        try std.testing.expect(pair.b.served.port.peer.lastAbort() == null);
+        try std.testing.expect(pair.a.sessionOpen() and pair.b.sessionOpen());
+    }
 }

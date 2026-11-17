@@ -191,6 +191,7 @@ comptime {
         _ = @import("engine/negotiation_test.zig");
         _ = @import("engine/abort_projection_test.zig");
         _ = @import("engine/error_taxonomy_test.zig");
+        _ = @import("engine/value_depth_policy_test.zig");
         _ = @import("engine/pipeline_test.zig");
         _ = @import("engine/projection_test.zig");
         _ = @import("engine/resolve_window_test.zig");

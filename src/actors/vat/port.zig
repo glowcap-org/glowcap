@@ -80,6 +80,7 @@ pub const Port = struct {
 
     fn sendFarTo(self: *Port, vat: *Vat, target: model.Reference, msg: Message) Error!Vow {
         const answer = try self.peer.allocateAnswer();
+        errdefer releaseReservedAnswer(self, answer);
         try farDeliverTo(vat, self, target, msg, answer.position);
         return .{ .far = answer };
     }
@@ -98,6 +99,7 @@ pub const Port = struct {
             .local => |id| return .{ .local = try enqueueLocalDelivery(vat, self, id, delivery, .answered) },
             .far => |far| {
                 const answer = try self.peer.allocateAnswer();
+                errdefer releaseReservedAnswer(self, answer);
                 try farDeliverViews(vat, self, .{ .far = far }, delivery, answer.position);
                 return .{ .far = answer };
             },
@@ -342,10 +344,23 @@ fn enqueueLocalDelivery(vat: *Vat, port: *Port, id: u64, delivery: Delivery, ans
 }
 
 fn materialize(vat: *Vat, delivery: Delivery) Error!Message {
-    return .{ .verb = delivery.verb, .args = delivery.args.toOwnedSlice(vat.allocator) catch |err| return switch (err) {
+    return .{ .verb = delivery.verb, .args = delivery.args.toSliceDepth(vat.allocator, 0, .copied, .local) catch |err| return switch (err) {
         error.OutOfMemory => error.OutOfMemory,
         error.MalformedView => Error.MalformedView,
+        error.ValueTooDeep => Error.ValueTooDeep,
     } };
+}
+
+/// Return the answer a far send reserved and never carried. The engine
+/// admits a send in two steps: every fallible one runs first and leaves the
+/// reservation untouched, and the one that installs the answer row cannot
+/// fail. A send staged at the Node owns its answer from then on, and a row a
+/// turn's retraction retires is retired by it. So the answer is the Port's
+/// to return exactly while it is still reserved.
+fn releaseReservedAnswer(port: *Port, answer: engine.OutboundAnswerTarget) void {
+    const session_state = &port.peer.session_state;
+    if (session_state.outbound_answers.reservedStamp(answer.position) == null) return;
+    session_state.abandonOutboundAnswer(answer.position);
 }
 
 /// Inside a turn the Port enrolls before a far send, so the send is
@@ -393,6 +408,7 @@ fn farDeliverTo(vat: *Vat, port: *Port, target: model.Reference, msg: Message, a
         .answer = answer,
     } }) catch |err| return switch (err) {
         error.OutOfMemory => error.OutOfMemory,
+        error.ValueTooDeep => error.ValueTooDeep,
         else => Error.SendRejected,
     };
 }
@@ -424,6 +440,7 @@ fn farDeliverViews(vat: *Vat, port: *Port, target: model.Reference, delivery: De
     if (head != spine.spine.len) return error.MalformedView;
     peer.sendFreight(target, .fromViews(spine.spine), answer) catch |err| return switch (err) {
         error.OutOfMemory => error.OutOfMemory,
+        error.ValueTooDeep => error.ValueTooDeep,
         else => Error.SendRejected,
     };
 }

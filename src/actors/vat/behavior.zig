@@ -162,9 +162,10 @@ pub const Delivery = struct {
     /// free function.
     pub fn lendMessage(self: Delivery, arena: std.mem.Allocator) Error!Message {
         if (self.args.ownedSlice()) |args| return .{ .verb = self.verb, .args = args };
-        const args = self.args.toSliceDepth(arena, 0, .lent) catch |err| return switch (err) {
+        const args = self.args.toSliceDepth(arena, 0, .lent, .local) catch |err| return switch (err) {
             error.OutOfMemory => error.OutOfMemory,
             error.MalformedView => Error.MalformedView,
+            error.ValueTooDeep => Error.ValueTooDeep,
         };
         return .{ .verb = self.verb, .args = args };
     }

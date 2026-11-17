@@ -106,8 +106,10 @@ pub const zero_argument: GlowcapArgument = .{
 /// discriminant outside its family. It always arrives with a last-error message
 /// naming the offending value, so a mapper above must not stamp the bare error
 /// name over it. The other members are a shape the marshal cannot carry
-/// (`UnsupportedValue`), a missing pointer, and allocation failure.
-pub const MarshalError = error{ UnsupportedValue, InvalidArgument, NullPointer, OutOfMemory };
+/// (`UnsupportedValue`), a caller's value nested past `model.max_value_depth`
+/// (`ValueTooDeep`, an invalid argument), a missing pointer, and allocation
+/// failure.
+pub const MarshalError = error{ UnsupportedValue, ValueTooDeep, InvalidArgument, NullPointer, OutOfMemory };
 
 /// Classify an inbound-dispatch error into a C ABI return code. Derived from the
 /// single error taxonomy (`engine.abort_projection.classify`) so the C codes
@@ -128,7 +130,7 @@ pub fn marshalErrorToCode(err: MarshalError) i32 {
     setLastError("C argument: {s}", .{@errorName(err)});
     return switch (err) {
         error.UnsupportedValue => GLOWCAP_ERR_UNSUPPORTED_VALUE,
-        error.InvalidArgument => GLOWCAP_ERR_INVALID_ARGUMENT,
+        error.InvalidArgument, error.ValueTooDeep => GLOWCAP_ERR_INVALID_ARGUMENT,
         error.NullPointer => GLOWCAP_ERR_NULL_POINTER,
         error.OutOfMemory => GLOWCAP_ERR_INTERNAL,
     };
@@ -210,7 +212,7 @@ pub fn sliceFromC(ptr: ?[*]const u8, len: usize) error{NullPointer}![]const u8 {
 /// overflow the Zig stack inside `argumentFromCWith`, so the marshal refuses at
 /// the model's ceiling (`model.mayHoldItems`), where the session does.
 inline fn itemsDepth(depth: usize) MarshalError!usize {
-    if (!model.mayHoldItems(depth)) return error.UnsupportedValue;
+    if (!model.mayHoldItems(depth)) return error.ValueTooDeep;
     return depth + 1;
 }
 

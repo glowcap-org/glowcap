@@ -174,6 +174,9 @@ pub fn classify(err: anyerror) Classification {
         // durable namespace (ADR-0007). This is an API refusal on the send
         // side, never an inbound frame's fault, so no abort is emitted.
         error.ReservedDurableNamespace => .{ .domain = .session, .abort = null },
+        // A local author's over-deep value is a local refusal: it emits no
+        // abort and the session stays open.
+        error.ValueTooDeep => .{ .domain = .session, .abort = null },
         // Host configuration failures happen before an inbound frame is
         // applied. They have no wire meaning and must never emit an abort.
         error.MissingAdvertisedLocator,

@@ -104,7 +104,7 @@ says when it runs. "Refusal proved by" is the test that pins the refusal.
 - Read by: the Syrup decoder under `codec/syrup/`
 - Bounded by: `max_decode_nesting` in `codec/limits.zig`, the frame cap, and `model.max_value_depth` on the argument tree at validation
 - Searched by: `codec/fuzz_test.zig` (the whole-frame decode and the owned materializer), and `zig build goblins-differential` (the same mutated frames fed to a live Goblins vat and to glowcap, for a person to triage)
-- Refusal proved by: `codec/syrup/decode_test.zig` (a collection wider than the element cap), `session/depth_boundary_test.zig`. An inbound deliver nested past `model.max_value_depth` is refused with `NestingTooDeep`. A send-side deliver or fulfill nested past it is refused with the export refcount unchanged, before any export is retained. `codec/whole_frame_test.zig` refuses at `max_decode_nesting` exactly, an empty innermost collection included, and a frame thousands deep fails without touching the stack limit.
+- Refusal proved by: `codec/syrup/decode_test.zig` (a collection wider than the element cap), `session/depth_boundary_test.zig`. An inbound deliver nested past `model.max_value_depth` is refused with `NestingTooDeep`. A send-side deliver or fulfill nested past it is refused as `ValueTooDeep`, a local author's refusal that records no abort, with the export refcount unchanged, before any export is retained. `codec/whole_frame_test.zig` refuses at `max_decode_nesting` exactly, an empty innermost collection included, and a frame thousands deep fails without touching the stack limit.
 
 **A Cap'n Proto frame**
 

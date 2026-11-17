@@ -19,6 +19,7 @@
 
 const std = @import("std");
 const model = @import("mod.zig");
+const TreeError = @import("view_sequence.zig").TreeError;
 
 pub fn cloneMessage(allocator: std.mem.Allocator, message: model.Message) model.view.Error!model.Message {
     return model.view.Body.fromOwned(&message).toOwned(allocator);
@@ -67,8 +68,8 @@ pub fn freeMessage(allocator: std.mem.Allocator, message: model.Message) void {
     }
 }
 
-pub fn cloneArgument(allocator: std.mem.Allocator, argument: model.Argument) model.view.Error!model.Argument {
-    return model.view.Argument.fromOwned(&argument).toOwned(allocator);
+pub fn cloneArgument(allocator: std.mem.Allocator, argument: model.Argument) TreeError!model.Argument {
+    return model.view.Argument.fromOwned(&argument).toTreeDepth(allocator, 0, .copied, .local);
 }
 
 pub fn freeArgument(allocator: std.mem.Allocator, argument: model.Argument) void {
@@ -105,16 +106,21 @@ fn freeStructEntries(allocator: std.mem.Allocator, entries: []const model.Struct
     allocator.free(entries);
 }
 
-pub fn cloneArgumentSlice(allocator: std.mem.Allocator, items: []const model.Argument) model.view.Error![]model.Argument {
-    return model.view.Args.fromOwnedSlice(items).toOwnedSlice(allocator);
+pub fn cloneArgumentSlice(allocator: std.mem.Allocator, items: []const model.Argument) TreeError![]model.Argument {
+    return model.view.Args.fromOwnedSlice(items).toSliceDepth(allocator, 0, .copied, .local);
 }
+
+/// A measure's refusals: a saturated total is `MalformedView`, and a tree
+/// deeper than `model.max_value_depth` is its local author's `ValueTooDeep`.
+/// Receive validation bounds a partner's depth before any measure runs.
+const MeasureError = model.view.ProjectError || error{ValueTooDeep};
 
 /// Requested payload bytes an owned clone of `items` allocates, excluding
 /// allocator metadata and alignment padding. Queue admission uses this before
 /// cloning, so a refused actor message mutates no queue and allocates nothing.
 /// The walk mirrors `cloneArgumentSlice`/`freeArgumentSlice` exhaustively. A new
 /// heap-carrying model arm must state its charge here or fail to compile.
-pub fn measureArgumentSliceOwnedBytes(items: []const model.Argument) model.view.ProjectError!usize {
+pub fn measureArgumentSliceOwnedBytes(items: []const model.Argument) MeasureError!usize {
     var total: usize = 0;
     addProduct(&total, items.len, @sizeOf(model.Argument));
     for (items) |item| try measureArgument(&total, item, 0);
@@ -175,7 +181,7 @@ pub fn measureReferenceOwnedBytes(reference: model.Reference) model.view.Project
 /// metadata and alignment padding.  Engine outbound admission calls this once
 /// when a message enters its staged queue. The charge travels with that queue
 /// row until encoding, so later admission checks never rescan the payload.
-pub fn measureMessageOwnedBytes(message: model.Message) model.view.ProjectError!usize {
+pub fn measureMessageOwnedBytes(message: model.Message) MeasureError!usize {
     var total = try measureMessageEnvelopeBytes(message);
     switch (message) {
         .deliver => |deliver| addBytes(&total, try measureArgumentSliceOwnedBytes(deliver.args)),
@@ -234,26 +240,26 @@ pub fn measureMessageEnvelopeBytes(message: model.Message) model.view.ProjectErr
 /// Requested payload bytes retained by one owned semantic resolution. The
 /// inline union is included so callers can charge a resolution without
 /// manufacturing a wire `op:resolve` message around it.
-pub fn measureResolutionOwnedBytes(resolution: model.Resolution) model.view.ProjectError!usize {
+pub fn measureResolutionOwnedBytes(resolution: model.Resolution) MeasureError!usize {
     var total: usize = @sizeOf(model.Resolution);
     try measureResolution(&total, resolution);
     return settled(total);
 }
 
-fn measureResolution(total: *usize, resolution: model.Resolution) model.view.ProjectError!void {
+fn measureResolution(total: *usize, resolution: model.Resolution) MeasureError!void {
     switch (resolution) {
         .fulfill => |value| try measureArgument(total, value, 0),
         .@"break" => |reason| addBytes(total, reason.message.len),
     }
 }
 
-fn measureArgument(total: *usize, argument: model.Argument, depth: usize) model.view.ProjectError!void {
+fn measureArgument(total: *usize, argument: model.Argument, depth: usize) MeasureError!void {
     addShallowOwnedBytes(total, argument);
     switch (argument) {
         .list, .set => |items| try measureArgumentItems(total, items, depth),
         .tagged => |tagged| try measureArgumentItems(total, tagged.value, depth),
         .@"struct" => |entries| {
-            if (!model.mayHoldItems(depth)) return error.MalformedView;
+            if (!model.mayHoldItems(depth)) return error.ValueTooDeep;
             for (entries) |entry| try measureArgument(total, entry.value, depth + 1);
         },
         else => {},
@@ -302,8 +308,8 @@ pub fn addArgumentSliceOwnedBytes(total: *usize, len: usize) void {
 }
 
 /// The items of the container at `depth`.
-fn measureArgumentItems(total: *usize, items: []const model.Argument, depth: usize) model.view.ProjectError!void {
-    if (!model.mayHoldItems(depth)) return error.MalformedView;
+fn measureArgumentItems(total: *usize, items: []const model.Argument, depth: usize) MeasureError!void {
+    if (!model.mayHoldItems(depth)) return error.ValueTooDeep;
     for (items) |item| try measureArgument(total, item, depth + 1);
 }
 
@@ -394,8 +400,11 @@ pub fn freeResolution(allocator: std.mem.Allocator, resolution: model.Resolution
 /// row). The fire owner keeps `resolution`. The caller settles the return or
 /// frees it. Named for the introducing-session proxy's one-home-listen to N
 /// recipient stores path, not a free-floating fan-out API (see memory.md).
-pub fn materializeResolutionForStore(allocator: std.mem.Allocator, resolution: model.Resolution) model.view.Error!model.Resolution {
-    return model.view.Resolution.fromOwned(&resolution).toOwned(allocator);
+pub fn materializeResolutionForStore(allocator: std.mem.Allocator, resolution: model.Resolution) TreeError!model.Resolution {
+    return switch (model.view.Resolution.fromOwned(&resolution)) {
+        .fulfill => |arg| .{ .fulfill = try arg.toTreeDepth(allocator, 0, .copied, .local) },
+        .@"break" => |err| .{ .@"break" = try err.toOwned(allocator) },
+    };
 }
 
 fn freeBreakReason(allocator: std.mem.Allocator, err: model.BreakReason) void {

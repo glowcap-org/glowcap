@@ -160,11 +160,23 @@ fn fulfillServed(self: *Vat, port: *Port, answer: ?engine.AnswerTarget, value: m
             // Resolve with what it returned, the original
             // value, or a token rewritten to its wire
             // reference.
-            .resolve => |reply| try resolveFulfillView(port, answer, reply),
+            .resolve => |reply| try resolveServedReply(port, answer, reply),
         }
         return;
     };
-    try resolveFulfillView(port, answer, value);
+    try resolveServedReply(port, answer, value);
+}
+
+/// `resolveFulfillView` for a handler's own reply. A reply nested past
+/// `model.max_value_depth` is the handler's `ValueTooDeep`, not a partner's
+/// frame, so it breaks the caller's answer and the session keeps serving.
+/// The turn committed before the reply was read (ADR-0058), so its effects
+/// stand.
+fn resolveServedReply(port: *Port, answer: ?engine.AnswerTarget, reply: model.view.Argument) !void {
+    resolveFulfillView(port, answer, reply) catch |err| switch (err) {
+        error.ValueTooDeep => return resolveBreak(port, answer, engine.Broken.unnamed(@errorName(err))),
+        else => return err,
+    };
 }
 
 /// The fulfilled-arm settle spine shared by `serveResolve` and `settleFar`,
@@ -196,7 +208,7 @@ fn fireFulfilledFar(
 ) !void {
     const arena = vows.beginSettle(self);
     defer vows.endSettle(self);
-    const tree = try value.toTreeDepth(arena, 0, leaves);
+    const tree = try value.toTreeDepth(arena, 0, leaves, .partner);
     std.debug.assert(port.far_listeners.fetchSwapRemove(answer) != null);
     port.peer.session_state.consumeOutboundAnswerNotification(answer);
     listener.func(listener.ctx, .{ .fulfilled = tree });
@@ -321,7 +333,11 @@ pub fn resolveFulfill(port: *Port, answer: ?engine.AnswerTarget, reply: model.Ar
 
 fn resolveFulfillView(port: *Port, answer: ?engine.AnswerTarget, reply: model.view.Argument) !void {
     const ans = answer orelse return;
-    try port.peer.sendAnswerTargetResolutionViewCopying(ans, model.view.Resolution{ .fulfill = reply });
+    // The one copy of the reply onto the answer store's owner, walked as the
+    // handler's own tree. The engine settles the owned resolution on every
+    // outcome.
+    const owned = try reply.toTreeDepth(port.peer.allocator, 0, .copied, .local);
+    try port.peer.settleAnswerOwned(ans, .{ .fulfill = owned });
 }
 
 pub fn resolveBreak(port: *Port, answer: ?engine.AnswerTarget, reason: engine.Broken) !void {
