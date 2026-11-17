@@ -5,6 +5,9 @@ const model = @import("model");
 const syrup = @import("syrup");
 const s = syrup.RecordSyntax;
 const WalkError = syrup.WalkError;
+/// What the value writer refuses: the walk's errors, and a caller's tree past
+/// `model.max_value_depth`, which is `ValueTooDeep` and writes nothing.
+const WriteError = WalkError || error{ValueTooDeep};
 
 pub const ValueRecord = struct {
     pub const max_bytes = 32 * 1024;
@@ -16,8 +19,8 @@ pub const ValueRecord = struct {
     }
 
     /// The depth of the items of a container the writer visits at `depth`.
-    inline fn writeItemsDepth(depth: usize) WalkError!usize {
-        if (!model.mayHoldItems(depth)) return error.UnsupportedArgument;
+    inline fn writeItemsDepth(depth: usize) error{ValueTooDeep}!usize {
+        if (!model.mayHoldItems(depth)) return error.ValueTooDeep;
         return depth + 1;
     }
 
@@ -65,9 +68,9 @@ pub const ValueRecord = struct {
         return bytes;
     }
 
-    fn write(sink: anytype, value: anytype, context: anytype, depth: usize) WalkError!void {
+    fn write(sink: anytype, value: anytype, context: anytype, depth: usize) WriteError!void {
         // A value nested past what `read` accepts is one the codec cannot
-        // encode, the same refusal the walk gives invalid text.
+        // encode, so the write refuses it as `ValueTooDeep`.
         if (comptime @hasField(@TypeOf(value), "integers")) {
             // A run of integers is stored as the list it means (ADR-0064),
             // so the durable form has one shape and reads back as a list.
@@ -120,7 +123,7 @@ pub const ValueRecord = struct {
         try s.writeBytes(sink, &bytes);
     }
 
-    fn writeIntegerList(sink: anytype, words: []const i64, depth: usize) WalkError!void {
+    fn writeIntegerList(sink: anytype, words: []const i64, depth: usize) WriteError!void {
         _ = try writeItemsDepth(depth);
         try writeHeader(sink, "list");
         try s.writePositiveInt(sink, words.len);
@@ -245,7 +248,7 @@ pub fn encodeEnvelope(allocator: std.mem.Allocator, head: anytype, args: anytype
     return bytes;
 }
 
-fn writeEnvelope(sink: anytype, head: anytype, args: anytype, context: anytype) WalkError!void {
+fn writeEnvelope(sink: anytype, head: anytype, args: anytype, context: anytype) WriteError!void {
     try ValueRecord.writeHeader(sink, "list");
     try s.writePositiveInt(sink, head.len + args.len);
     for (head) |item| try ValueRecord.write(sink, item, context, 0);

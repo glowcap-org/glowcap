@@ -41,8 +41,11 @@ pub const Error = error{
     NoSuchVow,
     /// A resolver id was never minted by this Vat.
     NoSuchResolver,
-    /// A local value tree exceeded the model depth/shape contract.
+    /// A local value tree broke the model shape contract.
     MalformedView,
+    /// A local value tree nested deeper than `model.max_value_depth`. The
+    /// call is refused before any effect.
+    ValueTooDeep,
     /// Ingress admission exceeded its turn, byte, or chunk limit.
     ResourceExhausted,
     /// Resolver settlement is a top-level event, never part of an actor turn.

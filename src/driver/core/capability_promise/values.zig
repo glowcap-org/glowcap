@@ -17,7 +17,7 @@ const Host = host_mod.Host;
 
 /// Everything the clone walk can refuse. The walk is recursive, so its set is
 /// spelled from the non-recursive steps it takes.
-pub const CloneError = error{ NestingTooDeep, UnknownCapability } ||
+pub const CloneError = error{ ValueTooDeep, UnknownCapability } ||
     std.mem.Allocator.Error ||
     foundation.error_sets.Of(capability.Registry.retain);
 
@@ -53,7 +53,7 @@ fn cloneValuesAt(
     retained: *std.ArrayList(capability.Ref),
     depth: usize,
 ) CloneError![]value_mod.Value {
-    if (!model.mayHoldItems(depth)) return error.NestingTooDeep;
+    if (!model.mayHoldItems(depth)) return error.ValueTooDeep;
     return cloneSlice(admit_settled, self, allocator, values, retained, depth + 1);
 }
 
@@ -100,7 +100,7 @@ fn cloneValue(
         .string => |string| .{ .string = try allocator.dupe(u8, string) },
         .integer => |integer| .{ .integer = integer },
         .integers => |words| blk: {
-            if (!model.mayHoldItems(depth)) return error.NestingTooDeep;
+            if (!model.mayHoldItems(depth)) return error.ValueTooDeep;
             break :blk .{ .integers = try allocator.dupe(i64, words) };
         },
         .boolean => |boolean| .{ .boolean = boolean },
@@ -118,7 +118,7 @@ fn cloneValue(
             .digits = try allocator.dupe(u8, big.digits),
         } },
         .@"struct" => |entries| blk: {
-            if (!model.mayHoldItems(depth)) return error.NestingTooDeep;
+            if (!model.mayHoldItems(depth)) return error.ValueTooDeep;
             const out = try allocator.alloc(value_mod.Value.StructEntry, entries.len);
             for (entries, 0..) |entry, index| out[index] = .{
                 .key = try allocator.dupe(u8, entry.key),
@@ -144,17 +144,17 @@ fn settledDataFits(self: *Host, data: *const value_mod.Value, depth: usize) Clon
             const inner = capability_promise.settledData(self, target.deferred) orelse return;
             try settledDataFits(self, inner, depth);
         },
-        .integers => if (!model.mayHoldItems(depth)) return error.NestingTooDeep,
+        .integers => if (!model.mayHoldItems(depth)) return error.ValueTooDeep,
         .list, .set => |items| {
-            if (!model.mayHoldItems(depth)) return error.NestingTooDeep;
+            if (!model.mayHoldItems(depth)) return error.ValueTooDeep;
             for (items) |*item| try settledDataFits(self, item, depth + 1);
         },
         .tagged => |tagged| {
-            if (!model.mayHoldItems(depth)) return error.NestingTooDeep;
+            if (!model.mayHoldItems(depth)) return error.ValueTooDeep;
             for (tagged.value) |*item| try settledDataFits(self, item, depth + 1);
         },
         .@"struct" => |entries| {
-            if (!model.mayHoldItems(depth)) return error.NestingTooDeep;
+            if (!model.mayHoldItems(depth)) return error.ValueTooDeep;
             for (entries) |*entry| try settledDataFits(self, &entry.value, depth + 1);
         },
         .bytes, .symbol, .@"error", .string, .integer, .boolean, .void, .float64, .keyword, .big_integer => {},

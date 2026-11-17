@@ -318,10 +318,17 @@ pub fn ReferenceError(comptime T: type) type {
 }
 
 /// The depth of the items of a container at `depth`, or `NestingTooDeep` when
-/// `model.mayHoldItems` refuses them. Every session walk over a value tree
+/// `model.mayHoldItems` refuses them. Every walk over a partner's value tree
 /// takes this step at each container, empty or not.
 pub inline fn itemsDepth(depth: usize) error{NestingTooDeep}!usize {
     if (!model.mayHoldItems(depth)) return error.NestingTooDeep;
+    return depth + 1;
+}
+
+/// `itemsDepth` for a walk over a local author's value: the same step, with
+/// the author's refusal `ValueTooDeep`.
+pub inline fn sentItemsDepth(depth: usize) error{ValueTooDeep}!usize {
+    if (!model.mayHoldItems(depth)) return error.ValueTooDeep;
     return depth + 1;
 }
 

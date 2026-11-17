@@ -55,6 +55,10 @@ pub const ProjectError = error{MalformedView};
 /// allocation failure while building the owned tree.
 pub const Error = ProjectError || std.mem.Allocator.Error;
 
+const Author = sequence.Author;
+const TreeError = sequence.TreeError;
+const TreeResult = sequence.TreeResult;
+
 /// A word of an integer run is one `integer` argument.
 const IntegerRun = struct {
     pub const Elem = i64;
@@ -102,10 +106,10 @@ pub const StructEntry = struct {
 
     /// The entry's owned form at `depth`, its key and its value's byte leaves
     /// treated as `leaves` says.
-    pub fn toTreeDepth(self: *const StructEntry, allocator: std.mem.Allocator, depth: usize, comptime leaves: Leaves) Error!model.StructEntry {
+    pub fn toTreeDepth(self: *const StructEntry, allocator: std.mem.Allocator, depth: usize, comptime leaves: Leaves, comptime author: Author) TreeResult(author)!model.StructEntry {
         const key = try leaf(allocator, self.key, leaves);
         errdefer if (leaves == .copied) allocator.free(key);
-        return .{ .key = key, .value = try self.value.toTreeDepth(allocator, depth, leaves) };
+        return .{ .key = key, .value = try self.value.toTreeDepth(allocator, depth, leaves, author) };
     }
 };
 
@@ -291,10 +295,13 @@ pub const Reference = union(enum) {
     }
 };
 
-/// The depth of the items of a container at `depth`, or `MalformedView` when
-/// the ceiling forbids them.
-inline fn itemsDepth(depth: usize) ProjectError!usize {
-    if (!model.mayHoldItems(depth)) return error.MalformedView;
+/// The depth of the items of a container at `depth`, or the refusal `author`
+/// names when the ceiling forbids them (`Author`).
+inline fn itemsDepth(comptime author: Author, depth: usize) TreeResult(author)!usize {
+    if (!model.mayHoldItems(depth)) return switch (author) {
+        .partner => error.MalformedView,
+        .local => error.ValueTooDeep,
+    };
     return depth + 1;
 }
 
@@ -347,7 +354,7 @@ pub const Argument = union(enum) {
     }
 
     pub fn toOwned(self: *const Argument, allocator: std.mem.Allocator) Error!model.Argument {
-        return self.toTreeDepth(allocator, 0, .copied);
+        return self.toTreeDepth(allocator, 0, .copied, .partner);
     }
 
     /// Whether this tree names an answer position, the borrowed twin of
@@ -371,7 +378,7 @@ pub const Argument = union(enum) {
     /// are duplicates or the view's own slices (`Leaves`). A reference or a
     /// handoff takes its owned conversion in both modes, bytes included, so a
     /// lent tree's allocator is an arena that reclaims them with the spines.
-    pub fn toTreeDepth(self: *const Argument, allocator: std.mem.Allocator, depth: usize, comptime leaves: Leaves) Error!model.Argument {
+    pub fn toTreeDepth(self: *const Argument, allocator: std.mem.Allocator, depth: usize, comptime leaves: Leaves, comptime author: Author) TreeResult(author)!model.Argument {
         return switch (self.*) {
             .bytes => |bytes| .{ .bytes = try leaf(allocator, bytes, leaves) },
             .symbol => |symbol| .{ .symbol = try leaf(allocator, symbol, leaves) },
@@ -386,18 +393,18 @@ pub const Argument = union(enum) {
             .string => |string| .{ .string = try leaf(allocator, string, leaves) },
             .integer => |integer| .{ .integer = integer },
             .boolean => |boolean| .{ .boolean = boolean },
-            .list => |items| .{ .list = try items.toSliceDepth(allocator, try itemsDepth(depth), leaves) },
+            .list => |items| .{ .list = try items.toSliceDepth(allocator, try itemsDepth(author, depth), leaves, author) },
             .void => .{ .void = {} },
             .float64 => |float64| .{ .float64 = float64 },
-            .set => |items| .{ .set = try items.toSliceDepth(allocator, try itemsDepth(depth), leaves) },
+            .set => |items| .{ .set = try items.toSliceDepth(allocator, try itemsDepth(author, depth), leaves, author) },
             .tagged => |tagged| blk: {
                 const tag = try leaf(allocator, tagged.tag, leaves);
                 errdefer if (leaves == .copied) allocator.free(tag);
-                const value = try tagged.value.toSliceDepth(allocator, try itemsDepth(depth), leaves);
+                const value = try tagged.value.toSliceDepth(allocator, try itemsDepth(author, depth), leaves, author);
                 break :blk .{ .tagged = .{ .tag = tag, .value = value } };
             },
             .keyword => |keyword| .{ .keyword = try leaf(allocator, keyword, leaves) },
-            .@"struct" => |entries| .{ .@"struct" = try entries.toSliceDepth(allocator, try itemsDepth(depth), leaves) },
+            .@"struct" => |entries| .{ .@"struct" = try entries.toSliceDepth(allocator, try itemsDepth(author, depth), leaves, author) },
             .big_integer => |big| .{ .big_integer = .{
                 .negative = big.negative,
                 .digits = try leaf(allocator, big.digits, leaves),

@@ -91,9 +91,9 @@ fn Walk(comptime Meter: type) type {
                 // caller that vouched for a tree it did not scan, refused before
                 // any authority is touched.
                 .reference, .handoff => return error.MalformedMessage,
-                .list => |list| try self.items(list, try passable.itemsDepth(depth)),
+                .list => |list| try self.items(list, try passable.sentItemsDepth(depth)),
                 .set => |set| {
-                    try self.items(set, try passable.itemsDepth(depth));
+                    try self.items(set, try passable.sentItemsDepth(depth));
                     // A duplicate refuses here, pre-commit, as the owned path's
                     // fold does after shortening (`passable.certifySent`).
                     // Nothing in freight is shortened, so the fold runs on the
@@ -103,10 +103,10 @@ fn Walk(comptime Meter: type) type {
                 },
                 .tagged => |tagged| {
                     self.bytes +|= tagged.tag.len;
-                    try self.items(tagged.value, try passable.itemsDepth(depth));
+                    try self.items(tagged.value, try passable.sentItemsDepth(depth));
                 },
                 .@"struct" => |entries| {
-                    const items_depth = try passable.itemsDepth(depth);
+                    const items_depth = try passable.sentItemsDepth(depth);
                     const count = try entries.len();
                     var visited: usize = 0;
                     var it = entries.iterator();

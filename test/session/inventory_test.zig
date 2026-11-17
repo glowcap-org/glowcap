@@ -75,8 +75,8 @@ test "an inventory refuses nesting past the ceiling, an empty container included
     const fits_inventory = try s.inventoryArguments(fits, NoMeter);
     defer fits_inventory.deinit(std.testing.allocator);
     const deeper = try shapes.ownedArgs(arena.allocator(), model.max_value_depth, .empty_list);
-    try std.testing.expectError(session.Error.NestingTooDeep, s.inventoryArguments(deeper, NoMeter));
-    try std.testing.expectError(session.Error.NestingTooDeep, s.inventoryResolution(.{ .fulfill = deeper[0] }, NoMeter));
+    try std.testing.expectError(session.Error.ValueTooDeep, s.inventoryArguments(deeper, NoMeter));
+    try std.testing.expectError(session.Error.ValueTooDeep, s.inventoryResolution(.{ .fulfill = deeper[0] }, NoMeter));
 }
 
 test "an inventory refuses a duplicate struct key" {

@@ -91,6 +91,11 @@ pub const Error = error{
     /// is bounded so a deeply nested frame fails loud instead of
     /// overflowing the call stack. Projects to `resource_exhausted`.
     NestingTooDeep,
+    /// A local author's argument tree nested deeper than
+    /// `model.max_value_depth`. The call is refused before any effect, so the
+    /// session stays open: the partner sent nothing wrong. A partner's value
+    /// that deep is `NestingTooDeep`.
+    ValueTooDeep,
     /// One inbound message asked for more equality-comparison work than
     /// `SessionLimits.max_compare_visits` allows. Comparing two sets is
     /// comparing two multisets, so a pair of equal-hashed wide sets costs on

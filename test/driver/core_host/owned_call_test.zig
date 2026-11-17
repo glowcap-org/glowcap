@@ -554,3 +554,10 @@ test "core host: an operation released inside a callback retires at that callbac
     try std.testing.expect(client.deferred_releases == null);
     try std.testing.expectEqual(@as(usize, 0), client.pendingVowCount());
 }
+
+test "an over-deep reply is a permanent refusal and heap pressure is retryable" {
+    // The Loam drive loop rejects the vow on a permanent refusal and retries
+    // the rest, so a reply a local author nested too deep must not loop.
+    try std.testing.expect(driver.Host.Call.replyRefusalIsPermanent(error.ValueTooDeep));
+    try std.testing.expect(!driver.Host.Call.replyRefusalIsPermanent(error.OutOfMemory));
+}

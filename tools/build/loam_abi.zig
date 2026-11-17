@@ -65,6 +65,7 @@ pub fn register(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.l
     test_mod.addImport("c_abi_host", host);
     test_mod.addImport("loam_engine_temp", b.createModule(.{ .root_source_file = b.path("test/loam/engines/temp.zig"), .target = target, .optimize = optimize }));
     test_mod.addImport("c_abi_shared", layers[root.layerIndex("c_abi_shared")]);
+    test_mod.addImport("model", layers[root.layerIndex("model")]);
     const suite = b.addTest(.{ .root_module = test_mod });
     const run = execution.addZigTest(b, suite, .unit_test);
     const step = b.step("loam-abi-test", "Check Loam C ownership and atomic resource creation through atomic storage");

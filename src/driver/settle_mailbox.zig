@@ -18,8 +18,9 @@
 //! Each entry's payload clones into its slot's fixed storage. A full mailbox
 //! refuses `MailboxFull` and an oversized value refuses `ValueTooLarge`
 //! instead of blocking the loop or growing without bound. Off-thread settles
-//! carry plain data only (`NotPlainData` otherwise): a capability never
-//! crosses threads.
+//! carry plain data only: a value holding authority refuses `NotPlainData`
+//! and one nested past `model.max_value_depth` refuses `ValueTooDeep`, so a
+//! capability never crosses threads.
 
 const std = @import("std");
 const model = @import("model");
@@ -45,6 +46,8 @@ pub const PostError = error{
     /// crosses threads. An answer that carries it settles on the owning
     /// thread, or forwards to a send.
     NotPlainData,
+    /// The value nests past `model.max_value_depth`. Nothing was posted.
+    ValueTooDeep,
     /// The settle was not committed because the owner could not be woken.
     /// The mailbox is unusable until its runtime is repaired or closed.
     WakeNudgeFailed,
@@ -133,7 +136,7 @@ pub const SettleMailbox = struct {
     /// a `PostError` and consumes nothing.
     pub fn post(self: *SettleMailbox, io: Io, resolver_id: u64, resolution: Resolution) PostError!void {
         try self.wake_failure.check();
-        if (resolution == .fulfilled and !model.argumentIsPlainData(&resolution.fulfilled)) {
+        if (resolution == .fulfilled and !try model.argumentIsPlainData(&resolution.fulfilled)) {
             return PostError.NotPlainData;
         }
         self.lock.lockUncancelable(io);

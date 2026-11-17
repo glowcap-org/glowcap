@@ -114,13 +114,17 @@ pub fn sinkCounts(comptime SinkPtr: type) bool {
     return @typeInfo(SinkPtr).pointer.child.counting;
 }
 
+/// Every render here returns the writer's own errors with the sink's, so a
+/// writer that refuses a local author's value (`ValueTooDeep`) passes it on
+/// unchanged.
+///
 /// Render one record with one exact allocation. `writeFn` receives the sink as
 /// its first argument and `args` supplies the remainder.
 pub fn renderRecordExact(
     allocator: std.mem.Allocator,
     comptime writeFn: anytype,
     args: anytype,
-) WalkError![]u8 {
+) ![]u8 {
     const storage = try allocator.alloc(u8, try measureRecord(writeFn, args));
     errdefer allocator.free(storage);
     try renderRecordInto(storage, writeFn, args);
@@ -137,7 +141,7 @@ pub fn renderRecordExactSized(
     values: usize,
     comptime writeFn: anytype,
     args: anytype,
-) WalkError![]u8 {
+) ![]u8 {
     var count: CountSink = .{ .known_values = values };
     try @call(.auto, writeFn, .{&count} ++ args);
     if (!count.took_values and values != 0) return error.EncoderInvariantViolation;
@@ -149,7 +153,7 @@ pub fn renderRecordExactSized(
 
 /// Measure without allocating, so a caller can enforce a storage budget before
 /// obtaining a buffer. The same writer must supply the subsequent fill pass.
-pub fn measureRecord(comptime writeFn: anytype, args: anytype) WalkError!usize {
+pub fn measureRecord(comptime writeFn: anytype, args: anytype) !usize {
     var count: CountSink = .{};
     try @call(.auto, writeFn, .{&count} ++ args);
     return count.total;
@@ -157,7 +161,7 @@ pub fn measureRecord(comptime writeFn: anytype, args: anytype) WalkError!usize {
 
 /// Fill the exact measured buffer. The caller owns the buffer on every outcome.
 /// Failed or incomplete output must not be published.
-pub fn renderRecordInto(storage: []u8, comptime writeFn: anytype, args: anytype) WalkError!void {
+pub fn renderRecordInto(storage: []u8, comptime writeFn: anytype, args: anytype) !void {
     var fill: SliceSink = .{ .buf = storage };
     try @call(.auto, writeFn, .{&fill} ++ args);
     if (fill.cursor != storage.len) return error.EncoderInvariantViolation;

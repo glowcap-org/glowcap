@@ -74,7 +74,11 @@ test "a C far send admits a leaf at the ceiling and refuses every container ther
                 try h.expectOk(h.takeOutbound(rig.pair.a, &frame));
                 c.glowcap_managed_frame_release(&frame);
             } else {
-                try std.testing.expectEqual(@as(c_int, c.GLOWCAP_ERR_UNSUPPORTED_VALUE), code);
+                try std.testing.expectEqual(@as(c_int, c.GLOWCAP_ERR_INVALID_ARGUMENT), code);
+                // The code is coarse, so the cause is the last error's.
+                var message: [64]u8 = undefined;
+                const length = c.glowcap_last_error(&message, message.len);
+                try std.testing.expectEqualStrings("host: ValueTooDeep", message[0..length]);
                 try std.testing.expectEqual(@as(u64, std.math.maxInt(u64)), vow);
                 try expectNoOutbound(rig.pair.a);
             }
@@ -175,7 +179,7 @@ test "a C send to a pending promise admits a leaf at the ceiling and refuses eve
                 try h.expectOk(code);
                 try std.testing.expect(second != std.math.maxInt(u64));
             } else {
-                try std.testing.expectEqual(@as(c_int, c.GLOWCAP_ERR_UNSUPPORTED_VALUE), code);
+                try std.testing.expectEqual(@as(c_int, c.GLOWCAP_ERR_INVALID_ARGUMENT), code);
                 try std.testing.expectEqual(@as(u64, std.math.maxInt(u64)), second);
             }
             // Let `make` resolve to the tap. An admitted second send reaches it

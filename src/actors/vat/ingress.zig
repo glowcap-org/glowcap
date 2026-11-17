@@ -405,7 +405,10 @@ fn enqueue(self: *Vat, ingress: IngressId, port: ?*Port, id: u64, msg: Queued, a
     const vow = try vat_mod.peekId(self.vow_ids);
     const payload_bytes = switch (msg) {
         .message => |message| bytes: {
-            const args = model.measureArgumentSliceOwnedBytes(message.args) catch return error.MalformedView;
+            const args = model.measureArgumentSliceOwnedBytes(message.args) catch |err| return switch (err) {
+                error.MalformedView => error.MalformedView,
+                error.ValueTooDeep => error.ValueTooDeep,
+            };
             break :bytes std.math.add(usize, (if (message.verb) |method| method.len else 0), args) catch return error.ResourceExhausted;
         },
         .owned => |body| body.owned_bytes,

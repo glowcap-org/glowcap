@@ -5,6 +5,7 @@ const n = @import("c_abi_loam_lmdb");
 const h = @import("c_abi_host");
 const shared = @import("c_abi_shared");
 const driver = @import("driver_core");
+const model = @import("model");
 
 pub const methods = [_]c.GlowcapLoamMethod{
     .{ .verb = "get", .verb_len = 3, .retry = 0 },
@@ -330,4 +331,32 @@ fn executionRefusals(owner: *c.embedding.Attachment, backend: *n.GlowcapLoamLmdb
         try std.testing.expectEqual(@as(usize, 1), owner.effect_observers);
         try std.testing.expectEqual(@as(usize, 1), owner.value.continuations);
     }
+    try depthRefusal(owner, backend, continuation, probe);
+}
+
+/// A caller's argument nested past `model.max_value_depth` is refused at the
+/// C marshal: an invalid argument whose last error names the depth, with no
+/// execution created and nothing run.
+fn depthRefusal(owner: *c.embedding.Attachment, backend: *n.GlowcapLoamLmdb, continuation: *c.GlowcapLoamContinuation, probe: *Probe) !void {
+    var chain: [model.max_value_depth + 2]shared.GlowcapArgument = undefined;
+    chain[chain.len - 1] = shared.zero_argument;
+    var level = chain.len - 1;
+    while (level != 0) {
+        level -= 1;
+        chain[level] = shared.zero_argument;
+        chain[level].kind = shared.GLOWCAP_ARG_LIST;
+        chain[level].items = @ptrCast(&chain[level + 1]);
+        chain[level].items_len = 1;
+    }
+    var execution: ?*c.GlowcapLoamEffectExecution = undefined;
+    try std.testing.expectEqual(shared.GLOWCAP_ERR_INVALID_ARGUMENT, c.glowcap_loam_continuation_execute_copying(continuation, 0, "get", 3, &chain, 1, 4096, &execution));
+    try std.testing.expect(execution == null);
+    var message: [64]u8 = undefined;
+    const length = shared.lastErrorRead(&message, message.len);
+    try std.testing.expectEqualStrings("loam: ValueTooDeep", message[0..length]);
+    var lose_ack = false;
+    try progress(owner, backend, &lose_ack);
+    try std.testing.expectEqual(@as(usize, 0), probe.target_count);
+    try std.testing.expectEqual(@as(usize, 1), owner.effect_observers);
+    try std.testing.expectEqual(@as(usize, 1), owner.value.continuations);
 }

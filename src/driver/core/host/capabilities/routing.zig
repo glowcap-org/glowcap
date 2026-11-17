@@ -14,7 +14,7 @@ const host_mod = @import("../../host.zig");
 const capability = @import("../../capability.zig");
 const capability_promise = @import("../../capability_promise.zig");
 const vocab = @import("../../vocab.zig");
-const itemsDepth = @import("depth.zig").itemsDepth;
+const itemsDepth = @import("../../value.zig").itemsDepth;
 
 const Host = host_mod.Host;
 const HostSession = host_mod.HostSession;
@@ -119,7 +119,7 @@ pub fn validateRoutedArguments(
     self: *Host,
     session: *HostSession,
     args: []const model.Argument,
-) error{ ForeignArgument, NestingTooDeep }!void {
+) error{ ForeignArgument, ValueTooDeep }!void {
     for (args) |argument| {
         if (try argumentIsForeign(self, session.peer_handle, argument, 0))
             return error.ForeignArgument;
@@ -195,7 +195,7 @@ fn argumentIsForeign(
     peer_handle: engine.PeerHandle,
     argument: model.Argument,
     depth: usize,
-) error{NestingTooDeep}!bool {
+) error{ValueTooDeep}!bool {
     return switch (argument) {
         .reference => |ref| self.node.argIsForeign(peer_handle, ref),
         .list, .set => |items| try anyForeign(self, peer_handle, items, try itemsDepth(depth)),
@@ -216,7 +216,7 @@ fn anyForeign(
     peer_handle: engine.PeerHandle,
     items: []const model.Argument,
     depth: usize,
-) error{NestingTooDeep}!bool {
+) error{ValueTooDeep}!bool {
     for (items) |item| if (try argumentIsForeign(self, peer_handle, item, depth)) return true;
     return false;
 }

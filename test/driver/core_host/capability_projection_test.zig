@@ -110,7 +110,7 @@ test "Host direct lower and lift admit exactly the model depth limit" {
     );
     var value_over: [model.max_value_depth + 2][1]core.Value = undefined;
     try std.testing.expectError(
-        error.NestingTooDeep,
+        error.ValueTooDeep,
         host.lowerValue(
             session,
             arena.allocator(),
@@ -142,8 +142,8 @@ test "Host direct lower and lift admit exactly the model depth limit" {
     }) |leaf| {
         _ = nestedValue(&value_exact, model.max_value_depth);
         value_exact[model.max_value_depth][0] = leaf;
-        try std.testing.expectError(error.NestingTooDeep, host.lowerValue(session, arena.allocator(), value_exact[0][0]));
-        try std.testing.expectError(error.NestingTooDeep, host.retainValueCapabilities(arena.allocator(), &value_exact[0]));
+        try std.testing.expectError(error.ValueTooDeep, host.lowerValue(session, arena.allocator(), value_exact[0][0]));
+        try std.testing.expectError(error.ValueTooDeep, host.retainValueCapabilities(arena.allocator(), &value_exact[0]));
         _ = nestedValue(&value_exact, model.max_value_depth - 1);
         value_exact[model.max_value_depth - 1][0] = leaf;
         _ = try host.lowerValue(session, arena.allocator(), value_exact[0][0]);
@@ -185,7 +185,7 @@ test "overdeep lower rolls back preceding Port and Node projections" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     try std.testing.expectError(
-        error.NestingTooDeep,
+        error.ValueTooDeep,
         host.lowerValues(destination, arena.allocator(), &values),
     );
 
@@ -420,7 +420,7 @@ test "unresolved-promise clone rejects overdepth without retain or queue mutatio
     defer call_arena.deinit();
 
     try std.testing.expectError(
-        error.NestingTooDeep,
+        error.ValueTooDeep,
         host.queueSendValues(session, promise, "poke", &values, call_arena.allocator()),
     );
     try std.testing.expectEqual(retains_before, host.capabilities.retainCount(argument).?);
@@ -433,7 +433,7 @@ test "unresolved-promise clone rejects overdepth without retain or queue mutatio
     }) |leaf| {
         _ = nestedValue(&over_backing, model.max_value_depth);
         over_backing[model.max_value_depth][0] = leaf;
-        try std.testing.expectError(error.NestingTooDeep, host.queueSendValues(
+        try std.testing.expectError(error.ValueTooDeep, host.queueSendValues(
             session,
             promise,
             "poke",

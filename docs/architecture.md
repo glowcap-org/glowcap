@@ -281,9 +281,16 @@ same state, and an application's release can never spend a retain the session
 still needs
 ([ADR-0027](decisions/adr/ADR-0027-wire-retains-and-export-admission.md)).
 
-`model.max_value_depth` limits recursive values on every path. Session state also
-decides which messages are legal while negotiating, open, or closed, and an
-invalid transition is refused before it can mutate a table.
+`model.max_value_depth` limits recursive values on every path. A partner's
+frame past it is `NestingTooDeep` and ends the session. A local send, queued
+admission, settle, C marshal, or Loam write refuses it with `ValueTooDeep`
+before admission. A handler result past it that fails conversion before its
+turn commits (the C marshal and Host capability lowering) retracts the turn's
+provisional sends. A served turn that already committed keeps its effects and
+breaks only its answer. Neither ends the session.
+
+Session state also decides which messages are legal while negotiating, open,
+or closed, and an invalid transition is refused before it can mutate a table.
 
 ## Frame ownership and copies
 

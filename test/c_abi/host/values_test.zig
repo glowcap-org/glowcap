@@ -61,8 +61,8 @@ test "C marshal admits a leaf at the ceiling and refuses every container there, 
                     _ = try plain;
                     _ = try host_value;
                 } else {
-                    try std.testing.expectError(error.UnsupportedValue, plain);
-                    try std.testing.expectError(error.UnsupportedValue, host_value);
+                    try std.testing.expectError(error.ValueTooDeep, plain);
+                    try std.testing.expectError(error.ValueTooDeep, host_value);
                 }
             }
         }

@@ -186,7 +186,14 @@ when the sender's session ends, even when the message remains.
 - **Values nest at most <!-- value ../src/ocapn/model/mod.zig max_value_depth -->64<!-- /value --> deep on every path.**
   A leaf may sit at that depth and any container there, an empty one included,
   is refused. The session, the Host, the C ABI, and Loam share the count, and a
-  send past it is refused at the call.
+  send past it is refused at the call. A local send, queued admission, settle,
+  C marshal, or Loam write refuses an over-deep value with `ValueTooDeep`
+  (`GLOWCAP_ERR_INVALID_ARGUMENT` over C) before admission, and the session
+  stays open. A handler result that fails conversion before its turn commits
+  (the C marshal and Host capability lowering) retracts the turn's provisional
+  sends. A served turn that already committed keeps its effects and breaks only
+  its answer with `ValueTooDeep`, and the session stays open. A partner's
+  over-deep frame is `NestingTooDeep` and ends that session.
 - **Profiles and negotiated features constrain routing.** Only the Node selects
   a route bundle. A physical-session open refuses one, and a give falls back to
   a single claimed location unless both sessions negotiated multi-location

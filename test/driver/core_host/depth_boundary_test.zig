@@ -48,8 +48,8 @@ test "lowering for a far send and retaining for a held send follow the session's
         defer partner.deinit();
         const session = try openHost(&host, &partner);
         const values = try shapes.valueArgs(arena.allocator(), depth, shape);
-        try expectDepth(shape, depth, host.lowerValues(session, arena.allocator(), values), error.NestingTooDeep);
-        try expectDepth(shape, depth, host.retainValueCapabilities(arena.allocator(), values), error.NestingTooDeep);
+        try expectDepth(shape, depth, host.lowerValues(session, arena.allocator(), values), error.ValueTooDeep);
+        try expectDepth(shape, depth, host.retainValueCapabilities(arena.allocator(), values), error.ValueTooDeep);
     };
 }
 
@@ -98,7 +98,7 @@ test "a send to a far target refuses at the call, with or without a capability b
         } else chain;
         const pending = session.pendingOperations();
         const result = host.sendValues(session, target, "poke", values, arena.allocator());
-        try expectDepth(shape, depth, result, error.NestingTooDeep);
+        try expectDepth(shape, depth, result, error.ValueTooDeep);
         if (!shapes.admitted(shape, depth)) try std.testing.expectEqual(pending, session.pendingOperations());
     };
 }
@@ -130,7 +130,7 @@ test "a send to an unsettled promise refuses at the call for every shape and que
         const queued_before = host.capability_promises.get(promise_id).?.operations.items.len;
         const values = try shapes.valueArgs(arena.allocator(), depth, shape);
         const result = host.queueSendValues(session, promise, "poke", values, arena.allocator());
-        try expectDepth(shape, depth, result, error.NestingTooDeep);
+        try expectDepth(shape, depth, result, error.ValueTooDeep);
         const queued_after = host.capability_promises.get(promise_id).?.operations.items.len;
         try std.testing.expectEqual(queued_before + @intFromBool(shapes.admitted(shape, depth)), queued_after);
     };
@@ -157,7 +157,7 @@ test "a settled promise stands for its data at the depth the promise sits" {
         for (0..depth) |_| cursor = @constCast(&cursor.list[0]);
         cursor.* = .{ .capability = promise };
         const lowered = host.lowerValues(session, arena.allocator(), values);
-        if (depth <= model.max_value_depth) _ = try lowered else try std.testing.expectError(error.NestingTooDeep, lowered);
+        if (depth <= model.max_value_depth) _ = try lowered else try std.testing.expectError(error.ValueTooDeep, lowered);
     }
 }
 
@@ -206,9 +206,9 @@ test "a send that holds a settled promise refuses at the call when the promise's
             // What the queue accepted lowers later at the same depth.
             _ = try host.lowerValues(session, arena.allocator(), values);
         } else {
-            try std.testing.expectError(error.NestingTooDeep, result);
+            try std.testing.expectError(error.ValueTooDeep, result);
             try std.testing.expectEqual(queued_before, queued_after);
-            try std.testing.expectError(error.NestingTooDeep, host.lowerValues(session, arena.allocator(), values));
+            try std.testing.expectError(error.ValueTooDeep, host.lowerValues(session, arena.allocator(), values));
         }
     };
 }

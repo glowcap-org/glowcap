@@ -23,7 +23,7 @@ test "loam integer runs obey the durable list depth boundary" {
     var tree: [Codec.max_depth + 1]Value = undefined;
     for (tree[0..Codec.max_depth], 0..) |*item, i| item.* = .{ .list = tree[i + 1 ..][0..1] };
     tree[Codec.max_depth] = .{ .integers = &.{std.math.minInt(i64)} };
-    try std.testing.expectError(error.UnsupportedArgument, Codec.encode(a, tree[0], &context));
+    try std.testing.expectError(error.ValueTooDeep, Codec.encode(a, tree[0], &context));
     // One fewer wrapper admits the integer children and round-trips as lists.
     const bytes = try Codec.encode(a, tree[1], &context);
     defer a.free(bytes);
@@ -35,7 +35,7 @@ test "loam integer runs obey the durable list depth boundary" {
     // An empty run at the ceiling is refused like any container there, and one
     // level up it round-trips.
     tree[Codec.max_depth] = .{ .integers = &.{} };
-    try std.testing.expectError(error.UnsupportedArgument, Codec.encode(a, tree[0], &context));
+    try std.testing.expectError(error.ValueTooDeep, Codec.encode(a, tree[0], &context));
     const empty = try Codec.encode(a, tree[1], &context);
     defer a.free(empty);
     const empty_decoded = try Codec.decode(Value, a, empty, &context);
@@ -54,7 +54,7 @@ test "a mutation intent envelope counts each argument from depth zero, so a part
     defer a.free(admitted);
     try std.testing.expect(admitted.len > 0);
     // One wrapper more puts the leaf past the ceiling and the writer refuses it.
-    try std.testing.expectError(error.UnsupportedArgument, internal.encodeEnvelope(a, &head, tree[0..1], &context));
+    try std.testing.expectError(error.ValueTooDeep, internal.encodeEnvelope(a, &head, tree[0..1], &context));
 }
 
 test "loam mutation receipt value decoding releases nested allocations on truncation and allocation failure" {

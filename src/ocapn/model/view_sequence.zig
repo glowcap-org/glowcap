@@ -24,6 +24,27 @@ const Error = view.Error;
 /// spines, and a reference or handoff whole, are allocated in both modes.
 pub const Leaves = enum { copied, lent };
 
+/// Whose tree a materializing walk reads, which decides what past
+/// `model.max_value_depth` means. A `partner` tree is wire bytes and
+/// receive validation bounds its depth first, so the walk's refusal is a
+/// backstop, `MalformedView`. A `local` tree is a caller's value, and its
+/// refusal is `ValueTooDeep`.
+pub const Author = enum { partner, local };
+
+/// `view.Error` for a walk that builds an owned value tree: past
+/// `model.max_value_depth` a local author's view is `ValueTooDeep`. Receive
+/// validation bounds a partner's tree first, so the refusal is never a
+/// partner's.
+pub const TreeError = Error || error{ValueTooDeep};
+
+/// The error set of a walk over a tree `author` wrote.
+pub fn TreeResult(comptime author: Author) type {
+    return switch (author) {
+        .partner => Error,
+        .local => TreeError,
+    };
+}
+
 // ── Lazy sequences ───────────────────────────────────────────────────────────
 
 /// Codec-private cursor borrowing wire memory, shared by every lazy sequence.
@@ -211,11 +232,11 @@ pub fn LazySequence(comptime OwnedElem: type, comptime ViewElem: type, comptime 
         }
 
         /// Materialize one viewed element into its owned form at `depth`.
-        fn materialize(allocator: std.mem.Allocator, elem: *const ViewElem, depth: usize, comptime leaves: Leaves) Error!OwnedElem {
+        fn materialize(allocator: std.mem.Allocator, elem: *const ViewElem, depth: usize, comptime leaves: Leaves, comptime author: Author) TreeResult(author)!OwnedElem {
             if (comptime OwnedElem == ViewElem) {
                 return elem.*;
             } else {
-                return elem.toTreeDepth(allocator, depth, leaves);
+                return elem.toTreeDepth(allocator, depth, leaves, author);
             }
         }
 
@@ -382,12 +403,12 @@ pub fn LazySequence(comptime OwnedElem: type, comptime ViewElem: type, comptime 
         }
 
         pub fn toOwnedSlice(self: Self, allocator: std.mem.Allocator) Error![]OwnedElem {
-            return self.toSliceDepth(allocator, 0, .copied);
+            return self.toSliceDepth(allocator, 0, .copied, .partner);
         }
 
         /// The one materializing walk: every element in its owned form at
         /// `depth`, byte leaves treated as `leaves` says.
-        pub fn toSliceDepth(self: Self, allocator: std.mem.Allocator, depth: usize, comptime leaves: Leaves) Error![]OwnedElem {
+        pub fn toSliceDepth(self: Self, allocator: std.mem.Allocator, depth: usize, comptime leaves: Leaves, comptime author: Author) TreeResult(author)![]OwnedElem {
             const count = try self.len();
             const out = try allocator.alloc(OwnedElem, count);
             errdefer allocator.free(out);
@@ -396,7 +417,7 @@ pub fn LazySequence(comptime OwnedElem: type, comptime ViewElem: type, comptime 
             var it = self.iterator();
             while (try it.nextRef()) |elem| {
                 if (initialized >= count) return error.MalformedView;
-                out[initialized] = try materialize(allocator, elem, depth, leaves);
+                out[initialized] = try materialize(allocator, elem, depth, leaves, author);
                 initialized += 1;
             }
             if (initialized != count) return error.MalformedView;
