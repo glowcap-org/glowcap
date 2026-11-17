@@ -274,6 +274,12 @@ Releases before 0.1.7 are in the
 
 ### Fixed
 
+- A Zig `HostRuntime` that runs out of memory while reporting a redeem's
+  opened session or failure to the core keeps that report on the open's row
+  and retries it on the Host's retry interval. An open exporter stays alive
+  and retrying an opened report never dials again. A refusal before the row
+  owns the dial no longer commits a route failure, and a report waiting on its
+  closing carrier waits for that carrier, not for memory.
 - In Rooms, **Issue moderator link** stays usable while the room reconnects, when
   the room manager is held and no other authority change is running. It no
   longer waits for the room to be joined.

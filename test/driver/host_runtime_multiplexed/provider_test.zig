@@ -244,7 +244,7 @@ test "two profiles share one multiplexed resident with independent listener life
     try std.testing.expectEqual(@as(usize, 1), runtime.pending_opens.items.len);
     try std.testing.expectEqualStrings(
         AcceptOwnershipResident.alternate_transport,
-        runtime.pending_opens.items[0].session.transport,
+        runtime.pending_opens.items[0].stage.session().?.transport,
     );
 
     try std.testing.expect(runtime.closeListener(&listener) == null);
@@ -258,7 +258,7 @@ test "two profiles share one multiplexed resident with independent listener life
     try std.testing.expectEqual(@as(usize, 1), runtime.pending_opens.items.len);
     try std.testing.expectEqualStrings(
         AcceptOwnershipResident.transport,
-        runtime.pending_opens.items[0].session.transport,
+        runtime.pending_opens.items[0].stage.session().?.transport,
     );
     try std.testing.expect(runtime.closeListener(&second_listener) == null);
     second_listener_open = false;

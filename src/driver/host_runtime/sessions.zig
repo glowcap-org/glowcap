@@ -27,6 +27,21 @@ pub fn releaseWire(self: *HostRuntime, session: *driver_core.HostSession) !void 
 
 pub fn releaseWireOwned(self: *HostRuntime, session: *driver_core.HostSession) !void {
     try self.refuseReentry();
+    try retireSessionWire(self, session);
+    _ = Internal.attempt(self, .operational, .turn) catch |err| Internal.noteTerminalFailure(self, err);
+    // Retirement remains runtime work after this handle is consumed. A
+    // refusal becomes sticky terminal state rather than an error that invites
+    // the caller to reuse a freed session pointer.
+    if (self.retiring and self.claimed_session_handles == 0)
+        Internal.progressRetirement(self) catch |err| Internal.noteTerminalFailure(self, err);
+}
+
+/// The non-draining retirement owner under `releaseWireOwned`: write the
+/// outbound the core queued, close the wire, release the core session, and
+/// drop the wire. It runs no action drain, so the pending-open reporter can
+/// retire an unclaimed session from inside the common attempt. Its only error
+/// is a refusal before the one-way commit, which leaves the session owned.
+pub fn retireSessionWire(self: *HostRuntime, session: *driver_core.HostSession) !void {
     if (session.host != self.core) return Error.SessionNotOwned;
     const wire = self.wires.get(session.peer_handle) orelse return Error.SessionNotOwned;
     if (wire.session != session) return Error.SessionNotOwned;
@@ -45,12 +60,6 @@ pub fn releaseWireOwned(self: *HostRuntime, session: *driver_core.HostSession) !
         std.debug.assert(self.claimed_session_handles != 0);
         self.claimed_session_handles -= 1;
     }
-    _ = Internal.attempt(self, .operational, .turn) catch |err| Internal.noteTerminalFailure(self, err);
-    // Retirement remains runtime work after this handle is consumed. A
-    // refusal becomes sticky terminal state rather than an error that invites
-    // the caller to reuse a freed session pointer.
-    if (self.retiring and self.claimed_session_handles == 0)
-        Internal.progressRetirement(self) catch |err| Internal.noteTerminalFailure(self, err);
 }
 
 /// Claim the one owning `driver.Session` handle permitted for a wire.

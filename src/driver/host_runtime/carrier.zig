@@ -10,6 +10,7 @@ const runtime = @import("../host_runtime.zig");
 
 const HostRuntime = runtime.HostRuntime;
 const Internal = runtime.Internal;
+const pending_state = @import("pending.zig");
 const OperationFailure = @import("../operation_failure.zig").OperationFailure;
 const Wire = HostRuntime.Wire;
 const transport_close_ms: i32 = 5_000;
@@ -244,6 +245,21 @@ pub fn progressWireCarrierClose(self: *HostRuntime, wire: *Wire) void {
     }
 }
 
+/// Record a staged session's carrier completion on the row that owns it,
+/// keeping an earlier specific cause when this close names none. The core
+/// session stays owned until the reporter retires it: a carrier-closing
+/// report becomes ready, and one waiting on memory keeps its memory wait.
+fn noteOpenCarrierClosed(row: *pending_state.Open, cause: ?OperationFailure) void {
+    switch (row.stage) {
+        .handshake => |*handshake| handshake.close_cause = cause orelse handshake.close_cause,
+        .opened_report => |*opened| {
+            opened.close_cause = cause orelse opened.close_cause;
+            if (opened.wait == .carrier_closing) opened.wait = .ready;
+        },
+        .resident_dial, .retry_wait, .failed_report, .reporting => {},
+    }
+}
+
 fn finishWireCarrierClose(self: *HostRuntime, wire: *Wire) void {
     if (wire.carrierClosed()) return;
     wire.carrier_closed = true;
@@ -261,7 +277,7 @@ fn finishWireCarrierClose(self: *HostRuntime, wire: *Wire) void {
     // A staged dial reports through its dial path; it was never visible to the
     // close observer, so its seat goes back unused.
     if (Internal.pendingOpenFor(self, wire.session)) |row| {
-        row.close_cause = wire.close_failure;
+        noteOpenCarrierClosed(row, wire.close_failure);
         releaseCloseEvent(self);
         Internal.nudgeIfWorkRemains(self);
         return;

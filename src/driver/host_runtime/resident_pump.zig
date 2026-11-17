@@ -154,7 +154,7 @@ fn handleResidentEvent(
         if (self.pending_resident_dials.get(request_key)) |wait| {
             wait.ready = true;
         } else if (Internal.pendingOpenByRequest(self, resident_index, event.subject)) |row| {
-            try Internal.adoptPendingResidentDial(self, resident_index, row);
+            Internal.adoptPendingResidentDial(self, resident_index, row);
         } else {
             // The awaiting frame unwound before the connect completed; release
             // the resident's half.
@@ -243,9 +243,7 @@ fn startAcceptedConn(
     try Internal.adoptResidentConn(self, session, resident_index, conn);
     row.* = .{
         .admission = admission,
-        .session = session,
-        .stage = .handshake,
-        .deadline_ms = Internal.handshakeDeadline(self),
+        .stage = .{ .handshake = .{ .session = session, .deadline_ms = Internal.handshakeDeadline(self) } },
         .outcome = .{ .listener_accept = observation },
     };
     self.pending_opens.appendAssumeCapacity(row);

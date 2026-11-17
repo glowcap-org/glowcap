@@ -299,7 +299,7 @@ pub fn parkBoundMs(self: *const HostRuntime, timeout_ms: i32, skip: ?*const driv
 /// Bounded by `Options.max_pending_opens`, and reached only for a session
 /// holding deferred or resumable input.
 fn openPending(self: *const HostRuntime, session: *const driver_core.HostSession) bool {
-    for (self.pending_opens.items) |row| if (row.session == session) return true;
+    for (self.pending_opens.items) |row| if (row.stage.session() == session) return true;
     return false;
 }
 
