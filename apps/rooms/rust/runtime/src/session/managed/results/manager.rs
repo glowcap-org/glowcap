@@ -1,4 +1,4 @@
-//! Manager recovery uses the operator's exact management identity and result.
+//! Manager recovery keeps the identity its worker observed beside the operator's result.
 use super::*;
 use rooms_application::content::session::results::RoomManager;
 
@@ -8,18 +8,10 @@ fn coordinate() -> Coordinate {
 		key: FieldKey::new(NonZeroU64::MIN, NonZeroU64::MIN),
 	}
 }
-pub(super) fn read(value: &Argument, intent: &str) -> Result<Acquisition> {
-	let (_, _, name, request): (String, u64, String, Vec<String>) =
-		serde_json::from_str(intent).map_err(|_| loam::refusal("invalid manager recovery intent"))?;
-	let [_, action, identity] = request.as_slice() else {
-		return Err(loam::refusal("invalid manager recovery intent"));
-	};
-	if name != "operator"
-		|| action != rooms_application::server::operations::operator::verbs::GIVE_MANAGER
-		|| identity.is_empty()
-	{
-		return Err(loam::refusal("invalid manager recovery intent"));
-	}
+/// The reply of the one operator call is checked against the identity this
+/// worker read from the witnessed seat. No request text supplies an identity.
+pub(super) fn read(value: &Argument, identity: Option<&str>) -> Result<Acquisition> {
+	let identity = identity.ok_or_else(|| loam::refusal("manager recovery has no observed identity"))?;
 	let uri = authority::room_link(&rooms_glowcap::Value(value))
 		.map_err(|_| loam::refusal("operator returned no manager recipe"))?
 		.to_owned();
@@ -34,7 +26,7 @@ pub(super) fn read(value: &Argument, intent: &str) -> Result<Acquisition> {
 		lookup: Lookup::Manager {
 			coordinate,
 			uri,
-			identity: identity.clone(),
+			identity: identity.to_owned(),
 		},
 	})
 }

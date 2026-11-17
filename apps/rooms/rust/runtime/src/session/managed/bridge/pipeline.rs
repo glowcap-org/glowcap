@@ -130,7 +130,7 @@ impl Pipeline {
 					self.answers.take();
 					self.phase = Phase::Finished;
 					return match result {
-						EffectResult::Ready(value) => match Prepared::read(Reply::Acknowledgment, &value, "")? {
+						EffectResult::Ready(value) => match Prepared::read(Reply::Acknowledgment, &value, "", None)? {
 							Prepared::Complete(outcome) => Ok(Some(outcome)),
 							_ => unreachable!("acknowledgment has no acquisition"),
 						},

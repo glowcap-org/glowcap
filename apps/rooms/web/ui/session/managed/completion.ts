@@ -321,37 +321,30 @@ async function completeOnce(
 			});
 			break;
 		}
-		case "operator": {
-			if (args[1] === "giveManager") {
-				const receipt = receiptFields(result, ["control"]);
-				const matches: RoomIntent[] = [];
-				const unanswered: unknown[] = [];
-				for (const row of snapshot.intent.conversations) {
-					if (row.kind !== "room" || row.seat == null) continue;
-					// A seat the room has since retired answers nothing, and the
-					// room it stood in is not the one the operator named here. Its
-					// failure is kept so that no match reports why, rather than
-					// reading a lost route as a missing room.
-					try {
-						const identity = await during(
-							"managedRoomIdentity",
-							result,
-							session.workspace.roomManagementIdentity(
-								JSON.stringify({ role: "roomSeat", key: row.seat }),
-							),
-						);
-						if (identity === args[2]) matches.push(row);
-					} catch (error) {
-						unanswered.push(error);
-					}
-				}
-				if (matches.length === 0 && unanswered.length > 0) throw unanswered[0];
-				if (matches.length === 0) throw new LocalRefusal("target-gone-held");
-				if (matches.length > 1) throw new LocalRefusal("room-saved-twice");
-				conversation(matches[0].id);
-				matches[0].control = retain("roomControl", receipt.control);
-			} else return result;
+		case "recoverRoomManager": {
+			// The request names the row it was admitted for, so landing never
+			// reads a seat. The runtime checks the row against its witness.
+			const receipt = receiptFields(result, ["control"]);
+			const witness: unknown = retainedJson(args[1]);
+			retained(
+				witness != null && typeof witness === "object" && hasStringFields(witness, ["id", "seat"]),
+				"the retained recovery room is not a witness",
+			);
+			const row = room(witness.id);
+			// With no entrance, the seat is the only authority that holds the room.
+			// A lost or replaced seat cannot be restored by waiting.
+			const entranced = ["access", "accepted", "publicEntry"].some((field) =>
+				field in witness && witness[field as keyof typeof witness] != null
+			);
+			if (!entranced && row.seat !== witness.seat) throw new LocalRefusal("recovery-seat-lost");
+			row.control = retain("roomControl", receipt.control);
 			break;
+		}
+		case "operator": {
+			// An older Rooms recovered a manager through this generic request. Its
+			// result never lands now, so the receipt stays held until it is released.
+			if (args[1] === "giveManager") throw new LocalRefusal("old-manager-recovery");
+			return result;
 		}
 		case "operations": {
 			if (args[1] !== "ircGateway" || args[2] !== "connection") return result;

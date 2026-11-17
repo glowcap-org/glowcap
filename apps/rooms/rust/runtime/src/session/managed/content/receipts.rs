@@ -285,6 +285,8 @@ impl<P: Tasks + Deadline + Clone + 'static> SessionContent<P> {
 						} else {
 							rooms_application::session::effect::Reply::Acknowledgment
 						}
+					} else if super::super::manager_recovery::recognizes(request.route()) {
+						rooms_application::session::effect::Reply::RoomManager
 					} else {
 						let dispatch = dispatch(&args)?;
 						revoked = dispatch.revoked_authority();

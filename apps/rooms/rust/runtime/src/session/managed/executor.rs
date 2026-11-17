@@ -1,7 +1,7 @@
 //! Each reserved worker owns one confirmed continuation and exact target call.
 use super::{
 	State,
-	results::{Acquisition, Prepared, Settlement},
+	results::{Acquired, Acquisition, Prepared, Settlement},
 };
 use glowcap::{
 	Argument, Host, Ref, Result,
@@ -57,13 +57,19 @@ enum Phase {
 		continuation: Option<Continuation>,
 		action: Option<Action>,
 	},
-	Executing(EffectExecution),
+	Executing {
+		execution: EffectExecution,
+		/// Private context the observed result is read with. Only manager
+		/// recovery carries one, from its own confirmed identity read.
+		identity: Option<String>,
+	},
+	ReadingIdentity(Box<super::manager_recovery::Pipeline>),
 	Uploading(Box<super::uploads::Pipeline>),
 	Bridging(Box<super::bridge::pipeline::Pipeline>),
 	SharingArchive(Box<super::archive_sharing::Pipeline>),
 	Acquiring {
 		prepared: Rc<Acquisition>,
-		pending: Option<Observation<Settlement>>,
+		pending: Option<Observation<Acquired>>,
 	},
 	Settling {
 		outcome: Settlement,
@@ -77,6 +83,7 @@ enum Action {
 	// admitted bridge job pays for this box; every other phase stays compact.
 	Bridge(Box<super::bridge::pipeline::Intent>),
 	Archive(Box<super::archive_sharing::Intent>),
+	Manager,
 	Call {
 		verb: String,
 		args: Vec<Argument>,
@@ -158,11 +165,17 @@ impl<P: Tasks + Deadline + Clone + 'static> Work<P> {
 									reply_bytes,
 								)))
 							}
+							Action::Manager => Phase::ReadingIdentity(Box::new(
+								super::manager_recovery::Pipeline::new(writer.host.clone(), continuation),
+							)),
 							Action::Bridge(intent) => Phase::Bridging(Box::new(
 								super::bridge::pipeline::Pipeline::new(continuation, *intent, reply_bytes),
 							)),
 							Action::Call { verb, args } => match continuation.execute(0, &verb, &args, reply_bytes) {
-								Ok(execution) => Phase::Executing(execution),
+								Ok(execution) => Phase::Executing {
+									execution,
+									identity: None,
+								},
 								Err(error) => {
 									if let Some(retirement) = &work.retirement {
 										retirement.absent();
@@ -248,7 +261,40 @@ impl<P: Tasks + Deadline + Clone + 'static> Work<P> {
 						}
 						Phase::Settling { outcome, pending: None }
 					}
-					Phase::Executing(execution) => {
+					Phase::ReadingIdentity(pending) => {
+						let step = platform
+							.within(OBSERVATION_MS, pending.advance())
+							.await
+							.ok_or_else(|| {
+								loam::refusal("identity observation deadline expired; exact read remains retained")
+							})??;
+						match step {
+							super::manager_recovery::Step::Identified(continuation, identity) => {
+								// One operator dispatch, with the observed identity as its
+								// only argument. Refusal at admission is a known-unsent act.
+								match continuation.execute(
+									0,
+									rooms_application::server::operations::operator::verbs::GIVE_MANAGER,
+									&[Argument::String(identity.clone())],
+									reply_bytes,
+								) {
+									Ok(execution) => Phase::Executing {
+										execution,
+										identity: Some(identity),
+									},
+									Err(error) => Phase::Settling {
+										outcome: Settlement::refused(&error),
+										pending: None,
+									},
+								}
+							}
+							super::manager_recovery::Step::Refused(error) => Phase::Settling {
+								outcome: Settlement::refused(&error),
+								pending: None,
+							},
+						}
+					}
+					Phase::Executing { execution, identity } => {
 						let observed = platform
 							.within(OBSERVATION_MS, execution.completed())
 							.await
@@ -257,7 +303,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Work<P> {
 							})??;
 						match observed {
 							EffectResult::Ready(value) => {
-								match Prepared::read(work.reply, &value, &work.intent.canonical) {
+								match Prepared::read(work.reply, &value, &work.intent.canonical, identity.as_deref()) {
 									Ok(Prepared::Complete(outcome)) => {
 										let mut outcome = outcome;
 										if let Some(capture) = &mut work.outgoing {
@@ -341,9 +387,15 @@ impl<P: Tasks + Deadline + Clone + 'static> Work<P> {
 							loam::refusal("result acquisition deadline expired; exact lookup remains retained")
 						})?;
 						*pending = None;
-						Phase::Settling {
-							outcome: result?,
-							pending: None,
+						match result? {
+							super::results::Acquired::Settled(outcome) => Phase::Settling { outcome, pending: None },
+							super::results::Acquired::Unanswerable(error) => {
+								writer.report(id, &error);
+								Phase::Settling {
+									outcome: Settlement::unknown(&error),
+									pending: None,
+								}
+							}
 						}
 					}
 					Phase::Settling { outcome, pending } => {

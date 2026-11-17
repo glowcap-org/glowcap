@@ -100,9 +100,9 @@ impl Settlement {
 	}
 }
 impl Prepared {
-	pub fn read(reply: Reply, value: &Argument, intent: &str) -> Result<Self> {
+	pub fn read(reply: Reply, value: &Argument, intent: &str, identity: Option<&str>) -> Result<Self> {
 		match (reply, value) {
-			(Reply::RoomManager, value) => manager::read(value, intent).map(Self::Capability),
+			(Reply::RoomManager, value) => manager::read(value, identity).map(Self::Capability),
 			(Reply::RoomModerator, value) => moderator::read(value).map(Self::Capability),
 			(Reply::DirectoryRegistration, value) => registration::read(value, intent).map(Self::Complete),
 			(Reply::DirectAccess, value) => live::read::<Direct>(value).map(Self::Complete),
@@ -205,8 +205,15 @@ impl Prepared {
 		}
 	}
 }
+/// A lookup either settles, or the peer's answer can never validate. Its
+/// reason is terminal uncertainty after the operator already acted, so the
+/// lookup is never repeated.
+pub(super) enum Acquired {
+	Settled(Settlement),
+	Unanswerable(glowcap::Error),
+}
 impl Acquisition {
-	pub async fn acquire(&self, host: &Host) -> Result<Settlement> {
+	pub async fn acquire(&self, host: &Host) -> Result<Acquired> {
 		let fields = match &self.lookup {
 			Lookup::Manager {
 				coordinate,
@@ -215,20 +222,25 @@ impl Acquisition {
 			} => {
 				let reference = host.enliven(uri).await?;
 				let governed = host.send(&reference, authority::GOVERNS, &[]).await?;
-				authority::verify_manager(
+				if authority::verify_manager(
 					&rooms_glowcap::Value(&governed),
 					&rooms_glowcap::Value(&identity.as_str().into()),
 				)
-				.map_err(|_| loam::refusal("operator returned a manager for a different room"))?;
+				.is_err()
+				{
+					return Ok(Acquired::Unanswerable(loam::refusal(
+						"operator returned a manager for a different room",
+					)));
+				}
 				vec![saved_field(*coordinate, reference, uri)?]
 			}
 			Lookup::Creation(creation) => creation.acquire(host).await?,
 			Lookup::Publication { coordinate, uri } => vec![saved_field(*coordinate, host.enliven(uri).await?, uri)?],
 		};
-		Ok(Settlement(Argument::List(vec![
+		Ok(Acquired::Settled(Settlement(Argument::List(vec![
 			self.data.clone().into(),
 			Argument::List(fields),
-		])))
+		]))))
 	}
 }
 fn saved_field(coordinate: Coordinate, reference: Ref, uri: &str) -> Result<Argument> {
@@ -549,7 +561,7 @@ mod tests {
 			"ocapn://peer.tcp/s/manager".into(),
 			Argument::Boolean(false),
 		]);
-		let Prepared::Complete(settlement) = Prepared::read(Reply::Stewardship, &row, "").unwrap() else {
+		let Prepared::Complete(settlement) = Prepared::read(Reply::Stewardship, &row, "", None).unwrap() else {
 			panic!("a stewardship row settles as data")
 		};
 		let saved = format!("{:?}", settlement.0);

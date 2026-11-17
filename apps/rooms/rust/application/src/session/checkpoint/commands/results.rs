@@ -5,6 +5,5 @@ crate::session::command::catalog! { Command {
 	LinkRoom,
 	TakeRoomModerator,
 	TakeRoomManager,
-	RecoverRoomManager,
 	OpenManagedRoom,
 } }

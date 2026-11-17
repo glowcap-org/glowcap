@@ -173,6 +173,13 @@ impl<D: Deadline + Clone> ResultAcquisition<D> {
 		let mappings = self.arguments[3]
 			.as_list()
 			.ok_or_else(|| loam::refusal("invalid result mappings"))?;
+		// A recovered manager was checked against the identity its worker read
+		// before the operator acted. Reading a seat again would fail a room
+		// whose membership was lost afterwards and prove nothing more.
+		let recovered = self.arguments[1]
+			.as_str()
+			.and_then(|intent| serde_json::from_str::<Vec<serde_json::Value>>(intent).ok())
+			.is_some_and(|intent| intent.get(2).and_then(serde_json::Value::as_str) == Some("recoverRoomManager"));
 		let mut selections = Vec::new();
 		for mapping in mappings {
 			let Some([result, destination]) = mapping.as_list() else {
@@ -183,7 +190,9 @@ impl<D: Deadline + Clone> ResultAcquisition<D> {
 					.map_err(|_| loam::refusal("invalid result coordinate"))
 			};
 			let destination = decode(destination)?;
-			if matches!(destination.role, custody::Role::RoomAccess | custody::Role::RoomControl) {
+			if matches!(destination.role, custody::Role::RoomAccess | custody::Role::RoomControl)
+				&& !(recovered && destination.role == custody::Role::RoomControl)
+			{
 				selections.push((decode(result)?, destination));
 			}
 		}

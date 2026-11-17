@@ -382,11 +382,6 @@ export const SESSION_COMMAND_REQUIREMENTS = {
 		"targets": ["savedRoomRole"],
 		"workspace": ["interactWorkspace", "manageCustody"],
 	},
-	"recoverRoomManager": {
-		"conditional": [],
-		"targets": ["creationReceipt"],
-		"workspace": ["interactWorkspace", "manageCustody"],
-	},
 	"openManagedRoom": {
 		"conditional": [],
 		"targets": ["directoryCreation"],
@@ -417,6 +412,11 @@ export const SESSION_COMMAND_REQUIREMENTS = {
 		"conditional": [],
 		"targets": ["exactRoomIssue"],
 		"workspace": ["interactWorkspace", "manageCustody"],
+	},
+	"recoverRoomManager": {
+		"conditional": [],
+		"targets": ["operator", "roomManagerRecovery"],
+		"workspace": ["interactWorkspace", "useOperations", "manageCustody", "replaceWorkspace"],
 	},
 	"say": { "conditional": [], "targets": ["conversationPost"], "workspace": ["interactWorkspace"] },
 	"directReady": { "conditional": [], "targets": ["directAccess"], "workspace": ["interactWorkspace"] },

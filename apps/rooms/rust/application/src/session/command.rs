@@ -34,6 +34,7 @@ catalog! { Effect {
 	RetireRoomMembership,
 	KickRoomMember,
 	IssueRoomModerator,
+	RecoverRoomManager,
 	Say,
 	DirectReady,
 	OfferDirectInbox,

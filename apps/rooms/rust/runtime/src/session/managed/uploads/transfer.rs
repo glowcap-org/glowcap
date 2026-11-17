@@ -212,7 +212,7 @@ impl Pipeline {
 								continue;
 							}
 						};
-					let settlement = match Prepared::read(reply, &primary, "") {
+					let settlement = match Prepared::read(reply, &primary, "", None) {
 						Ok(Prepared::Complete(settlement)) => settlement,
 						_ => {
 							self.cleanup(false);

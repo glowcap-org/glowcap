@@ -89,6 +89,9 @@ pub(super) fn admit<P: Tasks + Deadline + Clone + 'static>(
 	if super::super::archive_sharing::recognizes(request.route()) {
 		return super::super::archive_sharing::admit(owner, call, input, record, &request);
 	}
+	if super::super::manager_recovery::recognizes(request.route()) {
+		return super::super::manager_recovery::admit(owner, call, input, record, &request);
+	}
 	let dispatch = dispatch(input.args)?;
 	let retiring_membership = dispatch.retires_membership();
 	let retiring_publication = dispatch.retires_publication();

@@ -84,6 +84,42 @@ fn same_room_manager(before: &Value, after: &Value, id: Option<&String>) -> bool
 			.into_iter()
 			.all(|key| before[key] == after[key])
 }
+/// Manager recovery fences the selected operator and the witnessed room's
+/// admission facts. Supervision and drafts leave them alone.
+fn same_manager_recovery(before: &Value, after: &Value, args: &[String]) -> bool {
+	let [operator, witness] = args else { return false };
+	let Ok(operator) = serde_json::from_str::<Value>(operator) else {
+		return false;
+	};
+	let Ok(witness) = serde_json::from_str::<Value>(witness) else {
+		return false;
+	};
+	let Some(id) = witness["id"].as_str() else { return false };
+	let held = |intent: &Value| {
+		intent["operators"]
+			.as_array()
+			.is_some_and(|rows| rows.contains(&operator))
+	};
+	let (Some(original), Some(current)) = (row(before, "conversations", id), row(after, "conversations", id)) else {
+		return false;
+	};
+	held(before)
+		&& held(after)
+		&& original["control"].is_null()
+		&& [
+			"id",
+			"directory",
+			"source",
+			"seat",
+			"access",
+			"accepted",
+			"publicEntry",
+			"publication",
+			"control",
+		]
+		.into_iter()
+		.all(|key| original[key] == current[key] && (key == "control" || original[key] == witness[key]))
+}
 pub fn same_directory_contact(before: &Value, after: &Value) -> bool {
 	["id", "access", "source", "name", "inbox"]
 		.into_iter()
@@ -110,6 +146,7 @@ pub fn unchanged(name: &str, args: &[String], before: &Value, after: &Value) -> 
 	let Some(route) = Route::parse(name) else { return false };
 	match route {
 		Route::Effect(Effect::Operations) => same_operations(before, after, args),
+		Route::Effect(Effect::RecoverRoomManager) => same_manager_recovery(before, after, args),
 		Route::Effect(Effect::Operator) => {
 			let Some(key) = args.first().and_then(|raw| serde_json::from_str::<Value>(raw).ok()) else {
 				return false;

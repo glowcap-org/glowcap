@@ -74,7 +74,6 @@ pub fn run() {
 		"ensureRoomLink",
 		"takeRoomManager",
 		"takeRoomModerator",
-		"recoverRoomManager",
 	] {
 		let args = [Arg::Text("op".into()), Arg::Integer(0), Arg::Text(name.into())];
 		assert!(matches!(
@@ -94,6 +93,7 @@ pub fn run() {
 		"unregisterManagedRoom",
 		"setManagedRoomPolicy",
 		"operations",
+		"recoverRoomManager",
 	] {
 		let args = [Arg::Text("op".into()), Arg::Integer(0), Arg::Text(name.into())];
 		assert!(matches!(

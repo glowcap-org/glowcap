@@ -92,7 +92,7 @@ impl Pipeline {
 				} else {
 					Reply::Acknowledgment
 				};
-				let Ok(Prepared::Complete(settlement)) = Prepared::read(reply, &value, "") else {
+				let Ok(Prepared::Complete(settlement)) = Prepared::read(reply, &value, "", None) else {
 					return Ok(None);
 				};
 				complete(settlement, reply, None).map(Some)

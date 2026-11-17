@@ -23,6 +23,7 @@ mod allocation;
 mod archive_sharing;
 mod authority;
 mod bridge;
+mod manager_recovery;
 mod outgoing;
 mod received_lines;
 mod recording;

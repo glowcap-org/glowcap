@@ -106,6 +106,9 @@ impl<P: Tasks + Deadline + Clone + 'static> SessionContent<P> {
 					if super::super::archive_sharing::recognizes(request.route()) {
 						return super::super::archive_sharing::references(input, record);
 					}
+					if super::super::manager_recovery::recognizes(request.route()) {
+						return super::super::manager_recovery::references(input, record);
+					}
 					let dispatch = dispatch(input.args)?;
 					// Revocation and room sharing read the selected recipe's URI.
 					let recipe = dispatch.revokes_selected() || dispatch.offers_selected().is_some();

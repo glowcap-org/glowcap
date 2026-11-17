@@ -4,7 +4,7 @@ mod activity;
 mod archive_connection;
 mod authority;
 pub(super) mod commands;
-mod connection;
+pub(super) mod connection;
 mod continuing;
 mod grammar;
 mod host_registrations;

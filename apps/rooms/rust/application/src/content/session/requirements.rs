@@ -38,7 +38,6 @@ pub enum Target {
 	RoomBridgeSubmission,
 	ExactRoomIssue,
 	SavedRoomRole,
-	CreationReceipt,
 	RoomRevoke,
 	RoomPublication,
 	RoomPublicOffer,
@@ -48,6 +47,7 @@ pub enum Target {
 	ArchiveInspect,
 	ArchiveRevoke,
 	Operator,
+	RoomManagerRecovery,
 	PendingEffect,
 	NestedCommand,
 }
@@ -171,7 +171,6 @@ pub const fn command(route: Route) -> Option<Requirements> {
 				| results::Command::TakeRoomModerator
 				| results::Command::TakeRoomManager => (&[InteractWorkspace, ManageCustody], &[SavedRoomRole], &[]),
 				results::Command::EnsureRoomLink => (&[InteractWorkspace, ManageCustody], &[ExactRoomIssue], &[]),
-				results::Command::RecoverRoomManager => (&[InteractWorkspace, ManageCustody], &[CreationReceipt], &[]),
 				results::Command::OpenManagedRoom => (&[InteractWorkspace, ManageCustody], &[DirectoryCreation], &[]),
 				results::Command::LinkRoom => return None,
 			},
@@ -190,6 +189,11 @@ pub const fn command(route: Route) -> Option<Requirements> {
 				Effect::RetireRoomMembership => (&[InteractWorkspace], &[MembershipRetirement], &[]),
 				Effect::KickRoomMember => (&[InteractWorkspace], &[RoomModeration], &[]),
 				Effect::IssueRoomModerator => (&[InteractWorkspace, ManageCustody], &[ExactRoomIssue], &[]),
+				Effect::RecoverRoomManager => (
+					&[InteractWorkspace, UseOperations, ManageCustody, ReplaceWorkspace],
+					&[Operator, RoomManagerRecovery],
+					&[],
+				),
 				Effect::Say => (&[InteractWorkspace], &[ConversationPost], &[]),
 				Effect::DirectReady => (&[InteractWorkspace], &[DirectAccess], &[]),
 				Effect::OfferDirectInbox => (&[InteractWorkspace], &[DirectoryIntroduction], &[]),

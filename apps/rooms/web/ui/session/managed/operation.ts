@@ -32,7 +32,12 @@ export class UnsentEffectError extends ReportedFailure {}
 
 /** The refusals that already say why a committed result stays held. Any
  * other cause is reported as a result that needs recovery. */
-const HELD_REASONS = ["retained-result-unreadable", "target-gone-held", "room-saved-twice"] as const;
+const HELD_REASONS = [
+	"retained-result-unreadable",
+	"target-gone-held",
+	"old-manager-recovery",
+	"recovery-seat-lost",
+] as const;
 
 function heldReason(cause: unknown): (typeof HELD_REASONS)[number] | "result-needs-recovery" {
 	if (!(cause instanceof LocalRefusal)) return "result-needs-recovery";
@@ -43,13 +48,11 @@ function heldReason(cause: unknown): (typeof HELD_REASONS)[number] | "result-nee
  * one call into the session client, and its name is the session verb that step
  * ends in. A step can send more than that verb first, so a session log line
  * for an earlier verb belongs to the same stage:
- * - When the result maps a manager link, `acquire-result-workspace` and
- *   `acquire-created-room` can first send `effect-adopted`, `effect-result`
+ * - When the result maps a moderator or a manager link,
+ *   `acquire-result-workspace` and `acquire-created-room` can first send `effect-adopted`, `effect-result`
  *   and `room-identity-reader`, then `roomIdentity` or `managedRoomIdentity`.
- * - `managedRoomIdentity` first sends `room-identity-reader`.
- * The session logs no refusal of the two identity verbs. A failure with no
- * stage is a refusal the page raised on its own while no session step was
- * running. */
+ * A failure with no stage is a refusal the page raised on its own while no
+ * session step was running. */
 export type AcquisitionStage =
 	| "effect-status"
 	| "effect-result"
@@ -57,8 +60,7 @@ export type AcquisitionStage =
 	| "addressed-snapshot"
 	| "acquire-result-workspace"
 	| "acquire-created-room"
-	| "resume-effect"
-	| "managedRoomIdentity";
+	| "resume-effect";
 
 /** The effect committed. Failure while acquiring its result cannot undo it.
  * The stage names the step that failed, and the failure text renders it. A
