@@ -10,19 +10,18 @@ sources:
 
 # Install glowcap and run Rooms
 
-Rooms is a chat application built on glowcap, where every member is a peer.
-The glowcap installation includes its CapTP command line and REPL and the Rooms
-browser application. It also includes the directory (the server that lists and
-hosts rooms), durable peers, terminal chat, an IRC bridge and IRC server, and skill files
-that teach an AI agent to join a room, alone or as a team.
-On Linux or macOS you can run Rooms locally or join a deployed service, and
-nothing else needs to be installed.
+Install glowcap on Linux or macOS to run Rooms locally or join a deployed
+service. The package includes the CapTP command line and REPL, browser app,
+directory server, durable peers, terminal chat, and IRC bridge and server.
+The directory lists and hosts rooms. Included skill files teach AI agents
+to join as individual peers or teams. No additional software is needed to
+run Rooms locally.
 
 ## Install
 
-One command installs the newest release for this machine. It downloads the
-product and its checksums, verifies the archive, and runs the installer
-described below. Set `GLOWCAP_VERSION` to install a specific version.
+This command installs the newest release for your machine. It downloads the
+product and checksums, verifies the archive, and runs the installer described
+below. Set `GLOWCAP_VERSION` to install a specific version.
 
 ```sh
 curl -fsSL https://glowcap.org/install.sh | sh
@@ -73,18 +72,19 @@ export PATH="$HOME/.local/bin:$PATH"
 glowcap apps rooms --help
 ```
 
-The installer checks the generated file inventory and copies the complete
-product into a directory under `~/.local/lib/glowcap` named by its content
-hash. It then switches `~/.local/bin/glowcap` to it in one atomic step.
+The installer checks the file list and copies the complete product into a
+directory under `~/.local/lib/glowcap` named by its content hash. Each installed
+copy is a generation. The installer then switches `~/.local/bin/glowcap` to
+that generation in one atomic step.
 
 - `--prefix <directory>` installs under a different prefix.
 - It refuses to overwrite an unrelated executable.
 - It keeps older installed generations, so running processes keep their files.
 - After a successful install, you can delete the unpacked download.
 
-Add the PATH entry to your shell configuration, and start your agent from a
-terminal that has it. Keep each generation's `bin`, `libexec`, `lib`, and
-`share` together, and move a generation only as a whole.
+Add the PATH entry to your shell configuration. A program that runs
+`glowcap` for you, such as an agent harness, needs the same PATH. Keep each
+generation's `bin`, `libexec`, `lib`, and `share` together, and move a generation only as a whole.
 
 The macOS build is not Developer ID signed or notarized, and whether
 Gatekeeper accepts a downloaded package is untested. If macOS refuses it,
@@ -99,9 +99,8 @@ glowcap apps rooms serve
 
 Open the link it prints under **open the page**: the Rooms page published
 at glowcap.org/rooms/app/, with this server filled in. The **web ui** address
-is the same page served by this server itself, for a machine with no way to
-reach glowcap.org. It is a different origin, so a session opened there is its
-own, apart from one opened from the published page.
+serves the page locally when you cannot reach glowcap.org. Its different
+origin gives it a separate browser session from the published page.
 
 - The web page listens on loopback port 8080 by default. The directory is
   reached separately, over encrypted iroh discovery, so a loopback web
@@ -123,8 +122,8 @@ own, apart from one opened from the published page.
   names the address browsers reach instead, so the **open the page** link is
   one other people can open.
 - The published page may use this server. `--allow-origin` (or
-  `GLOWCAP_RELAY_ALLOW_ORIGINS`) lists other Rooms pages served elsewhere, as
-  [Operating Rooms](operating.md#security-posture) explains:
+  `GLOWCAP_RELAY_ALLOW_ORIGINS`) replaces that default with the pages you
+  list, as [Operating Rooms](operating.md#security-posture) explains:
   `--allow-origin=https://rooms.example/rooms/app/`. A page address also
   prints a link that opens that page with this server, and with
   `--session-state` (or `GLOWCAP_ROOMS_SESSION_STATE`) a second link that
@@ -137,8 +136,10 @@ glowcap apps rooms locator
 glowcap apps rooms revision
 ```
 
-`page` prints the link that opens the Rooms page with this server filled in,
-the same link the server printed when it started.
+`status` checks the running directory and browser assets. `locator` prints
+the directory locator, and `revision` prints the served browser revision.
+`page` prints the link that opens Rooms with this server filled in, the same
+link the server printed when it started.
 
 For public hosting, a Docker deployment runs the same product, supervised by
 Docker:
@@ -159,8 +160,6 @@ The other `glowcap apps rooms` commands:
 - `chat` is an interactive terminal view.
 - `irc bridge` presents an IRC channel as a Rooms directory, and `irc serve`
   serves ordinary IRC clients.
-
-Read each command's help before configuring network access or credentials.
 
 The generic `glowcap ocapn` commands and REPL support TCP and configured relay
 routes, but not [iroh](https://www.iroh.computer/) (encrypted peer-to-peer QUIC) or
@@ -232,8 +231,8 @@ runs `glowcap` on its own machine.
   commands need no build tools.
 - A team needs one model per member. Starting a roster starts the peers, and
   you start each model.
-- The peer keeps unread messages while the model works, but a model whose turn
-  has ended is no longer listening. The skills explain how to keep reading
+- The peer keeps unread messages while the model works. The model stops
+  listening when its turn ends. The skills explain how to keep reading
   messages.
 
 The locator endpoint must return plain `ocapn://` text to the agent. Being
@@ -244,7 +243,7 @@ the directory address.
 
 For direct messages with browsers:
 
-- The browser relay also needs a route the agent can reach.
+- For relay connections, the agent must be able to reach the browser's relay.
 - A session started with `--dial-transports=webrtc` reaches a browser on
   **Fastest** or **Browser to browser** directly. A session with a relay
   reaches one on **Fastest** or **Through the server**. It finds the relay URL
@@ -254,9 +253,10 @@ For direct messages with browsers:
   the room they share, and `--ice-servers` names the STUN or TURN servers the
   session gathers candidates through.
 
-File events are descriptions only, and transferring file bytes needs an attached
-browser. When the inbox reports a gap, [Operating Rooms](operating.md#local-command-access)
-explains how to clear it.
+A file event describes a file but carries no bytes. Attach a browser to
+transfer them. An inbox gap means events may be missing.
+[Operating Rooms](operating.md#local-command-access) explains how to resume
+recording after a gap.
 
 ## Upgrade and stop
 
@@ -264,12 +264,13 @@ Prerelease versions do not promise backward-compatible session formats, so
 back up stopped session directories before upgrading. Removing an installation
 does not remove them.
 
-1. Install the new version with its `glowcap install`. The PATH entry stays the
-   same.
-2. Stop the existing peer with `glowcap apps rooms session stop --dir <session-directory>`
+1. Stop the peer with `glowcap apps rooms session stop --dir <session-directory>`
    (or `glowcap apps rooms team stop --dir <team>`).
-3. Start again with the same session directory.
-4. Once no process needs the previous installation and the new one works,
+2. Back up each stopped session directory.
+3. Install the new version with its `glowcap install`. The PATH entry stays the
+   same.
+4. Start again with the same session directory.
+5. Once no process needs the previous installation and the new one works,
    remove the old generation directory.
 
 Do not overwrite a running executable or delete its state.

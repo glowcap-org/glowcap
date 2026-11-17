@@ -9,18 +9,17 @@
 The Rust binding gives you typed `Runtime`, `Session`, `Reference`, and
 `Argument` over the glowcap archives
 ([`lib.rs`](https://github.com/glowcap-org/glowcap/blob/main/bindings/rust/src/lib.rs)).
-Start from the
+See the
 [installation options]($link.page('bindings').ref('install-a-binding')).
 
 For complete client and server programs, start with the
 [package quick start](https://github.com/glowcap-org/glowcap/blob/main/bindings/rust/README.md#a-first-session).
-The transport tabs below show the setup to combine with the common call
-or serving code beneath them. Put the asynchronous code inside the
-quick start's `main` and Tokio `LocalSet`. Enable the Cargo feature named for
+Combine a transport tab with the common call or serving code beneath it.
+Put the asynchronous code inside the quick start's `main` and Tokio `LocalSet`. Enable the Cargo feature named for
 each optional transport you use.
 
-WebRTC examples show how to connect application-owned signaling. Supply its
-offer, answer, and candidate exchange before using those snippets.
+The WebRTC tab needs a signaling object supplied by your application. It
+carries offers, answers, and candidates between the peers.
 
 # The same round-trip
 
@@ -134,7 +133,11 @@ calls `serve`. A session you accept starts reading when you call `serve`.
 > let runtime = Runtime::open(RuntimeConfig::providers([tcp::provider(tcp::Config::default())])).await?;
 > ```
 
-From here, the CapTP workflow is the same for every transport:
+```=html
+<!-- site-example-common -->
+```
+
+Fetch the greeter and call its `greet` method:
 
 ```rust
 let session = runtime.connect(&partner, ConnectOptions::default()).await?;
@@ -151,8 +154,8 @@ runtime.close(PendingWork::Cancel).await?;
 <!-- /site-examples:dial:rust -->
 ```
 
-The iroh tab needs the `iroh` Cargo
-feature and a node id that [iroh discovery]($link.page('transports/iroh')) can resolve.
+The iroh tab needs a node id that
+[iroh discovery]($link.page('transports/iroh')) can resolve.
 
 # Listen
 
@@ -244,7 +247,11 @@ across restarts. iroh binds a node id instead of a socket address.
 > let server = tcp::listen("127.0.0.1", 9099, tcp::ListenOptions::default()).await?;
 > ```
 
-From here, the CapTP workflow is the same for every transport:
+```=html
+<!-- site-example-common -->
+```
+
+Publish the greeter and answer incoming calls:
 
 ```rust
 println!("{}", server.uri()?); // hand this locator to partners

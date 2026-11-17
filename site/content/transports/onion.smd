@@ -25,9 +25,8 @@ a `host:port`, or in a binding, an absolute Unix socket path:
 - the **SOCKS endpoint**, which glowcap dials through, and
 - the **control endpoint**, which glowcap asks for a service when it hosts.
 
-Without the control endpoint the netlayer can dial but not host, and it says so
-rather than reporting an address nothing can reach. To authenticate to the
-control endpoint, glowcap sends a cookie file's bytes or a password.
+Without the control endpoint, the netlayer can dial but cannot host. To
+authenticate to the control endpoint, glowcap sends a cookie file's bytes or a password.
 
 Hosting creates a version 3 onion service and reports the service id partners dial, plus
 the key that restores that address after a restart. Store the key and pass it
@@ -222,8 +221,8 @@ session can report a proved peer, because QUIC authenticated the node id.
 # Bare onion locators
 
 The service id already says where to dial, so glowcap sends onion locators
-without hints. The one exception is a give to a peer already known to run glowcap,
-which keeps its hints. The Goblins release glowcap pins cannot dial an onion locator that
+without hints. When introducing an object to a peer known to run glowcap,
+it keeps the hints. The Goblins release glowcap pins cannot dial an onion locator that
 carries hints, even though the OCapN locator rules say hints never change
 which peer an address names. Hints on a locator glowcap receives are ignored rather than
 refused.
@@ -239,5 +238,5 @@ uses the baseline.
 records the locator rule and how a dialer picks glowcap's own profile only
 when it knows the other side is glowcap.
 
-[Choosing a transport]($link.page('transports/choosing')) puts onion beside the
-others.
+[Choosing a transport]($link.page('transports/choosing')) compares onion with
+the other transports.

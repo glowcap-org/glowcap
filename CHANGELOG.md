@@ -108,6 +108,12 @@ Releases before 0.1.7 are in the
 
 ### Changed
 
+- The website and introductory guides shorten repeated explanations and clarify
+  installation, shared-session lifetimes, history recovery limits, and Loam's
+  supported interfaces.
+  Examples and diagrams stay in place, and the rendered Zig dial example
+  retains its closing brace when copied.
+
 - The Rooms page draws text field edges at three to one against their
   ground. An offline member, an idle entry, or a session choice that is not
   open yet steps back by its avatar, mark, or a quieter ink, and its text

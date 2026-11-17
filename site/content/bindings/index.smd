@@ -15,6 +15,11 @@ WebAssembly.
 
 # One contract, each language's idioms
 
+A `Runtime` owns a Host, which serves your objects, and the transports you
+choose. `Runtime.open(...)`
+installs those transports, and `runtime.connect(locator)` returns a session
+whose handshake is complete.
+
 | Binding | Entry point | Async idiom | Actor idiom |
 | --- | --- | --- | --- |
 | [Rust]($link.page('bindings/rust')) | `Runtime`, `Session`, typed enums | tokio (opt-in `async`) | `spawn` over closures |
@@ -26,20 +31,19 @@ A `Session` is one connection to a peer, with the operations in the
 [bindings contract](https://github.com/glowcap-org/glowcap/blob/main/bindings/README.md),
 such as `fetch`, `send`, `publish`, and `serve`.
 A `Host` manages many sessions and the introductions between them
-([modules]($link.page('modules'))). A `Ref` is a capability in hand: pass it as
-an argument and the access moves with it.
+([modules]($link.page('modules'))). A `Ref` is a capability: passing it as an
+argument grants its access to the recipient.
 
-`Runtime.open(...)` installs transports once. `runtime.connect(locator)`
-returns a session whose handshake is complete.
+A near call runs an actor immediately in the same vat (a container of actors).
+An eventual send queues a call and returns a promise
+([modules]($link.page('modules'))).
 
 In the browser, `@glowcap/web` provides the Session API over the WebAssembly core.
 A page cannot listen on a socket, so it accepts peers over WebRTC or through a
 relay instead. See
 [In the browser]($link.page('bindings/browser')).
 
-Each language page lists its runtime and transport support. Near calls run
-within the Host, while eventual sends queue a call and return a promise
-([modules]($link.page('modules'))).
+Each language page lists its runtime and transport support.
 
 # [Install a binding]($section.id('install-a-binding'))
 
@@ -61,13 +65,13 @@ archives from another directory. The
 give the full search order.
 
 The [binding README](https://github.com/glowcap-org/glowcap/blob/main/bindings/README.md)
-has the path for each language. Compose
+has the path for each language. Add the transports your program needs using
+the setup instructions for
 [iroh]($link.page('transports/iroh')),
 [onion]($link.page('transports/onion')),
 [Noise]($link.page('transports/noise')), or
-[WebRTC]($link.page('transports/webrtc'))
-from their archives. The TCP archive carries Noise over TCP, keyed TCP, and the
-testing `tcp`. `inproc` has its own archive.
+[WebRTC]($link.page('transports/webrtc')).
+The TCP archive carries Noise over TCP, keyed TCP, and the testing `tcp`. `inproc` has its own archive.
 
 [Choose an API]($link.page('surfaces')) compares bindings with the Zig package,
 C ABI, and CLI. [Concepts]($link.page('concepts')) explains the capability model.

@@ -1,6 +1,6 @@
 ---
 .title = "The modules",
-.description = "How glowcap's layers fit together: the names you meet first, the socket-free protocol core, and what sits above it.",
+.description = "Choose a glowcap API level and understand how the protocol core, runtime, transports, and storage fit together.",
 .date = .date("2026-06-12T00:00:00"),
 .layout = "modules.shtml",
 .draft = false,
@@ -17,16 +17,15 @@ explains how they fit together.
 | Name | Job |
 | --- | --- |
 | **Peer** | The caller-owned engine handle. You feed inbound frames, call `step`, drain outbound frames, and read events. It opens no sockets. |
+| **Host** | Manages one identity across many CapTP sessions. It routes introductions between sessions and settles the promises callers wait on. Its socket-free core lives in `driver/core`. The browser package and C embedders that own their I/O drive the Host themselves. |
 | **Session** | The one-partner application object: `connect` / `listen`, `fetch`, blocking `call`. It is a view onto a conversation its Host owns. |
 | **Server** | The listening side. It publishes objects, and each `accept` returns a `Session` for one partner that connected. |
 | **HostRuntime** | The loop behind `Session` and `Server`. One thread serves every session of one Host, with one identity, over the transports you register. |
-| **HostTurn** | The argument an object's `handle` gets. It carries the turn's arena for building replies and the Host for calling other objects. |
-| **Host** | Manages one identity across many CapTP sessions. It routes introductions between sessions and settles promise waits (Goblins calls a promise a *vow*). Its socket-free core lives in `driver/core`. The browser package and C embedders that own their I/O drive the Host themselves. |
+| **HostTurn** | The argument passed to an object's `handle` method. It carries the turn's arena for building replies and the Host for calling other objects. |
 
-Use `Session` unless you need one of the lower-level responsibilities in the
-table. An introduction settles as a live capability because every `Session`
-is backed by a Host. A `Server` already serves many partners from one thread.
-[Concepts]($link.page('concepts')) covers three-party
+Use `Session` unless you need a lower-level responsibility from the table.
+Every `Session` is backed by a Host, which redeems introductions and returns
+a live capability. [Concepts]($link.page('concepts')) explains three-party
 introductions.
 
 # The protocol core
@@ -47,9 +46,10 @@ you can test it without a host runtime.
 
 # Above the core
 
-- **actors** is a `Vat` (see **Vat** below) shaped like Goblins': `$` calls an object in the same
-  process right away, `<-` sends to one that may be remote and returns a
-  promise. It adds nothing to the protocol that the engine lacks.
+- **actors** provides a `Vat`, a container of objects shaped like Goblins'.
+  `$` calls an object in the same vat immediately. `<-` sends to one that may
+  be remote and returns a promise. It adds nothing to the protocol that the
+  engine lacks.
 - **driver/core** serves many sessions at once, with no sockets of its own.
   A build check keeps I/O out of it.
 - **net** is where `std.Io` enters. It holds the transports:
@@ -79,7 +79,8 @@ glowcap's Zig APIs take explicit allocators, so applications control how
 memory is allocated and released.
 [Performance]($link.page('performance')) publishes what glowcap costs.
 
-Zig does not prove memory safety, so glowcap covers it with tests: leak checks, allocation budgets, and fuzzing of input from peers.
+glowcap tests memory handling with leak checks, allocation budgets, and
+fuzzing of input from peers. These checks do not prove memory safety.
 
 # Public entry points
 

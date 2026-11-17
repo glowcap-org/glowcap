@@ -17,8 +17,8 @@ extract it into a new directory your web server serves, and open `index.html`.
 It includes JavaScript, matching Wasm, and a complete WebRTC greeter example.
 The [package README](https://jsr.io/@glowcap/web) has local serving commands.
 
-The TypeScript fragments below show transport configuration. They share the
-fetch-and-call block beneath the tabs and expect a running remote peer.
+Combine a transport tab below with the fetch-and-call block beneath it.
+Each example needs a running remote peer.
 WebRTC also needs your application's authenticated signaling. Use the bundle's
 `example.js` for a complete local starting point.
 
@@ -30,7 +30,8 @@ through WebRTC or a registered relay route, as described under
 
 - `iroh` reaches an iroh node id through the [relay]($link.page('relay'))
   that `init`'s `relayUrl` option names, over `wss://`.
-  The gateway can read traffic and vouches for the peer's identity.
+  On this path the relay ends the QUIC connection, so it can read traffic
+  and vouches for the peer's identity.
 - `webrtc` reaches a peer over a WebRTC DataChannel. It needs the
   `@glowcap/webrtc` connector installed.
 - `noise-relay` reaches a peer registered at the relay. The
@@ -127,7 +128,11 @@ through WebRTC or a registered relay route, as described under
 > const partner = locator("127.0.0.1", 9099);
 > ```
 
-From here, the CapTP workflow is the same for every transport:
+```=html
+<!-- site-example-common -->
+```
+
+Fetch the greeter and call its `greet` method:
 
 ```ts
 await using session = await runtime.connect(partner);
@@ -139,7 +144,7 @@ console.log(reply);
 <!-- /site-examples:dial:browser -->
 ```
 
-When you hold the key and address as separate pieces instead, import
+If you have the key and address separately, import
 `keyed` from `@glowcap/tcp` before `init` and call `keyed.locator`. The locator package
 does not load a compiled library or depend on the initialized wasm adapter.
 
@@ -156,7 +161,7 @@ WebSocket itself. For a peer that only speaks raw TCP or iroh, dial through a
 [relay]($link.page('relay')): `init`'s `wsUrl` option maps a host-and-port dial
 to the relay's URL, and `relayUrl` does the same for a locator only a
 non-browser peer can serve, such as iroh. The CapTP handshake still runs
-between the browser and the far peer. The gateway's role in authentication
+between the browser and the far peer. The relay's role in authentication
 and encryption depends on the transport, as described above.
 
 To reach **another browser**, open a

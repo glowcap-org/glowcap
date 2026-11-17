@@ -10,26 +10,26 @@ sources:
 
 # Operating Rooms
 
-The [Rooms overview](README.md) runs the
-application, [Developing Rooms](developing.md) covers changing it, and the
-[deployment guide](web/deploy/README.md) runs everything here with Docker
-Compose.
+Run Rooms with the [overview](README.md) or the Docker Compose
+[deployment guide](web/deploy/README.md). For source changes, see
+[Developing Rooms](developing.md).
 
 Participants running outside Docker use the [glowcap product package](host.md).
 Give them the host-reachable `/locator` URL, not an internal Compose hostname.
 
-Under the managed Docker deployment, Compose already sets the state directory, the kept history, and the transport
-options. A Docker operator reads [Operator capabilities](#operator-capabilities), [The session
-service](#the-session-service), [Watching the room live](#watching-the-room-live), and
-[Security posture](#security-posture). Settings those sections name go in the override. The state directory and flag
-sections describe a host installation.
+Docker Compose sets the state directory, retained history, and transport
+options. For Docker, start with [Operator capabilities](#operator-capabilities),
+[The session service](#the-session-service),
+[Watching the room live](#watching-the-room-live), and
+[Security posture](#security-posture). Put those settings in the Compose
+override. The state directory and flag sections cover host installations.
 
 ## The server and its state
 
 `rooms-server` is the directory members register with, and it hosts the rooms
 they enter. It records names and tells watchers who is registered, relays
-introductions and WebRTC signaling, seats members and delivers room traffic,
-hosts files within the room and server limits, and keeps history when you ask.
+introductions and WebRTC signaling, admits members and delivers room traffic,
+hosts files within room and server limits, and optionally keeps history.
 The [work admission guide](../../docs/rooms/admission.md) covers temporary
 refusals and operation rates.
 
@@ -125,13 +125,13 @@ complete `ocapn://` link as a `ROOMS-*` line.
 `glowcap apps rooms capabilities --state=<state-directory>` prints the saved
 capabilities again as complete links. Under Docker, run
 `glowcap apps rooms deployment links`, or the `docker exec` form the
-[deployment guide](web/deploy/README.md#read-your-links-again) shows. It reads
-the directory's advertised locators from the running web server, at
-`http://127.0.0.1:8080` or the one `--url` names, and a kept timeline the
-server isn't serving prints with the option that starts it. Without a running
+[deployment guide](web/deploy/README.md#read-your-links-again) shows.
+These commands read the directory's advertised locators from the running web
+server at `http://127.0.0.1:8080` or the address `--url` names. For a saved
+timeline that is not running, they print the option needed to start it. Without a running
 server, set the locator in `GLOWCAP_ROOMS_LOCATOR` and the timeline's in
-`GLOWCAP_ROOMS_TRACE_LOCATOR`, or that one line says so while the rest still
-print.
+`GLOWCAP_ROOMS_TRACE_LOCATOR`. Otherwise, the affected line reports the missing
+locator while the others print.
 
 | Name | Prints | Grants |
 | --- | --- | --- |
@@ -175,19 +175,19 @@ divider naming the room as the keeper.
 most <!-- value rust/application/src/server/history.rs LINES_KEPT_TOTAL -->4,096<!-- /value --> lines across
 <!-- value rust/application/src/server/history.rs ROOMS_KEPT -->256<!-- /value --> rooms. A room past its limit loses its oldest line. Past
 either server limit, the server drops the whole history of the least recently
-active room. On
-startup it restores and validates storage before it opens the listener.
+active room.
 
 **Where history is stored.** Kept lines live in one JSONL file per room
-under `history/`. A server with no state directory keeps
-them in memory. A history directory that cannot be used stops startup.
+under `history/`. A server with no state directory keeps them in memory.
+Startup restores and validates storage before opening the listener. An
+unusable history directory stops startup.
 
 **File storage.** Startup is refused for a room file over
 <!-- value rust/application/src/server/history.rs FILE_BYTES bytes -->64 MiB<!-- /value -->, a directory over
 <!-- value rust/application/src/server/history.rs DISK_BYTES bytes -->512 MiB<!-- /value -->, an unexpected entry, or a corrupt complete row. A crash can leave an
-unfinished final append, and startup repairs it. A crash can also lose an
-append the operating system had not made durable, and the next start restores
-the last complete state.
+unfinished final JSON row. Startup can skip that row, but leaves its bytes in
+the file. A later append can turn it into a corrupt complete row that stops
+the next startup. A crash can also lose a queued write that has not finished.
 
 ## The session service
 
@@ -224,12 +224,14 @@ In the browser, **Attach** (on the first screen, or under **Settings**, **Sessio
 opens the shared session. It does not copy the browser's previous
 session into it. Every attached browser is a view of the same session.
 
-The access editor groups permissions into presets for reading, conversation
-actions, session changes, and managing access. A management link that can
-issue access creates access no broader than its own. Sharing management creates a separately narrowed management link,
-independent of the session's use permissions. A held management link can edit,
-pause, resume or revoke its scoped grants, and those changes survive restart. The session checks the initiating
-grant on every operation.
+**Session access** offers presets for reading, conversation actions, session
+changes, and access management. A management link with permission to issue
+grants can grant no broader authority than its own.
+
+Sharing management creates a separate link with the powers you choose:
+editing, pausing, resuming, or revoking grants within its scope. These powers
+are independent of session use permissions. Changes survive restart, and the
+session checks the initiating grant on every operation.
 
 A password entered in an IRC bridge form is kept unencrypted in
 `bridge-secrets.json` in the state directory, only while a room still needs it.
@@ -237,9 +239,9 @@ It never goes into the session, a snapshot, or an export. The file is plain
 JSON protected by the directory's permissions, since anyone who can read the
 directory can already act as the session using the identity seed beside it.
 
-A local browser session persists in IndexedDB. Sharing publishes its held use
-link or management link at this tab's address. Live connections end when the
-tab closes, and reopening restores the saved links.
+A local browser session persists in IndexedDB. When you share access, its use
+or management link lets the recipient connect to this tab. Live connections
+end when the tab closes, and reopening restores the saved links.
 
 ### Local command access
 
@@ -261,11 +263,12 @@ conversation, even while another one is selected.
 
 **Reading events.**
 
-- `tick` returns up to <!-- value rust/services/src/session/control/inbox.rs PAGE_ROWS -->64<!-- /value --> retained events and waits up to
+- The `tick` request returns up to <!-- value rust/services/src/session/control/inbox.rs PAGE_ROWS -->64<!-- /value --> retained events and waits up to
   <!-- value rust/services/src/session/control.rs MAX_TICK_WAIT_SECS seconds -->30 seconds<!-- /value --> for new ones. Reading does not acknowledge them.
-- `ack` takes numeric event `ids`.
-- `listen` uses the returned change cursor to wait for new commits even when
-  unread events remain, so it does not fetch the same batch again.
+- The `ack` request takes numeric event `ids`.
+- The CLI's `session listen` command uses the returned change cursor to wait
+  for new commits even when unread events remain, so it does not fetch the
+  same batch again.
 - Unacknowledged events and their IDs survive a restart.
 - File events describe the file and carry no bytes.
 
@@ -276,7 +279,7 @@ Queue pressure, a full disk, or a failed write stops only the inbox, and
 `status` reports `inbox.gap`. To recover, fix the cause, dismiss the events you
 have reviewed, then run
 `glowcap apps rooms session resume --dir <directory> --accept-gap`. That
-accepts the gap and does not recover the missed events.
+resumes recording events but cannot recover the ones missed.
 
 ## The archive service
 
@@ -342,16 +345,16 @@ Being in a bridged room means being in the channel. `/me` crosses as an
 action in both directions, and a member's own messages echoed back by the
 channel are hidden. The channel's topic is the
 room's subject, and a member who joins later hears it too. A topic that
-cannot be a subject, such as one longer than a subject allows, is shown as a
-line, and the room then has no subject.
+cannot be a subject, for example because it is too long, appears as a message.
+The room then has no subject.
 
 [IRC on Rooms](irc/README.md) covers the standalone bridge and IRC server, the
 network policy a bot must follow, and the bounds.
 
 ## Moderation
 
-Rooms has no ranks. Every moderation power except ignoring is a link someone
-holds.
+Rooms has no ranks. Moderation powers come from held links. Ignoring is a
+local preference.
 
 - **Ignoring.** `/ignore` hides someone in your own window only. No server
   learns of it.
@@ -403,10 +406,10 @@ described in its provider's own words.
   each setting it accepts when brought up.
 - The listener serving this page is marked and cannot be switched off.
 
-**The Peering page** lists a room this tab has joined on another directory in
-this one. Each listing has one revocation, carried by its lease. Dropping the
-capability without revoking leaves the listings in place until the directory
-connection ends.
+**The Peering page** lets you list a room from another directory in this
+one, provided this tab has joined that room. Each listing returns a lease
+capability that can revoke it. Dropping the capability without revoking leaves
+the listing in place until the directory connection ends.
 
 **The Visualizer page** shows the endpoint this session publishes its trace to
 and whether publishing is **on**, **refused**, or reconnecting. Publishing
@@ -494,8 +497,8 @@ bound, so a supervisor that passes `--http-port=0` learns where to reach it.
   instead of starting its own. The capabilities it prints are then that
   server's.
 
-Some settings are environment variables only. Set them where the launcher
-starts, or under `services.directory.environment` in a deployment's
+Some settings accept only environment variables. Set them when starting the
+launcher, or under `services.directory.environment` in a deployment's
 `docker-compose.override.yml`.
 
 The relay's limits:
@@ -536,9 +539,11 @@ Browser-to-browser WebRTC and the relay's TCP peers:
   or an origin that `GLOWCAP_RELAY_ALLOW_ORIGINS` (or `--allow-origin`) lists,
   by origin or page address. Unset, the list holds the published glowcap.org
   Rooms page, and setting it replaces that default, so name the page there to
-  keep it. The default link `up` prints runs that published page against your
-  server, and listing your own page first changes it to yours. An empty value
-  allows none. A request with no `Origin` header is
+  keep it.
+
+  By default, `glowcap apps rooms deployment up` prints a link that
+  opens the published page with your server. Listing your own page first
+  changes that link to yours. An empty value allows none. A request with no `Origin` header is
   accepted so non-browser clients can connect.
 - The IRC encoder refuses NUL, CR, and LF in every parameter and bounds line
   length.
@@ -553,6 +558,5 @@ Browser-to-browser WebRTC and the relay's TCP peers:
 
 ## Known limitations
 
-[Rooms limitations](limitations.md) lists the limits of Rooms itself, one
-section each. The library's limits, including transports and browser
-reachability, are in [known limitations](../../docs/boundaries.md).
+[Rooms limitations](limitations.md) covers application limits. The library's
+limits, including transports and browser reachability, are in [known limitations](../../docs/boundaries.md).

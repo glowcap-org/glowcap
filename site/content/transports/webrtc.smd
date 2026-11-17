@@ -7,9 +7,10 @@
 ---
 
 Browsers can exchange CapTP over a [WebRTC](https://www.w3.org/TR/webrtc/)
-DataChannel, encrypted with DTLS. ICE selects a direct route or a configured
-TURN relay. The peers set up the connection by exchanging messages through a
-capability they can already reach. That exchange is called signaling.
+DataChannel, encrypted with DTLS. The peers use ICE to find a network path,
+either directly or through a configured TURN relay. They set up the connection
+by exchanging messages through a capability they can already reach. That
+exchange is called signaling.
 
 # Dial
 
@@ -211,5 +212,5 @@ introducer names the object's host, and the recipient dials that peer on a
 fresh session to collect it. The redeeming host needs signaling configured.
 
 For peers outside the browser that need discovery or NAT traversal, prefer
-[iroh]($link.page('transports/iroh')). The rest of the lineup is on
+[iroh]($link.page('transports/iroh')). Compare the other transports in
 [Choosing a transport]($link.page('transports/choosing')).

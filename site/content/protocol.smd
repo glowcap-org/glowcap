@@ -18,8 +18,8 @@ means `glowcap-next`, the profile tracking newer draft operations.
 
 # Operations
 
-An operation (`op:...`) is a message that acts in the session. It opens the
-session, makes a call, settles a promise, or tears the whole thing down.
+An operation (`op:...`) opens or ends a session, makes a call, settles a
+promise, or releases references.
 
 | Message | What it does |
 | --- | --- |
@@ -38,8 +38,8 @@ session, makes a call, settles a promise, or tears the whole thing down.
 # [How a promise settles]($section.id('how-a-promise-settles'))
 
 On a CapTP 1.0 session, a caller that wants an answer passes a **resolver**
-with its `op:deliver`: a reference the callee calls back. The answer comes
-home as one more `op:deliver`, to that resolver, carrying
+with its `op:deliver`: a reference the callee calls back. The answer returns
+as another `op:deliver` to that resolver, carrying
 `['fulfill <value>]` or `['break <error>]`. Goblins and glowcap both settle
 promises this way.
 
@@ -85,9 +85,8 @@ what a slot points at.
 
 # Locators
 
-A locator (`ocapn-...`) is neither a message nor a reference. It is an *address*:
-where a peer lives, and, for a sturdyref, which object to ask it for. The
-*designator* inside it is the peer's name on its transport: an iroh node id, a
+A locator (`ocapn-...`) gives a peer's address and, for a sturdyref, the object
+to fetch from it. The *designator* inside it is the peer's name on its transport: an iroh node id, a
 public key for Noise and keyed transports, a Tor service id, or a `host:port`
 for testing-only `tcp`. A locator rides inside `op:start-session` as the
 location each side announces, and travels as an argument when one peer hands

@@ -1,6 +1,6 @@
 ---
 .title = "Loam: durable objects",
-.description = "How glowcap keeps objects, and the capabilities they hold, across a restart, told through one shared task board.",
+.description = "Keep objects and their capabilities across restarts with Loam, illustrated through a shared task board.",
 .date = .date("2026-10-03T00:00:00"),
 .layout = "page.shtml",
 .draft = false,
@@ -22,7 +22,7 @@ Programs that host durable objects configure a store during startup. Rooms
 already handles that in its session runtime. Peers calling those objects use
 ordinary glowcap references and need no local store. The
 [integration guide](https://github.com/glowcap-org/glowcap/blob/main/docs/loam.md#choosing-an-integration)
-covers the setup owned by each API.
+covers setup for each API.
 [Concepts]($link.page('concepts')) covers references and sturdyrefs if they
 are new to you.
 
@@ -53,6 +53,10 @@ Most cards on a big board go untouched for months, so Loam lets them
 working. A call wakes the card, runs it, saves the result, and only then
 replies.
 
+The [Host]($link.page('modules')) serves your program's objects to peers. An
+**attachment** joins a Loam store to that Host. A **Vat** holds objects and
+runs their code one call at a time.
+
 [A call to a sleeping card: the Host accepts it, Loam requests its record, the card's behavior proposes new state, and a storage worker saves it before the reply goes back.]($image.siteAsset('diagram-loam-wake.svg'))
 
 The reply waits for the save so nobody is told about a change a crash could
@@ -65,10 +69,7 @@ Loam's core decides which reads and writes are needed. Its SQLite and LMDB
 engines do the disk work, while the surrounding application or binding
 schedules it.
 
-[Six layers from top to bottom. Peers call the Host and Vat over CapTP. The Loam attachment wakes actors and saves their state before replying. The Store keeps records, transactions and a bounded cache. A storage worker runs reads and writes, scheduled by the application or binding.]($image.siteAsset('diagram-loam-layers.svg'))
-
-The **attachment** joins a store to the Host that serves your program's
-objects to peers.
+[Peers call the Host and Vat over CapTP. The attachment wakes actors and saves state before replying. The Store manages records, transactions, and a bounded cache. The application or binding schedules a worker to read and write through SQLite, LMDB, IndexedDB, or memory.]($image.siteAsset('diagram-loam-layers.svg'))
 
 A card's behavior receives its saved state and a call, then proposes a reply
 and new state. It does no I/O. A failed save can discard the proposal, but
@@ -102,14 +103,13 @@ record for you, beside the objects.
 [Alice's board and its columns sit inside one grant's scope. Bob holds the use reference and reads a column. Alice holds the control reference for the same grant and revokes it, and Bob's next read is refused.]($image.siteAsset('diagram-loam-access.svg'))
 
 A **grant** gives permission over a resource and what sits below it. Bob gets
-a **use reference**, like a ticket. Alice keeps a separate **control
-reference**, like a remote, that can pause, resume, or revoke the grant. Bob
-can use his access but not change it.
+a **use reference** to access the resource. Alice keeps a separate **control
+reference** to pause, resume, or revoke the grant. Bob can use his access but
+not change it.
 
 If Bob shares onward, the new grant sits under his and is never wider. Every
 use is checked against all the grants above it, so revoking Bob's grant cuts
-off everyone he shared with. Managed access adds no cost to objects that do
-not use it.
+off everyone he shared with.
 
 # [Limits]($section.id('limits'))
 

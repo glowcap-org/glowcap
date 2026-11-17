@@ -18,8 +18,8 @@ promises, and introductions from the ground up, and
 
 # The objects
 
-Each card is one object: how you come to hold it, the calls it answers, and
-what it hands back. Cool cards live on the server, warm cards are handed to
+Each card shows how to obtain an object, the calls it answers, and what it
+returns. Cool cards live on the server, warm cards are handed to
 you to use or pass on, and the inbox is the one you make yourself.
 
 ```=html
@@ -141,8 +141,8 @@ the subject reference can update the subject through the same methods as any
 other holder. A subject reference works for as long as the seat it came with,
 and joining again gives a new one.
 
-A subject is a description, and it can also link an object the room is about,
-such as a board or a game, by its `ocapn://` sturdyref. The room checks that
+A subject describes the room and can link to a related object, such as a
+board or game, through its `ocapn://` sturdyref. The room checks that
 the link parses and tells it to everyone in the room, but never calls the
 object. Whoever set it hosts the object and decides what that reference may
 do. A subject with no link is a plain topic.
@@ -244,7 +244,7 @@ this protocol. So does a [Spritely Goblins](https://spritely.institute/)
 program: it can sit in a room and answer a direct message without any change
 to Goblins, because Rooms uses only OCapN.
 
-The readable specification, with the reasoning behind every verb, is
+The specification and reasons for each method are in
 [`protocol.ts`](https://github.com/glowcap-org/glowcap/blob/main/apps/rooms/lib/protocol.ts)
 for the directory, rooms, seats, lines, files, and introductions. Other files
 cover

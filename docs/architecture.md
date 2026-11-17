@@ -25,9 +25,9 @@ only when called and performs no I/O.
 Most Zig programs start with `driver.Session`: connect or listen, then fetch,
 call, publish, and redeem a live reference passed to a third party (a handoff)
 as ordinary operations. That Session is a view onto one connection owned by a
-`driver.HostRuntime`. Each runtime realizes one independent multi-session CapTP
-Host, and a process may own many. Every Host has one Node, one Vat, and one
-Port-plus-Peer per live session:
+`driver.HostRuntime`. Each runtime owns one independent CapTP
+Host with multiple sessions. A process may own several runtimes. Every Host
+has one Node, one Vat, and one Port-plus-Peer per live session:
 
 ```text
 process
@@ -40,8 +40,7 @@ process
                 └── Peer: that session's CapTP state
 ```
 
-The layers stack from the application down to the portable core, and
-dependencies point only downward:
+Dependencies point downward from the application to the portable core:
 
 ```text
 application
@@ -95,8 +94,7 @@ embeds glowcap behind another runtime.
 | `driver.HostRuntime` | You want one identity across several sessions over the transports it serves. |
 | `driver_core.Host` | Your runtime feeds bytes and drains actions without letting glowcap own I/O. The bindings that load the C library hand this Host to the driver. The browser package feeds it itself. |
 
-Consumers reach Host through `driver.core`. The files under `host/` are
-implementation, not a second public API.
+Import Host through `driver.core`. The files under `host/` implement that API.
 
 The actor layer sits between the protocol peer and these application APIs.
 `actors.Vat` hosts local objects, turns incoming calls into actor turns, and
@@ -219,9 +217,8 @@ security and reachability of the transports.
 
 ## Resource knobs
 
-Each option limits one thing: frame size, shared read memory, data waiting to
-be sent, or how much local work one session can set off. Each default sits
-beside its option in the code.
+Options bound frame size, shared read memory, queued output, and local work
+per session. Defaults sit beside their options in the code.
 
 | Option | What it limits |
 | --- | --- |
@@ -254,17 +251,18 @@ reconnect policy.
 
 ## Session tables
 
-CapTP names imports, exports, and answers with integer positions. The
-namespaces the partner names (imports and inbound answers) are hash tables,
-so a sparse number from an untrusted peer cannot force a giant array, and
-imports retain a separate cap because the remote peer chooses their count.
-The namespaces this session mints (exports and outbound answers) are dense
+CapTP names imports, exports, and answers with integer positions. Positions chosen by
+the partner (imports and inbound answers) use hash tables, so a sparse number
+cannot force a giant array. Imports also have a count limit because the
+partner chooses how many to create.
+Positions chosen locally (exports and outbound answers) use dense
 slabs indexed by position
 ([ADR-0038](decisions/adr/ADR-0038-local-position-tables.md)):
-a lookup is an index, a released position is minted again, and an explicit
-export position costs the slots up to it. Garbage collection removes an
-answer row before its position can be reused, and a stale reader holding a
-row's stamp misses the row that reuses the position.
+lookups index directly, released positions can be reused, and an explicit
+export position needs memory for every slot up to it. Garbage collection
+removes an answer row before its position can be reused. A row's stamp
+identifies that use of the position, so a stale reader cannot reach a new row
+at the same position.
 
 Once the session sends the answer to an inbound call, it keeps that answer's
 resolution, because later pipelined messages may still refer to it. These rows
@@ -380,7 +378,7 @@ provider packages through `glowcap_transport_provider.h`:
 - Onion, iroh, and WebRTC ship as separate archives. The driver uses them
   without naming what is inside.
 
-The rules for providers:
+Providers follow these rules:
 
 - Listener ids key the routing of accepted connections in every binding. The
   driver owns each listener's canonical public locator.

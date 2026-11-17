@@ -34,9 +34,8 @@ explains the assistance, verification, and upstream policies.
 
 ## Downloads
 
-One command installs the newest release for this machine. It verifies the
-download against the release checksums before running the product's own
-installer:
+Install the newest release for your machine. The command verifies the release
+archive against its checksums before running the installer inside it:
 
 ```sh
 curl -fsSL https://glowcap.org/install.sh | sh
@@ -50,8 +49,8 @@ the CLI, Rooms, browser assets, and agent skills in
 [installation guide](https://github.com/glowcap-org/glowcap/blob/main/apps/rooms/host.md) covers verification and installation,
 and the [changelog](https://github.com/glowcap-org/glowcap/blob/main/CHANGELOG.md) lists what each release changed.
 
-Rooms, the chat application built on glowcap, comes with the CLI. To open it
-after installation:
+The CLI includes Rooms, a chat application built on glowcap. After installation,
+start it with:
 
 ```sh
 export PATH="$HOME/.local/bin:$PATH"
@@ -94,9 +93,9 @@ exe.root_module.addImport("glowcap", glowcap.module("glowcap"));
 For Zig over iroh or WebRTC, enable `.iroh = true` or `.webrtc = true` in that
 dependency's options, then import `glowcap_iroh` or `glowcap_webrtc`.
 
-Then dial a peer over `noise-tcp`, fetch a capability by name, and call it. The
-caller supplies `io`, `allocator`, the peer's public key, and its `host:port`
-address. The complete program is
+Dial a peer over `noise-tcp`, fetch a capability by name, and call it. Supply
+`io`, `allocator`, the peer's public key, and its `host:port` address.
+The complete program is
 [`examples/zig/readme_quick_start.zig`](https://github.com/glowcap-org/glowcap/blob/main/examples/zig/readme_quick_start.zig).
 
 ```zig
@@ -134,7 +133,7 @@ switch (settled) {
 }
 ```
 
-`fetch` asks the peer's bootstrap object for a name that side published.
+`fetch` asks the peer's bootstrap object for a published capability by name.
 [Start building](https://glowcap.org/start/) shows the
 listening side of this exchange and the same program in other languages.
 
@@ -147,8 +146,8 @@ checkout, run `./glowcap install`. It builds the product, checks its file
 list, and installs it outside the checkout. `zig build glowcap-install` stages
 the same files under `zig-out/product` without installing them.
 
-[Installing glowcap](https://github.com/glowcap-org/glowcap/blob/main/apps/rooms/host.md) installs Rooms too.
-`glowcap apps rooms serve` starts the browser app, and
+After [installing glowcap](https://github.com/glowcap-org/glowcap/blob/main/apps/rooms/host.md),
+`glowcap apps rooms serve` starts the Rooms server, and
 `glowcap apps rooms session join` joins a room over encrypted iroh.
 
 ### Examples and other languages
@@ -171,7 +170,7 @@ format.
 
 For an encrypted session, use [iroh](https://www.iroh.computer/), which is
 QUIC with peer discovery, or `noise-tcp`, which is TCP that proves you reached
-the key you dialed. Spritely Goblins, as it ships, talks to glowcap over Tor onion services.
+the key you dialed. To reach Spritely Goblins as it ships, use Tor onion services.
 Plain `tcp` is a testing transport, cleartext with no identity proof.
 [Choosing a transport](https://glowcap.org/transports/choosing/)
 lists the rest.
@@ -189,9 +188,9 @@ transport, binding, and Loam costs with their workloads and methods.
 
 The interoperability checks use the upstream
 [OCapN test suite](https://github.com/ocapn/ocapn-test-suite) and live sessions
-with [Spritely Goblins](https://spritely.institute/goblins/) on Racket: cleartext `tcp`
-through a testing netlayer glowcap supplies in full CI validation, and Tor
-onion, the netlayer Goblins ships, on demand.
+with [Spritely Goblins](https://spritely.institute/goblins/) on Racket. CI runs
+Goblins checks over cleartext `tcp` through a testing netlayer glowcap supplies.
+Checks over Tor onion, the netlayer Goblins ships, run manually.
 The baseline is CapTP 1.0 encoded in Syrup, the wire Goblins and the pinned
 suite speak:
 
@@ -209,8 +208,7 @@ which checks run in CI.
 
 ## Build
 
-The Zig version and every other toolchain are pinned, and
-[dependencies](https://github.com/glowcap-org/glowcap/blob/main/docs/dependencies.md) lists them.
+[Dependencies](https://github.com/glowcap-org/glowcap/blob/main/docs/dependencies.md) lists the pinned toolchain versions.
 
 ```sh
 zig build          # C ABI archives + headers + the glowcap CLI
@@ -239,7 +237,7 @@ Reference pages:
 - [Capabilities](https://github.com/glowcap-org/glowcap/blob/main/docs/capabilities.md) is the glossary when the ideas are new.
 - [The roadmap](https://github.com/glowcap-org/glowcap/blob/main/docs/roadmap.md) lists the work that remains.
 
-The [protocol diagrams](https://github.com/glowcap-org/glowcap/blob/main/docs/protocol-diagrams/README.md) draw each message
+The [protocol diagrams](https://github.com/glowcap-org/glowcap/blob/main/docs/protocol-diagrams/README.md) show each message
 flow, and the [decision records](https://github.com/glowcap-org/glowcap/blob/main/docs/decisions/README.md) explain why each
 design was chosen.
 The [security policy](https://github.com/glowcap-org/glowcap/blob/main/SECURITY.md) explains how to report a vulnerability.

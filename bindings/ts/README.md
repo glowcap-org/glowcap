@@ -1,7 +1,7 @@
 # glowcap for TypeScript and JavaScript
 
-These packages let TypeScript and JavaScript connect to OCapN peers, call their
-objects, and host objects of their own. Deno supports the full session API,
+Use these packages to call OCapN objects and host your own from TypeScript or
+JavaScript. Deno supports the full session API,
 with a WebAssembly entry for browsers. Bun supports synchronous Host and locator
 calls and byte-fed clients, but cannot run the driver loop or blocking transports.
 
@@ -9,12 +9,9 @@ calls and byte-fed clients, but cannot run the driver loop or blocking transport
 deno add jsr:@glowcap/runtime jsr:@glowcap/tcp
 ```
 
-On first use the runtime package downloads the C libraries of its version from
-the GitHub release and verifies them against its checksum file. Set
+On first use, the runtime downloads matching C libraries from its GitHub
+release and verifies their checksums. Set
 `GLOWCAP_LIB_DIR` to an extracted C SDK's `lib/` directory to use a local copy.
-Run your client with `deno run --allow-all client.ts`. In a checkout of the
-repository, run `zig build` and save the client in the repository root, where
-the checkout's `deno.json` maps the package names to the tree's sources.
 
 Start the [TCP greeter server](tcp/README.md#listen) in another terminal, then use its
 advertised peer key in the client below.
@@ -32,6 +29,10 @@ const greeter = await session.fetch("greeter");
 console.log(await session.send(greeter, "greet", ["world"]));
 ```
 
+Save the client as `client.ts` and run `deno run --allow-all client.ts`. In a
+source checkout, run `zig build` and save it in the repository root, where
+`deno.json` maps package names to the checkout's sources.
+
 ## Packages
 
 | Package | Purpose |
@@ -46,8 +47,7 @@ console.log(await session.send(greeter, "greet", ["world"]));
 | [`@glowcap/inproc`](inproc/README.md) | Socket-free in-process frame transport for tests and programs that keep every peer in one process. |
 | [`@glowcap/abi`](abi/README.md) | Generated ABI constants used by the other packages. |
 
-Deno, Bun, and the browser each need their own way to call C library code and open
-sockets. The runtime picks the matching adapter when it loads.
+The runtime loads the adapter for Deno, Bun, or the browser.
 
 On Deno, TCP, iroh, onion, WebRTC, and relay connections run on glowcap's
 driver loop, an event loop in the C library that owns the sockets. Bun, the

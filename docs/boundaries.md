@@ -10,8 +10,7 @@ sources:
 # Known limitations
 
 Pin a release or commit and follow the
-[alpha upgrade policy](maintaining.md#release-status). The constraints below
-can affect which API or transport you choose and where you deploy it.
+[alpha upgrade policy](maintaining.md#release-status). These limits affect API and transport choices and deployment.
 
 ## Protocol draft coverage
 
@@ -24,7 +23,7 @@ specification and Goblins release.
 ## Transports and peer identity
 
 - **`tcp`, `keyed-tcp`, and `keyed-relay` are cleartext and unauthenticated.**
-  A key designator alone proves no possession of that key. WSS to a relay
+  A key in a locator does not prove the peer holds that key. WSS to a relay
   does not protect CapTP from the relay operator. Use `noise-tcp`,
   `noise-relay`, iroh, or WebRTC with trusted signaling for deployment.
 - **Address locators prove no identity.** On `tcp` and `onion`, a peer claiming
@@ -41,10 +40,11 @@ specification and Goblins release.
 - **Onion negotiation preserves Goblins compatibility.** Versions above `1.0`
   are offered only to a peer known to be glowcap. Pinned Goblins refuses
   hinted onion locators ([ADR-0042](decisions/adr/ADR-0042-onion-interoperability.md)).
-- **WebRTC needs configured signaling.** Its Rust provider and iroh's Rust
-  stack are dependencies, not Zig implementations. A silent iroh peer is
-  detected after its configured idle timeout. Shortening it costs idle traffic.
-  [Transport setup](../bindings/README.md#transports) gives the options.
+- **WebRTC needs configured signaling.** WebRTC and iroh depend on Rust
+  implementations. [Transport setup](../bindings/README.md#transports) gives
+  the options.
+- **iroh detects silent peers after its configured idle timeout.** A shorter
+  timeout requires more idle traffic.
 
 ## Invocation shape
 
@@ -74,7 +74,7 @@ binding ([invocation contract](../bindings/README.md#invocation-shape)).
   [Loam publications](loam/publications.md) store names for you.
 - **Bindings have different frame costs.** TypeScript, Python, and Racket copy
   outbound bytes before asynchronous writes. Rust retains the frame.
-  Custom codec registration is Zig-only. C and bindings select built-in codecs.
+- **Custom codec registration is Zig-only.** C and bindings select built-in codecs.
 
 ## API gaps
 
@@ -136,7 +136,7 @@ recognized-failure syntax remain unsupported
   Observation resynchronizes after history expires
   ([retry and observation contracts](loam/access.md)).
 - **Policy uses a bounded vocabulary.** Permissions, numeric bounds, and resource
-  kinds must cover each effect. An earlier evaluation never authorizes a later
+  kinds must cover each effect. Recheck permission before each
   effect ([policy support](loam/access.md#policy-and-interface-support)).
 - **Descriptions and live fields have limited lifetimes.** `describe-access`
   returns a snapshot without controls or events. A live capability field refuses
@@ -170,8 +170,9 @@ when the sender's session ends, even when the message remains.
 - **Libc-linked shared archives remain mapped until process exit** so detached
   workers cannot return into unloaded code
   ([ADR-0024](decisions/adr/ADR-0024-transport-provider-and-abi-contracts.md)).
-- **Rust recovery requires its owning thread.** Exiting that thread with refused
-  C releases pending retains callbacks and Rust owners for the process lifetime.
+- **Rust recovery requires its owning thread.** If that thread exits while a
+  C release is still refused, the callbacks and Rust owners the C code may
+  borrow stay allocated for the process lifetime.
   Finish recovery before thread exit. The
   [adapter audit](roadmap.md#what-starts-next) must establish a safe terminal outcome.
 - **An accepted plain-TCP session cannot prove a sturdyref's peer.** Enlivening
@@ -194,29 +195,29 @@ when the sender's session ends, even when the message remains.
   answer reference in a call argument or reply breaks with a typed reason.
   The [upstream question](upstream-watch.md#answer-references-outside-target-position)
   owns the missing wire representation.
-- **Bare Node embeddings supply cross-session forwarding.** Host keeps queued
+- **A bare Node embedding must supply cross-session forwarding.** Host keeps queued
   and late calls callable when an answer settles to an object on another
   session, while its listener receives a direct handoff. A custom Node
   embedding must install `Node.pipeline_projection` and dispatch its private
   callable deliveries and retirement events in FIFO order. Without that
-  callback, Node publishes the handoff but cannot forward those calls. Discarding a retirement event leaves cleanup to the
-  owning Port's teardown.
+  callback, Node publishes the handoff but cannot forward those calls.
+  Discarding a retirement event leaves cleanup to the owning Port's teardown.
 - **Published resolutions retain the imports they name** until the partner
   releases the answer, subject to retained-answer limits
   ([ADR-0070](decisions/adr/ADR-0070-stored-resolutions-hold-imports.md)).
-- **OCapN Null is absent, and Goblins can reject independent receivers' handoffs.**
+- **glowcap has no OCapN Null value, and Goblins can reject handoffs between independent receivers.**
   [Upstream watch](upstream-watch.md) records the specification and peer dependencies.
-  Unknown Syrup records retain their tags. Cap'n Proto interoperates only between
-  glowcap peers. Handoff signatures use Syrup even on those sessions.
+  Unknown Syrup records retain their tags.
+- **Cap'n Proto interoperates only between glowcap peers.** Handoff signatures
+  use Syrup even on those sessions.
 - **Unproved peer identity cannot establish equality across sessions.** Matching
   locators alone do not make two remote targets the same capability.
 
 ## Browser reachability
 
 The browser bundle includes JavaScript and its matching Wasm for self-hosting.
-The supplied WebRTC example connects two peers in one tab. Its in-page
-signaling demonstrates the API, not an authenticated signaling service for
-remote peers.
+The supplied WebRTC example connects two peers in one tab using in-page
+signaling. Remote peers need an authenticated signaling service.
 
 - **A browser opens no listening socket.** It needs a relay or WebRTC signaling.
   An iroh gateway can read traffic and vouch for the peer, while `noise-relay`

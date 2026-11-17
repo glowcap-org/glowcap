@@ -151,7 +151,11 @@ when another task waits for the session to shut down.
 > await using runtime = await Runtime.open({ providers: [provider({ profiles: [plain] })] });
 > ```
 
-From here, the CapTP workflow is the same for every transport:
+```=html
+<!-- site-example-common -->
+```
+
+Fetch the greeter and call its `greet` method:
 
 ```ts
 await using session = await runtime.connect(partner);
@@ -172,10 +176,9 @@ reply breaks too, so failures surface on the calls you await.
 
 # Listen
 
-`listen` binds a port and returns a
-`Server` you iterate for each accepted `Session`, `publish` makes an actor
-fetchable by name, and `serve` dispatches the partner's calls to it. Keyed and
-Noise listeners take a 32-byte seed so the listener keeps the same key across
+`listen` binds a port and returns a `Server`. Iterate it to accept each
+`Session`, publish an actor by name with `publish`, and dispatch calls to it
+with `serve`. Keyed and Noise listeners take a 32-byte seed so the listener keeps the same key across
 restarts. iroh binds a node id instead of a host and port.
 
 ```=html
@@ -243,7 +246,11 @@ restarts. iroh binds a node id instead of a host and port.
 > await using server = await listen("127.0.0.1", 9099);
 > ```
 
-From here, the CapTP workflow is the same for every transport:
+```=html
+<!-- site-example-common -->
+```
+
+Publish the greeter and answer incoming calls:
 
 ```ts
 console.log(server.uri); // hand this locator to partners

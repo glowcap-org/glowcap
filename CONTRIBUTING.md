@@ -10,8 +10,8 @@ contributing require no AI service or account. Contributions written with or
 without assistance receive the same review for correctness, clarity, tests,
 and fit with the project.
 
-The [bug report form](.github/ISSUE_TEMPLATE/bug_report.md) lists what a report
-needs, and a fix is optional. Send suspected vulnerabilities through
+The [bug report form](.github/ISSUE_TEMPLATE/bug_report.md) lists what to include.
+You do not need to supply a fix. Send suspected vulnerabilities through
 [the security policy](SECURITY.md).
 
 [Issues](https://github.com/glowcap-org/glowcap/issues) and
@@ -23,9 +23,9 @@ not wait for that plan.
 
 ## Find a starting point
 
-A useful contribution can point out a confusing instruction, reproduce a bug,
-add a missing failure case to a test, or fix a focused problem. You do not need to
-understand the whole protocol to report what happened and what you expected.
+Point out a confusing instruction, reproduce a bug, add a missing failure
+case to a test, or fix a focused problem. A report needs what happened and
+what you expected, even if you do not know the protocol.
 
 For code, start with a runnable [example](examples/README.md) in your language,
 then follow it into the implementation. For Rooms, start with
@@ -67,7 +67,7 @@ finishes, run `zig build check`. A host setup can use
 `conformance/bootstrap-submodules.sh` instead.
 
 Opening the devcontainer also installs the pre-commit hook, which formats
-staged Zig, Rust, TypeScript, JavaScript, and Python files. A plain clone runs
+staged Zig, Rust, TypeScript, JavaScript, and Python files. For a plain clone, run
 `git config core.hooksPath .agents/hooks` once to install the same hook.
 
 ## Preview startup
@@ -136,22 +136,22 @@ Keep these design constraints:
 - Source files have a clear subject and stay within the limit enforced by
   `source-check`.
 
-A change to an architectural contract needs a
-[decision record](docs/decisions/README.md), and that page says which changes
-qualify.
+Record changes to architectural contracts in a
+[decision record](docs/decisions/README.md).
 
 ## Adding a build step
 
-Add `zig build <name>` on its own line in the section of
-[Build steps](docs/build-steps.md), or of
-[application build steps](docs/build-steps-apps.md) for an application, demo,
-or benchmark, that matches what the step proves, beside its closest sibling,
-then run `zig build gen-build-steps`.
-The comment on every bare row is written from the build graph: the step's own
-description, then `part of` and the nearest steps that run it, derived from
-the step dependencies. The description says what the step proves and ends with
-the tools it needs in parentheses when it needs more than Zig. A row with
-arguments after the name is a usage example and keeps the comment you write.
+Add `zig build <name>` on its own line beside the closest related step in
+[Build steps](docs/build-steps.md). For an application, demo, or benchmark, use
+[application build steps](docs/build-steps-apps.md). Then run
+`zig build gen-build-steps`.
+
+Write the description when registering the step in the build graph. Say what
+the step proves, followed by any tools besides Zig that it needs in parentheses.
+The generator comments each bare row with that description, then `part of` and
+the nearest steps that depend on it.
+
+A row with arguments after the name is a usage example and keeps your comment.
 `gen-build-steps-check` holds the rows to the graph under `source-check`.
 
 ## Open a pull request
@@ -190,18 +190,17 @@ Instructions for coding agents live in [AGENTS.md](AGENTS.md).
 ## Continuous integration
 
 [`ci/README.md`](ci/README.md) maps every trigger to the workflow it runs, the
-command each step calls, and how a run selects and builds its groups. The
-commands are Python under `ci/` and `zig build`, so each has a test in
-[`ci/`](ci/) and a workflow reads as a list of steps.
+command each step calls, and how a run selects and builds its groups.
+Workflows call Python commands under `ci/` and `zig build`. Tests for the CI
+commands live in [`ci/`](ci/).
 
 Every pull request runs source checks, Zig tests in Debug and ReleaseSafe,
-process proofs, infrastructure checks, and macOS tests, and a pull request
-into `dev` adds the groups its changed paths reach. A missed deadline fails
-the check without a retry. Diagnose the stopped attempt before rerunning it,
+process proofs, infrastructure checks, and macOS tests. Pull requests into
+`dev` also run the groups selected by their changed paths. A missed deadline
+fails the check without a retry. Diagnose the stopped attempt before rerunning it,
 because a later pass does not explain the failure. Reproduce a phase locally
-with `.agents/skills/work/bin/glowcap-dev python3 ci/gates.py run <phase>`
-(the devcontainer front), or CI's process checks
-alone:
+with `.agents/skills/work/bin/glowcap-dev python3 ci/gates.py run <phase>`,
+which enters the devcontainer. To run only CI's process checks:
 
 ```sh
 zig build runtime-check-build -Doptimize=safe

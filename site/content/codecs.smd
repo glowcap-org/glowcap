@@ -9,7 +9,7 @@
 A codec turns CapTP messages into bytes and back. The session decides whether
 a reference is valid, so changing codecs changes only the wire format.
 
-glowcap ships two:
+glowcap supports two codecs:
 
 | Codec | Use it when | Tradeoff |
 | --- | --- | --- |
@@ -25,9 +25,8 @@ Syrup is the OCapN format and glowcap's default. Use it to communicate with
 OCapN test suite.
 
 Its length-prefixed, variable-width records keep small control messages
-compact. The decoder can find a frame boundary and decode it in one forward
-pass. Random access is the tradeoff: reaching item *i* requires walking the
-records before it.
+compact. The decoder finds a frame boundary and decodes the message in one
+forward pass. Reaching item *i* requires scanning the records before it.
 
 Syrup is also glowcap's signing format. The signature on a peer's announced
 location and the certificates that authorize a
@@ -51,7 +50,7 @@ matching Host or binding preference.
 
 Measure your own messages before switching. The
 [performance page]($link.page('performance')) measures one small
-mixed-argument call, which may look nothing like yours.
+mixed-argument call, so its results may not predict your workload.
 
 Either codec can hand the session a temporary view of a message. glowcap copies
 into owned memory only when it must keep that message after decode finishes.

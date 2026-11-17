@@ -15,14 +15,19 @@
 // `aria-pressed` onto the clicked button. The copy button rides the same
 // selection, so it also asserts one copy button sits in the strip.
 //
+// On Start building, copying each Zig dial setup plus its continuation must
+// reproduce the authoritative snippet. This catches render-time loss of code
+// that compiling only the source snippet cannot detect.
+//
 // Validated against injected defects: neutering `select()` so every panel
 // stays visible failed on all 11 tabbed pages (139 visible-panel assertions),
 // and dropping the click listener so the panel never moves failed the same
 // pages on both the visible-panel and aria-pressed assertions. The
 // tabbed-page floor below guards a vacuous pass if a build renders no tabs.
-// Not validated against: a page whose tabs switch but whose panel content is
-// wrong, which the snippet compile checks (site-zig-examples-check and
-// siblings) own instead.
+// Dropping the Zig continuation's brace fails every dial-copy comparison.
+// Other languages and transport-page copies are not compared here. The
+// snippet compile checks (site-zig-examples-check and siblings) validate
+// their authoritative source files.
 //
 // Usage: deno run --allow-all tools/check/site_tabs.ts <site-root>
 
@@ -45,6 +50,7 @@ const browser = await chromium.launch();
 const page = await browser.newPage({ viewport: { width: 1024, height: 844 } });
 const failures: string[] = [];
 let tabbedPages = 0;
+let zigDialCopies = 0;
 
 for (const p of pages) {
 	try {
@@ -52,6 +58,46 @@ for (const p of pages) {
 	} catch (e) {
 		failures.push(`${p}: ${e}`);
 		continue;
+	}
+	if (p === "/start/") {
+		const copies = await page.evaluate(() => {
+			const box = document.querySelector(".block.code-tabs");
+			if (!box) throw new Error("Zig dial tabs are missing");
+			let next = box.nextElementSibling;
+			while (next && !next.classList.contains("code-block")) next = next.nextElementSibling;
+			const continuationCopy = next?.querySelector(".copy-btn");
+			const setupCopy = box.querySelector(".copy-btn");
+			if (!(continuationCopy instanceof HTMLButtonElement) || !(setupCopy instanceof HTMLButtonElement)) {
+				throw new Error("Zig dial copy controls are missing");
+			}
+			let copied = "";
+			Object.defineProperty(navigator.clipboard, "writeText", {
+				configurable: true,
+				value: (text: string) => {
+					copied = text;
+					return Promise.resolve();
+				},
+			});
+			continuationCopy.click();
+			const continuation = copied;
+			return Array.from(box.querySelectorAll(".tab-bar button:not(.copy-btn)"), (tab) => {
+				if (!(tab instanceof HTMLButtonElement)) throw new Error("Zig dial tab is not a button");
+				tab.click();
+				setupCopy.click();
+				return { label: tab.textContent?.trim(), text: `${copied.trimEnd()}\n${continuation}` };
+			});
+		});
+		zigDialCopies += copies.length;
+		for (const copy of copies) {
+			const source = await Deno.readTextFile(`site/examples/dial/${copy.label}.zig`);
+			const expected = source.replace(/^.*From here, the CapTP workflow is transport-independent\.\n/m, "");
+			if (expected.trim().length === 0 || copy.text.trim() !== expected.trim()) {
+				failures.push(
+					`/start/: copied ${copy.label} setup and continuation differ from the checked Zig example`,
+				);
+			}
+		}
+		await page.reload({ waitUntil: "networkidle" });
 	}
 	// How many enhanced tab strips does this page carry, and how many panels each?
 	const boxes = await page.evaluate(() => {
@@ -124,8 +170,11 @@ if (tabbedPages < floor) {
 	console.error(`site_tabs: pressed tabs on only ${tabbedPages} pages (floor ${floor}); refusing a vacuous pass`);
 	Deno.exit(1);
 }
+if (zigDialCopies === 0) failures.push("no Zig dial copies checked");
 if (failures.length > 0) {
 	for (const f of failures) console.error(`site_tabs: ${f}`);
 	Deno.exit(1);
 }
-console.log(`site_tabs: pressed every tab on ${tabbedPages} tabbed pages; each selects its own panel`);
+console.log(
+	`site_tabs: pressed every tab on ${tabbedPages} tabbed pages; ${zigDialCopies} Zig dial copies match source`,
+);

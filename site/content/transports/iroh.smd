@@ -270,8 +270,8 @@ language keeps it optional:
 # Scale: many connections, one thread
 
 A session from `connect` runs its own runtime on the calling thread. To serve
-many sessions from one thread, a single [Host]($link.page('modules')), which runs many sessions, watches one descriptor that
-signals when any iroh connection is ready
+many sessions from one thread, a [Host]($link.page('modules')) watches one
+descriptor that signals when any iroh connection is ready
 ([ADR-0019](https://github.com/glowcap-org/glowcap/blob/main/docs/decisions/adr/ADR-0019-pooled-completion-io.md)).
 [Performance]($link.page('performance')) measures both paths. iroh's own memory is
 not part of glowcap's core session footprint.

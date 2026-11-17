@@ -18,8 +18,6 @@ most of its regular checks against
 [Spritely Goblins](https://spritely.institute/goblins/) use the cleartext
 `tcp` testing adapter.
 
-Read [known limitations](boundaries.md) before deploying. [Capabilities](capabilities.md) introduces the model.
-
 glowcap speaks two wire profiles. `1.0` is pinned to what Goblins ships, and
 is the profile those regular checks exercise. `next` tracks current OCapN
 direction: it uses the merged five-operand delivery, deliver-only, and integer
@@ -29,6 +27,9 @@ Goblins-compatible hello and crypto representations. The
 profile has adopted, deferred, or left pending, and the recurring next
 conformance lane checks `next` beside the unchanged `1.0` suite
 ([ADR-0065](decisions/adr/ADR-0065-next-profile-operations.md)).
+
+Read [known limitations](boundaries.md) before deploying.
+[Capabilities](capabilities.md) introduces the model.
 
 ## Application APIs
 
@@ -40,8 +41,7 @@ conformance lane checks `next` beside the unchanged `1.0` suite
 | Bindings     | Rust, TypeScript, Python, and Racket expose the same session and actor model through the C ABI. They can dial, listen, host objects, run actors on a Host without a session, call far objects, and pass capabilities. |
 | Browser      | The browser bundle ships JavaScript, Wasm, and a runnable WebRTC example. `@glowcap/web` runs a full peer in WebAssembly. A browser can host objects, answer calls, redeem handoffs, take sealed `noise-relay` cold dials, and dial or answer a keyed session over WebRTC. |
 
-The [Zig examples](../examples/README.md), [C guide](consuming-from-c.md), and [binding contract](../bindings/README.md)
-are the entry points for those surfaces.
+Start with the [Zig examples](../examples/README.md), [C guide](consuming-from-c.md), or [binding contract](../bindings/README.md).
 The Zig package includes optional iroh, WebRTC, relay TLS, LMDB, and SQLite modules.
 
 ### The C ABI
@@ -60,8 +60,8 @@ The Zig package includes optional iroh, WebRTC, relay TLS, LMDB, and SQLite modu
 
 ### How the bindings run
 
-The bindings combine `libglowcap_host` and `libglowcap_driver`. The driver offers one generic ABI for dialing,
-listening, and events, over a Host it has adopted.
+The bindings combine `libglowcap_host` and `libglowcap_driver`. The driver adopts a Host and exposes dialing,
+listening, and events through one transport-independent ABI.
 
 - The TCP provider package handles `noise-tcp`, `keyed-tcp`, and the testing `tcp`.
 - The iroh provider dials and listens. Zig uses `iroh.MultiplexedAdapter` with `driver.connect` and
@@ -194,7 +194,7 @@ TURN credentials. The relay forwards bytes without parsing CapTP or holding a ca
 
 On Linux the TCP completion loop uses io_uring and falls back to epoll
 ([how the backend is chosen and reported](architecture.md#transports-and-connection-loops)).
-[Benchmarks](../bench/README.md) records the largest session run.
+The [benchmark page](../bench/README.md) records the largest session run.
 
 [Known limitations](boundaries.md#transports-and-peer-identity) compares their security and reachability.
 
@@ -226,14 +226,14 @@ transactions over SQLite, LMDB, or an in-memory engine.
   restore a resource ([guide](loam/c-and-rust.md)). The [browser profile](loam/browser.md) does the same on
   IndexedDB.
 - **`bench-loam`** measures LMDB workloads, including cold reads over a million
-  resources, and the Tasks app on each disk engine, and a small version runs under `check`
-  ([method](../bench/loam/README.md)). `profile-loam` attributes each marked
+  resources, and the Tasks app on each disk engine. A smaller benchmark run is
+  part of `check` ([method](../bench/loam/README.md)). `profile-loam` attributes each marked
   phase under callgrind ([profiles](../bench/README.md)).
 
 ### Managed access
 
 Loam supplies separate use and control capabilities, scoped policy, durable issuance with exact recovery, and paged
-management and observation. The [managed access coverage](loam/coverage.md) maps each surface to its tests.
+management and observation. [Managed access coverage](loam/coverage.md) lists the tests for each API.
 [Known limitations](boundaries.md#managed-access) lists what remains.
 
 ## Actors and hosting
@@ -261,11 +261,14 @@ so a peer with no listening socket can still reply and take part in a handoff.
   [sequence changes within each membership](../apps/tasks/README.md#try-every-binding), and generated Rust and
   TypeScript callers are qualified against it ([coverage](../test/interface/authoring/README.md#tasks-qualification)).
   This is the first [interface generation slice](planning/interface-definitions.md), not a general interface compiler.
-- The [Rooms application](../apps/rooms/) runs browser and terminal peers with durable sessions stored through Loam ([session guide](rooms/session.md)). Members hold rooms
-  and direct messages with files over WebRTC, the Noise-sealed relay, iroh, and TCP. A session process started with
+- The [Rooms application](../apps/rooms/) runs browser and terminal peers with durable sessions stored through Loam ([session guide](rooms/session.md)). Members join rooms
+  and exchange direct messages and files over WebRTC, the Noise-sealed relay, iroh, and TCP. A session process started with
   `--dial-transports=webrtc` and a WebRTC member reach each other directly, signaling through a room they share.
-  A direct opening uses one directory call and one admission charge.
-  Directories peer, IRC works in both directions, and operator capabilities can be revoked.
+  Directories can list each other's rooms, IRC works in both directions, and
+  operator capabilities can be revoked.
+
+  Opening a direct conversation makes one directory call and counts once
+  against the session's introduction allowance.
   [What Rooms ships](../apps/rooms/shipped.md) has the details.
 - ocapnviz opens a read-only trace sturdyref as a browser peer and shows replay and live events
   ([ADR-0040](decisions/adr/ADR-0040-trace-observation-authority.md)).
@@ -278,4 +281,4 @@ The [examples](../examples/README.md) and [apps](../apps/README.md) pages list t
 ## What checks it
 
 [Stability](stability.md) says which checks recur, and what each one does not prove.
-[Community review](community-review.md) is the outside-peer matrix.
+[Community review](community-review.md) lists checks against other implementations.

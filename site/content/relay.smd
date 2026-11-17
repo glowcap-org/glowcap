@@ -20,20 +20,20 @@ support `noise-relay`.
 
 # Reaching the other side
 
-The relay reaches the far side one of two ways.
+The relay either dials a peer or connects to one registered with it.
 
 ## [Dialing a far peer]($section.id('dialing-a-far-peer'))
 
 The browser names a target and the relay dials it. The Deno reference relay reads
 the target off the WebSocket's query: `?to=host:port` opens a TCP socket, and
-`?locator=<ocapn-uri>` opens an iroh channel. The relay then pipes the
-WebSocket to whatever it dialed. Rooms runs the same forwarding behind its own `/relay` route.
+`?locator=<ocapn-uri>` opens an iroh channel. The relay forwards bytes between the
+WebSocket and that connection. Rooms runs the same forwarding behind its own `/relay` route.
 
-On the iroh path, the gateway terminates QUIC and can read the CapTP bytes.
+On the iroh path, the relay terminates QUIC and can read the CapTP bytes.
 The browser trusts it to dial the named node and report the verified key.
-WSS protects the browser-to-gateway leg. It does not hide traffic from the
-gateway. Use `noise-relay` to a peer registered under that transport when
-the gateway must not read or alter the session.
+WSS protects the browser-to-relay leg. It does not hide traffic from the
+relay. Use `noise-relay` to a peer registered under that transport when
+the relay must not read or alter the session.
 
 [The browser names the peer it wants. The relay dials it over tcp or iroh and pipes the two together. The keyed session runs end to end, and the relay only moves bytes.]($image.siteAsset('diagram-relay-dial.svg'))
 
@@ -55,7 +55,8 @@ session
 
 # Bounded resources
 
-Backpressure on both legs caps the bytes in flight: when a reader stalls, the relay stops reading from its partner, so the stall reaches the sender. An idle timeout
+When one peer stops reading, the relay stops reading from the other. This
+backpressure caps the bytes in flight. An idle timeout
 reclaims silent sessions. A relayed connection costs buffers but no CapTP
 session state. The hosting app sets its own limits on live sessions and held registrations, as [Rooms]($link.page('rooms')) does. The relay
 counts bytes and sessions, never messages.
@@ -71,8 +72,8 @@ A `keyed-relay` locator names the waiting peer's key, and the dialing host
 reaches it through its configured relay URL
 ([ADR-0034](https://github.com/glowcap-org/glowcap/blob/main/docs/decisions/adr/ADR-0034-browser-peers.md)).
 `noise-relay` uses the same registration path and encrypts the CapTP stream
-between the peers. A browser can reach a TCP or iroh locator through a
-WebSocket gateway instead, as described under [Dialing a far peer]($link.ref('dialing-a-far-peer')).
+between the peers. A browser can also ask the relay to dial a TCP or iroh
+locator, as described under [Dialing a far peer]($link.ref('dialing-a-far-peer')).
 [Choosing a transport]($link.page('transports/choosing')) lists them all, and
 the [Noise guide]($link.page('transports/noise')) covers the sealed path.
 
@@ -306,10 +307,10 @@ so none exercises a relay with a public certificate.
 A listening peer registers its durable key with the relay and keeps the
 registration alive while it accepts sessions. Persist the identity seed so
 the advertised locator survives a restart. TypeScript, Python, Rust, and
-Racket provide managed `noise-relay` listeners. Zig registers through the
-relay provider (the `"glowcap_relay_tls"` build module, which builds Mbed
-TLS from source) and `driver.listen`, with platform trust for `wss://`. A
-browser page registers through `@glowcap/web` instead.
+Racket provide managed `noise-relay` listeners. Zig registers through
+`driver.listen` with the `"glowcap_relay_tls"` module, which builds Mbed TLS
+from source. It uses the operating system's certificate store for `wss://`.
+A browser page registers through `@glowcap/web` instead.
 
 For cleartext keyed registration, use `resident(.keyed)` in Zig, `keyed.listen` in TypeScript, Python, and Rust, or
 `listen-keyed-relay` in Racket. The locator is still identity-addressed, and the

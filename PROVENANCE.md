@@ -4,19 +4,17 @@ Glowcap LLC maintains glowcap with AI coding assistants. Its maintainer
 directs the work, approves every change that lands, and is answerable for
 the result.
 
-Each commit is a development checkpoint rather than every intermediate edit.
-A change lands as one commit that carries its pull request's description,
-including the assistance note the contribution policy asks for. Commits
-carry no other per-tool record, because tools differ in what they emit and
-some emit none. This disclosure describes maintainer-led development.
-Contributions may be written with or without AI assistance. Pull requests
-record assistance under the [contribution policy](https://github.com/glowcap-org/glowcap/blob/main/CONTRIBUTING.md#tools-and-responsibility).
+Each change lands as one commit. Its message describes the change and records
+AI assistance under the [contribution policy](https://github.com/glowcap-org/glowcap/blob/main/CONTRIBUTING.md#tools-and-responsibility).
+Commits do not record every intermediate edit or each tool used, because
+tools differ in what they record and some record nothing. Contributions may
+be written with or without AI assistance.
 
 ## Upstream policies
 
-[Codeberg](https://codeberg.org/) amended its Terms of Use in July 2026 after a
-member vote. § 2 (1) 7 says: “You must not share projects that mostly consist
-of code written by ‘generative AI’-tools.” glowcap falls under that rule. The
+In July 2026, [Codeberg](https://codeberg.org/Codeberg/org/src/branch/main/TermsOfUse.md)
+members voted to amend its Terms of Use. § 2 (1) 7 says: “You must not share
+projects that mostly consist of code written by ‘generative AI’-tools.” glowcap falls under that rule. The
 accompanying post, [Protecting our FLOSS commons from
 LLMs](https://blog.codeberg.org/protecting-our-floss-commons-from-llms.html),
 also discusses projects built and maintained with heavy LLM use.
@@ -39,19 +37,19 @@ from an agent-produced packet.
 
 ## Responsibility and licensing
 
-The maintainer uses glowcap and stands behind the repository. The author
-field records who wrote a change. A commit on `dev` or `main` is signed by
-the maintainer's key, or by GitHub when the maintainer merges a pull request,
+The maintainer uses glowcap and accepts responsibility for the repository.
+The author field records who wrote a change. A commit on `dev` or `main` is
+signed by the maintainer's key, or by GitHub when the maintainer merges a pull request,
 and that landing records who accepted responsibility for it.
-Neither is evidence of independent review, and neither creates an exception
-to another project's policy.
+Neither the author field nor the signature establishes independent review
+or creates an exception to another project's policy.
 
 glowcap-authored work is licensed under [Apache-2.0](LICENSE-APACHE). This does
 not settle broader copyright questions about generated code. Third-party files
 keep their original terms.
 
 The repository is hosted on GitHub, a commercial forge, because Codeberg's
-rule excludes it and because frequent container builds would draw on
+rule excludes glowcap and because frequent container builds would draw on
 Codeberg's donation-funded resources.
 
 ## Checking the claims
@@ -72,8 +70,7 @@ The external checks pin their direct inputs:
   `.devcontainer/pins.sh`. The crypto-lib compatibility change is a committed
   patch, and its source and output hashes are checked when the image is built.
   Racket's `--auto` still resolves transitive packages through its catalogs.
-  The direct pins keep those roots fixed, but the transitive graph is not
-  locked.
+  Those transitive dependencies are not locked.
 - GitHub workflow actions are pinned to immutable commit SHAs. A version
   comment is kept beside each one only to help review, and an upgrade
   changes both together.

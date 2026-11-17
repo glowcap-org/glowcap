@@ -1,9 +1,9 @@
 # glowcap for Python
 
-The `glowcap` package connects a Python program to [OCapN](https://glowcap.org/protocol/) peers. It
-calls their objects, hosts objects of its own, and passes references between peers, with glowcap's
-C libraries doing the protocol work. It uses `ctypes`, `asyncio`, and the standard library, and
-needs CPython on a 64-bit Unix platform. Its
+Use the `glowcap` package to call [OCapN](https://glowcap.org/protocol/) objects,
+host your own, and pass references between peers. It runs on 64-bit Unix with
+CPython, using `ctypes`, `asyncio`, and the standard library. glowcap's C
+libraries handle the protocol. Its
 [package metadata](https://github.com/glowcap-org/glowcap/blob/main/bindings/python/pyproject.toml)
 declares the minimum Python version. The
 [Python guide](https://glowcap.org/bindings/python/) walks through the round trip, listening, and
@@ -16,12 +16,11 @@ actors. Terms such as locator, vat, and sturdyref are defined in the
 python -m pip install glowcap
 ```
 
-On first import the package downloads the C libraries of its version from its
+On first import, the package downloads matching C libraries from its
 [GitHub release](https://github.com/glowcap-org/glowcap/releases) and verifies
 them against its checksum file. Set
 `GLOWCAP_LIB_DIR` to an extracted C SDK's `lib/` directory to use a local copy.
-In a checkout of the repository, run `zig build` and make the tree's package
-importable instead:
+In a source checkout, run `zig build` and make its package importable:
 
 ```sh
 export PYTHONPATH="$PWD/bindings/python${PYTHONPATH:+:$PYTHONPATH}"
@@ -120,9 +119,9 @@ callables. `send` returns a `RemotePromise`, implemented as an
 `asyncio.Future`, and that promise can be the target of another send.
 
 `session.break_far_promises(message)` breaks every promise still waiting on
-the partner and keeps the session open for later sends. A session the driver
-loop owns refuses it. `session.partner_abort()` returns the `PartnerAbort` the
-partner sent before ending the session, or `None`, and stays readable after
+the partner and keeps the session open for later sends. Driver-owned sessions
+refuse this operation. `session.partner_abort()` returns the `PartnerAbort`
+the partner sent before ending the session, or `None`, and stays readable after
 close.
 
 Under `Runtime` and `listen`, an `iroh`, `noise-tcp`, `keyed-tcp`, or `tcp`
@@ -136,12 +135,13 @@ package to choose a transport. `tcp.provider` registers `noise-tcp` alone. Plain
 `keyed-tcp` send cleartext with no peer proof, so each is an explicit opt-in:
 `tcp.Config(profiles=(tcp.plain, tcp.keyed))`.
 
-A runtime without a locator's profile raises `GlowcapError` with code `ERR_INVALID_ARGUMENT`
-and the transport-unavailable `cause`, so branch on the cause. An empty list is refused when
-the provider installs.
+A runtime without a locator's profile raises `GlowcapError` with code
+`ERR_INVALID_ARGUMENT` and the transport-unavailable `cause`, so branch on
+the cause. An empty `profiles` tuple is refused when the provider installs.
 
-The driver starts with no transports and installs the providers you pass. A routed `keyed-relay` or `noise-relay` locator
-likewise loads the relay library and installs its provider.
+The driver starts with no transports and installs the providers you pass. A
+routed `keyed-relay` or `noise-relay` locator likewise loads the relay library
+and installs its provider.
 
 `Runtime.open(providers=[...])` or `Runtime.open(connectors=[...])` names the
 transports. Host options such as `seed`, `profile`, `codec`, `captp_version`,
@@ -169,11 +169,10 @@ integer number of milliseconds, or `None` to wait without a bound.
 shape over a registered relay route. Their `locator` and `uri` carry the
 durable key and the rendezvous relay that partners dial.
 
-A handoff is how one peer gives you a reference to an object hosted by a third
-peer. With one Host shared across sessions, a handoff needs no extra code. The
-less common `send_redeeming` call returns both the answer and `via`, the
-session to the peer that hosts the object. References belong to their Host
-and can be used through any session on that Host.
+In a handoff, one peer gives you a reference to another peer's object. A Host
+shared across sessions handles it automatically. Use `send_redeeming` when you
+also need `via`, the session to the peer hosting the object. References belong
+to their Host and can be used through any session on that Host.
 
 ## Transports
 

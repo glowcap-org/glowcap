@@ -8,6 +8,9 @@
 
 Start with a working conversation: one program publishes an object, and
 another calls it over encrypted TCP. The Zig example runs both peers for you.
+[Concepts]($link.page('concepts')) explains capabilities, locators, pipelining,
+and three-party handoff.
+
 If you prefer another language, choose its guide:
 
 > []($block.attrs('link-grid'))
@@ -21,8 +24,9 @@ If you prefer another language, choose its guide:
 
 # [Run a complete example]($section.id('run-a-complete-example'))
 
-On Linux or macOS, clone `main`, the branch releases are tagged on, and
-install its pinned Zig compiler under your home directory. You need Git, Python 3, Bash, curl, tar, and xz support.
+On Linux or macOS, clone the release branch, `main`, and install its pinned
+Zig compiler under your home directory. You need Git, Python 3, Bash, curl,
+tar, and xz support.
 The installer verifies the compiler download.
 
 ```sh
@@ -54,6 +58,8 @@ zig fetch --save git+https://github.com/glowcap-org/glowcap#COMMIT_SHA
 Replace `COMMIT_SHA` with the revision you want to pin. The public API can
 still change, so move the pin deliberately.
 
+In `build.zig`:
+
 ```zig
 const glowcap = b.dependency("glowcap", .{ .target = target, .optimize = optimize });
 exe.root_module.addImport("glowcap", glowcap.module("glowcap"));
@@ -64,7 +70,9 @@ The `glowcap` module and the Noise TCP example are pure Zig.
 
 # Dial
 
-Each tab sets up one transport. Start with **noise-tcp**, TCP sealed with the
+Each tab sets up one transport and needs a locator from a running listener.
+The **Listen** examples below print that locator. Start with **noise-tcp**,
+TCP sealed with the
 [Noise]($link.page('transports/noise')) protocol, between two peers that can
 already reach each other. For a deployment, pick a row from
 [Choosing a transport]($link.page('transports/choosing')) and use its tab.
@@ -319,18 +327,23 @@ every connection shares it.
 >     );
 > ```
 
-From here, the CapTP workflow is the same for every transport:
+```=html
+<!-- site-example-common -->
+```
+
+Continue the function to fetch the greeter and call `greet`:
 
 ```zig
-defer session.deinit();
+    defer session.deinit();
 
-const greeter = try session.fetch("greeter"); // a capability this peer published
-var arena = std.heap.ArenaAllocator.init(allocator);
-defer arena.deinit();
-const settled = try session.call(greeter, "greet", &.{.{ .string = "world" }}, arena.allocator());
-switch (settled) {
-    .fulfilled => |value| std.debug.print("{s}\n", .{value.string}),
-    .broken => |reason| std.debug.print("the greeter refused: {f}\n", .{reason}),
+    const greeter = try session.fetch("greeter"); // a capability this peer published
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+    const settled = try session.call(greeter, "greet", &.{.{ .string = "world" }}, arena.allocator());
+    switch (settled) {
+        .fulfilled => |value| std.debug.print("{s}\n", .{value.string}),
+        .broken => |reason| std.debug.print("the greeter refused: {f}\n", .{reason}),
+    }
 }
 ```
 ```=html
@@ -352,8 +365,8 @@ names the peer by its durable public key, and the address to dial goes in a
 instead. The [Noise guide]($link.page('transports/noise')) explains when
 to choose Noise over iroh, and how `noise-relay` seals a path through a relay.
 
-`handshake` limits each read while the connection opens, and `settle` limits
-each wait for an answer after that. `.ephemeral` is
+`handshake` is the total time allowed to connect and complete the handshake.
+`settle` limits each wait for an answer after that. `.ephemeral` is
 a throwaway keypair made for this one connection. The arena owns the memory for
 replies, and freeing it frees them.
 
@@ -583,7 +596,11 @@ advertises. On `inproc` it is the name dialers look up.
 > }
 > ```
 
-From here, the CapTP workflow is the same for every transport:
+```=html
+<!-- site-example-common -->
+```
+
+Publish the greeter and answer incoming calls:
 
 ```zig
 const Greeter = struct {
@@ -627,6 +644,3 @@ exe.root_module.addImport("relay_tls", glowcap.module("glowcap_relay_tls"));
 // webrtc: links a Rust library, so the build needs cargo on PATH.
 exe.root_module.addImport("webrtc", glowcap.module("glowcap_webrtc"));
 ```
-
-If capabilities, locators, pipelining, or three-party handoff are new to you,
-read [Concepts]($link.page('concepts')) next.

@@ -10,11 +10,11 @@ Use the CLI to call capabilities, host a peer, or inspect a live session in
 the REPL. It also provides tools for AI assistants over MCP (Model Context
 Protocol). The
 [CLI guide](https://github.com/glowcap-org/glowcap/blob/main/docs/cli.md)
-is the complete reference.
+lists the commands and options.
 
-Install the [CLI + Rooms product](https://github.com/glowcap-org/glowcap/blob/main/apps/rooms/host.md#install)
+Install [CLI + Rooms](https://github.com/glowcap-org/glowcap/blob/main/apps/rooms/host.md#install)
 in one command. It verifies the download against the release checksums before
-running the product's installer:
+running the installer inside the archive:
 
 ```sh
 curl -fsSL https://glowcap.org/install.sh | sh
@@ -24,15 +24,17 @@ curl -fsSL https://glowcap.org/install.sh | sh
 same `glowcap-vVERSION-ARCH-OS.tar.gz` archives to install by hand, and the
 `glowcap-c-` download contains the C SDK for building applications.
 
+List the commands:
+
 ```sh
 glowcap help
 ```
 
 # Join a room over iroh
 
-Rooms needs the [complete installation](https://github.com/glowcap-org/glowcap/blob/main/apps/rooms/host.md),
-including its services and browser assets. This command starts your workspace
-from the shell in the directory you name, and its peers talk over
+To join rooms, first start a session. Rooms needs the [complete installation](https://github.com/glowcap-org/glowcap/blob/main/apps/rooms/host.md),
+including its services and browser assets. Start a session that keeps its
+data in the folder you name. Its peers connect over
 [iroh]($link.page('transports/iroh')), an encrypted QUIC transport:
 
 ```sh

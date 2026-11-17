@@ -1,7 +1,7 @@
 # Language bindings
 
-glowcap has bindings for Rust, TypeScript, Python, and Racket. Each is a
-published package, and each README below starts with its install command.
+glowcap has bindings for Rust, TypeScript, Python, and Racket. Each
+published package has an installation guide below.
 Bindings that load C libraries resolve matching versions at build time or
 runtime, as the [packaging guide](PACKAGING.md) explains. Browser bindings use WebAssembly.
 In a checkout, run `zig build` to provide the tree's libraries.
@@ -30,16 +30,15 @@ That is an [adapter gap](../docs/roadmap.md#what-starts-next) on the roadmap.
 
 ## Shared API
 
-Names follow each language's conventions. Each binding README gives the
-concrete signature and how ownership is expressed. Two CapTP versions appear
-below: `1.0`, the version Goblins speaks, and `glowcap-next`, glowcap's own
-newer version ([Profiles and limits](#profiles-and-limits) says how a Host
-picks one).
+Names and ownership conventions follow each language. The binding READMEs
+give their signatures. The bindings support two CapTP versions: `1.0`, the
+version Goblins speaks, and `glowcap-next`, glowcap's own newer version.
+[Profiles and limits](#profiles-and-limits) explains how a Host picks one.
 
 | Operation | Purpose |
 | --- | --- |
 | `runtime.connect(locator)` | Dial an `ocapn://` peer through the transports you composed into the Runtime and return a session. |
-| `transport.listen(config)` | Accept partners and return one session per connection. |
+| `transport.listen(config)` | Accept partners and return one session per connection. A wildcard bind (`0.0.0.0` or `::`) needs an advertised host for partners to dial. |
 | `session.listen(ref)` | Ask to be notified when a far capability you hold settles. CapTP 1.0 accepts far promises and live far objects. `glowcap-next` accepts only far promises. |
 | `fetch(name)` | Fetch a capability published by the partner. |
 | `publish(name, behavior)` | Make a local behavior fetchable by name. |
@@ -59,8 +58,7 @@ Most also use the driver, an event loop that owns sockets and moves bytes for
 the Host. Rust, Python, and Racket load both, then install the transport archives
 you need ([Using glowcap from C](../docs/consuming-from-c.md) lists them).
 Wasm, browser WebRTC, and a bare relay locator skip the driver and feed bytes
-to the Host themselves. To listen on a wildcard interface (`0.0.0.0` or `::`),
-give an advertised host for partners to dial.
+to the Host themselves.
 
 The bindings also restore saved references (sturdyrefs), pipeline calls on
 promises, attenuate, revoke, and collect references no peer still holds
@@ -81,22 +79,23 @@ actor API treats a leading symbol as its method selector.
 
 ### References
 
-A `Ref` is opaque. Pass it as an argument, and the binding picks the wire
-reference and its import or export number.
+Pass an opaque `Ref` as an argument. The binding chooses its wire
+representation and import or export number.
 
 Two `Ref`s are equal when they name the same capability on the Host: Rust
 `==`, Python `==`, Racket `equal?`, and TypeScript `Ref.equals`. TypeScript's
 `===` compares wrapper objects, which stay distinct because each is released
 separately.
 
-Releasing a `Ref` spends that one occurrence, including its Rust clones:
+A release that consumes the wrapper invalidates that occurrence, including
+its Rust clones:
 
-- Calls through a spent occurrence are refused. Other occurrences of the
+- Calls through a released occurrence are refused. Other occurrences of the
   same target stay usable.
-- Once the release succeeds, the wrapper stays spent. Only a refusal before
-  that point can be retried.
+- Once a release consumes the wrapper, it stays invalid. A refused release
+  that did not consume it can be retried.
 - In Racket, a later drain failure is kept on the surviving Host and reported
-  when the Runtime closes. It does not undo the release or spend another
+  when the Runtime closes. It neither reverses the release nor affects another
   occurrence.
 
 A send that cannot be issued returns a failed promise. TypeScript keeps the
@@ -169,6 +168,14 @@ Runtime becomes the shutdown barrier for the Host it adopts.
 | Python | `await host.close()` waits for Host-owned dial work and listener shutdown before releasing the Host. |
 | Racket | `host-close!` stops the driver loop or byte-channel workers before releasing C-side state. Callback-time release is parked until the turn returns. |
 
+At the C boundary, a release result says whether ownership was consumed and
+with which failure, read by `glowcap_release_result_consumed` and
+`glowcap_release_result_code`. All four bindings use generated accessors for it.
+
+Finish close and any required recovery on the owning thread. If that thread
+exits first, Rust keeps unfinished releases allocated for the process lifetime
+because the C code may still borrow the Rust callbacks or allocator.
+
 ## Where the languages differ
 
 - Rust sessions are `!Send`. Create and use them on one Tokio `LocalSet`.
@@ -240,9 +247,10 @@ through the Host's dial completion:
 - Rust, Python, Racket, and Deno dial WebRTC through the optional C library
   with `webrtc.provider(signaling)` and answer offers with `webrtc.listen`
   (`listen-webrtc` in Racket): the library runs each signaling exchange and
-  your `SignalingAuthority` carries the offer, answer, and candidates. Its configuration is ICE data: URLs plus optional TURN username
-  and password. Rust, Python, and Racket also expose the library's raw
-  multiplexed readiness and try-I/O interface.
+  your `SignalingAuthority` carries the offer, answer, and candidates. Its
+  configuration is ICE data: URLs plus optional TURN username and password.
+  Rust, Python, and Racket also expose the library's raw multiplexed readiness
+  and try-I/O interface.
 - In a browser, TypeScript uses the browser's `RTCPeerConnection` instead and
   does not load the library. Its browser package dials with `connector` and
   answers with `listener`, over the same `SignalingAuthority`, and the
@@ -265,21 +273,11 @@ The relay package exposes one Zig provider through the C ABI.
   safe point and stops when ownership is consumed. A release or cleanup failure
   along the way is recorded as a consequence of the original failure.
 
-At the C boundary, a release result says whether ownership was consumed and
-with which failure, read by `glowcap_release_result_consumed` and
-`glowcap_release_result_code`. All four bindings use generated accessors for it.
-
-Rust keeps unfinished releases if their thread exits, because the C code may
-still borrow the Rust callbacks or allocator. Finish close and any required
-recovery on the owning thread to reclaim them. Abandoned releases stay
-allocated for the process lifetime.
-
 ### Failures with no caller
 
-Some failures have no caller left to receive them, such as a finalizer that
-refuses or a late shutdown step. Such a failure becomes one typed record in a
-bounded list the Host keeps, and the application drains that list when it
-chooses:
+Failures with no caller, such as a refused finalizer or a late shutdown
+failure, become typed records in a bounded list on the Host. The application
+drains the list with:
 
 - Rust: `Host::take_failures`
 - TypeScript: `host.takeFailures()`

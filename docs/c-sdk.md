@@ -13,9 +13,9 @@ Use glowcap from C to connect to OCapN peers, call their objects, and host
 objects of your own. The SDK contains the headers and libraries used by
 glowcap's language bindings.
 
-Download `glowcap-c-vVERSION-ARCH-OS.tar.gz` for the SDK. For the command line,
-Rooms, browser assets, and agent skills, choose the `glowcap-vVERSION-ARCH-OS.tar.gz`
-product instead. Both are on the [release page](https://github.com/glowcap-org/glowcap/releases).
+Download `glowcap-c-vVERSION-ARCH-OS.tar.gz` for the SDK. The separate
+`glowcap-vVERSION-ARCH-OS.tar.gz` product contains the command line, Rooms,
+browser assets, and agent skills. Both are on the [release page](https://github.com/glowcap-org/glowcap/releases).
 
 Choose the archive for your operating system and processor. `aarch64-macos`
 is Apple Silicon, and `x86_64-macos` is Intel. The Linux archives need glibc
@@ -56,11 +56,11 @@ cc -I"$sdk/include" version.c -L"$sdk/lib" \
 ./version
 ```
 
-The program prints the SDK's ABI version. The rpath lets the operating
-system find the shared library at the SDK's absolute path. If you move or ship
+The program prints the SDK's ABI version. The rpath tells the operating
+system where to find the SDK's shared library. If you move or ship
 your application, arrange a library path for that installation.
 
-Each archive has its own header. Link the libraries your application uses.
+Each library has its own header. Link the libraries your application uses.
 The [C ABI guide](https://github.com/glowcap-org/glowcap/blob/main/docs/consuming-from-c.md)
 explains ownership and calling conventions, and the
 [C examples](https://github.com/glowcap-org/glowcap/tree/main/examples/c)
@@ -71,7 +71,7 @@ show complete conversations.
 Point `GLOWCAP_LIB_DIR` at this SDK's absolute `lib` directory, then follow
 your language's [binding guide](https://github.com/glowcap-org/glowcap/tree/main/bindings).
 For Rust, this selects libraries at build time. Shared iroh and WebRTC
-libraries also need the operating system's runtime library search configured.
+libraries must also be on the operating system's runtime library path.
 
 See the [packaging guide](https://github.com/glowcap-org/glowcap/blob/main/bindings/PACKAGING.md)
 for download behavior and library resolution.

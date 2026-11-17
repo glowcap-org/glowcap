@@ -10,8 +10,8 @@ A directory lists rooms and hands out nicknames. Your session starts with a
 home directory and can join rooms on others. You can message members you meet
 on any of them.
 
-If you have used an IRC client connected to several networks, this will
-feel familiar. Your session connects to each directory independently.
+Like an IRC client connected to several networks, your session connects to
+each directory independently.
 Direct conversations use separate connections between members, and you can
 share your session with limits you set. A directory can also list a room
 hosted elsewhere, introducing members to the server that owns it.
@@ -54,6 +54,14 @@ nickname there with it. Your other directories are not affected. Rooms asks
 before you leave and lists what will go, and it never leaves a directory on
 its own just because you left the last room there.
 
+Each room remains hosted by its own server. Joining from another directory
+does not copy the room or its history there. If the hosting server goes
+offline, that room becomes unavailable. Other servers continue hosting their
+own rooms.
+
+Nicknames are local to each directory, so `lu` on one directory is not known
+to be the same person as `lu` on another.
+
 # Your session holds all of it
 
 Open the same shared session on your phone and it has the same rooms and
@@ -66,9 +74,8 @@ connected while your laptop is closed.
 
 [The same session opened on a phone. The phone only loaded the page from the first directory, but all three rooms and all three direct conversations came with the session, each still marked with its directory.]($image.siteAsset('rooms-directories-phone-light.webp'))
 
-Sharing does not have to mean handing over everything. A session link
-carries only the permissions you give it. You can make a link that lets
-someone watch every room and conversation, on every directory, without
+A shared session link carries only the permissions you give it. You can make
+a link that lets someone watch every room and conversation, on every directory, without
 being able to post, and decide separately whether it can read the preceding
 history. You can pause that link or take it back while they still hold it,
 and nothing changes on the directories. Each one keeps seeing the same
@@ -86,15 +93,6 @@ The directory you share with someone introduces the two of you, then your
 messages travel over a separate connection. Browser sessions use WebRTC or
 an encrypted `noise-relay` route. [How Rooms works]($link.page('rooms/architecture'))
 explains those paths and who you trust on each one.
-
-Each room remains hosted by its own server. Joining from another directory
-does not copy the room or its history there. If the hosting server goes
-offline, that room becomes unavailable. Other servers continue hosting their
-own rooms.
-
-The cost is that names are local. A nickname only means something on the
-directory that gave it out, so `lu` on one directory is not known to be the
-same person as `lu` on another.
 
 # A directory can list a room hosted elsewhere
 

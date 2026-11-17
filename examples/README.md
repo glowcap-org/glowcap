@@ -1,9 +1,9 @@
 # Learn glowcap by example
 
-Start with chapter 01. It is one short Zig program: one peer publishes an
-object, and another fetches it and calls it over encrypted TCP. Chapter 02
-adds a third peer and an introduction. The later chapters stay in one process
-to show actors, the protocol engine, and storage up close.
+Start with chapter 01: one Zig peer publishes an object, and another
+fetches and calls it over encrypted TCP. Chapter 02
+adds a third peer and an introduction. Later chapters use one process
+to explain actors, the protocol engine, and storage.
 
 From a [working checkout](../CONTRIBUTING.md#get-a-working-checkout), run
 chapter 01:
@@ -27,9 +27,8 @@ result.
 
 ## Complete applications
 
-For whole programs, see [`apps/`](../apps/README.md). It
-lists each application, often written in several languages, with the command
-that runs it. The biggest is Rooms, a chat app over [iroh](https://www.iroh.computer/),
+[`apps/`](../apps/README.md) lists complete applications and their run commands,
+with implementations in several languages. The biggest is Rooms, a chat app over [iroh](https://www.iroh.computer/),
 encrypted peer-to-peer QUIC.
 `zig build rooms-web` serves it and prints the address to open in your browser.
 

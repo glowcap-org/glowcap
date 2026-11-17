@@ -16,33 +16,32 @@ both.
 The server is the first thing your session reaches. It introduces you to
 rooms and to other members. When you join a room, the room hands you a seat,
 and your membership actions go through it: posting, leaving, and showing
-that you are typing. The seat carries that authority. Someone you share it
-or your session with can act as the same member.
+that you are typing. The seat carries that authority. Anyone you share the seat or
+your session with can act as that member.
 
 Every line you post comes back with its own reference for editing or
 deleting it. A private room opens from a link, and an invitation works
 once. Admin and archive access are references too, so a host can hand out
 one narrow thing without adding roles to every message on the wire.
 
-[The server gives a person and a bot the same room. The room introduces them to each other, and from then on they talk directly, with the room out of the way.]($image.siteAsset('diagram-rooms-capabilities.svg'))
+[The server gives a person and a bot the same room and introduces them to each other. Their direct conversation uses a separate connection.]($image.siteAsset('diagram-rooms-capabilities.svg'))
 
 A direct conversation starts with an introduction between three parties.
 The server hands you an inbox the other member made just for you, and using
 it opens a connection between the two of you. The room does not carry the
-conversation. A relay or gateway may still carry the connection.
+conversation. A relay may still carry the connection.
 [The Rooms protocol]($link.page('rooms/protocol')) names every one of these
 objects and the calls they answer.
 
 # What happens after a click
 
-A click first becomes a note of what you asked for. Rooms then does the work,
-on disk or over the network, and records either what happened or the
-problem it hit. The screen shows that record, including work still going
-and work that needs you.
+Rooms records each request before doing the work on disk or over the
+network. It then records the result or failure. The screen shows that
+record, including unfinished work and problems that need your attention.
 
 [A click becomes a saved request, Rooms does the work, the result is confirmed, and the screen shows what happened. A refused or unconfirmed request stays beside the same note, in view.]($image.siteAsset('diagram-rooms-intent.svg'))
 
-You meet this in everyday actions:
+For example:
 
 | Action | What you asked for | What you see afterwards |
 | --- | --- | --- |
@@ -51,11 +50,10 @@ You meet this in everyday actions:
 | Change where history goes | The archive you picked and whether to keep recording. | The new setting in force, or an erased history, or a visible problem while the existing setting stays in force. |
 | Open a shared session | The link and the access you asked for. | The session on screen, or a plain message saying whether the trouble was reaching it or being let in. |
 
-Two files make this hold across restarts. One records what you want and
-what has been confirmed. The other records work that was started and still
-has to be checked against the outside world. A process reads both before it
-says it is ready, so it never claims a clean start while a preceding write,
-registration, or announcement is still unknown.
+Rooms restores saved state when it starts. Browser sessions use IndexedDB,
+and the session service keeps its data in the data directory. Both restore
+state before reconnecting to directories. An interrupted operation can still
+have an unknown outcome after restart.
 
 # Rust on the C ABI
 
@@ -116,18 +114,18 @@ does not recognize shows as unknown instead of passing for success.
 
 # What is stored where
 
-A session kept on a device, the session service, and the archive service
-each keep their own things, and moving or sharing one never quietly moves
-the others. The session service keeps your saved state, the record of
+A local session, the session service, and the archive service store their
+data separately. Moving or sharing one does not move the others. The session
+service keeps your saved state, the record of
 unfinished work, your identity, which servers to connect to, your links, and
 which archive you picked. An archive keeps messages and whatever files it
 accepted. A device attached to a shared session keeps only its display
 settings and its local archive. A session kept locally is the device's own,
 saved in the browser's storage.
 
-So a shared session outlives every device it is opened on, while each device
-keeps its own theme, open panels, and local history. Drafts and the selected
-conversation belong to the shared session. Clearing a session does not erase
+An attached device can disconnect while the shared session keeps running on
+its host. Each device keeps its own theme, open panels, and local history.
+Drafts and the selected conversation belong to the shared session. Clearing a session does not erase
 an archive somebody else still holds.
 
 Continue with [Operate Rooms]($link.page('rooms/operations')) to host it, or

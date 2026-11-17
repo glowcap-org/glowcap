@@ -20,7 +20,7 @@ Passing a reference delegates its access. To give someone less access,
 wrap the reference in an object that forwards only selected methods. This is
 attenuation. If the wrapper can stop forwarding calls, it can revoke the
 access it granted.
-[Why OCapN]($link.page('why')) walks all three with pictures.
+[Why OCapN]($link.page('why')) illustrates delegation, attenuation, and revocation.
 
 [A capability is a reference. Pass it as an argument and the partner can call it. Without it, the partner cannot reach the object at all.]($image.siteAsset('diagram-capability.svg'))
 
@@ -50,18 +50,18 @@ capability available at first. You fetch a published name from it and get
 back a live reference. From there, new references come from the ones you
 already hold.
 
-A **sturdyref** is a locator with a **swiss number** on the end, and it names
-one object. It is a reference you can write down, for example in a config
-file. Redeeming a sturdyref means dialing the peer and fetching that object.
+A **sturdyref** combines a locator with a **swiss number**, the secret name
+you fetch from the bootstrap object. You can save it in a config file.
+Redeeming it means dialing the peer and fetching that object.
 
-The name you fetch is the swiss number. Treat it as a bearer secret wherever
-the peer has made it fetchable. The examples use short names like `"greeter"`
+Treat the swiss number as a bearer secret wherever the peer has made it
+fetchable. The examples use short names like `"greeter"`
 for readability. Give anything private a long random name.
 
-A name can be published for one partner or for everyone. A `Session`
-publication answers only the partner on that session. A Host-wide publication
-answers every session, so an introduction can hand it to a third peer. When
-both use the same name, the partner gets the one its own session published.
+A name can be published for one session or for every session on a
+[Host]($link.page('modules')), which manages a peer's sessions. A `Session`
+publication answers only its partner. A Host-wide publication can also be
+handed to a third peer through an introduction. When both use the same name, the partner gets the one its own session published.
 
 A sturdyref still works after a restart only if the peer comes back with the
 same identity and can still answer for that swiss number. A plain `Host`
@@ -76,7 +76,7 @@ names on disk, and restores an object when a peer fetches its name.
 | swiss number | The secret name of one object at that peer. |
 | live reference | A capability your program holds and can call. |
 
-[Everything left of the hints is an address, and none of it grants access. Only the swiss number names something you can be given.]($image.siteAsset('diagram-locator.svg'))
+[The first URI is a peer locator: a designator, transport, and optional routing hints. The second adds a swiss number to name one object, making it a sturdyref.]($image.siteAsset('diagram-locator.svg'))
 
 The
 [sturdyref diagrams](https://github.com/glowcap-org/glowcap/blob/main/docs/protocol-diagrams/07-sturdyrefs-and-locators.md)
@@ -97,7 +97,7 @@ questions cross the network in one flight. Chapter 06,
 [pipeline and attenuate](https://github.com/glowcap-org/glowcap/blob/main/examples/zig/06_pipeline_and_attenuate.zig),
 runs that, and the
 [promises and pipelining](https://github.com/glowcap-org/glowcap/blob/main/docs/protocol-diagrams/03-promises-and-pipelining.md)
-diagrams draw it.
+diagrams show the exchange.
 
 # Three-party handoff
 
@@ -124,22 +124,23 @@ Chapter 02,
 [introduce and redeem](https://github.com/glowcap-org/glowcap/blob/main/examples/zig/02_introduce_and_redeem.zig),
 runs the whole exchange, and the
 [handoffs](https://github.com/glowcap-org/glowcap/blob/main/docs/protocol-diagrams/06-handoffs.md)
-diagrams draw it.
+diagrams show the exchange.
 
 # Agreeing on a version and codec
 
-Two peers have to agree on a CapTP **version** and a **codec** first. Together
-those are the session's **dialect**. Each side
-has a ranked menu, both apply the same rule to the two menus, and the most
-preferred shared entry wins. If the menus share nothing, no session opens. The
-hello itself always names the 1.0 baseline, and each side's menu rides along
-as hints on the location it signs.
+Two peers agree on a CapTP **version** and a **codec**, together called the
+session's **dialect**. Each glowcap peer offers its preferred version and
+codec plus the shared baseline, CapTP 1.0 over Syrup. Both peers apply the
+same selection rule to those preferences.
+
+The opening message, or **hello**, always uses the baseline. Each peer
+includes its preferences as hints in the signed locator it announces.
 
 [Syrup](https://github.com/ocapn/syrup) and Cap'n Proto are codecs, two ways
 of writing the same message down. Session logic never changes with the codec.
 [Codecs]($link.page('codecs')) compares them.
 
-[Both peers run the same rule over the two menus and reach the same pick.]($image.siteAsset('diagram-negotiation.svg'))
+[Both peers apply the same selection rule to their preferences and choose the same version and codec.]($image.siteAsset('diagram-negotiation.svg'))
 
 [The dialect depends on who answers: the standard baseline against Goblins, glowcap's own choices between two glowcap peers.]($image.siteAsset('diagram-dialects.svg'))
 
@@ -164,7 +165,7 @@ covers fetch results, fulfilled far answers, and capabilities nested inside
 delivered arguments. When it is off, table entries stay until the session
 ends. The
 [GC](https://github.com/glowcap-org/glowcap/blob/main/docs/protocol-diagrams/05-gc.md)
-diagrams draw it.
+diagrams show the exchange.
 
 The
 [diagram catalog](https://github.com/glowcap-org/glowcap/blob/main/docs/protocol-diagrams/README.md)

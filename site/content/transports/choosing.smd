@@ -1,6 +1,6 @@
 ---
 .title = "Choosing a transport",
-.description = "Pick a glowcap netlayer from the peers you have and the channel you can open: when to reach for each symbol, and what that path proves.",
+.description = "Compare glowcap transports by reachability, encryption, peer authentication, browser support, and interoperability.",
 .date = .date("2026-07-22T00:00:00"),
 .layout = "page.shtml",
 .draft = false,
@@ -16,7 +16,7 @@ reach and what the path between you proves.
 | `webrtc` | Untrusted | Browsers talking directly | The DataChannel is encrypted. Who the peer is is vouched for by the signaling service that introduced it. |
 | `noise-tcp` | Untrusted | glowcap peers with a direct TCP route | The Noise handshake proves the dialed key and seals the stream end to end. Interoperability with another CapTP implementation is untested. |
 | `noise-relay` | Untrusted | glowcap peers, sealed, through a relay | The same Noise handshake, peer to peer. The relay only sees ciphertext. |
-| `onion` | Untrusted | Meeting Goblins as it ships, on the standardized path | Tor proves you reached the service you dialed and hides where both ends are. It proves this only to the dialing side, inside the Tor daemon, so glowcap does not treat it as proof of who the CapTP peer is. |
+| `onion` | Untrusted | Connecting to Goblins as shipped, on the standardized path | Tor proves you reached the service you dialed and hides where both ends are. It proves this only to the dialing side, inside the Tor daemon, so glowcap does not treat it as proof of who the CapTP peer is. |
 | `keyed-tcp` | Trusted only | A stable key name on a network you already trust | Dialing demands that key, but nothing proves possession, and the frames are cleartext. |
 | `keyed-relay` | Trusted only | Peers through a relay, cleartext | Same key demand. The relay reads every frame, and nothing proves who is on the far side. |
 | `tcp` | Testing only | Cleartext testing against Goblins, through glowcap's adapter | A host:port. Nothing is proved and nothing is encrypted. |
@@ -32,9 +32,9 @@ A browser cannot open raw TCP or iroh QUIC. It has two choices:
   path finding) must find a route. Across the open internet it may also need
   STUN or TURN servers, which help cross a NAT.
 - **A [WebSocket relay]($link.page('relay'))** carries a browser connection to
-  a registered peer or a TCP/iroh gateway. A `noise-relay` registration keeps
-  traffic encrypted between peers. An iroh gateway can read it and vouches
-  for the peer's key.
+  a registered peer, or dials a TCP or iroh peer for it. A `noise-relay`
+  registration keeps traffic encrypted between peers. When the relay dials
+  iroh, it can read the traffic and vouches for the peer's key.
 
 The relay is simpler to run. Add WebRTC when direct browser-to-browser
 traffic is worth the extra signaling and NAT work.
@@ -51,8 +51,8 @@ traffic is worth the extra signaling and NAT work.
   standardizes and the one Goblins ships. `tcp` and `iroh` reach Goblins
   through adapters glowcap provides: cleartext loopback, and encrypted QUIC.
 
-`id` has no row because it is not a path of its own. It bundles several of
-these routes under one durable key.
+`id` bundles several of these routes under one durable key. It is a locator
+format rather than a transport.
 [Multi-home peers]($link.page('multihome')) explains it.
 
 Setup lives on the [Noise]($link.page('transports/noise')),

@@ -6,12 +6,11 @@
 .draft = false,
 ---
 
-Rooms and [IRC](https://en.wikipedia.org/wiki/IRC), the chat protocol that
-has run open-source communities since 1988, connect both ways. A bridge
-follows an IRC channel and shows it in Rooms as a room. Rooms can also act as an IRC
-server, so an ordinary IRC client can join its rooms. Either way, the translation
-happens at the IRC connection and nowhere else. Inside Rooms, someone on IRC is
-a member like anyone else, with the same rooms, lines, and direct messages.
+Rooms connects to [IRC](https://en.wikipedia.org/wiki/IRC) in both
+directions. A bridge presents an IRC channel as a room, and an IRC server
+lets IRC clients join Rooms. Translation happens at the IRC connection.
+Inside Rooms, IRC users are ordinary members with rooms, messages, and
+direct conversations.
 
 # Follow an IRC channel as a room
 
@@ -20,8 +19,8 @@ zig build rooms-irc-bridge -- \
   --irc-realname="glowcap Rooms bridge bot; admin: YOUR_LIBERA_NICK"
 ```
 
-The bridge will not start without `--irc-realname`, which names the bot and a
-nick on Libera.Chat, the IRC network it joins, that answers for it. It follows
+The bridge requires `--irc-realname` to name the bot and the Libera.Chat nick
+of the person responsible for it. It follows
 `#ocapn` there over TLS and
 offers it as a room
 called `libera/#ocapn`. The command prints the room's address and
@@ -79,12 +78,12 @@ Lines marked `>` came from the client, and lines marked `<` came back:
 
 Each IRC connection gets its own references: to the server, to the rooms it
 joined, and to the direct conversations it was introduced into. So a private
-message from IRC is a real Rooms direct conversation. It ends at the IRC server,
-because an IRC client cannot hold a reference itself, and the server makes no
-claim about who is at the keyboard.
+message from IRC is a real Rooms direct conversation. The conversation's other
+end is the IRC server, because an IRC client cannot hold a reference itself.
+The server makes no claim about who is at the keyboard.
 
-Anything IRC cannot show arrives as a notice instead of half a message:
-files, lines too long for IRC, and the buttons that only exist in Rooms.
+Files, lines too long for IRC, and actions available only through Rooms
+buttons arrive as notices.
 
 # One nickname across rooms
 

@@ -10,8 +10,8 @@ Glowcap LLC maintains glowcap under Apache-2.0. Get the
 [source](https://github.com/glowcap-org/glowcap) or download a release from
 [GitHub Releases](https://github.com/glowcap-org/glowcap/releases).
 
-The software version is `0.1.7` alpha. CapTP `1.0` names a wire protocol it
-supports.
+The software version is `0.1.7` alpha. CapTP `1.0` is one of the wire protocol
+versions it supports.
 
 Under the [alpha release policy](https://github.com/glowcap-org/glowcap/blob/main/docs/maintaining.md#release-status),
 APIs, ABIs, and storage formats can change before 1.0, including in patch

@@ -6,18 +6,17 @@
 .draft = false,
 ---
 
-Hosting Rooms means setting up three separate things: the Rooms server
-people's browsers connect through, the directory their sessions join, and
-the routes two peers use to talk directly. Decide each one on its own. An
-HTTPS address for the server does not make every peer route reachable, and
-changing how direct messages travel does not change how sessions are shared.
+Hosting Rooms involves three connections you configure separately: browsers
+to the Rooms server, sessions to the directory, and peers to each other for
+direct messages. An HTTPS address for the server does not make every peer
+route reachable. Direct-message routes do not control session sharing.
 
-# Choose the shape
+# [Run the server]($section.id('choose-the-shape'))
 
-The page people open is [on this site]($link.siteAsset('rooms/app/index.html')),
-and every Rooms server lets that page use it unless `--allow-origin` says
-otherwise. To let in a page of your own as well, list both, with commas or by
-repeating the option:
+Rooms servers allow connections from the
+[app on this site]($link.siteAsset('rooms/app/index.html')) by default. To
+also allow a page you host, list both origins in `--allow-origin`, separated
+by commas or by repeating the option:
 
 ```
 --allow-origin=https://glowcap.org/rooms/app/,https://rooms.example/
@@ -29,7 +28,8 @@ Give the server the address browsers reach it at, with `--http-public`:
 --http-public=https://rooms.example/
 ```
 
-The **open the page** link it prints is one you can share:
+The link printed under **open the page** works for anyone who can reach
+that server:
 
 ```
 https://glowcap.org/rooms/app/?server=https://rooms.example/
@@ -106,10 +106,10 @@ one. Rooms can take a fixed list of STUN servers, and ask a TLS service for
 short-lived TURN credentials without giving the page that service's
 secret.
 
-If two peers exchange an offer but no route can be found, switching direct
-messages to the relay usually brings the conversation back. It does not
-change **Share this session** or **Attach to another session**. A shared
-session advertises its own routes, so trouble there is reported on its own.
+If two peers exchange an offer but cannot find a route, set **Direct message
+connection** to **Through the server** to try the relay. Shared sessions
+advertise their own routes, so this setting does not change how you reach
+them. Their connection problems are reported separately.
 
 # Run the session service
 
@@ -134,7 +134,7 @@ only the use you select, and you can share a separately limited management
 link. Reading history and reading files are separate permissions.
 
 The session checks what a link may do each time it is used, so you can narrow
-a link, add or remove past messages, or pause it while someone holds it,
+a link, grant or withdraw access to past messages, or pause it while someone holds it,
 without changing the link. A paused link says it is paused and why. Revoking
 a link cuts off every open connection using it, and it stays revoked after a
 restart.
@@ -167,8 +167,10 @@ History on the server is capped for each room and for the whole server.
 History in a session or an archive follows what each member chose. A shared archive link can be
 read without letting the reader write to it or administer it.
 
-A kept line counts as saved only once storage acknowledges it, and recovery
-stops rather than guessing when the stored history is damaged.
+With a state directory, the server writes room history in the background.
+A crash can lose pending writes. Startup rejects damaged complete records.
+It can skip an unfinished final record without removing it, so another write
+can make the next startup fail.
 
 # Hand out admin links
 
@@ -197,10 +199,15 @@ how to set up the live view.
 
 # When something fails
 
-The deployment tells apart a service that refused to start, one that stopped
-after it was ready, and a cleanup that also failed. Docker restarts services
-according to its Compose policy, while `status` and `logs` show the current
-state and reason.
+The deployment reports failed starts, stops after startup, and cleanup
+failures separately. Docker restarts
+services according to its Compose policy. Check their state and follow the
+directory's logs:
+
+```sh
+glowcap apps rooms deployment status
+glowcap apps rooms deployment logs directory
+```
 
 Your session reports its requests the same way. A request still in progress stays marked in
 progress, a known refusal offers the next step, and a request nobody can
