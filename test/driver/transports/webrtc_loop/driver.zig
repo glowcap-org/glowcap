@@ -344,7 +344,7 @@ const Server = struct {
     const listener_tag: u64 = 1;
 
     fn observer(self: *Server) driver.HostRuntime.SessionAcceptObserver {
-        return .{ .ctx = self, .opened = opened, .failed = failed };
+        return .{ .ctx = self, .opened = opened, .failed = failed, .arrival_failed = arrivalFailed };
     }
 
     /// The channel was scoped to the client's designator when the backend
@@ -363,6 +363,12 @@ const Server = struct {
     fn failed(ctx: *anyopaque, _: u64, failure: driver.OperationFailure) void {
         const self: *Server = @ptrCast(@alignCast(ctx));
         if (self.failure == null) self.failure = failure.chain.cause;
+    }
+
+    /// An arrival the runtime retires (for example an `opened` refusal) is
+    /// the same failure to this loop as a listener failure.
+    fn arrivalFailed(ctx: *anyopaque, _: u64, failure: driver.OperationFailure) void {
+        failed(ctx, 0, failure);
     }
 
     fn listen(self: *Server, runtime: *driver.HostRuntime, allocator: std.mem.Allocator) !void {

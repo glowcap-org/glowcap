@@ -361,6 +361,25 @@ fn reportOpened(self: *HostRuntime, observation: anytype, row: *PendingOpen) boo
     return true;
 }
 
+/// Hand an accepted session to its listener's observer. A refusal retires
+/// this arrival only: the observer releases its reservation and may hear the
+/// cause, and the listener stays open. A wire that cannot be released leaves
+/// a session no one owns, so that failure latches.
+fn reportAcceptOpened(self: *HostRuntime, observation: SessionAcceptObservation, row: *PendingOpen) bool {
+    const obs = observation.observer;
+    obs.opened(obs.ctx, observation.tag, row.session) catch |err| {
+        var failure = self.operationFailure(err);
+        self.releaseWire(row.session) catch |cleanup| {
+            failure.noteFailure(self.operationFailure(cleanup));
+            self.noteTerminalOperationFailure(failure);
+        };
+        obs.abandoned(obs.ctx, observation.tag);
+        if (obs.arrival_failed) |notify| notify(obs.ctx, observation.tag, failure);
+        return false;
+    };
+    return true;
+}
+
 /// Report one completed session open. For a redeem row, a refused
 /// `exporterDialed` fails closed: the ticket's action was consumed at
 /// stage time, so there is no drain retry to lean on. The session
@@ -385,7 +404,7 @@ fn completePendingOpen(self: *HostRuntime, row: *PendingOpen) !void {
                 return;
             }
         },
-        .listener_accept => |observation| if (!reportOpened(self, observation, row)) return,
+        .listener_accept => |observation| if (!reportAcceptOpened(self, observation, row)) return,
     }
     // The settle queued post-open work (withdraws, parked enlivens, the
     // observer's own effects); answer it before the next row's verdict.

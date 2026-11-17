@@ -267,7 +267,7 @@ test "two profiles share one multiplexed resident with independent listener life
 }
 
 test "claimed resident accepts close exactly once across every adoption allocation failure" {
-    var saw_claim_failure = false;
+    var refusals: usize = 0;
     var reached_success = false;
 
     for (0..64) |fail_offset| {
@@ -283,30 +283,31 @@ test "claimed resident accepts close exactly once across every adoption allocati
 
         failing.fail_index = failing.alloc_index + fail_offset;
         resident.announceAccept();
-        const step_result = runtime.stepAny(1_000);
+        // A refused arrival is retired, so the step itself succeeds.
+        _ = try runtime.stepAny(1_000);
+        const refused = failing.has_induced_failure;
         failing.fail_index = std.math.maxInt(usize);
+        try std.testing.expect(runtime.terminal_failure == null);
+        try std.testing.expect(resident.claimed);
 
-        if (step_result) |_| {
+        if (refused) {
+            refusals += 1;
+            try std.testing.expectEqual(@as(usize, 1), resident.close_calls);
+            try std.testing.expectEqual(@as(usize, 0), runtime.resident_wires.count());
+            try std.testing.expectEqual(@as(usize, 0), runtime.pending_opens.items.len);
+            try std.testing.expectEqual(@as(usize, 0), runtime.open_admissions);
+        } else {
             reached_success = true;
-            try std.testing.expect(resident.claimed);
             try std.testing.expectEqual(@as(usize, 0), resident.close_calls);
             try std.testing.expectEqual(@as(usize, 1), runtime.resident_wires.count());
-        } else |err| {
-            try std.testing.expectEqual(error.OutOfMemory, err);
-            if (resident.claimed) saw_claim_failure = true;
-            const wire_owns = runtime.resident_wires.count() == 1;
-            try std.testing.expectEqual(
-                @as(usize, 1),
-                resident.close_calls + @intFromBool(wire_owns),
-            );
         }
 
         runtime.deinit();
-        if (resident.claimed) try std.testing.expectEqual(@as(usize, 1), resident.close_calls);
+        try std.testing.expectEqual(@as(usize, 1), resident.close_calls);
         if (reached_success) break;
     }
 
-    try std.testing.expect(saw_claim_failure);
+    try std.testing.expect(refusals >= 1);
     try std.testing.expect(reached_success);
 }
 

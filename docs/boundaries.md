@@ -64,6 +64,12 @@ binding ([invocation contract](../bindings/README.md#invocation-shape)).
 - **Admission and waits are explicit.** Opening sessions have bounded capacity,
   and callers may choose unbounded handshake or settlement waits.
   [Resource options](architecture.md#resource-knobs) own the defaults.
+- **A provider that runs out of memory while accepting can end its listener or loop.**
+  The runtime retires one arrival when its own admission fails. A completion
+  provider that cannot adopt an accepted descriptor closes it and fails the
+  listener. One that cannot re-arm its accept latches a provider failure,
+  which can end the whole loop. Both are tracked in
+  [#216](https://github.com/glowcap-org/glowcap/issues/216).
 - **A driver permits one listener per transport.** The relay can host keyed or
   Noise traffic, but not both at once, because rendezvous queues by designator.
 - **Driver readiness descriptors require Linux or Darwin.** Other platforms

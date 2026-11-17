@@ -301,8 +301,9 @@ pub const Server = struct {
     }
     fn opened(ctx: *anyopaque, _: u64, hs: *driver_core.HostSession) !void {
         const self = from(ctx);
-        defer self.reserved -= 1;
+        // A refusal keeps the reservation for `abandoned` to release.
         const session = try Session.adoptRetained(self.runtime, hs, self.shared, self.allocator);
+        self.reserved -= 1;
         self.runtime.markSessionUnattended(hs);
         const tail = (self.accepted_head + self.accepted_count) % self.accepted.len;
         self.accepted[tail] = session;

@@ -13,6 +13,11 @@ Releases before 0.1.7 are in the
 
 ### Breaking
 
+- A `SessionAcceptObserver.opened` that returns an error now keeps its
+  reservation. The runtime then calls `abandoned` and `arrival_failed`, where
+  it called `failed` before. An observer outside this repository releases
+  that reservation exactly once, in `abandoned`, and handles `arrival_failed`
+  as the retirement of one arrival with the listener still open.
 - `net.completion.BufferPool.acquire` returns `Allocator.Error!?u16`. Null
   still means every buffer is leased, and a refused lazy allocation is now
   `error.OutOfMemory` instead of looking like exhaustion. A caller that
@@ -263,6 +268,14 @@ Releases before 0.1.7 are in the
   be fed or parked for lack of memory. That connection closes with
   `OutOfMemory`, and the other sessions keep running. Closing a connection
   while memory is short no longer ends the loop.
+- A Host driver loop step no longer fails when the runtime cannot admit one
+  connection a provider has handed over, for lack of memory or any other
+  local cause. That arrival closes, and the listener, the other sessions, and
+  the loop keep running. A session the listener's observer refuses retires its
+  arrival the same way, where it used to report the listener as failed. A
+  provider that breaks its contract on an accept, a connect record, or a drain
+  count still ends the loop. A provider that fails before it hands a
+  connection over is outside this change.
 - A Rooms session saves a moderator it issued while it holds no seat in the
   room, as a session does between a link rotation and the rejoin. The save
   read the room's live seat and failed without one. A joined room keeps
