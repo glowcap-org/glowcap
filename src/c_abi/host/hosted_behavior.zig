@@ -64,7 +64,7 @@ pub const HostedBehavior = struct {
             const c_args = try shared.viewsToC(arena, msg.args);
             return self.callAndReply(inst, session, turn, msg.verb, c_args);
         }
-        const input = try inst.core.projectValues(session, arena, msg.args, &host_turn, projectCallbackArguments);
+        const input = try inst.core.projectValues(session, arena, msg.args, &host_turn, projectCallbackArguments, driver_core.Host.LiftInput.ofTurn(turn));
         errdefer if (input.lease) |held| held.release();
         return self.callAndReply(inst, session, turn, msg.verb, input.args);
     }

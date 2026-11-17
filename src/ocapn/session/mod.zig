@@ -523,6 +523,7 @@ pub const Session = struct {
     pub const noteHostCapabilityHold = positions.noteHostCapabilityHold;
     pub const claimHostCapabilityRetain = positions.claimHostCapabilityRetain;
     pub const releaseHostCapabilityRetains = positions.releaseHostCapabilityRetains;
+    pub const restoreHostCapabilityHeldBack = positions.restoreHostCapabilityHeldBack;
     pub const forgetHostCapability = positions.forgetHostCapability;
 
     pub const durable_swiss_prefix = bootstrap_references.durable_swiss_prefix;

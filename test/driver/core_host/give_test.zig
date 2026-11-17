@@ -212,7 +212,7 @@ test "core host: Error remains fulfilled data across recursive lower and lift" {
     try std.testing.expect(lowered[0].list[0] == .@"error");
     try std.testing.expectEqualStrings("failure is a value", lowered[0].list[0].@"error".message);
 
-    const lifted = try host.liftValues(pair.a, arena_state.allocator(), .fromOwnedSlice(lowered));
+    const lifted = try host.liftValues(pair.a, arena_state.allocator(), .fromOwnedSlice(lowered), .partner);
     try std.testing.expect(lifted[0] == .list);
     try std.testing.expect(lifted[0].list[0] == .@"error");
     try std.testing.expectEqualStrings("failure is a value", lifted[0].list[0].@"error".message);
@@ -250,7 +250,7 @@ test "core host: an inline give becomes one nested promise identity and terminal
     var arena_state = std.heap.ArenaAllocator.init(allocator);
     defer arena_state.deinit();
 
-    const lifted = try host.liftValues(session, arena_state.allocator(), .fromOwnedSlice(&nested));
+    const lifted = try host.liftValues(session, arena_state.allocator(), .fromOwnedSlice(&nested), .partner);
     try std.testing.expectEqual(@as(usize, 1), lifted.len);
     try std.testing.expect(lifted[0] == .tagged);
     try std.testing.expectEqualStrings("introduced", lifted[0].tagged.tag);
@@ -343,7 +343,7 @@ test "core host: releasing queued promise operations cancels their exact ownersh
     var handoff: model.Handoff = .{ .give = give };
     var lift_arena = std.heap.ArenaAllocator.init(allocator);
     defer lift_arena.deinit();
-    const lifted = try host.liftValues(pair.a, lift_arena.allocator(), .fromOwnedSlice(&.{.{ .handoff = &handoff }}));
+    const lifted = try host.liftValues(pair.a, lift_arena.allocator(), .fromOwnedSlice(&.{.{ .handoff = &handoff }}), .partner);
     const promise = lifted[0].capability;
     const promise_id = host.capabilities.resolve(promise).?.deferred;
 
@@ -495,7 +495,7 @@ fn runNestedGivePipelining(case: PipeliningCase) !void {
     } }};
     var lift_arena = std.heap.ArenaAllocator.init(allocator);
     defer lift_arena.deinit();
-    const lifted = try recipient.liftValues(r_to_g.a, lift_arena.allocator(), .fromOwnedSlice(&nested));
+    const lifted = try recipient.liftValues(r_to_g.a, lift_arena.allocator(), .fromOwnedSlice(&nested), .partner);
     const promise = lifted[0].tagged.value[0].capability;
 
     // The introducing session is not the redeemed route's home. Another live

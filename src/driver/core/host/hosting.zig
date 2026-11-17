@@ -16,6 +16,7 @@ const capability = @import("../capability.zig");
 const value_mod = @import("../value.zig");
 const capability_routing = @import("capabilities/routing.zig");
 const args_mod = @import("args.zig");
+const lift = @import("capabilities/lift.zig");
 
 const Host = host_mod.Host;
 const HostSession = host_mod.HostSession;
@@ -182,7 +183,8 @@ pub const HostTurn = struct {
         try capability_routing.validateRoutedArguments(self.host, session, prepared.values);
         const reply = try self.turn.forward(routed, .{ .verb = verb, .args = .fromOwnedSlice(prepared.values) });
         _ = prepared.commit();
-        return self.host.liftValue(session, self.turn.arena, reply);
+        // The reply is the callee's value, which its own turn still holds.
+        return self.host.liftValue(session, self.turn.arena, reply, .borrowed);
     }
 
     /// Eventual-send from this callback through the same Host authority as an
@@ -256,7 +258,7 @@ pub fn Hosting(comptime B: type) type {
             const args: args_mod.Args = if (msg.reference_slots == 0)
                 .fromViews(msg.args, &host_turn)
             else
-                .fromValues(try host.liftValues(session, turn.arena, msg.args), turn.arena);
+                .fromValues(try host.liftValues(session, turn.arena, msg.args, lift.Input.ofTurn(turn)), turn.arena);
             const lease = host_turn.retainArguments(args) catch |err| {
                 host_turn.releaseArguments(args);
                 return err;

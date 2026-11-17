@@ -20,6 +20,7 @@ const model = @import("model");
 const value_mod = @import("../value.zig");
 const capability_mod = @import("../capability.zig");
 const hosting = @import("hosting.zig");
+const lift = @import("capabilities/lift.zig");
 
 const Value = value_mod.Value;
 
@@ -160,7 +161,7 @@ pub const Args = struct {
     /// delivery lifts that one subtree, and a value delivery lends its own.
     pub fn value(self: Args, i: usize) !Value {
         return switch (self.inner) {
-            .views => |v| v.turn.host.liftView(v.turn.session.?, v.turn.turn.arena, try viewAt(v.args, i)),
+            .views => |v| v.turn.host.liftView(v.turn.session.?, v.turn.turn.arena, try viewAt(v.args, i), lift.Input.ofTurn(v.turn.turn)),
             .values => |v| try valueAt(v.items, i),
         };
     }
@@ -170,7 +171,7 @@ pub const Args = struct {
     /// already holds.
     pub fn values(self: Args) ![]const Value {
         return switch (self.inner) {
-            .views => |v| v.turn.host.liftValues(v.turn.session.?, v.turn.turn.arena, v.args),
+            .views => |v| v.turn.host.liftValues(v.turn.session.?, v.turn.turn.arena, v.args, lift.Input.ofTurn(v.turn.turn)),
             .values => |v| v.items,
         };
     }

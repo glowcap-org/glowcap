@@ -92,12 +92,30 @@ test "a Host handle lifted from a fully held-back row takes one retain back" {
     try s.imports.decrement(position(9), 1);
     try std.testing.expectEqual(@as(u64, 0), s.importReleasable(position(9)));
 
-    try s.noteHostCapability(position(9), 7);
+    _ = try s.noteHostCapability(position(9), 7);
     try std.testing.expectEqual(@as(u64, 1), s.importReleasable(position(9)));
     // The hold owes nothing: the handle's release is a caller's again.
     try std.testing.expectEqual(@as(u64, 0), s.imports.releaseResolutionHold(position(9)));
     try s.imports.decrement(position(9), 1);
     try std.testing.expect(!s.holdsImport(position(9)));
+}
+
+test "undoing a Host handle lifted from a held-back row returns the retain to the hold" {
+    var s = session.Session.init(std.testing.allocator);
+    defer s.deinit();
+    try s.registerImport(position(9));
+    s.imports.holdForResolution(position(9));
+    try s.imports.decrement(position(9), 1);
+
+    const took = try s.noteHostCapability(position(9), 7);
+    try std.testing.expect(took);
+    s.releaseHostCapabilityRetains(position(9), 7, 1);
+    s.forgetHostCapability(position(9), 7);
+    s.restoreHostCapabilityHeldBack(position(9));
+    try std.testing.expectEqual(@as(u64, 0), s.importReleasable(position(9)));
+    try std.testing.expectEqual(@as(?u64, null), if (s.hostImportIdentity(position(9))) |identity| identity.ref else null);
+    // The hold owes the retain it owed before the handle existed.
+    try std.testing.expectEqual(@as(u64, 1), s.imports.releaseResolutionHold(position(9)));
 }
 
 test "a release reaches the wire whole, not at all, or without its held entries" {
@@ -149,7 +167,7 @@ test "a Host handle lifted from a parked introduced mention takes the parked ret
     try std.testing.expectEqual(@as(u64, 0), s.importReleasable(position(9)));
     try std.testing.expectEqual(@as(u64, 1), s.imports.sessionHeld(position(9)));
 
-    try s.noteHostCapability(position(9), 7);
+    _ = try s.noteHostCapability(position(9), 7);
     try std.testing.expectEqual(@as(u64, 1), s.importReleasable(position(9)));
     try std.testing.expectEqual(@as(u64, 0), s.imports.sessionHeld(position(9)));
     // The hold owes nothing: the handle's release is a caller's again.

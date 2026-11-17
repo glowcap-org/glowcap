@@ -64,7 +64,7 @@ test "lifting a delivery from borrowed views follows the session's count" {
         defer partner.deinit();
         const session = try openHost(&host, &partner);
         const args = try shapes.viewArgs(arena.allocator(), depth, shape);
-        try expectDepth(shape, depth, host.liftValues(session, arena.allocator(), args), error.NestingTooDeep);
+        try expectDepth(shape, depth, host.liftValues(session, arena.allocator(), args, .partner), error.NestingTooDeep);
     };
     for (shapes.owned) |shape| for (shapes.sweep) |depth| {
         var host = test_host.init(allocator, @as([32]u8, @splat(0x83)), .{ .thread_policy = .unchecked });
@@ -73,7 +73,7 @@ test "lifting a delivery from borrowed views follows the session's count" {
         defer partner.deinit();
         const session = try openHost(&host, &partner);
         const args = try shapes.ownedArgs(arena.allocator(), depth, shape);
-        try expectDepth(shape, depth, host.liftValue(session, arena.allocator(), args[0]), error.NestingTooDeep);
+        try expectDepth(shape, depth, host.liftValue(session, arena.allocator(), args[0], .partner), error.NestingTooDeep);
     };
 }
 
@@ -124,7 +124,7 @@ test "a send to an unsettled promise refuses at the call for every shape and que
         defer partner.deinit();
         const session = try openHost(&host, &partner);
         var give: model.Handoff = .{ .give = inlineGive(0x44) };
-        const promise = (try host.liftValue(session, arena.allocator(), .{ .handoff = &give })).capability;
+        const promise = (try host.liftValue(session, arena.allocator(), .{ .handoff = &give }, .partner)).capability;
         defer host.releaseCapability(promise, 1) catch unreachable;
         const promise_id = host.capabilities.resolve(promise).?.deferred;
         const queued_before = host.capability_promises.get(promise_id).?.operations.items.len;
@@ -146,7 +146,7 @@ test "a settled promise stands for its data at the depth the promise sits" {
         defer partner.deinit();
         const session = try openHost(&host, &partner);
         var give: model.Handoff = .{ .give = inlineGive(0x44) };
-        const promise = (try host.liftValue(session, arena.allocator(), .{ .handoff = &give })).capability;
+        const promise = (try host.liftValue(session, arena.allocator(), .{ .handoff = &give }, .partner)).capability;
         defer host.releaseCapability(promise, 1) catch unreachable;
         const row = host.capability_promises.getPtr(host.capabilities.resolve(promise).?.deferred).?;
         row.state = .{ .fulfilled_data = .{ .arena = std.heap.ArenaAllocator.init(allocator), .value = .{ .void = {} } } };
@@ -172,10 +172,10 @@ test "a send that holds a settled promise refuses at the call when the promise's
         defer partner.deinit();
         const session = try openHost(&host, &partner);
         var give_open: model.Handoff = .{ .give = inlineGive(0x44) };
-        const open = (try host.liftValue(session, arena.allocator(), .{ .handoff = &give_open })).capability;
+        const open = (try host.liftValue(session, arena.allocator(), .{ .handoff = &give_open }, .partner)).capability;
         defer host.releaseCapability(open, 1) catch unreachable;
         var give_settled: model.Handoff = .{ .give = inlineGive(0x45) };
-        const settled = (try host.liftValue(session, arena.allocator(), .{ .handoff = &give_settled })).capability;
+        const settled = (try host.liftValue(session, arena.allocator(), .{ .handoff = &give_settled }, .partner)).capability;
         defer host.releaseCapability(settled, 1) catch unreachable;
         const inner = [_]core.Value{.{ .void = {} }};
         const entries = [_]core.Value.StructEntry{.{ .key = "k", .value = .{ .void = {} } }};

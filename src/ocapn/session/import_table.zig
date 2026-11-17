@@ -214,26 +214,40 @@ pub const ImportTable = struct {
     /// whose authority is permanent for the session and never wire-GCed. The
     /// one retain is a caller's: a row whose every retain is held back for a
     /// stored resolution, released or parked, gives one back to the handle,
-    /// whose release is then held back in turn.
+    /// whose release is then held back in turn. Returns whether it took one,
+    /// which `restoreHeldBack` gives back.
     pub fn noteHostRef(
         self: *ImportTable,
         allocator: std.mem.Allocator,
         position: Id,
         host_ref: u64,
         wire_retains: u64,
-    ) !void {
+    ) !bool {
         const map = try self.identityMap(allocator);
         const gop = try map.getOrPut(allocator, position.int());
         if (!gop.found_existing) gop.value_ptr.* = .{};
+        var took_held_back = false;
         if (wire_retains != 0) {
             const row = self.liveRow(position);
             if (row.count == row.session_held and row.held_back != 0) {
                 row.session_held -= 1;
                 row.held_back -= 1;
+                took_held_back = true;
             }
         }
         gop.value_ptr.host_ref = host_ref;
         gop.value_ptr.lifted_retains = wire_retains;
+        return took_held_back;
+    }
+
+    /// Undo the move `noteHostRef` reported: the retain returns to the
+    /// stored resolution's hold, so `releaseResolutionHold` owes the wire the
+    /// count it owed before the handle existed.
+    pub fn restoreHeldBack(self: *ImportTable, position: Id) void {
+        const row = self.liveRow(position);
+        row.session_held += 1;
+        row.held_back += 1;
+        std.debug.assert(row.held_back <= row.session_held and row.session_held <= row.count);
     }
 
     /// Commit a prepared local pin after the Host memo was installed.

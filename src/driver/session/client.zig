@@ -471,7 +471,7 @@ pub const Session = struct {
 
     fn replyFromSettled(self: *Session, hs: *driver_core.HostSession, arena: std.mem.Allocator, settled: Settled) !Reply {
         return switch (settled) {
-            .fulfilled => |arg| .{ .fulfilled = try self.runtime.core.liftValue(hs, arena, arg) },
+            .fulfilled => |arg| .{ .fulfilled = try self.runtime.core.liftValue(hs, arena, arg, .partner) },
             .broken => |reason| .{ .broken = reason },
             // `Session` redeems a give inside the wait it settles under;
             // one that still surfaces is a broken introduction, not a value.

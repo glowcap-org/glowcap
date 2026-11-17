@@ -44,6 +44,27 @@ Releases before 0.1.7 are in the
   take a trailing comptime `author` argument, `.local` for a value your code
   wrote (`ValueTooDeep`) or `.partner` for wire data (`MalformedView`).
   Clones and measures of owned values now report `ValueTooDeep` for depth.
+- `Host.liftValue`, `liftView`, `liftValues`, `projectValue`, and
+  `projectValues` take a required trailing `input`, a `Host.LiftInput` that
+  says who owns the values: `.partner` for wire data, `.queued` for a message
+  a Vat queue owns, and `.borrowed` for a live caller's near-call arguments or
+  reply. A caller that lifts a turn's arguments passes
+  `Host.LiftInput.ofTurn(turn)`, and one that lifts wire data passes
+  `.partner`.
+- A refused `.borrowed` lift undoes only its own claims, including the settled
+  data an answer reference in it reads. It sends nothing, keeps the session,
+  and leaves a redeemed route for the caller's retry, while `.partner` and
+  `.queued` still retire every reference through wire GC. Depth
+  refusals for `.borrowed` and `.queued` input report `ValueTooDeep`, and a
+  `.partner` one stays `NestingTooDeep`.
+- A `.borrowed` value refuses an inline handoff give with `UnsupportedValue`
+  before the Node sees it, because accepting one cannot be undone. A hosted
+  actor that a raw Vat actor calls near with a give now sees that refusal,
+  where a partner's or a queued call's give is still accepted.
+- `Session.noteHostCapability` returns `!bool` instead of `!void`: whether the
+  retain moved out of a held-back resolution hold. A caller that ignored the
+  result writes `_ = try`, and `Session.restoreHostCapabilityHeldBack` is the
+  inverse.
 - A mutation intent counts each argument from depth 0. A stored Loam value
   with a container at depth 64, an empty one included, no longer decodes, and
   a write refuses it. An author whose records hold such a value rewrites each

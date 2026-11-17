@@ -167,6 +167,12 @@ when the sender's session ends, even when the message remains.
   promise can refuse with `PromisePending`. A local-only vow has no capability
   form and refuses conversion with `SessionlessVow`. These are part of the
   [promise work](roadmap.md#what-starts-next).
+- **A borrowed Host lift refuses an inline handoff give.** A near call's
+  arguments or reply stay with their caller, so a refused lift must undo
+  exactly, and accepting a give starts a redemption nothing can undo. The lift
+  returns `UnsupportedValue` before the Node sees the give, and a settled
+  answer whose stored data holds one lifts as a broken promise. Partner wire
+  data and queued messages still accept gives.
 - **Libc-linked shared archives remain mapped until process exit** so detached
   workers cannot return into unloaded code
   ([ADR-0024](decisions/adr/ADR-0024-transport-provider-and-abi-contracts.md)).

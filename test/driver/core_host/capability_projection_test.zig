@@ -123,6 +123,7 @@ test "Host direct lower and lift admit exactly the model depth limit" {
         session,
         arena.allocator(),
         nestedArgument(&argument_exact, model.max_value_depth),
+        .partner,
     );
     var argument_over: [model.max_value_depth + 2][1]model.Argument = undefined;
     try std.testing.expectError(
@@ -131,6 +132,7 @@ test "Host direct lower and lift admit exactly the model depth limit" {
             session,
             arena.allocator(),
             nestedArgument(&argument_over, model.max_value_depth + 1),
+            .partner,
         ),
     );
 
@@ -266,7 +268,7 @@ test "direct mixed lift retires references around an inline give failure" {
 
     try std.testing.expectError(
         error.UnsupportedValue,
-        host.liftValues(session, arena.allocator(), .fromOwnedSlice(&args)),
+        host.liftValues(session, arena.allocator(), .fromOwnedSlice(&args), .partner),
     );
     try std.testing.expectEqual(@as(usize, 0), host.capabilities.liveCount());
     try std.testing.expectEqual(@as(u64, 0), session.served.port.peer.session_state.importRefcount(.from(7)));
@@ -298,7 +300,7 @@ test "projection callback failure counts inline gives separately from references
 
     try std.testing.expectError(
         error.Rejected,
-        host.projectValues(session, arena.allocator(), .fromOwnedSlice(&args), {}, rejectedValues),
+        host.projectValues(session, arena.allocator(), .fromOwnedSlice(&args), {}, rejectedValues, .partner),
     );
     try std.testing.expectEqual(@as(usize, 0), host.capabilities.liveCount());
     try std.testing.expectEqual(@as(u64, 0), session.served.port.peer.session_state.importRefcount(.from(7)));
@@ -327,7 +329,7 @@ test "overdeep failed-lift cleanup condemns the source session" {
 
     try std.testing.expectError(
         error.NestingTooDeep,
-        host.liftValues(session, arena.allocator(), .fromOwnedSlice(&args)),
+        host.liftValues(session, arena.allocator(), .fromOwnedSlice(&args), .partner),
     );
     try std.testing.expect(!session.served.port.peer.sessionIsOpen());
 }
@@ -358,7 +360,7 @@ test "allocation failure cleanup stays bounded over an overdeep remainder" {
 
     try std.testing.expectError(
         error.OutOfMemory,
-        host.liftValues(session, failing.allocator(), .fromOwnedSlice(&args)),
+        host.liftValues(session, failing.allocator(), .fromOwnedSlice(&args), .partner),
     );
     try std.testing.expectEqual(@as(usize, 0), host.capabilities.liveCount());
     try std.testing.expectEqual(@as(u64, 0), session.served.port.peer.session_state.importRefcount(.from(7)));
@@ -403,6 +405,7 @@ test "unresolved-promise clone rejects overdepth without retain or queue mutatio
         session,
         lift_arena.allocator(),
         .{ .handoff = &give },
+        .partner,
     );
     const promise = promise_value.capability;
     defer host.releaseCapability(promise, 1) catch unreachable;

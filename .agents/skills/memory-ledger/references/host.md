@@ -210,9 +210,23 @@ custody costs.
     <!-- value ../../../../src/driver/core/capability.zig slot_budget_bytes bytes -->80 bytes<!-- /value --> per slot and `identity_budget_bytes` per identity row by comptime budget.
   - Ids never come back: a process-keyed 64-bit permutation over one monotonic
     source.
-  - Projection records each lift so a later failure rolls the partial projection
-    back with an exact wire GC release. The lift receipts stay on the stack before
-    spilling.
+  - Projection records each lift in a receipt so a later failure can retire
+    it. Two receipt flags mark a retain taken from a held-back import row and
+    a provisional settled-data row, and both fit the receipt's existing
+    padding. Partner and queued input roll back through an exact wire GC
+    release. Borrowed input undoes only its own claims and sends nothing. The
+    receipts stay on the stack before spilling, and the transaction keeps the
+    allocator it spills into beside them. That is the caller's arena for every
+    lift whose values the caller keeps (`liftView`, `liftValues`, `projectValue`,
+    `projectValues`), whatever its input custody, and Host storage only for
+    `ownValue`, which owns its result.
+  - The settled data an answer reference reads joins a borrowed lift's
+    receipts and shares their inline capacity, so a refusal undoes it with no
+    second walk or copy. A repeated observation of one redeemed route finds
+    the route already consumed and checks, by an assertion-only lookback over
+    the earlier receipts in the batch, that one of them names it. The check
+    allocates nothing and walks no value. A comptime guard on the receipt pins
+    its layout.
 - **Capability promise rows**: `Host.capability_promises` (ADR-0068). One
   gpa map row per inline handoff give under redemption, per partner answer
   lifted from an argument, and per Host vow passed as a capability, with its

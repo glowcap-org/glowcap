@@ -406,6 +406,19 @@ fn breakPromiseImpl(
     return .done;
 }
 
+/// Retire a settled-data row a borrowed lift made and never committed. The
+/// lift's own receipts hold every retain the data names and undo them one by
+/// one, so this frees only the row and its arena and never reads the value.
+pub fn retireProvisionalData(self: *Host, id: capability.PromiseId) void {
+    const row = self.capability_promises.getPtr(id) orelse unreachable;
+    std.debug.assert(row.projections.items.len == 0 and row.operations.items.len == 0);
+    var settled = row.state.fulfilled_data;
+    row.projections.deinit(self.allocator);
+    row.operations.deinit(self.allocator);
+    std.debug.assert(self.capability_promises.remove(id));
+    settled.arena.deinit();
+}
+
 /// Mark a promise whose application identity was rolled back or finally
 /// released. Pending Node work keeps the row only as a terminal recipient. A
 /// fulfilled row releases the capability retain it owns immediately.

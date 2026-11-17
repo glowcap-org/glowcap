@@ -161,7 +161,7 @@ const State = struct {
     fn ownWireReply(self: *State, session: *host_mod.HostSession, value: @import("model").Argument) !value_mod.Value {
         errdefer self.fixed.reset();
         var reply: ReplyAllocator = .{ .backing = self.fixed.allocator() };
-        return lift.ownValue(self.host, session, reply.allocator(), value) catch |err| return reply.refusal(err);
+        return lift.ownValue(self.host, session, reply.allocator(), value, .partner) catch |err| return reply.refusal(err);
     }
 };
 

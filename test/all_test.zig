@@ -272,6 +272,8 @@ comptime {
         _ = @import("driver/core_host/close_test.zig");
         _ = @import("driver/core_host/depth_boundary_test.zig");
         _ = @import("driver/core_host/local_depth_boundary_test.zig");
+        _ = @import("driver/core_host/borrowed_lift_test.zig");
+        _ = @import("driver/core_host/borrowed_lift_answers_test.zig");
         _ = @import("driver/core_host/finish_test.zig");
         _ = @import("driver/core_host/pressure_test.zig");
         _ = @import("driver/core_host/stream_tail_test.zig");
@@ -503,6 +505,7 @@ comptime {
         _ = @import("c_abi/host/depth_boundary_test.zig");
         _ = @import("c_abi/host/settled_depth_test.zig");
         _ = @import("c_abi/host/reply_lend_test.zig");
+        _ = @import("c_abi/host/near_lift_refusal_test.zig");
         _ = @import("c_abi/last_error_test.zig");
         _ = @import("c_abi/failure_diagnostics_test.zig");
         _ = @import("c_abi/foreign_call_barrier_test.zig");
