@@ -620,11 +620,11 @@ pub const Host = struct {
     pub const lowerValues = host_capability_lower.lowerValues;
     pub const prepareValues = host_capability_lower.prepareValues;
 
-    // Inbound Host policy lives in `host/interception.zig`; this direct alias
-    // preserves the supported verb without exporting the internal module.
+    // Inbound Host policy lives in `host/interception.zig`; this alias keeps the supported verb.
     pub const interceptFulfilledReference = host_interception.interceptFulfilledReference;
 
-    // Session Argument/completion lifting and complete failed-projection retirement.
+    // Session Argument/completion lifting and failed-projection retirement. `LiftInput` says who owns the lifted values.
+    pub const LiftInput = host_capability_lift.Input;
     pub const liftValue = host_capability_lift.liftValue;
     pub const discardValueObservation = host_capability_lift.discardValueObservation;
     pub const projectValue = host_capability_lift.projectValue;

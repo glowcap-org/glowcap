@@ -39,7 +39,7 @@ const Probe = struct {
         if (!self.grow) return;
         const capacity = self.host.capability_promises.capacity();
         while (self.host.capability_promises.capacity() == capacity and self.count < self.created.len) {
-            const value = self.host.liftValue(self.session, a, .{ .handoff = self.give }) catch |err| {
+            const value = self.host.liftValue(self.session, a, .{ .handoff = self.give }, .partner) catch |err| {
                 self.failure = err;
                 return;
             };

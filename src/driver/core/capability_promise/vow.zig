@@ -61,7 +61,7 @@ pub fn stage(self: *Host, id: capability.PromiseId, session: *HostSession, resol
     const state: Row.State = switch (resolution) {
         .fulfilled => |argument| switch (argument) {
             .reference => |*reference| liftedState(self, id, session, reference),
-            else => if (promise_answer.ownData(self, session, argument)) |data|
+            else => if (promise_answer.ownData(self, session, argument, .partner)) |data|
                 .{ .settling_data = data }
             else |err|
                 .{ .breaking = Row.Failure.init(engine.Broken.unnamed(@errorName(err))) },
@@ -127,7 +127,7 @@ fn retainedState(self: *Host, id: capability.PromiseId, ref: capability.Ref) Row
 /// itself, a loop nothing outside it settles, so it breaks as a resolution
 /// cycle does, with the lift undone.
 fn liftedState(self: *Host, id: capability.PromiseId, session: *HostSession, reference: *const model.Reference) Row.State {
-    const lifted = capability_lift.liftReference(self, session, .fromOwned(reference)) catch |err|
+    const lifted = capability_lift.liftReference(self, session, .fromOwned(reference), .partner) catch |err|
         return .{ .breaking = Row.Failure.init(engine.Broken.unnamed(@errorName(err))) };
     if (self.capabilities.resolve(lifted.ref)) |target| if (target == .deferred and target.deferred == id) {
         self.rollbackCapabilityLift(lifted);

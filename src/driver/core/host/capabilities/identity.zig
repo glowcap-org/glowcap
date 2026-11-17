@@ -51,7 +51,22 @@ pub const CapabilityLift = struct {
     /// projection commits. Keeping it live through preparation makes an
     /// allocation refusal retryable at the Node action boundary.
     redeemed_route_id: ?model.CapabilityRouteId = null,
+    /// This observation took one retain a stored resolution held back, so an
+    /// exact undo gives it back to that hold.
+    took_held_back: bool = false,
+    /// This receipt is a settled-data promise row a borrowed lift made and has
+    /// not committed. Its data's retains are the lift's own earlier receipts,
+    /// so an undo retires only the row and its arena (see
+    /// `capability_promise.retireProvisionalData`).
+    provisional_data: bool = false,
 };
+
+comptime {
+    // The receipt rides a stack list per lift transaction. Its flags share
+    // the padding after the route id, so a second flag adds no bytes.
+    if (@sizeOf(CapabilityLift) != @sizeOf(capability.Ref) + @sizeOf(?model.CapabilityRouteId) + @alignOf(capability.Ref))
+        @compileError("CapabilityLift grew past its ref, route id, and one padded flag word");
+}
 
 /// Lift one session-scoped wire reference into this Host's opaque identity
 /// space and report the ownership claimed by this exact observation. Routed
@@ -128,13 +143,14 @@ pub fn liftCapabilityTracked(self: *Host, session: *HostSession, reference: mode
     const ref = try self.capabilities.retain(self.allocator, target);
     errdefer _ = self.capabilities.release(ref, 1) catch unreachable;
     const home = self.sessions.get(target.remote.peer_handle) orelse return HostError.CapabilityRouteUnavailable;
-    try home.served.port.peer.session_state.noteHostCapability(target.remote.far.import_position, ref.raw());
+    const took_held_back = try home.served.port.peer.session_state.noteHostCapability(target.remote.far.import_position, ref.raw());
     claimed_wire_retain = target.remote.far.import_position.int() != engine.bootstrap_position;
     self.next_import_incarnation = target.remote.incarnation + 1;
     return .{
         .ref = ref,
         .claimed_wire_retain = claimed_wire_retain,
         .redeemed_route_id = source_route_id,
+        .took_held_back = took_held_back,
     };
 }
 
@@ -148,9 +164,33 @@ pub fn liftCapability(self: *Host, session: *HostSession, reference: model.Refer
 /// session ownership were already established by `liftCapabilityTracked`. The
 /// redeemed route stays in the Node until this point so rollback and retry can
 /// still name it.
+///
+/// A projection that names one redeemed route twice records two receipts for
+/// it, because the route stays live until commit. Both observed the same
+/// import, so they share one canonical Host identity, and the first commit
+/// already transferred the route to it. Each live route is consumed exactly
+/// once, by the one consume each observation makes. Only a consume that finds
+/// the route gone looks back, and it must find an earlier receipt of the same
+/// batch naming that route, or the route vanished between prepare and commit
+/// and the assertion fires.
+pub fn commitCapabilityLifts(self: *Host, lifts: []const CapabilityLift) void {
+    for (lifts, 0..) |lifted, index| {
+        const route_id = lifted.redeemed_route_id orelse continue;
+        if (!self.node.consumeRedeemedRoute(route_id)) std.debug.assert(namesRoute(lifts[0..index], route_id));
+    }
+}
+
+/// One receipt is a batch of one: a repeat needs a sibling, so a lone receipt
+/// whose route is gone still asserts.
 pub fn commitCapabilityLift(self: *Host, lifted: CapabilityLift) void {
-    if (lifted.redeemed_route_id) |route_id|
-        std.debug.assert(self.node.consumeRedeemedRoute(route_id));
+    commitCapabilityLifts(self, &.{lifted});
+}
+
+/// Whether an earlier receipt of the batch already took `route_id`. Reached
+/// only when a consume finds the route gone, never on a unique route.
+fn namesRoute(earlier: []const CapabilityLift, route_id: model.CapabilityRouteId) bool {
+    for (earlier) |lifted| if (lifted.redeemed_route_id == route_id) return true;
+    return false;
 }
 
 const LocalRetain = struct {
@@ -205,6 +245,7 @@ pub fn liftLocalActor(self: *Host, actor: actors.Ref) !capability.Ref {
 /// another inbound value meanwhile.
 pub fn rollbackCapabilityLift(self: *Host, lifted: CapabilityLift) void {
     self.assertOwner();
+    std.debug.assert(!lifted.provisional_data);
     const target = self.capabilities.resolve(lifted.ref) orelse unreachable;
     var cleanup_failed = false;
     if (lifted.claimed_wire_retain) switch (target) {
@@ -223,7 +264,21 @@ pub fn rollbackCapabilityLift(self: *Host, lifted: CapabilityLift) void {
             }
         },
     };
+    retireLiftClaim(self, lifted, target);
+    if (cleanup_failed and target == .remote) {
+        const session = self.sessions.get(target.remote.peer_handle) orelse return;
+        host_pump.condemnAndClose(self, session, .resource_exhausted, "failed capability projection cleanup");
+    }
+}
+
+/// The registry half of retiring one lift's claim, shared by the consuming
+/// rollback and the borrowed undo: drop the application retain, and when it was
+/// the last, release the actor root, forget the import identity, or abandon the
+/// pending promise row.
+fn retireLiftClaim(self: *Host, lifted: CapabilityLift, target: capability.Target) void {
     const retired = self.capabilities.release(lifted.ref, 1) catch unreachable;
+    // A provisional row holds the one retain its lift took.
+    std.debug.assert(retired != null or !lifted.provisional_data);
     if (retired != null) switch (target) {
         .local => self.vat.releaseActor(target.local),
         .remote => {
@@ -233,12 +288,30 @@ pub fn rollbackCapabilityLift(self: *Host, lifted: CapabilityLift) void {
                 lifted.ref.raw(),
             );
         },
-        .deferred => |id| capability_promise.abandon(self, id),
+        .deferred => |id| if (lifted.provisional_data)
+            capability_promise.retireProvisionalData(self, id)
+        else
+            capability_promise.abandon(self, id),
     };
-    if (cleanup_failed and target == .remote) {
-        const session = self.sessions.get(target.remote.peer_handle) orelse return;
-        host_pump.condemnAndClose(self, session, .resource_exhausted, "failed capability projection cleanup");
-    }
+}
+
+/// Undo one lift of a value a live caller still owns, exactly and with no
+/// effect outside this observation. The wire retain it claimed goes back to the
+/// import row's unlifted count and any retain it took from a stored
+/// resolution's hold goes back to that hold. Nothing is sent, a redeemed route
+/// stays in the Node for the caller's retry, and the session is untouched.
+/// Undo receipts in reverse, because a later observation may share the identity.
+pub fn undoCapabilityLift(self: *Host, lifted: CapabilityLift) void {
+    self.assertOwner();
+    const target = self.capabilities.resolve(lifted.ref) orelse unreachable;
+    if (target == .remote) {
+        const session = self.sessions.get(target.remote.peer_handle) orelse unreachable;
+        const state = &session.served.port.peer.session_state;
+        const position = target.remote.far.import_position;
+        if (lifted.claimed_wire_retain) state.releaseHostCapabilityRetains(position, lifted.ref.raw(), 1);
+        if (lifted.took_held_back) state.restoreHostCapabilityHeldBack(position);
+    } else std.debug.assert(!lifted.claimed_wire_retain and !lifted.took_held_back);
+    retireLiftClaim(self, lifted, target);
 }
 
 /// Discard one wire reference occurrence that a failed application projection

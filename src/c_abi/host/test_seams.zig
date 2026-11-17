@@ -39,7 +39,7 @@ pub fn projectLifted(
 ) ![]shared.GlowcapArgument {
     const inst = instance.instanceFrom(host_handle) orelse return error.NullPointer;
     const session_ptr = instance.sessionFrom(raw) orelse return error.NullPointer;
-    return inst.core.projectValues(session_ptr, arena, args, arena, marshal.valuesToC);
+    return inst.core.projectValues(session_ptr, arena, args, arena, marshal.valuesToC, .partner);
 }
 
 /// The C behavior bridge a test wraps to hand it a delivery it shapes.

@@ -243,6 +243,7 @@ fn claimProxyListenerFire(host: *Host, peer_handle: engine.PeerHandle, event: *c
                 return projected;
             }
         }.project,
+        .partner,
     ) catch {
         std.debug.assert(host.node.breakProxyListenerFire(peer_handle, export_pos));
         return true;

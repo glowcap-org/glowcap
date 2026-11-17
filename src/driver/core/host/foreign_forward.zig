@@ -127,7 +127,7 @@ const WireForward = struct {
         const home = destination orelse return error.SessionCondemned;
         var arena = std.heap.ArenaAllocator.init(self.host.allocator);
         defer arena.deinit();
-        const lifted = try self.host.liftValue(home, arena.allocator(), value);
+        const lifted = try self.host.liftValue(home, arena.allocator(), value, .partner);
         defer lower.releaseValueCapabilitiesTerminalAt(self.host, &.{lifted}, null);
         var prepared = try self.host.prepareValues(source, arena.allocator(), &.{lifted});
         defer prepared.deinit();

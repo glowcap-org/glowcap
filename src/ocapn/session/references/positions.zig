@@ -219,7 +219,9 @@ pub fn hostImportIdentity(self: *const Session, position: model.ImportPosition) 
 /// claim one wire retain. Bootstrap is permanently held and claims none.
 /// This observation records scalar identity and a wire-retain claim. A copied
 /// raw route uses `noteHostCapabilityHold` for independent local custody.
-pub fn noteHostCapability(self: *Session, position: model.ImportPosition, ref: u64) !void {
+/// Returns whether the claim took a retain a stored resolution held back,
+/// which `restoreHostCapabilityHeldBack` returns.
+pub fn noteHostCapability(self: *Session, position: model.ImportPosition, ref: u64) !bool {
     if (!self.holdsImport(position)) return error.InvalidReference;
     return self.imports.noteHostRef(
         self.allocator,
@@ -236,7 +238,9 @@ pub fn noteHostCapabilityHold(self: *Session, position: model.ImportPosition, re
     const Batch = @import("../import_release_outbox.zig").Batch;
     const hold = try Batch.prepareForValue(self, .{ .reference = .{ .far = model.FarRef.object(position.int()) } });
     errdefer if (hold) |batch| batch.destroy(self);
-    try self.imports.noteHostRef(self.allocator, position, ref, 0);
+    // A hold claims no wire retain, so it takes nothing from a held-back row.
+    const took_held_back = try self.imports.noteHostRef(self.allocator, position, ref, 0);
+    std.debug.assert(!took_held_back);
     if (hold) |batch| {
         batch.take(self);
         self.imports.attachHostHold(position, ref, batch);
@@ -245,6 +249,11 @@ pub fn noteHostCapabilityHold(self: *Session, position: model.ImportPosition, re
 
 pub fn claimHostCapabilityRetain(self: *Session, position: model.ImportPosition, ref: u64) !void {
     return self.imports.claimHostRetain(position, ref);
+}
+
+/// Give back the held-back retain `noteHostCapability` took.
+pub fn restoreHostCapabilityHeldBack(self: *Session, position: model.ImportPosition) void {
+    self.imports.restoreHeldBack(position);
 }
 
 pub fn releaseHostCapabilityRetains(self: *Session, position: model.ImportPosition, ref: u64, delta: u64) void {

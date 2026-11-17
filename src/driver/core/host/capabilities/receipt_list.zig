@@ -36,6 +36,14 @@ pub fn ReceiptList(comptime Receipt: type, comptime inline_capacity: usize) type
             return if (self.spill.capacity != 0) self.spill.items else self.inline_items[0..self.len];
         }
 
+        /// Drop the receipts past `new_len`. A spill keeps its capacity, so
+        /// room reserved before the drop is still there after it.
+        pub fn truncate(self: *Self, new_len: usize) void {
+            std.debug.assert(new_len <= self.len);
+            if (self.spill.capacity != 0) self.spill.shrinkRetainingCapacity(new_len);
+            self.len = new_len;
+        }
+
         /// Free a spill that grew in a caller allocator rather than an arena.
         pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
             self.spill.deinit(allocator);

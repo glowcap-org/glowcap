@@ -43,7 +43,7 @@ pub const Reply = struct {
         std.debug.assert(self.result == .pending);
         var arena = self.storage.promote(self.producer.host.allocator);
         errdefer arena.deinit();
-        const owned = try lift.ownValue(self.producer.host, session, arena.allocator(), value);
+        const owned = try lift.ownValue(self.producer.host, session, arena.allocator(), value, .partner);
         self.storage = arena.state;
         self.result = .{ .prepared = owned };
     }

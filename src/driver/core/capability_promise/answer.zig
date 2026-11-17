@@ -44,11 +44,12 @@ pub fn lift(
     self: *Host,
     session: *HostSession,
     answer_position: model.AnswerPosition,
+    custody: capability_lift.Custody,
 ) capability_lift.LiftError!Host.CapabilityLift {
     const peer = session.served.port.peer;
     const target = peer.session_state.answerTargetNamed(.{ .wire = answer_position }) orelse
         return error.InvalidReference;
-    return liftTarget(self, session, target);
+    return liftTarget(self, session, target, custody);
 }
 
 /// Lift a reference to an export of ours that serves no actor. The one such
@@ -60,6 +61,7 @@ pub fn liftNearPromise(
     self: *Host,
     session: *HostSession,
     export_position: model.ExportPosition,
+    custody: capability_lift.Custody,
 ) capability_lift.LiftError!Host.CapabilityLift {
     const peer = session.served.port.peer;
     const name = peer.session_state.answerForLocalPromiseExport(export_position) orelse return error.NoSuchActor;
@@ -73,7 +75,7 @@ pub fn liftNearPromise(
             return capability_promise.retainShared(self, entry.key_ptr.*);
     };
     const target = peer.session_state.answerTargetNamed(name) orelse return error.InvalidReference;
-    return liftTarget(self, session, target);
+    return liftTarget(self, session, target, custody);
 }
 
 /// An answer already settled lifts as what it settled to. One with a promise
@@ -82,11 +84,12 @@ fn liftTarget(
     self: *Host,
     session: *HostSession,
     target: engine.AnswerTarget,
+    custody: capability_lift.Custody,
 ) capability_lift.LiftError!Host.CapabilityLift {
     const peer = session.served.port.peer;
     if (peer.session_state.answerPayloadForTarget(target)) |payload| {
         if (peer.session_state.answerPayloadStoredResolution(payload) != null)
-            return liftSettled(self, session, target, engine.resolution_chain.followAnswer(peer, target, payload));
+            return liftSettled(self, session, target, engine.resolution_chain.followAnswer(peer, target, payload), custody);
         if (payload.host_promise != 0) return capability_promise.retainShared(self, @fromBackingInt(payload.host_promise));
     }
     return liftPending(self, session, target);
@@ -100,6 +103,7 @@ fn liftSettled(
     session: *HostSession,
     target: engine.AnswerTarget,
     outcome: engine.resolution_chain.Outcome,
+    custody: capability_lift.Custody,
 ) capability_lift.LiftError!Host.CapabilityLift {
     const origin: Row.Origin = .{ .answer = .{ .peer_handle = session.peer_handle, .target = target, .payload = null } };
     switch (outcome) {
@@ -113,20 +117,37 @@ fn liftSettled(
                     .broken => |broken| return settledRow(self, origin, .{ .broken = Row.Failure.init(engine.Broken.partner(broken.message)) }),
                 },
                 else => {
-                    var data = ownData(self, session, argument) catch |err| switch (err) {
-                        error.OutOfMemory => return err,
-                        // Data this Host cannot receive, such as a reference
-                        // inside it that names no object, breaks the promise.
-                        else => |refusal| return settledRow(self, origin, .{ .broken = Row.Failure.init(engine.Broken.unnamed(@errorName(refusal))) }),
+                    // A borrowed lift keeps the data's claims in its own
+                    // transaction, so a failure that returns is undone by that
+                    // lift. Only a refusal that becomes a broken row continues,
+                    // and it undoes back to this mark first.
+                    const nest: ?*capability_lift.CapabilityLiftReceipts = switch (custody) {
+                        .borrowed => |receipts| receipts,
+                        .partner, .queued => null,
                     };
-                    errdefer releaseData(self, &data, null);
-                    return settledRow(self, origin, .{ .fulfilled_data = data });
+                    const checkpoint = if (nest) |receipts| receipts.mark() else undefined;
+                    var data = ownData(self, session, argument, custody) catch |err| switch (err) {
+                        error.OutOfMemory => return err,
+                        // Data this Host cannot receive, such as an inline give
+                        // a borrowed lift refuses, breaks the promise.
+                        else => {
+                            if (nest) |receipts| receipts.undoFrom(self, checkpoint);
+                            return settledRow(self, origin, .{ .broken = Row.Failure.init(engine.Broken.unnamed(@errorName(err))) });
+                        },
+                    };
+                    errdefer if (nest != null) data.arena.deinit() else releaseData(self, &data, null);
+                    // The claims above may have used the room the outer lift
+                    // reserved for this row's own receipt.
+                    if (nest) |receipts| try receipts.ensureOne();
+                    var lifted = try settledRow(self, origin, .{ .fulfilled_data = data });
+                    lifted.provisional_data = nest != null;
+                    return lifted;
                 },
             },
             .@"break" => |reason| return settledRow(self, origin, .{ .broken = Row.Failure.init(engine.Broken.partner(reason.message)) }),
         },
         .terminal_break => |message| return settledRow(self, origin, .{ .broken = Row.Failure.init(engine.Broken.unnamed(message)) }),
-        .pending => |next| return liftTarget(self, session, next),
+        .pending => |next| return liftTarget(self, session, next, custody),
     }
 }
 
@@ -271,7 +292,7 @@ fn fulfillData(
     session: *HostSession,
     argument: model.Argument,
 ) !host_pump.ActionOutcome {
-    const data = ownData(self, session, argument) catch |err| {
+    const data = ownData(self, session, argument, .partner) catch |err| {
         if (capability_promise.retriesLater(err)) return err;
         return capability_promise.breakPromise(self, id, engine.Broken.unnamed(@errorName(err)));
     };
@@ -283,10 +304,13 @@ fn fulfillData(
 /// Own `argument` under `session`: one arena holds the value, and every
 /// capability inside it holds a Host retain. The vow origin stages its data
 /// settlement through this too.
-pub fn ownData(self: *Host, session: *HostSession, argument: model.Argument) !Row.SettledData {
+pub fn ownData(self: *Host, session: *HostSession, argument: model.Argument, custody: capability_lift.Custody) !Row.SettledData {
     var arena = std.heap.ArenaAllocator.init(self.allocator);
     errdefer arena.deinit();
-    const value = try capability_lift.ownValue(self, session, arena.allocator(), argument);
+    const value = switch (custody) {
+        .borrowed => |receipts| try capability_lift.ownNested(self, session, arena.allocator(), argument, receipts),
+        .partner, .queued => try capability_lift.ownValue(self, session, arena.allocator(), argument, custody.input()),
+    };
     return .{ .arena = arena, .value = value };
 }
 

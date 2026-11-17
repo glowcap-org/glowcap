@@ -33,7 +33,7 @@ pub fn queueVowCompletion(self: *Host, peer_handle: engine.PeerHandle, vow_id: u
                 return;
             };
             var arena = std.heap.ArenaAllocator.init(self.allocator);
-            const owned = lift.ownValue(self, session, arena.allocator(), value) catch |err| {
+            const owned = lift.ownValue(self, session, arena.allocator(), value, .partner) catch |err| {
                 arena.deinit();
                 queueFailure(self, peer_handle, vow_id, .broken, retainError(self, err), .{});
                 return;
