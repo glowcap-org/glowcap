@@ -13,6 +13,19 @@ Releases before 0.1.7 are in the
 
 ### Breaking
 
+- Recovering a room's manager link in Rooms is its own operation. The
+  browser no longer reads the room's manager identity and sends it with a
+  generic operator request. The session reads that identity from the room's
+  seat, asks the operator once, and saves the link only into the room it was
+  requested for. The operator may leave the workspace afterwards.
+- A recovered link is saved after the seat is lost only while the room's
+  original entrance (its link, accepted visit, or directory public entry) is
+  still held. A room with no entrance is saved only while its original seat is
+  still held.
+- A recovery still unresolved or held when you upgrade cannot be finished by
+  the new version: finish it before upgrading, or release it and request the
+  link again. Releasing a held recovery does not revoke a link the operator
+  already issued.
 - A `SessionAcceptObserver.opened` that returns an error now keeps its
   reservation. The runtime then calls `abandoned` and `arrival_failed`, where
   it called `failed` before. An observer outside this repository releases

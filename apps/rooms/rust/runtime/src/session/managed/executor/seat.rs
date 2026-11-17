@@ -133,6 +133,9 @@ impl<P: Tasks + Deadline + Clone + 'static> Seat<P> {
 			None,
 		)
 	}
+	pub fn start_manager(self, pending: PendingContinuation, source: Ref, canonical: String) -> Result<()> {
+		self.install(pending, source, canonical, Reply::RoomManager, Action::Manager, None)
+	}
 	pub fn start_archive(
 		self,
 		pending: PendingContinuation,

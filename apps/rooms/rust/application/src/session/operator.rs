@@ -51,7 +51,6 @@ pub fn mutation(action: &str, args: &[String]) -> Result<Mutation, InvalidAction
 			(verbs::RESET_SCOPE.into(), vec![text(scope)])
 		}
 		("giveModerator", [name]) => (authority::GIVE_STEWARD.into(), vec![text(name)]),
-		(verbs::GIVE_MANAGER, [identity]) if !identity.is_empty() => (verbs::GIVE_MANAGER.into(), vec![text(identity)]),
 		("revokeModerator", [name]) => (authority::REVOKE_STEWARD.into(), vec![text(name)]),
 		(authority::ISSUE_MANAGER, [name]) => (action.into(), vec![text(name)]),
 		(authority::REVOKE_MANAGER, [name]) => (action.into(), vec![text(name)]),
@@ -62,7 +61,6 @@ pub fn mutation(action: &str, args: &[String]) -> Result<Mutation, InvalidAction
 		authority::GIVE_STEWARD | authority::REVOKE_STEWARD | authority::ISSUE_MANAGER | authority::REVOKE_MANAGER => {
 			Reply::Stewardship
 		}
-		verbs::GIVE_MANAGER => Reply::RoomManager,
 		_ => Reply::Acknowledgment,
 	};
 	Ok(Mutation {
@@ -75,6 +73,10 @@ pub fn mutation(action: &str, args: &[String]) -> Result<Mutation, InvalidAction
 #[cfg(test)]
 mod tests {
 	use super::*;
+	#[test]
+	fn the_retired_recovery_verb_is_not_an_operator_action() {
+		assert!(mutation("giveManager", &[String::from("identity")]).is_err());
+	}
 	#[test]
 	fn the_links_card_verbs_take_one_room_name_and_answer_the_row() {
 		for verb in [

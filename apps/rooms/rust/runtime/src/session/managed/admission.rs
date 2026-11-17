@@ -187,7 +187,8 @@ fn command_class(route: Route) -> Option<Class> {
 			Effect::OfferRoom
 			| Effect::ShareArchiveHistory
 			| Effect::OfferDurableArchive
-			| Effect::IssueRoomModerator => Some(Class::Create),
+			| Effect::IssueRoomModerator
+			| Effect::RecoverRoomManager => Some(Class::Create),
 			Effect::RetireRoomMembership
 			| Effect::WithdrawLine
 			| Effect::RevokeIssuedArchiveShare
@@ -204,8 +205,7 @@ fn command_class(route: Route) -> Option<Class> {
 			}
 			results::Command::TakeRoomLink
 			| results::Command::TakeRoomModerator
-			| results::Command::TakeRoomManager
-			| results::Command::RecoverRoomManager => Some(Class::Read),
+			| results::Command::TakeRoomManager => Some(Class::Read),
 		},
 		Route::Checkpoint(command) => match command {
 			Command::JoinRoom | Command::JoinDirectory => Some(Class::Join),

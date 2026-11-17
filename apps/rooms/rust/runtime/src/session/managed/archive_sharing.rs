@@ -369,6 +369,7 @@ impl Pipeline {
 					rooms_application::session::effect::Reply::Acknowledgment,
 					&value,
 					"",
+					None,
 				)?
 				else {
 					unreachable!("acknowledgment carries no acquisition")

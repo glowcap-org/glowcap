@@ -270,41 +270,6 @@ Deno.test("a refresh failing after a successful acquisition names the snapshot r
 	}
 });
 
-Deno.test("a seat that cannot identify its manager names the identity step", async () => {
-	const current = snapshot();
-	current.intent.conversations.push({
-		kind: "room",
-		id: "room",
-		directory: "directory",
-		name: "garden",
-		source: "source",
-		access: null,
-		seat: "held-seat",
-		control: null,
-		reconnect: "requested",
-		standing: null,
-		draft: "",
-	});
-	const operation = new ManagedOperation("manager", {
-		result: () => Promise.resolve({ control: "returned-control" }),
-		adopted: () => Promise.resolve(false),
-		originalIntent: () => ["manager", 1, "operator", ["operator-key", "giveManager", "manager-identity"]],
-		free() {},
-	} as unknown as RoomsManagedCommand);
-	const session = viewer({
-		snapshot: () => Promise.resolve(current),
-		roomManagementIdentity: () => Promise.reject(refusal),
-	});
-	try {
-		const [outcome] = await Promise.allSettled([completeResult(session, operation)]);
-		assert(outcome.status === "rejected", "no seat answered");
-		assertNamed(outcome.reason, "managedRoomIdentity");
-	} finally {
-		await operation.close();
-		await session.close();
-	}
-});
-
 Deno.test("a committed receipt names the resume call that failed", async () => {
 	const request = {
 		status: () => Promise.resolve("committed"),

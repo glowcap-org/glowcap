@@ -8,6 +8,7 @@ pub mod effects;
 pub mod local;
 pub mod outgoing;
 pub mod records;
+pub mod recovery;
 pub mod requirements;
 pub mod results;
 pub mod uploads;

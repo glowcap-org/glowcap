@@ -44,23 +44,6 @@ impl RoomsManagedWorkspace {
 			)
 		})
 	}
-	#[wasm_bindgen(js_name = roomManagementIdentity)]
-	pub fn room_management_identity(&self, selected: js_sys::JsString) -> js_sys::Promise {
-		let selected = match scalar(selected, 256).and_then(|raw| {
-			custody::Coordinate::decode(&raw).map_err(|_| RuntimeError::invalid("Invalid room seat coordinate"))
-		}) {
-			Ok(selected) => selected,
-			Err(error) => return rejected(error),
-		};
-		let workspace = self.workspace.clone();
-		self.driver.submit(256, move |_| async move {
-			workspace
-				.room_management_identity(selected)
-				.await
-				.map(Into::into)
-				.map_err(RuntimeError::from)
-		})
-	}
 	#[wasm_bindgen(js_name = exportConfiguration)]
 	pub fn export_configuration(&self) -> js_sys::Promise {
 		let workspace = self.workspace.clone();

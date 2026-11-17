@@ -37,6 +37,8 @@ mod invitation_results;
 mod live_results;
 mod local_commands;
 mod management;
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod manager_recovery_results;
 mod membership_coordination;
 mod membership_results;
 mod membership_standing;

@@ -11,7 +11,8 @@ import type { OperationsCapability } from "../../application_data.ts";
 import type { OperatorReferenceKind, OperatorSnapshot } from "../../../../lib/operator.ts";
 import { parseOperatorSnapshotJson } from "../../../../lib/operator_snapshot.ts";
 import { appendOperatorPage, operatorStateOf } from "../../ops/operator_projection.ts";
-import { type Coordinate, fieldKey, type WorkspaceIntent } from "./model.ts";
+import { type Coordinate, fieldKey, type WorkspaceIntent, type WorkspaceSnapshot } from "./model.ts";
+import { ResultRecipe } from "./result_recipe.ts";
 import { LocalRefusal, refusalText } from "../../../../lib/text/failure.ts";
 import { formatOpsBundle, parseOpsBundleDraft } from "../../ops/bundle.ts";
 import type { RoomsManagedOperationsReader } from "../../../../../../zig-out/wasm/rooms/rooms_browser.js";
@@ -305,19 +306,36 @@ export function managedOperations(page: RoomsPageContext, session: ManagedRoomsS
 			outcome(async () => {
 				const row = store.getConv(projection, key);
 				if (row?.type !== "room") throw new LocalRefusal("room-gone");
-				const held = conversationById(session.current, row.persistId);
-				if (held?.kind !== "room" || held.seat == null) {
-					throw new LocalRefusal("manager-recovery-needs-membership");
-				}
-				const identity: string = await session.workspace.roomManagementIdentity(
-					JSON.stringify({ role: "roomSeat", key: held.seat }),
+				const recipe = new ResultRecipe();
+				const operator = selected("operator");
+				// The witness names the admitted room by every fact that decides
+				// which room it is. The worker reads the identity from its seat.
+				const witness = (snapshot: WorkspaceSnapshot): string => {
+					const held = recipe.conversation(snapshot, row.persistId);
+					if (held.kind !== "room" || held.seat == null) {
+						throw new LocalRefusal("manager-recovery-needs-membership");
+					}
+					if (held.control != null) throw new LocalRefusal("selected-access-changed");
+					return JSON.stringify({
+						id: held.id,
+						directory: held.directory,
+						source: held.source,
+						seat: held.seat,
+						access: held.access ?? undefined,
+						accepted: held.accepted,
+						publicEntry: held.publicEntry,
+						publication: held.publication,
+					});
+				};
+				const prepared = witness(session.current!);
+				const command = await session.command(
+					"recoverRoomManager",
+					[JSON.stringify(operator.coordinate.key), prepared],
+					crypto.randomUUID(),
+					(snapshot) => {
+						if (witness(snapshot) !== prepared) throw new LocalRefusal("selected-access-changed");
+					},
 				);
-				const source = selected("operator");
-				const command = await session.command("operator", [
-					JSON.stringify(source.coordinate.key),
-					"giveManager",
-					identity,
-				]);
 				await session.completeResult(command);
 			}),
 		resumeSessionEffect: (id) => outcome(() => session.completeOperation(id)),

@@ -27,6 +27,16 @@ impl Content for AbortAfterAdmission {
 			let request = rooms_application::session::command::Request::parse(&declared).unwrap();
 			if rooms_application::content::session::local::recognizes(request.route()) {
 				assert!(requests.len() <= 1, "local admission restores only its replay source");
+			} else if request.route()
+				== rooms_application::session::command::Route::Effect(
+					rooms_application::session::command::Effect::RecoverRoomManager,
+				) {
+				// The operator and seat run, and the entrance is restored only so the
+				// receipt can retain the basis its result lands by.
+				assert!(
+					matches!(requests.len(), 2 | 3),
+					"manager recovery restores its operator, seat and optional entrance"
+				);
 			} else {
 				assert!(
 					matches!(requests.len(), 1 | 2),

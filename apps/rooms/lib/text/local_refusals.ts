@@ -1,7 +1,6 @@
 // Local refusal keys own their sentence and retry advice together.
 import type { RoomsFailureRetry } from "../error_codes.ts";
 import { recoveryLetGoAsk } from "./recovery.ts";
-import { railLeave } from "./rail.ts";
 import {
 	historyReadAgain,
 	historyTitle,
@@ -125,10 +124,15 @@ export const LOCAL_REFUSALS = {
 		summary: `What this change was for is no longer in the session. It stays under ${sessionChangesName}.`,
 		retry: "after-state-change",
 	},
-	"room-saved-twice": {
+	"old-manager-recovery": {
 		summary:
-			`This room is saved more than once in this session, so Rooms can't tell which copy this change is for. Choose ${railLeave} on one copy in the sidebar, then pick this change up from ${sessionChangesName}.`,
-		retry: "after-state-change",
+			`An older version of Rooms started this manager recovery, and this version can't finish it. Under ${sessionChangesName}, choose ${recoveryLetGoAsk}, then ask for the manager link again. Letting go doesn't revoke a link that was already issued.`,
+		retry: "never",
+	},
+	"recovery-seat-lost": {
+		summary:
+			`This room's seat was lost or replaced, and no entrance holds the room, so this manager link can't be finished. Under ${sessionChangesName}, choose ${recoveryLetGoAsk}, rejoin the room, then ask for the manager link again. Letting go doesn't revoke a link that was already issued.`,
+		retry: "never",
 	},
 	"registration-unfinished": {
 		summary: `Registering in this directory didn't finish. Pick it up from ${sessionChangesName}.`,
