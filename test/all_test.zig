@@ -35,6 +35,7 @@ comptime {
         _ = @import("loam/core/collection_resume_test.zig");
         _ = @import("loam/core/collection_custody_test.zig");
         _ = @import("loam/hosting/actors_test.zig");
+        _ = @import("loam/hosting/retry_gate_test.zig");
         _ = @import("loam/hosting/failure_test.zig");
         _ = @import("loam/hosting/reference_test.zig");
         _ = @import("loam/hosting/live_epoch_test.zig");
@@ -258,6 +259,9 @@ comptime {
         _ = @import("driver/host_runtime_step/attend_pressure_test.zig");
         _ = @import("driver/host_runtime_step/close_pressure_test.zig");
         _ = @import("driver/host_runtime_step/feed_pressure_test.zig");
+        _ = @import("driver/host_runtime_step/core_retry_test.zig");
+        _ = @import("driver/host_runtime_step/core_retry_callers_test.zig");
+        _ = @import("driver/host_runtime_step/core_retry_open_test.zig");
         _ = @import("driver/host_runtime_step/unattended_close_test.zig");
         _ = @import("driver/host_runtime_step/sweep_edges_test.zig");
         _ = @import("driver/host_runtime_multiplexed/external_resident_test.zig");

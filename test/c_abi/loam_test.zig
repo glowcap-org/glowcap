@@ -10,6 +10,7 @@ const callbacks = @import("loam_callbacks.zig");
 test {
     _ = @import("loam_attach.zig");
     _ = @import("loam_live_release.zig");
+    _ = @import("loam_retry_gate.zig");
     _ = @import("loam_sqlite.zig");
     _ = @import("loam_volatile.zig");
 }

@@ -231,6 +231,9 @@ pub const ObservedOpen = struct {
     /// hold the session's close ahead of the event that introduces it.
     close_inside_open: bool = false,
     in_opened: bool = false,
+    /// Runs inside `opened`, after it records the session, with `hook_ctx`.
+    on_opened: ?*const fn (?*anyopaque, *driver_core.HostSession) void = null,
+    hook_ctx: ?*anyopaque = null,
 
     fn of(ctx: *anyopaque) *ObservedOpen {
         return @ptrCast(@alignCast(ctx));
@@ -264,6 +267,7 @@ pub const ObservedOpen = struct {
         self.in_opened = true;
         defer self.in_opened = false;
         if (self.unattend) |runtime| runtime.markSessionUnattended(session);
+        if (self.on_opened) |hook| hook(self.hook_ctx, session);
     }
 
     pub fn failed(ctx: *anyopaque, _: u64, failure: driver.OperationFailure) void {

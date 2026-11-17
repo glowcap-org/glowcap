@@ -33,6 +33,8 @@ pub const AcceptOwnershipResident = struct {
     listener_count: usize = 0,
     accept_route: ?usize = null,
     dialed: [2]bool = @splat(false),
+    /// Every `startConnect` call, whether it admitted or refused.
+    dial_starts: usize = 0,
     hold_connect: bool = false,
     pending_connect: ?usize = null,
     pending_listener: ?usize = null,
@@ -207,6 +209,7 @@ pub const AcceptOwnershipResident = struct {
         const index = transportIndex(locator.transport) orelse
             return .{ .failed = .init(error.InvalidAddress) };
         const self = of(ctx);
+        self.dial_starts += 1;
         if (self.dial_failure) |failure| return .{ .failed = failure };
         self.dialed[index] = true;
         if (self.hold_connect) {

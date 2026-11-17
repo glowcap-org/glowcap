@@ -45,7 +45,7 @@ pub fn releaseWireOwned(self: *HostRuntime, session: *driver_core.HostSession) !
         std.debug.assert(self.claimed_session_handles != 0);
         self.claimed_session_handles -= 1;
     }
-    self.drainActions() catch |err| Internal.noteTerminalFailure(self, err);
+    _ = Internal.attempt(self, .operational, .turn) catch |err| Internal.noteTerminalFailure(self, err);
     // Retirement remains runtime work after this handle is consumed. A
     // refusal becomes sticky terminal state rather than an error that invites
     // the caller to reuse a freed session pointer.

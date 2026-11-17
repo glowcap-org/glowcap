@@ -189,9 +189,9 @@ fn closeWireFailure(self: *HostRuntime, wire: *Wire, failure: ?OperationFailure)
 pub fn closeTailFailed(self: *HostRuntime, err: anyerror) void {
     switch (err) {
         // tolerant: the next drain reruns the pump (`resumeWorkForActionDrain`),
-        // and a shortage that lasts fails that drain, which reports it. The
-        // armed deadline wakes the step's wait for that drain.
-        error.OutOfMemory => Internal.armMemoryRetry(self),
+        // and a shortage that lasts leaves that drain retained behind the
+        // deadline, which wakes the step's wait for the rerun.
+        error.OutOfMemory => Internal.noteMemoryDebt(self),
         // tolerant: the core published the flush wake that brings the rerun
         // when the session's window opens, so no deadline is owed.
         error.OutboundBackpressure => {},

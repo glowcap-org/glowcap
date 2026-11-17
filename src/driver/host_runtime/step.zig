@@ -56,14 +56,14 @@ pub fn stepSession(self: *HostRuntime, session: *driver_core.HostSession, timeou
     // loop the caller happened to pick.
     try Internal.applySettleMailbox(self);
     _ = try Internal.resumeFeedTails(self, null);
-    try self.drainActions();
+    _ = try Internal.attempt(self, .operational, .turn);
     try Internal.advancePendingOpens(self);
     Internal.advancePendingListeners(self);
     const session_wire = self.wires.get(session.peer_handle) orelse return .closed;
     if (session_wire.closed) return .closed;
     const index = try Internal.waitAnySource(self, Internal.parkBoundMs(self, timeout_ms, null), false) orelse return null;
     const fed = try Internal.serviceResident(self, index, session);
-    try self.drainActions();
+    _ = try Internal.attempt(self, .operational, .turn);
     if (session_wire.closed) return .closed;
     return if (fed > 0) .{ .received = fed } else .idle;
 }
@@ -103,7 +103,7 @@ pub fn stepAnyOwned(self: *HostRuntime, timeout_ms: i32, goal: StepGoal) !?net.P
     // Input the sweep moved is progress no source reports, so a step that
     // services nothing else still answers `.idle` for it.
     const unserviced: ?net.Progress = if (try Internal.resumeFeedTails(self, null)) .idle else null;
-    try self.drainActions();
+    _ = try Internal.attempt(self, .operational, .turn);
     try Internal.advancePendingOpens(self);
     Internal.advancePendingListeners(self);
     if (self.terminal_failure) |failure| return failure.chain.cause;
@@ -129,7 +129,7 @@ pub fn stepAnyOwned(self: *HostRuntime, timeout_ms: i32, goal: StepGoal) !?net.P
     };
     self.readTurnClock();
     _ = try Internal.serviceResident(self, index, null);
-    try self.drainActions();
+    _ = try Internal.attempt(self, .operational, .turn);
     try Internal.advancePendingOpens(self);
     Internal.advancePendingListeners(self);
     try Internal.progressSessionCloses(self);
@@ -343,11 +343,7 @@ pub fn clampTimeoutToPendingWork(self: *const HostRuntime, timeout_ms: i32) i32 
         noteDeadline(&nearest_wait, deadline orelse continue, now_ms);
     }
     if (self.nearest_carrier_close_ms) |deadline| noteDeadline(&nearest_wait, deadline, now_ms);
-    // After fail-stop a step may run no drain to clear the deadline, so it
-    // would hold the wait at zero.
-    if (self.terminal_failure == null) {
-        if (self.memory_retry_due_ms) |deadline| noteDeadline(&nearest_wait, deadline, now_ms);
-    }
+    if (self.core.memory_retry_due_ms) |deadline| noteDeadline(&nearest_wait, deadline, now_ms);
     for (self.pending_listeners.items) |row| noteDeadline(&nearest_wait, row.deadline_ms orelse continue, now_ms);
     const wait = nearest_wait orelse return timeout_ms;
     const remaining = std.math.cast(i32, wait) orelse std.math.maxInt(i32);

@@ -42,6 +42,8 @@ const Tally = struct {
     stayed_open: usize = 0,
     /// Steps that failed under the refusal, where the scenario allows one.
     step_errors: usize = 0,
+    /// Steps that returned with core work retained behind the retry deadline.
+    retained_steps: usize = 0,
     /// Failed steps after which a wire held input the sweep had not counted.
     stale_hold: usize = 0,
 
@@ -105,6 +107,8 @@ const Trial = struct {
     recovered: bool = false,
 
     fn step(self: *Trial) !void {
+        // Each step is the retry the wait allows: the deadline, if armed, is due.
+        if (self.rig.runtime.core.memory_retry_due_ms != null) self.rig.clock.advanceMs(HostRuntime.testing.memory_retry_ms);
         _ = try self.sibling.resident.wake.nudge();
         _ = try self.rig.resident.wake.nudge();
         const failed = if (self.rig.runtime.stepAny(0)) |_| false else |err| blk: {
@@ -116,12 +120,14 @@ const Trial = struct {
         // No step latches: a failure with a caller returns, and one that
         // belongs to a connection closes it.
         try std.testing.expect(self.rig.runtime.terminal_failure == null);
-        if (failed) {
-            // A failed drain leaves the retry the wait wakes for.
-            try std.testing.expect(self.rig.runtime.memory_retry_due_ms != null);
+        const retained = self.rig.runtime.core.memory_retry_due_ms != null;
+        if (retained and !failed) self.tally.retained_steps += 1;
+        if (failed or retained) {
+            // A failed or retained drain leaves the retry the wait wakes for.
+            try std.testing.expect(self.rig.runtime.core.memory_retry_due_ms != null);
             try self.expectHoldsCounted();
         }
-        if (self.rig.runtime.memory_retry_due_ms != null) {
+        if (self.rig.runtime.core.memory_retry_due_ms != null) {
             // The step's wait wakes for the retry and never past it.
             const wait = self.rig.runtime.stepWaitMs();
             try std.testing.expect(wait >= 0 and wait <= HostRuntime.testing.memory_retry_ms);
@@ -164,6 +170,7 @@ fn trial(workload: Workload, shortage: Shortage, k: usize, tally: *Tally) !bool 
         .fetches = workload.fetches(),
         .attended = workload.attended(),
         .runtime_allocator = failing.allocator(),
+        .clock_step_ns = std.time.ns_per_us,
     });
     const sibling = try Sibling.attach(rig, workload != .held_pair);
     errdefer {
@@ -252,7 +259,7 @@ fn settle(run: *Trial) !void {
     // The retry the deadline asks for, taken at the rate the wait allows.
     try run.steps(8);
     // Memory is back and every drain since ran its work, so none waits.
-    try std.testing.expect(rig.runtime.memory_retry_due_ms == null);
+    try std.testing.expect(rig.runtime.core.memory_retry_due_ms == null);
     if (run.workload == .held_pair or run.workload == .request_pair) return settleBoth(run);
     const closed = if (run.wire()) |wire| wire.closed else true;
     if (closed) {
@@ -338,7 +345,7 @@ test "a refusal under serve, answer and drain leaves every wire in sync or close
 test "a lasting shortage across serve, answer, drain and close latches nothing" {
     const tally = try sweep(.requests, .lasting);
     try std.testing.expect(tally.closed_for_memory != 0);
-    try std.testing.expect(tally.step_errors != 0);
+    try std.testing.expect(tally.step_errors + tally.retained_steps != 0);
 }
 
 test "a lasting shortage under two wires' requests closes wires only for memory and counts held input" {
@@ -350,30 +357,35 @@ test "a lasting shortage under two wires' requests closes wires only for memory 
 test "two held wires under a lasting shortage close for memory or stay held and counted" {
     const tally = try sweep(.held_pair, .lasting);
     try std.testing.expect(tally.closed_for_memory != 0);
-    try std.testing.expect(tally.step_errors != 0);
+    try std.testing.expect(tally.step_errors + tally.retained_steps != 0);
     try std.testing.expectEqual(@as(usize, 0), tally.stale_hold);
 }
 
 test "a close tail that runs out of memory arms the retry, and backpressure arms nothing" {
-    const rig = try Rig.build(std.testing.allocator, .{ .fetches = 0 });
+    const rig = try Rig.build(std.testing.allocator, .{ .fetches = 0, .clock_step_ns = std.time.ns_per_us });
     defer rig.destroy();
     const runtime = &rig.runtime;
     const closeTailFailed = HostRuntime.testing.closeTailFailed;
 
     closeTailFailed(runtime, error.OutboundBackpressure);
-    try std.testing.expect(runtime.memory_retry_due_ms == null);
+    try std.testing.expect(runtime.core.memory_retry_due_ms == null);
     try std.testing.expectEqual(@as(i32, -1), runtime.stepWaitMs());
     try std.testing.expect(runtime.terminal_failure == null);
 
     closeTailFailed(runtime, error.OutOfMemory);
-    try std.testing.expect(runtime.memory_retry_due_ms != null);
+    try std.testing.expect(runtime.core.memory_retry_due_ms != null);
     const wait = runtime.stepWaitMs();
     try std.testing.expect(wait >= 0 and wait <= HostRuntime.testing.memory_retry_ms);
     try std.testing.expect(runtime.terminal_failure == null);
 
-    // The retry is a drain that returns, which clears the deadline.
+    // Before the deadline the drain is retained, so it answers memory without
+    // running anything, and the deadline stays.
+    try std.testing.expectError(error.OutOfMemory, runtime.drainActions());
+    try std.testing.expect(runtime.core.memory_retry_due_ms != null);
+    // The retry is a drain that returns once due, which clears the deadline.
+    rig.clock.advanceMs(HostRuntime.testing.memory_retry_ms);
     try runtime.drainActions();
-    try std.testing.expect(runtime.memory_retry_due_ms == null);
+    try std.testing.expect(runtime.core.memory_retry_due_ms == null);
 
     closeTailFailed(runtime, error.ProviderInternal);
     try std.testing.expect(runtime.terminal_failure != null);
@@ -383,7 +395,7 @@ test "a deadline that has passed binds the wait until a terminal failure retires
     const rig = try Rig.build(std.testing.allocator, .{ .fetches = 0 });
     defer rig.destroy();
     const runtime = &rig.runtime;
-    runtime.memory_retry_due_ms = runtime.nowMs() - 1;
+    runtime.core.memory_retry_due_ms = runtime.nowMs() - 1;
     try std.testing.expectEqual(@as(i32, 0), runtime.stepWaitMs());
     // After fail-stop a step may run no drain to clear it, so a wait of zero
     // would spin.
@@ -440,8 +452,8 @@ fn refuseReserve(_: *anyopaque) anyerror!void {
     return error.SinkRefused;
 }
 
-test "a drain that fails for another reason than memory arms a fresh deadline only while one is set" {
-    const rig = try Rig.build(std.testing.allocator, .{ .fetches = 0, .attended = false });
+test "a due attempt renews the deadline before it runs, and a failure that is not memory leaves it renewed" {
+    const rig = try Rig.build(std.testing.allocator, .{ .fetches = 0, .attended = false, .clock_step_ns = 0 });
     const sibling = try Sibling.attach(rig, false);
     defer {
         rig.destroy();
@@ -487,15 +499,15 @@ test "a drain that fails for another reason than memory arms a fresh deadline on
     try std.testing.expect(wire.closed);
     try std.testing.expect(runtime.terminal_failure == null);
     // No deadline was set, and a failure that is not memory sets none.
-    try std.testing.expect(runtime.memory_retry_due_ms == null);
+    try std.testing.expect(runtime.core.memory_retry_due_ms == null);
     try std.testing.expect(runtime.held_input_possible);
 
-    // With one set and past due, the failed drain replaces it with a fresh one.
-    const stale = runtime.nowMs() - 1;
-    runtime.memory_retry_due_ms = stale;
+    // With one set and past due, the attempt renews it to one interval from
+    // now before it runs, and the failure that is not memory leaves it so.
+    const now = runtime.nowMs();
+    runtime.core.memory_retry_due_ms = now - 1;
     try std.testing.expectError(error.SinkRefused, runtime.drainActions());
-    const fresh = runtime.memory_retry_due_ms orelse return error.DeadlineCleared;
-    try std.testing.expect(fresh > stale);
+    try std.testing.expectEqual(@as(?i64, now + HostRuntime.testing.memory_retry_ms), runtime.core.memory_retry_due_ms);
     const wait = runtime.stepWaitMs();
     try std.testing.expect(wait >= 0 and wait <= HostRuntime.testing.memory_retry_ms);
 }

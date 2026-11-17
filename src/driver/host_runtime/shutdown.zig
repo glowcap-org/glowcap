@@ -84,7 +84,7 @@ pub fn drainDeferredSessionReleases(self: *HostRuntime) bool {
     if (self.deferred_session_releases == null) return false;
     self.draining_session_releases = true;
     progressSessionCloses(self) catch |err| self.noteTerminalFailure(err);
-    self.drainActions() catch |err| self.noteTerminalFailure(err);
+    _ = Internal.attempt(self, .operational, .turn) catch |err| self.noteTerminalFailure(err);
 
     var request = self.deferred_session_releases;
     self.deferred_session_releases = null;
@@ -249,10 +249,10 @@ pub fn progressClose(self: *HostRuntime, effect_mode: ExternalEffectMode) !void 
     if (self.core.lifecyclePhase() != .closed)
         try self.core.progressClose(self.nowMs());
     if (!self.core.lifecyclePhase().serving()) cancelPendingRuntimeWork(self);
-    try Internal.drainActionsWith(self, effect_mode);
+    _ = try Internal.attempt(self, effect_mode, .turn);
     if (effect_mode == .operational) try Internal.advancePendingOpens(self);
     if (!self.core.lifecyclePhase().serving()) cancelPendingRuntimeWork(self);
-    try Internal.drainActionsWith(self, effect_mode);
+    _ = try Internal.attempt(self, effect_mode, .turn);
 }
 
 fn cancelPendingRuntimeWork(self: *HostRuntime) void {
@@ -375,5 +375,10 @@ fn deinitImpl(self: *HostRuntime, cancel_core: bool) void {
     if (self.owns_core) {
         if (self.core.deinitOutcome()) |failure| self.noteTerminalFailure(failure);
         self.allocator.destroy(self.core);
+    } else {
+        // The owner's core outlives this runtime, and no later drain would
+        // clear a deadline this runtime armed on it. Releasing one session
+        // leaves it, since the runtime keeps serving the rest.
+        Internal.clearMemoryDebt(self);
     }
 }

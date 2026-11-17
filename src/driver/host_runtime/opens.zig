@@ -293,7 +293,12 @@ pub fn cancelAccepts(self: *HostRuntime, tag: u64) void {
 /// reports failed. Runs after every action drain in the pump loops, so a
 /// open advances no matter which wait is driving the host. Rows
 /// are removed before their notification runs, because a notification
-/// may drain actions and stage further dials.
+/// may stage further dials. The result helpers queue their consequences and
+/// never drain, because an open decided inside `Exec.dial` or `startDial`
+/// must not run a drain beneath its caller. This is the top-level owner that
+/// answers them: it attempts one drain after each decided row, before the
+/// next row's verdict. A shortage of memory leaves them queued behind the
+/// retry deadline instead of failing the sweep.
 pub fn advancePendingOpens(self: *HostRuntime) !void {
     var i: usize = 0;
     while (i < self.pending_opens.items.len) {
@@ -307,14 +312,21 @@ pub fn advancePendingOpens(self: *HostRuntime) !void {
                 if (now_ms >= deadline) {
                     std.debug.assert(self.pending_opens.swapRemove(i) == row);
                     try failPendingOpen(self, row, Error.HandshakeTimedOut);
+                    try answerQueued(self);
                     continue;
                 }
             }
             if (now_ms >= row.stage.retry_wait.due_ms) {
-                try reissueRetryingDial(self, row);
                 // A failed re-issue removed the row, and the list's last row
-                // now sits under the cursor.
-                if (i < self.pending_opens.items.len and self.pending_opens.items[i] != row) continue;
+                // now sits under the cursor. Its observer may have started a
+                // dial, so the outcome rather than the list's length says so.
+                switch (try reissueRetryingDial(self, row)) {
+                    .removed => {
+                        try answerQueued(self);
+                        continue;
+                    },
+                    .kept => {},
+                }
             }
             i += 1;
             continue;
@@ -324,6 +336,7 @@ pub fn advancePendingOpens(self: *HostRuntime) !void {
             if (wire == null or (wire.?.closed and wire.?.carrierClosed())) {
                 std.debug.assert(self.pending_opens.swapRemove(i) == row);
                 try failPendingOpenFailure(self, row, row.close_cause orelse OperationFailure.fromError(Error.ConnectionClosed));
+                try answerQueued(self);
                 continue;
             }
             if (wire.?.closed) {
@@ -333,6 +346,10 @@ pub fn advancePendingOpens(self: *HostRuntime) !void {
             if (row.session.sessionOpen()) {
                 std.debug.assert(self.pending_opens.swapRemove(i) == row);
                 try completePendingOpen(self, row);
+                // The settle queued post-open work (withdraws, parked
+                // enlivens, the observer's own effects); answer it before the
+                // next row's verdict.
+                try answerQueued(self);
                 continue;
             }
         }
@@ -340,11 +357,18 @@ pub fn advancePendingOpens(self: *HostRuntime) !void {
             if (self.nowMs() >= deadline) {
                 std.debug.assert(self.pending_opens.swapRemove(i) == row);
                 try failPendingOpen(self, row, Error.HandshakeTimedOut);
+                try answerQueued(self);
                 continue;
             }
         }
         i += 1;
     }
+}
+
+/// One drain attempt for what a decided row queued. Memory the drain lacks
+/// stays queued behind the retry deadline, so only another failure returns.
+fn answerQueued(self: *HostRuntime) !void {
+    _ = try Internal.attempt(self, .operational, .turn);
 }
 
 /// Hand the opened session to its observer. A refusal releases the wire,
@@ -380,7 +404,8 @@ fn reportAcceptOpened(self: *HostRuntime, observation: SessionAcceptObservation,
     return true;
 }
 
-/// Report one completed session open. For a redeem row, a refused
+/// Report one completed session open and queue its consequences without
+/// draining them. For a redeem row, a refused
 /// `exporterDialed` fails closed: the ticket's action was consumed at
 /// stage time, so there is no drain retry to lean on. The session
 /// unwinds and the waiting redeems break rather than strand.
@@ -406,13 +431,12 @@ fn completePendingOpen(self: *HostRuntime, row: *PendingOpen) !void {
         },
         .listener_accept => |observation| if (!reportAcceptOpened(self, observation, row)) return,
     }
-    // The settle queued post-open work (withdraws, parked enlivens, the
-    // observer's own effects); answer it before the next row's verdict.
-    try self.drainActions();
 }
 
 /// Unwind and report one failed session open. The still-parked
-/// resident connect is canceled. A bound wire drops with its session.
+/// resident connect is canceled. A bound wire drops with its session. The
+/// consequences stay queued for the caller's drain: the failure may arrive
+/// inside `Exec.dial` or `startDial`, where a drain would nest.
 fn failPendingOpen(self: *HostRuntime, row: *PendingOpen, err: anyerror) !void {
     return failPendingOpenFailure(self, row, self.operationFailure(err));
 }
@@ -435,7 +459,6 @@ fn failPendingOpenFailure(self: *HostRuntime, row: *PendingOpen, original_failur
             if (obs.arrival_failed) |notify| notify(obs.ctx, observation.tag, failure);
         },
     }
-    try self.drainActions();
 }
 
 /// Infallibly retire the transport and session owned by a failed pending
@@ -480,6 +503,11 @@ fn reportDialOutcome(self: *HostRuntime, outcome: dial_retry.DialOutcome, attemp
     if (self.opts.dial_outcome) |observer| observer.report(observer.ctx, outcome, attempt);
 }
 
+/// Whether a retry decision left its row in `pending_opens`. `.removed` means
+/// the row failed and its result helper already ran, so the sweep revisits
+/// the index it holds.
+const RowOutcome = enum { kept, removed };
+
 /// A failed resident finish either parks the row for its retry interval or
 /// fails it as before (ADR-0018 executes ADR-0030's policy). The retry
 /// keeps the row's session, admission, observer reservation, and queued
@@ -492,7 +520,7 @@ fn retryOrFailResidentDial(
     row: *PendingOpen,
     resident_index: usize,
     failure: net.netlayer.DialFailure,
-) !void {
+) !RowOutcome {
     const policy = self.opts.dial_retry;
     const now_ms = self.nowMs();
     const interval_ms: i64 = std.math.cast(i64, policy.retry_interval_ms) orelse std.math.maxInt(i64);
@@ -505,13 +533,14 @@ fn retryOrFailResidentDial(
             .due_ms = now_ms +| interval_ms,
         } };
         reportDialOutcome(self, .transient_retry, row.dial_attempt);
-        return;
+        return .kept;
     }
     const verdict: dial_retry.DialOutcome =
         if (!transient or !deadline_leaves_room) .permanent else .exhausted;
     reportDialOutcome(self, verdict, row.dial_attempt);
     pending.remove(&self.pending_opens, row);
-    return failPendingOpenFailure(self, row, .fromDialFailure(failure));
+    try failPendingOpenFailure(self, row, .fromDialFailure(failure));
+    return .removed;
 }
 
 /// Re-issue a retry_wait row's resident dial once its interval has elapsed:
@@ -519,13 +548,14 @@ fn retryOrFailResidentDial(
 /// row's owned locator serves application rows. A redeem row re-reads the
 /// route's own view, which lives until the ticket settles. A start that
 /// fails is one more attempt outcome on the same policy as a failed finish.
-fn reissueRetryingDial(self: *HostRuntime, row: *PendingOpen) !void {
+fn reissueRetryingDial(self: *HostRuntime, row: *PendingOpen) !RowOutcome {
     const wait = row.stage.retry_wait;
     const runtime = &self.residents.items[wait.resident];
     const resident = runtime.resident;
     const dialer = resident.dialer() orelse {
         pending.remove(&self.pending_opens, row);
-        return failPendingOpen(self, row, Error.UnknownTransport);
+        try failPendingOpen(self, row, Error.UnknownTransport);
+        return .removed;
     };
     const request_id = try Internal.mintRuntimeId(&runtime.next_request);
     const locator = if (row.dial_locator) |owned| owned else blk: {
@@ -535,14 +565,16 @@ fn reissueRetryingDial(self: *HostRuntime, row: *PendingOpen) !void {
         };
         const view = self.core.node.pendingDial(redeem.ticket, redeem.route_index) orelse {
             pending.remove(&self.pending_opens, row);
-            return failPendingOpen(self, row, error.ProviderContract);
+            try failPendingOpen(self, row, error.ProviderContract);
+            return .removed;
         };
         break :blk view.locator;
     };
     const origin: net.DialOrigin = switch (row.outcome) {
         .redeem => |redeem| pendingDialOrigin(self, redeem.ticket, redeem.route_index) catch |err| {
             pending.remove(&self.pending_opens, row);
-            return failPendingOpen(self, row, err);
+            try failPendingOpen(self, row, err);
+            return .removed;
         },
         .operation, .listener_accept => .application,
     };
@@ -551,13 +583,14 @@ fn reissueRetryingDial(self: *HostRuntime, row: *PendingOpen) !void {
     row.dial_attempt = wait.attempt + 1;
     var attempt = switch (dialer.startDial(request_id, locator, .inherit, origin)) {
         .admitted => |attempt| attempt,
-        .failed => |failure| return retryOrFailResidentDial(self, row, wait.resident, failure),
+        .failed => |failure| return try retryOrFailResidentDial(self, row, wait.resident, failure),
     };
     defer if (attempt.deinit()) |failure| Internal.noteTerminalFailureChain(self, failure);
     row.stage = .{ .resident_dial = .{
         .resident = wait.resident,
         .attempt = attempt.take(),
     } };
+    return .kept;
 }
 
 /// Claim a staged dial's completed resident connect: finish it, bind the
@@ -572,7 +605,11 @@ pub fn adoptPendingResidentDial(self: *HostRuntime, resident_index: usize, row: 
             reportDialOutcome(self, .ok, row.dial_attempt);
             break :blk conn;
         },
-        .failed => |failure| return retryOrFailResidentDial(self, row, resident_index, failure),
+        .failed => |failure| {
+            // The servicing step drains whatever a failed dial queued.
+            _ = try retryOrFailResidentDial(self, row, resident_index, failure);
+            return;
+        },
     };
     defer if (conn.deinit()) |failure| Internal.noteTerminalFailureChain(self, failure);
     const conn_id = conn.borrow() orelse {

@@ -261,6 +261,23 @@ Releases before 0.1.7 are in the
 
 ### Fixed
 
+- A Zig `HostRuntime` that runs out of memory while draining queued work no
+  longer fails the loop. A step, a settle, a session release, a deferred
+  release, a close, and a mailbox turn keep the queued work and retry it after
+  a short interval. A blocking settle that needs that work answers
+  `OutOfMemory` until it runs. The Host holds the deadline, and
+  `hasRunnableWork` reports no work from the moment it is set until a runtime
+  attempt runs or clears it, so `glowcap_loam_advance` reports no progress
+  instead of spinning on that work.
+- A session open that completes or fails queues its consequences and no
+  longer drains beneath its caller. `startDial` leaves them for the next step,
+  and the step that decided the open attempts to answer them before it parks.
+  Work a memory shortage gated stays queued for the retry. Stepping or
+  draining from a completion sink's `reserve`, `take`, or `release` returns
+  `ReenteredHost`. A failed pending-open report, an allocation that fails
+  before a dial owns its row, provider admission, entropy, kernel pressure,
+  wait capacity, and the final contract for unreturned failures still fail the
+  open or the step ([#216](https://github.com/glowcap-org/glowcap/issues/216)).
 - Closing an accepted Racket session no longer hangs when the driver closed
   it before the application accepted it. The binding releases the session
   handle when it consumes the remembered close event.

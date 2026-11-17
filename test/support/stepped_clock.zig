@@ -36,6 +36,12 @@ pub const SteppedClock = struct {
         return .{ .userdata = self.userdata, .vtable = &self.table };
     }
 
+    /// Move the clock forward without a reading, so a test crosses a deadline
+    /// at the moment it names.
+    pub fn advanceMs(_: *const SteppedClock, ms: i64) void {
+        _ = reading_ns.fetchAdd(ms * std.time.ns_per_ms, .acq_rel);
+    }
+
     /// The clock's value without advancing it, for a test reading how far a
     /// wait moved it.
     pub fn peekMs(_: *const SteppedClock) i64 {

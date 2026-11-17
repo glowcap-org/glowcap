@@ -59,6 +59,8 @@ pub fn register(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.l
     counting.addImport("c_abi", layers[root.layerIndex("c_abi")]);
     test_mod.addImport("support_c_abi_counting_alloc", counting);
     test_mod.addImport("support_alloc_metrics", b.createModule(.{ .root_source_file = b.path("test/support/alloc_metrics.zig"), .target = target, .optimize = optimize }));
+    test_mod.addImport("glowcap", layers[root.layerIndex("glowcap")]);
+    test_mod.addImport("support_stepped_clock", b.createModule(.{ .root_source_file = b.path("test/support/stepped_clock.zig"), .target = target, .optimize = optimize }));
     test_mod.addImport("c_abi_loam_lmdb", lmdb_abi);
     test_mod.addImport("c_abi_loam_sqlite", sqlite_abi);
     test_mod.addImport("c_abi_loam_volatile", volatile_abi);

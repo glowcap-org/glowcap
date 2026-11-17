@@ -105,7 +105,7 @@ fn awaitResidentConnect(
     };
     while (true) {
         try Internal.applySettleMailbox(self);
-        try self.drainActions();
+        _ = try Internal.attempt(self, .operational, .turn);
         try Internal.advancePendingOpens(self);
         Internal.advancePendingListeners(self);
         if (wait.ready) return switch (attempt.finish()) {

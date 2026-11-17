@@ -133,6 +133,11 @@ listening, and events through one transport-independent ABI.
   bounded. One partner's backpressure holds back only its own work
   ([ADR-0017](decisions/adr/ADR-0017-outbound-pressure-and-fairness.md)). Every binding sets these limits through
   one versioned options value.
+- **Memory shortage in a drain.** When a stepped or blocking `HostRuntime` runs out of memory while draining work the
+  core queued (a completion, a held release, a closing session), it keeps that work and retries after a short interval
+  instead of failing the loop. The Host reports no runnable work until that retry runs, so a progress loop parks. A
+  session open that fails or completes queues its consequences, and the step that decided it attempts to answer them
+  before it parks. Work a memory shortage gated stays queued for the retry.
 - **Busy-poll.** A Zig `HostRuntime` given a busy-poll window spins and reaps
   its transports before it parks, so a reply that lands inside the window
   costs no wake

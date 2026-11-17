@@ -363,12 +363,11 @@ fn feedChunk(self: *HostRuntime, wire: *Wire, chunk: []const u8) !void {
     if (!wire.attended) return wire.link.park(self.allocator, wire.session.wire_framing, chunk);
     self.core.feedTransportPacket(wire.session, chunk) catch |err| {
         const failure = net.classifyApplyError(err);
-        self.drainActions() catch |drain_err| {
+        // A shortage of memory leaves the drain retained behind the retry
+        // deadline, so only another failure ends the feed beyond its own.
+        _ = Internal.attempt(self, .operational, .turn) catch |drain_err| {
             Internal.closeWire(self, wire, failure);
-            // tolerant: the drain armed the memory retry for its own shortage
-            // (`drainActionsWith`), and the next drain reports one that lasts,
-            // so the wire reports its own cause.
-            return if (drain_err == error.OutOfMemory) failure else drain_err;
+            return drain_err;
         };
         Internal.writeOutbound(self, wire) catch |write_err| {
             Internal.closeWire(self, wire, write_err);

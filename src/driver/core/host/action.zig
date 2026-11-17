@@ -184,8 +184,12 @@ pub fn nextAction(self: *Host) HostError!?HostAction {
 }
 
 /// Whether another action drain can run now. Parked vows and outstanding
-/// network replies alone are not runnable work. Querying never drives a turn.
+/// network replies alone are not runnable work, and neither is work the
+/// embedding runtime gated behind its memory retry deadline
+/// (`Host.memory_retry_due_ms`): the runtime's wait wakes when that deadline
+/// is due. Querying never drives a turn.
 pub fn hasRunnableWork(self: *const Host) bool {
+    if (self.memory_retry_due_ms != null) return false;
     return self.retry_last_action or self.actions.peek() != null or
         (!self.resume_pump_refused and host_pump.hasInternalWork(self));
 }
