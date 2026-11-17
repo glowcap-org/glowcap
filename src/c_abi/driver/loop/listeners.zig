@@ -168,6 +168,7 @@ pub export fn glowcap_driver_listener_locator(
 ) i32 {
     shared.lastErrorClear();
     const inst = instanceFrom(raw) orelse return GLOWCAP_ERR_NULL_POINTER;
+    if (events.releaseRefusal(inst, "listener_locator")) |code| return code;
     const slot = out_locator orelse return GLOWCAP_ERR_NULL_POINTER;
     const bound_listener = activeListener(inst, listener) catch |err| return activeListenerErrorCode(err);
     // Return the POD view by value. Its nested slices still borrow the

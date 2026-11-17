@@ -34,6 +34,9 @@ pub const TypedResident = struct {
     releases: usize = 0,
     retain_reports_failure: bool = false,
     release_code: i32 = c.GLOWCAP_OK,
+    /// Runs inside the provider package release, before it reports.
+    release_hook: ?*const fn (?*anyopaque) void = null,
+    release_hook_ctx: ?*anyopaque = null,
     failed_accept_route: ?u64 = null,
     locator_failure: bool = false,
     advertise_failure: bool = false,
@@ -76,6 +79,7 @@ pub const TypedResident = struct {
     pub fn release(ctx: ?*anyopaque, out_failure: ?*cdrv.GlowcapProviderFailure) callconv(.c) i32 {
         const resident = self(ctx);
         resident.releases += 1;
+        if (resident.release_hook) |hook| hook(resident.release_hook_ctx);
         if (resident.release_code != c.GLOWCAP_OK) {
             const name = "TestPackageReleaseFailed";
             const report = out_failure orelse return resident.release_code;

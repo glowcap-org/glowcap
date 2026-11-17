@@ -98,7 +98,19 @@ pub fn enqueueReservedEvent(inst: *Instance, event: OwnedEvent) void {
     inst.events.appendAssumeCapacity(event);
 }
 
+/// Refuse a verb issued while `glowcap_driver_release` dismantles the loop,
+/// before it touches runtime or core state that teardown may already have
+/// freed. The refusal is the ordinary re-entry refusal, and the outer release
+/// still owns the handle. `pub` for the exports that allow callback or
+/// cross-thread calls and so skip `reentrancyCode`.
+pub fn releaseRefusal(inst: *const Instance, operation: []const u8) ?i32 {
+    if (!inst.releasing.load(.monotonic)) return null;
+    shared.setLastError("driver: {s} refused during driver release", .{operation});
+    return GLOWCAP_ERR_INVALID_ARGUMENT;
+}
+
 pub fn reentrancyCode(inst: *Instance, operation: []const u8) ?i32 {
+    if (releaseRefusal(inst, operation)) |code| return code;
     // `driver_depth` covers the provider callbacks the driver runs under
     // `enterDriver`, which the runtime's own check does not count.
     if (inst.stepping or inst.runtime.driver_depth != 0) {
@@ -118,6 +130,7 @@ pub fn reentrancyCode(inst: *Instance, operation: []const u8) ?i32 {
 /// operation checks the owning thread. Outside a callback it follows
 /// `reentrancyCode`.
 pub fn callbackSafeCode(inst: *Instance, operation: []const u8) ?i32 {
+    if (releaseRefusal(inst, operation)) |code| return code;
     if (inst.runtime.withinCallback()) return null;
     return reentrancyCode(inst, operation);
 }
@@ -158,7 +171,7 @@ fn eventNamesLiveSession(inst: *const Instance, event: OwnedEvent) bool {
 /// and the drain releases the slot and frees the payload through the core.
 pub fn sinkTake(ctx: *anyopaque, action: driver_core.HostAction) bool {
     const inst: *Instance = @ptrCast(@alignCast(ctx));
-    if (inst.releasing) return false;
+    if (inst.releasing.load(.monotonic)) return false;
     enqueueReservedEvent(inst, .{ .completion = action });
     return true;
 }
@@ -184,7 +197,7 @@ pub fn observeClose(
     failure: ?driver.OperationFailure,
 ) void {
     const inst: *Instance = @ptrCast(@alignCast(ctx));
-    if (inst.releasing) {
+    if (inst.releasing.load(.monotonic)) {
         releaseEventReservation(inst);
         return;
     }

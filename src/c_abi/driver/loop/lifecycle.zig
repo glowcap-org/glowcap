@@ -234,7 +234,7 @@ pub export fn glowcap_driver_release(
     // each completion through the still-live core) and `observeClose` only
     // gives its reserved seat back; operation observers still run during
     // Runtime teardown to release their reservations and C metadata.
-    inst.releasing = true;
+    inst.releasing.store(true, .monotonic);
     if (inst.handed_completion) |action| {
         inst.runtime.freeAction(action);
         inst.handed_completion = null;

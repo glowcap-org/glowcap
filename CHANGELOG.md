@@ -274,6 +274,11 @@ Releases before 0.1.7 are in the
 
 ### Fixed
 
+- `glowcap_driver_release` refuses reentry into the loop from provider and
+  hosted callbacks during teardown, including the `has_transport`,
+  `listener_locator`, and `wake` queries. A nested release returns the
+  retained-handle result, so the outer release still owns the loop and frees
+  it once.
 - A Zig `HostRuntime` that runs out of memory while reporting a redeem's
   opened session or failure to the core keeps that report on the open's row
   and retries it on the Host's retry interval. An open exporter stays alive
