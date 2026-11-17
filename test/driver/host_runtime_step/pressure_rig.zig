@@ -15,6 +15,7 @@ const stream_framing = glowcap.foundation.stream_framing;
 const harness = @import("harness.zig");
 const residents = @import("../host_runtime_multiplexed/residents.zig");
 const raw_partner = @import("raw_partner.zig");
+const SteppedClock = @import("../../support/stepped_clock.zig").SteppedClock;
 const RawPartner = raw_partner.RawPartner;
 const Fixture = residents.ExternalAdoptionResident;
 const Treasure = harness.Treasure;
@@ -42,6 +43,10 @@ pub const Spec = struct {
     /// The allocator the runtime and its core draw from, when a test refuses
     /// their allocations apart from the rig's own.
     runtime_allocator: ?std.mem.Allocator = null,
+    /// Read the runtime's clock through a `SteppedClock` that moves this many
+    /// nanoseconds per reading and otherwise only through `Rig.clock`, so a
+    /// test crosses a deadline by naming the moment.
+    clock_step_ns: ?i64 = null,
 };
 
 /// A runtime serving one adopted connection whose partner is a raw core
@@ -50,6 +55,8 @@ pub const Spec = struct {
 pub const Rig = struct {
     allocator: std.mem.Allocator,
     threaded: std.Io.Threaded,
+    /// The runtime's clock when `Spec.clock_step_ns` is set.
+    clock: SteppedClock = undefined,
     resident: Fixture,
     observed: residents.ObservedOpen = .{},
     runtime: driver.HostRuntime,
@@ -102,7 +109,11 @@ pub const Rig = struct {
         var options = if (spec.blocking) residents.opts else rig.observed.steppedOpts();
         // One read carries a whole burst, so a chunk is never split by scratch.
         options.wire_buffer_bytes = 64 * 1024;
-        rig.runtime = try driver.HostRuntime.init(spec.runtime_allocator orelse allocator, rig.threaded.io(), .{}, .ephemeral, options);
+        const runtime_io = if (spec.clock_step_ns) |step_ns| blk: {
+            rig.clock = SteppedClock.init(rig.threaded.io(), 0, step_ns);
+            break :blk rig.clock.io();
+        } else rig.threaded.io();
+        rig.runtime = try driver.HostRuntime.init(spec.runtime_allocator orelse allocator, runtime_io, .{}, .ephemeral, options);
         errdefer rig.runtime.deinit();
         try rig.runtime.core.setSessionLimits(null, null, spec.limit, null, null);
         if (spec.unattended_on_open) rig.observed.unattend = &rig.runtime;

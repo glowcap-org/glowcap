@@ -13,11 +13,19 @@ const OperationFailure = @import("../operation_failure.zig").OperationFailure;
 /// Preserve a failure that crossed a callback or ownership-commit boundary
 /// with no direct return channel. The first cause remains authoritative.
 pub fn noteTerminalFailure(self: *HostRuntime, cause: anyerror) void {
-    foundation.latchFailure(&self.terminal_failure, .fromError(cause));
+    latchTerminal(self, .fromError(cause));
 }
 
 pub fn noteTerminalFailureChain(self: *HostRuntime, chain: net.netlayer.ListenerCloseFailure) void {
-    foundation.latchFailure(&self.terminal_failure, .fromChain(chain));
+    latchTerminal(self, .fromChain(chain));
+}
+
+/// The one latch under every terminal setter: keep the first cause, then
+/// retire the memory retry deadline. After fail-stop no operational drain
+/// clears it, and `noteMemoryDebt` arms nothing.
+fn latchTerminal(self: *HostRuntime, failure: OperationFailure) void {
+    foundation.latchFailure(&self.terminal_failure, failure);
+    Internal.clearMemoryDebt(self);
 }
 
 /// Retire one Runtime-owned core shell without turning a violated core
@@ -35,7 +43,7 @@ pub fn abandonFreshSession(self: *HostRuntime, session: *driver_core.HostSession
 }
 
 pub fn noteTerminalOperationFailure(self: *HostRuntime, later: OperationFailure) void {
-    foundation.latchFailure(&self.terminal_failure, later);
+    latchTerminal(self, later);
 }
 
 /// Publish a callerless failure without changing runtime control flow.

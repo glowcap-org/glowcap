@@ -70,6 +70,13 @@ binding ([invocation contract](../bindings/README.md#invocation-shape)).
   listener. One that cannot re-arm its accept latches a provider failure,
   which can end the whole loop. Both are tracked in
   [#216](https://github.com/glowcap-org/glowcap/issues/216).
+- **A memory shortage retries queued work in the runtime's own drains, not everywhere.**
+  A stepped or blocking runtime keeps work it could not drain and retries it
+  on a deadline. A failed pending-open report, an allocation that fails before
+  a dial owns its row, provider admission, entropy, kernel pressure, wait
+  capacity, and the final contract for unreturned failures still fail the open or
+  the step. They are tracked in
+  [#216](https://github.com/glowcap-org/glowcap/issues/216).
 - **A driver permits one listener per transport.** The relay can host keyed or
   Noise traffic, but not both at once, because rendezvous queues by designator.
 - **Driver readiness descriptors require Linux or Darwin.** Other platforms

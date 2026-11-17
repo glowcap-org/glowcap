@@ -279,6 +279,8 @@ pub const Host = struct {
     /// Cached nearest finite session deadline. The timing map remains the
     /// authority. This avoids an O(n) sweep on every adapter turn.
     next_session_close_deadline_ms: ?i64 = null,
+    /// Runtime-owned retry deadline for work a memory refusal left queued.
+    memory_retry_due_ms: ?i64 = null,
     /// Held while a top-level verb fires callbacks or pumps.
     callback_latch: host_admission.CallbackLatch = .{},
     /// Releases asked for inside a callback, run by that callback's verb tail.
@@ -328,9 +330,7 @@ pub const Host = struct {
 
     pub const init = host_ownership.init;
     pub const deinit = host_ownership.deinit;
-
     pub const deinitOutcome = host_ownership.deinitOutcome;
-
     pub const deinitAfterOwnershipTransfer = host_ownership.deinitAfterOwnershipTransfer;
     pub const checkReleaseOwnershipTransfer = host_ownership.checkReleaseOwnershipTransfer;
 

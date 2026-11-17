@@ -145,12 +145,23 @@ pub fn pressuredAfterOffer(self: *HostRuntime, wire: *Wire) bool {
 }
 
 /// Close `wire` for a feed the core refused, after draining the actions the
-/// partial feed committed. The drain's own failure is the caller's.
+/// partial feed committed and offering the wire the output they queued. A
+/// host retry deadline that is not due retains the drain, and the offer still
+/// runs, because the output is already on the wire's session. The drain's own
+/// failure is the caller's and closes the wire with the feed's cause,
+/// unoffered. A failed offer closes the wire with its own failure, and the
+/// send stays best effort.
 fn closeWireForRefusedFeed(self: *HostRuntime, wire: *Wire, err: anyerror) !void {
     const failure = net.classifyApplyError(err);
-    const drained = self.drainActions();
+    _ = Internal.attempt(self, .operational, .turn) catch |drain_err| {
+        Internal.closeWire(self, wire, failure);
+        return drain_err;
+    };
+    if (!wire.closed) Internal.writeOutbound(self, wire) catch |write_err| {
+        Internal.closeWire(self, wire, write_err);
+        return;
+    };
     Internal.closeWire(self, wire, failure);
-    return drained;
 }
 
 /// Move the input the runtime and the core hold, wire by wire, and report
@@ -313,7 +324,7 @@ pub fn pumpUntilProbe(self: *HostRuntime, probe: anytype, budget: Budget) !void 
         // poll below.
         try applySettleMailbox(self);
         _ = try resumeFeedTails(self, probe.resumeSkip());
-        try self.drainActions();
+        _ = try Internal.attempt(self, .operational, .turn);
         try Internal.advancePendingOpens(self);
         Internal.advancePendingListeners(self);
         if (probe.done()) return;
@@ -422,7 +433,7 @@ pub fn applySettleMailboxWith(self: *HostRuntime, effect_mode: ExternalEffectMod
     mb.apply(self.io, self.core) catch |err| {
         if (first_failure == null) first_failure = err;
     };
-    Internal.drainActionsWith(self, effect_mode) catch |err| {
+    _ = Internal.attempt(self, effect_mode, .turn) catch |err| {
         if (first_failure == null) first_failure = err;
     };
     if (first_failure) |err| {
@@ -456,7 +467,7 @@ pub fn waitAnySource(self: *HostRuntime, requested_ms: i32, empty_ok: bool) !?us
     // The park is where no message of ours will come along for a held
     // answer release to ride: encode them now, and write them with the
     // drain, so the submit below carries them.
-    if (try self.core.flushHeldReleases()) try self.drainActions();
+    _ = try Internal.attempt(self, .operational, .park);
     // A blocking verb with no source left has nothing that can ever wake
     // it; `stepAny` passes `empty_ok` because a step-driven host with no
     // session yet is parked on its own budget, not stranded.

@@ -65,8 +65,16 @@ pub const HostRuntime = struct {
     pub const testing = if (builtin.is_test) struct {
         pub const parkBoundMs = Internal.parkBoundMs;
         pub const closeTailFailed = runtime_carrier.closeTailFailed;
+        pub const attempt = runtime_actions.attempt;
+        pub const attemptWith = runtime_actions.attemptWith;
+        pub const Drain = runtime_actions.Drain;
+        pub const FlushIntent = runtime_actions.FlushIntent;
+        pub const Mode = lifecycle.ExternalEffectMode;
+        pub const applySettleMailbox = runtime_pump.applySettleMailbox;
+        pub const noteTerminalFailureChain = runtime_failures.noteTerminalFailureChain;
         pub const memory_retry_ms = runtime_actions.memory_retry_ms;
         pub const feedReadable = runtime_pump.feedReadable;
+        pub const advancePendingOpens = runtime_opens.advancePendingOpens;
     } else struct {};
 
     allocator: std.mem.Allocator,
@@ -190,12 +198,6 @@ pub const HostRuntime = struct {
     /// cache early, and the one walk that finds nothing due re-derives it.
     nearest_carrier_close_ms: ?i64 = null,
     carrier_close_waiters: usize = 0,
-    /// When the runtime next retries work that failed for lack of memory, or
-    /// null while none waits. One deadline serves the whole host: the step's
-    /// wait folds it in (`clampTimeoutToPendingWork`). `drainActionsWith`
-    /// states when a drain arms and clears it, and a close tail that ran out
-    /// of memory arms it too (`closeTailFailed`).
-    memory_retry_due_ms: ?i64 = null,
     /// Which face drives this runtime, chosen once at construction through
     /// `Options.drive` and never changed. The blocking Zig face waits
     /// through `net.waitAnyDescriptor` and observes vows in-process through
@@ -488,8 +490,9 @@ pub const HostRuntime = struct {
 
     const writeOutbound = runtime_actions.writeOutbound;
     pub const drainActions = runtime_actions.drainActions;
-    const drainActionsWith = runtime_actions.drainActionsWith;
-    const armMemoryRetry = runtime_actions.armMemoryRetry;
+    const attempt = runtime_actions.attempt;
+    const noteMemoryDebt = runtime_actions.noteMemoryDebt;
+    const clearMemoryDebt = runtime_actions.clearMemoryDebt;
 
     const pumpHandshake = runtime_pump.pumpHandshake;
     pub const markSessionUnattended = runtime_pump.markSessionUnattended;
@@ -588,8 +591,9 @@ pub const Internal = struct {
     pub const closeOwnedListeners = HostRuntime.closeOwnedListeners;
     pub const closeActiveListener = HostRuntime.closeActiveListener;
     pub const failActiveListener = HostRuntime.failActiveListener;
-    pub const drainActionsWith = HostRuntime.drainActionsWith;
-    pub const armMemoryRetry = HostRuntime.armMemoryRetry;
+    pub const attempt = HostRuntime.attempt;
+    pub const noteMemoryDebt = HostRuntime.noteMemoryDebt;
+    pub const clearMemoryDebt = HostRuntime.clearMemoryDebt;
     pub const reportObservedOperationFailure = HostRuntime.reportObservedOperationFailure;
     pub const reportObservedFailure = HostRuntime.reportObservedFailure;
     pub const reportObservedFailureChain = HostRuntime.reportObservedFailureChain;

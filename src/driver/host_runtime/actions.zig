@@ -67,52 +67,130 @@ fn pushPendingResident(resident: net.MultiplexedResident, rl: *Wire.Link) !bool 
     return true;
 }
 
+/// What one gated drain left behind: everything it could run ran, or work a
+/// memory refusal left queued waits for the retry deadline.
+pub const Drain = enum { complete, retained };
+
+/// Whether an attempt sends held answer releases before the core's actions.
+/// The stepped face flushes on every attempt, because it parks outside the
+/// runtime and no later message of ours would carry them. The blocking face
+/// flushes only when the retry is due or at its own park (`.park`), where the
+/// next verb's message may still carry them. A `.park` attempt that sent
+/// nothing drains nothing.
+pub const FlushIntent = enum { turn, park };
+
 /// Drain every immediately runnable core action: writes, redeem dials, entropy
 /// draws, closes, and unobserved completions. Outbound pressure returns to the
 /// owning step so transport readiness, rather than this stack frame, retries
-/// the parked work.
+/// the parked work. Work a memory refusal left retained answers
+/// `error.OutOfMemory` here, for the caller whose result needs it drained
+/// (`replyVowId`). A completion-sink callback calling this gets
+/// `error.ReenteredHost`. Runtime turns and consumed handles call `attempt` and treat
+/// retained work as queued, not failed.
 pub fn drainActions(self: *HostRuntime) !void {
-    try drainActionsWith(self, .operational);
+    try self.refuseReentry();
+    switch (try attempt(self, .operational, .turn)) {
+        .complete => {},
+        .retained => return error.OutOfMemory,
+    }
 }
 
 /// How long the step's wait lets work that failed for lack of memory sit
 /// before the next drain tries it. Memory comes back when other work
 /// finishes, which takes milliseconds, so this is far shorter than a dial's
 /// network interval. The deadline bounds idle wake-ups while the work waits.
-/// It does not cap retries: every drain reruns the work.
 pub const memory_retry_ms: i64 = 250;
 
-/// Ask the step's wait to wake for another drain once memory may have
-/// returned (`clampTimeoutToPendingWork`), so queued work a refused
-/// allocation left does not wait for an event that may never come.
-pub fn armMemoryRetry(self: *HostRuntime) void {
-    self.memory_retry_due_ms = self.nowMs() +| memory_retry_ms;
+/// Record that core work waits on memory: arm the retry deadline unless one
+/// is armed or the runtime failed terminally. An armed deadline is never
+/// postponed, so a persistent shortage retries at the policy rate. The step's
+/// wait wakes for the deadline (`clampTimeoutToPendingWork`), and the core
+/// reports no runnable work until then (`Host.hasRunnableWork`).
+pub fn noteMemoryDebt(self: *HostRuntime) void {
+    if (self.terminal_failure != null) return;
+    if (self.core.memory_retry_due_ms == null) self.core.memory_retry_due_ms = self.nowMs() +| memory_retry_ms;
 }
 
-/// Drain every immediately runnable action. Arming the memory retry deadline
-/// belongs to this drain and to a close whose tail ran out of memory
-/// (`closeTailFailed`), and clearing it belongs to this drain alone. A drain
-/// that returns clears the deadline, because it has rerun the pump
-/// (`resumeWorkForActionDrain`) or stopped at outbound pressure, whose flush
-/// wake brings the rerun. A drain that fails with `OutOfMemory` arms it. A
-/// drain that fails any other way while it is set arms it afresh, so a
-/// deadline already past never holds the step's wait at zero.
-pub fn drainActionsWith(self: *HostRuntime, effect_mode: ExternalEffectMode) !void {
+/// Drop the retry deadline: the work it gated ran, or the runtime failed
+/// terminally and no later drain will clear it.
+pub fn clearMemoryDebt(self: *HostRuntime) void {
+    self.core.memory_retry_due_ms = null;
+}
+
+/// One drain of the held releases and the core's actions, gated by the memory
+/// retry deadline. The deadline belongs to this function, to a close whose
+/// tail ran out of memory (`closeTailFailed`), and to the terminal setters.
+///
+/// - Operational: no deadline runs. Not yet due returns `.retained` without
+///   allocating. Due renews the deadline to one policy interval from now and
+///   runs, so each owner gets one attempt per interval.
+/// - A memory refusal in the flush is remembered while the core's actions
+///   still drain. Any other flush error stops. On every exit a remembered
+///   refusal arms the deadline before a later error returns, and a clean
+///   drain with one returns `.retained`. A clean drain without one clears
+///   the deadline: it ran the pump again (`resumeWorkForActionDrain`) or
+///   stopped at outbound pressure, whose flush wake brings the rerun. An
+///   error other than memory with no new refusal leaves the deadline as is.
+/// - Cleanup-only, and any drain after a terminal failure, is ungated: it
+///   reads and writes no deadline and returns every error, a flush refusal
+///   included, at once.
+pub fn attempt(self: *HostRuntime, effect_mode: ExternalEffectMode, intent: FlushIntent) !Drain {
+    return attemptWith(self, effect_mode, intent, CoreFlush);
+}
+
+/// The held-release flush `attempt` runs, a comptime parameter so a test can
+/// refuse or count it without a real encode failure.
+const CoreFlush = struct {
+    pub fn flush(core: *driver_core.Host) !bool {
+        return core.flushHeldReleases();
+    }
+};
+
+pub fn attemptWith(
+    self: *HostRuntime,
+    effect_mode: ExternalEffectMode,
+    intent: FlushIntent,
+    comptime Flush: type,
+) !Drain {
     self.enterDriver();
     defer self.leaveDriver();
+    const gated = effect_mode == .operational and self.terminal_failure == null;
+    var due = false;
+    if (gated) if (self.core.memory_retry_due_ms) |deadline| {
+        const now_ms = self.nowMs();
+        if (now_ms < deadline) return .retained;
+        self.core.memory_retry_due_ms = now_ms +| memory_retry_ms;
+        due = true;
+    };
+    var remembered = false;
+    var flushed = false;
+    if (self.drive == .stepped or intent == .park or due) {
+        flushed = Flush.flush(self.core) catch |err| blk: {
+            if (!gated or err != error.OutOfMemory) return err;
+            remembered = true;
+            break :blk false;
+        };
+        if (intent == .park and !flushed and !remembered and !due) return .complete;
+    }
     drainLoop(self, effect_mode) catch |err| {
-        if (err == error.OutOfMemory or self.memory_retry_due_ms != null) armMemoryRetry(self);
+        if (!gated) return err;
+        if (err == error.OutOfMemory) {
+            noteMemoryDebt(self);
+            return .retained;
+        }
+        if (remembered) noteMemoryDebt(self);
         return err;
     };
-    self.memory_retry_due_ms = null;
+    if (!gated) return .complete;
+    if (remembered) {
+        noteMemoryDebt(self);
+        return .retained;
+    }
+    clearMemoryDebt(self);
+    return .complete;
 }
 
 fn drainLoop(self: *HostRuntime, effect_mode: ExternalEffectMode) !void {
-    // The stepped face parks outside the runtime, so a held answer release
-    // has no later message of ours to ride before that park: every drain
-    // here sends it. The blocking face flushes at its own park instead
-    // (`waitAnySource`), where the next verb's message may still carry it.
-    if (self.drive == .stepped) _ = try self.core.flushHeldReleases();
     // The blocking front has no shared reactor turn to yield to, so finite
     // scheduler slices continue here. Outbound pressure is different: the
     // resident window can move only after this call returns to readiness.
@@ -144,7 +222,12 @@ const Exec = struct {
         }
         switch (self.runtime.drive) {
             .blocking => {},
-            .stepped => |*stepped| try stepped.completion_sink.reserve(stepped.completion_sink.ctx),
+            .stepped => |*stepped| {
+                const sink = stepped.completion_sink;
+                self.runtime.observer_callback_depth += 1;
+                defer self.runtime.observer_callback_depth -= 1;
+                try sink.reserve(sink.ctx);
+            },
         }
     }
 
@@ -182,6 +265,10 @@ const Exec = struct {
             .blocking => self.runtime.core.holdAction(action),
             .stepped => |*stepped| {
                 const sink = stepped.completion_sink;
+                // The sink is embedder code: guard it like a close observer,
+                // so a verb it calls refuses with `ReenteredHost`.
+                self.runtime.observer_callback_depth += 1;
+                defer self.runtime.observer_callback_depth -= 1;
                 if (sink.take(sink.ctx, action)) return;
                 // A sink declines only while its embedder releases the loop,
                 // so nothing asks for this completion again.
@@ -193,11 +280,12 @@ const Exec = struct {
 };
 
 /// Stage a redeem dial so the active pump advances its handshake and reports
-/// the result through `exporterDialed` / `dialFailed`. Keeps `anyerror` on
-/// purpose: its failure path drains actions again, so narrowing it to an
-/// inferred set closes a dependency loop through the action drain that the
-/// toolchain refuses to resolve.
-fn answerDial(self: *HostRuntime, ticket: engine.Node.PendingId, route_index: usize) anyerror!void {
+/// the result through `exporterDialed` / `dialFailed`. A provider that
+/// refuses at once is reported by the staging helper itself, and any other
+/// staging error reports `dialFailed` here. Both queue their consequences:
+/// the drain loop already running this action executes them, so staging
+/// never drains.
+fn answerDial(self: *HostRuntime, ticket: engine.Node.PendingId, route_index: usize) !void {
     const pending = self.core.pendingDial(ticket, route_index) orelse return;
     // The pending row owns every locator slice until the ticket settles;
     // stageDial borrows the complete active route for this call.
