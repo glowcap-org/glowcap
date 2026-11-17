@@ -20,7 +20,6 @@ import {
 	roomAuthorityModerate,
 	roomAuthorityModerateHeld,
 	roomAuthorityModerateNotHeld,
-	roomAuthorityModerateRetained,
 	roomAuthorityModerateViaManager,
 	roomAuthoritySubject,
 	roomAuthoritySubjectHeld,
@@ -77,9 +76,7 @@ import {
 	roomModeratorTake,
 	roomModeratorTakeCommit,
 	roomModeratorTakeHint,
-	roomModeratorTakeRetained,
 	roomModeratorTaking,
-	roomModeratorTakingRetained,
 	roomNameReleaseAsk,
 	roomNameReleased,
 	roomNameReleaseLabel,
@@ -440,14 +437,12 @@ export function RoomCapabilities(
 					<dd>
 						{held
 							? roomAuthorityModerateHeld
-							: conv.stewardToken !== undefined
-							? roomAuthorityModerateRetained
 							: managerHeld
 							? roomAuthorityModerateViaManager
 							: roomAuthorityModerateNotHeld}
 					</dd>
 				</dl>
-				{stewardTakeShown && (conv.stewardToken !== undefined || managerHeld) && (
+				{stewardTakeShown && managerHeld && (
 					<div className="actions">
 						<Button
 							id="convcardStewardClaim"
@@ -458,14 +453,10 @@ export function RoomCapabilities(
 							   between two shouts. */
 							variant="quiet"
 							busy={taking === "claim"}
-							disabled={!available || authorityWorking}
-							onClick={() => take("claim", stewardBearer ?? undefined)}
+							disabled={authorityWorking}
+							onClick={() => take("claim")}
 						>
-							{taking === "claim"
-								? conv.stewardToken === undefined ? roomModeratorIssuing : roomModeratorTakingRetained
-								: conv.stewardToken === undefined
-								? roomModeratorIssue
-								: roomModeratorTakeRetained}
+							{taking === "claim" ? roomModeratorIssuing : roomModeratorIssue}
 						</Button>
 					</div>
 				)}

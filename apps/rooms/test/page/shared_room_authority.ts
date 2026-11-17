@@ -54,6 +54,10 @@ export async function proveSharedRoomAuthorityRotation(
 				panel: panel !== null,
 				claim: claim?.textContent,
 				disabled: claim?.disabled,
+				// The recovery block means membership is not joined. A disabled paste
+				// field with no recovery block means an authority act is running.
+				recovery: document.querySelector("#convcardRecoveryTitle") !== null,
+				pasteDisabled: document.querySelector<HTMLInputElement>("#convcardStewardTake")?.disabled,
 				manager: document.querySelector("#convcardManager") !== null,
 				moderator: document.querySelector("#convcardSteward") !== null,
 				refusal: document.querySelector("#convcardStewardSaid")?.textContent,

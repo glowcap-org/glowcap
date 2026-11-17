@@ -113,6 +113,7 @@ const batches: []const []const []const u8 = &.{
         "apps/rooms/test/session/managed_refusal_sites_test.ts",
         "apps/rooms/test/session/managed_manager_recovery_test.ts",
         "apps/rooms/test/session/managed_manager_recovery_request_test.ts",
+        "apps/rooms/test/session/moderator_claim_render_test.ts",
         "apps/rooms/test/session/managed_archive_shares_test.ts",
         "apps/rooms/test/session/archive_reconciliation_test.ts",
     },
