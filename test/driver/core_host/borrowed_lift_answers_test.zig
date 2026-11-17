@@ -82,78 +82,176 @@ test "a forwarded near reply is lifted as borrowed and its refusal leaves the ca
     try f.expectKept(before, 7);
 }
 
-/// Every allocation a borrowed lift of `[answer 7, over-deep]` makes, failed one
-/// at a time after setup, until a run completes with no induced failure. Each
-/// failure must leave the session, the import, the stored resolution's hold, and
-/// the promise rows as they were, and the retry must still lift and release.
-fn sweepRefusedAnswerLift(seed: u8, designator: []const u8, copies: usize, shared_import: bool) !usize {
+/// The caller's allocator as the lift sees it, in front of the lift's arena.
+/// It recognizes the receipt list's first spill, one array of exactly
+/// `spill_threshold + 1` receipts, counts those requests, and can refuse the
+/// first. The count is the lift's own requests, so it does not depend on how
+/// the arena or the platform allocator carves them.
+///
+/// A `Value` array of nine has the same size and alignment as that request, so
+/// the size alone does not identify a receipt spill. This fixture never makes
+/// one in the lift arena: the outer tree holds two or three values, `chain`
+/// builds one-element lists, and the answer's data is copied into the stored
+/// row's own arena on the Host allocator, which is not behind this probe. A
+/// fixture edit that gives the outer tree nine siblings must recognize spills
+/// another way.
+const SpillProbe = struct {
+    child: std.mem.Allocator,
+    spill_allocs: usize = 0,
+    fail_first_spill: bool = false,
+    refused: bool = false,
+
+    const receipt_bytes = @sizeOf(Host.CapabilityLift);
+
+    fn allocator(self: *SpillProbe) std.mem.Allocator {
+        return .{ .ptr = self, .vtable = &.{ .alloc = alloc, .resize = resize, .remap = remap, .free = free } };
+    }
+
+    /// The request `ReceiptList.ensureOne` makes for the first spill.
+    fn isSpill(len: usize, alignment: std.mem.Alignment) bool {
+        return alignment == std.mem.Alignment.of(Host.CapabilityLift) and len == receipt_bytes * (spill_threshold + 1);
+    }
+
+    /// The receipt list's inline capacity, kept here on purpose: the list's own
+    /// constant is private, and a drift in either direction fails the tests
+    /// that require a spill to be seen.
+    const spill_threshold = 8;
+
+    fn alloc(ctx: *anyopaque, len: usize, alignment: std.mem.Alignment, ret_addr: usize) ?[*]u8 {
+        const self: *SpillProbe = @ptrCast(@alignCast(ctx));
+        if (isSpill(len, alignment)) {
+            self.spill_allocs += 1;
+            if (self.fail_first_spill and self.spill_allocs == 1) {
+                self.refused = true;
+                return null;
+            }
+        }
+        return self.child.rawAlloc(len, alignment, ret_addr);
+    }
+
+    fn resize(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: usize, ret_addr: usize) bool {
+        const self: *SpillProbe = @ptrCast(@alignCast(ctx));
+        return self.child.rawResize(memory, alignment, new_len, ret_addr);
+    }
+
+    fn remap(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: usize, ret_addr: usize) ?[*]u8 {
+        const self: *SpillProbe = @ptrCast(@alignCast(ctx));
+        return self.child.rawRemap(memory, alignment, new_len, ret_addr);
+    }
+
+    fn free(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, ret_addr: usize) void {
+        const self: *SpillProbe = @ptrCast(@alignCast(ctx));
+        self.child.rawFree(memory, alignment, ret_addr);
+    }
+};
+
+const Outcome = struct { induced: bool, spill_allocs: usize };
+
+/// One borrowed lift of `[answer 7, over-deep]` over a settled answer whose
+/// data names `copies` references, with the allocation at `fail_at` (counted
+/// from after setup) refused, or the first receipt spill refused when
+/// `fail_spill`. Whatever refused, the lift must leave the session, the
+/// import, the stored resolution's hold, and the promise rows as they were,
+/// and the retry must still lift and release.
+fn liftRefused(seed: u8, designator: []const u8, copies: usize, shared_import: bool, fail_at: ?usize, fail_spill: bool) !Outcome {
+    var failing = std.testing.FailingAllocator.init(allocator, .{ .fail_index = std.math.maxInt(usize) });
+    var f: Fixture = undefined;
+    try f.initIn(failing.allocator(), seed, designator);
+    defer f.deinit();
+    var arena_state = std.heap.ArenaAllocator.init(allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    const deep = try chain(arena);
+    // The lift's own arena draws from the failing allocator too, so the
+    // arena's backing is part of the sweep.
+    var lift_arena_state = std.heap.ArenaAllocator.init(failing.allocator());
+    defer lift_arena_state.deinit();
+    var probe: SpillProbe = .{ .child = lift_arena_state.allocator(), .fail_first_spill = fail_spill };
+    const lift_arena = probe.allocator();
+    const position = try settleAnswerNamingPartnerObject(&f, arena, copies);
+    const pos: model.ImportPosition = .from(position);
+    const imports = &f.state().imports;
+    const holds = imports.resolutionHolds(pos);
+    const held_back = imports.rows.get(position).?.held_back;
+    const before = f.snapshot(position);
+    const answers_before = f.state().inbound_answers.host_promises;
+    const answer: model.Argument = .{ .reference = .{ .promise = .{ .answer_position = .from(7) } } };
+    // The outer tree names the import the answer's data names too.
+    const same: model.Argument = .{ .reference = .{ .far = model.FarRef.object(position) } };
+    const tree = [_]model.Argument{ same, answer, deep };
+    const args = if (shared_import) tree[0..] else tree[1..];
+
+    if (fail_at) |n| failing.fail_index = failing.alloc_index + n;
+    const result = f.lift(lift_arena, args, .borrowed);
+    const induced = failing.has_induced_failure or probe.refused;
+    failing.fail_index = std.math.maxInt(usize);
+    const spill_allocs = probe.spill_allocs;
+    probe.fail_first_spill = false;
+    if (induced) try std.testing.expectError(error.OutOfMemory, result) else {
+        try std.testing.expectError(error.ValueTooDeep, result);
+    }
+    try f.expectKept(before, position);
+    try std.testing.expectEqual(holds, imports.resolutionHolds(pos));
+    try std.testing.expectEqual(held_back, imports.rows.get(position).?.held_back);
+    try std.testing.expectEqual(answers_before, f.state().inbound_answers.host_promises);
+
+    const retry = try f.lift(lift_arena, args[0 .. args.len - 1], .borrowed);
+    try std.testing.expectEqual(@as(u64, 0), imports.rows.get(position).?.held_back);
+    for (retry) |lifted| switch (lifted) {
+        .capability => |ref| try f.host.releaseCapability(ref, 1),
+        else => unreachable,
+    };
+    try host_pair.pumpToQuiescence(&.{f.pair});
+    try std.testing.expectEqual(before, f.snapshot(position));
+    try std.testing.expectEqual(holds, imports.resolutionHolds(pos));
+    return .{ .induced = induced, .spill_allocs = spill_allocs };
+}
+
+/// Every allocation the lift makes, failed one at a time after setup, until a
+/// run completes with no induced failure. Returns how many runs that took and
+/// how many receipt spills the completing run made.
+fn sweepRefusedAnswerLift(seed: u8, designator: []const u8, copies: usize, shared_import: bool) !Sweep {
     var n: usize = 0;
     while (n < 400) : (n += 1) {
-        var failing = std.testing.FailingAllocator.init(allocator, .{ .fail_index = std.math.maxInt(usize) });
-        var f: Fixture = undefined;
-        try f.initIn(failing.allocator(), seed, designator);
-        defer f.deinit();
-        var arena_state = std.heap.ArenaAllocator.init(allocator);
-        defer arena_state.deinit();
-        const arena = arena_state.allocator();
-        const deep = try chain(arena);
-        // The lift's own arena draws from the failing allocator too, so the
-        // receipt spill that lives in it is part of the sweep.
-        var lift_arena_state = std.heap.ArenaAllocator.init(failing.allocator());
-        defer lift_arena_state.deinit();
-        const lift_arena = lift_arena_state.allocator();
-        const position = try settleAnswerNamingPartnerObject(&f, arena, copies);
-        const pos: model.ImportPosition = .from(position);
-        const imports = &f.state().imports;
-        const holds = imports.resolutionHolds(pos);
-        const held_back = imports.rows.get(position).?.held_back;
-        const before = f.snapshot(position);
-        const answers_before = f.state().inbound_answers.host_promises;
-        const answer: model.Argument = .{ .reference = .{ .promise = .{ .answer_position = .from(7) } } };
-        // The outer tree names the import the answer's data names too.
-        const same: model.Argument = .{ .reference = .{ .far = model.FarRef.object(position) } };
-        const tree = [_]model.Argument{ same, answer, deep };
-        const args = if (shared_import) tree[0..] else tree[1..];
-
-        failing.fail_index = failing.alloc_index + n;
-        const result = f.lift(lift_arena, args, .borrowed);
-        const induced = failing.has_induced_failure;
-        failing.fail_index = std.math.maxInt(usize);
-        if (induced) try std.testing.expectError(error.OutOfMemory, result) else {
-            try std.testing.expectError(error.ValueTooDeep, result);
-        }
-        try f.expectKept(before, position);
-        try std.testing.expectEqual(holds, imports.resolutionHolds(pos));
-        try std.testing.expectEqual(held_back, imports.rows.get(position).?.held_back);
-        try std.testing.expectEqual(answers_before, f.state().inbound_answers.host_promises);
-
-        const retry = try f.lift(lift_arena, args[0 .. args.len - 1], .borrowed);
-        try std.testing.expectEqual(@as(u64, 0), imports.rows.get(position).?.held_back);
-        for (retry) |lifted| switch (lifted) {
-            .capability => |ref| try f.host.releaseCapability(ref, 1),
-            else => unreachable,
-        };
-        try host_pair.pumpToQuiescence(&.{f.pair});
-        try std.testing.expectEqual(before, f.snapshot(position));
-        try std.testing.expectEqual(holds, imports.resolutionHolds(pos));
-        if (!induced) return n;
+        const outcome = try liftRefused(seed, designator, copies, shared_import, n, false);
+        if (!outcome.induced) return .{ .steps = n, .spill_allocs = outcome.spill_allocs };
     }
     return error.SweepNeverCompleted;
 }
 
+const Sweep = struct { steps: usize, spill_allocs: usize };
+
 test "a borrowed lift of a settled answer survives an allocation refusal at every step" {
-    // The sweep reaches the data's arena, the receipt spill, the row, and the
-    // undo, which the earlier design broke at its first three failures.
-    try std.testing.expect(try sweepRefusedAnswerLift(0xC0, "127.0.0.1:9906", 1, false) >= 4);
+    // One reference stays within the inline receipts, so no spill happens. The
+    // sweep reaches the data's arena, the provisional row, and the rollback.
+    const swept = try sweepRefusedAnswerLift(0xC0, "127.0.0.1:9906", 1, false);
+    try std.testing.expect(swept.steps >= 4);
+    try std.testing.expectEqual(@as(usize, 0), swept.spill_allocs);
 }
 
 test "a refused borrowed answer lift whose data outgrows the inline receipts undoes every claim" {
-    // Nine references in the data, past the eight inline receipts.
-    try std.testing.expect(try sweepRefusedAnswerLift(0xC4, "127.0.0.1:9908", 9, false) > try sweepRefusedAnswerLift(0xC3, "127.0.0.1:9907", 1, false));
+    // Nine references in the data, past the eight inline receipts: the lift
+    // spills its receipts into the caller's allocator. The sweep refuses each
+    // allocation that reaches the backing allocator, and the next test refuses
+    // the spill request itself, so the two together cover both boundaries.
+    const swept = try sweepRefusedAnswerLift(0xC4, "127.0.0.1:9908", 9, false);
+    try std.testing.expect(swept.steps >= 4);
+    try std.testing.expect(swept.spill_allocs >= 1);
+}
+
+test "a refusal of the receipt spill itself undoes every claim and the retry lifts" {
+    // Eight references fill the inline receipts inside the data, so the spill
+    // is the row's own reservation after the data is owned. Nine spill inside
+    // the data's own lift. Each is refused at its one spill request.
+    inline for (.{ 8, 9 }, .{ 0xC3, 0xC6 }, .{ "127.0.0.1:9907", "127.0.0.1:9910" }) |copies, seed, designator| {
+        const refused = try liftRefused(seed, designator, copies, false, null, true);
+        try std.testing.expect(refused.induced);
+        try std.testing.expectEqual(@as(usize, 1), refused.spill_allocs);
+    }
 }
 
 test "an outer reference to the same import as the answer's data unwinds exactly" {
-    try std.testing.expect(try sweepRefusedAnswerLift(0xC5, "127.0.0.1:9909", 2, true) >= 4);
+    try std.testing.expect((try sweepRefusedAnswerLift(0xC5, "127.0.0.1:9909", 2, true)).steps >= 4);
 }
 
 test "a borrowed lift of a local promise projection, then a refusal, leaves its subscription with the session" {
