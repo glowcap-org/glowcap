@@ -15,6 +15,7 @@ const completion = glowcap.net.completion;
 const fetch_pump = @import("../../support/fetch_pump.zig");
 const handshake = @import("../../support/handshake.zig");
 const no_dial = @import("../../support/no_dial_locator.zig");
+const FailingOnce = @import("../../support/failing_once.zig").FailingOnce;
 
 const backend_support = @import("cross_arm_backend.zig");
 const CrossArmBackend = backend_support.CrossArmBackend;
@@ -81,6 +82,41 @@ test "completion wake: rearm failure escapes the loop with its exact cause" {
     try loop.armWake(99, &probe, WakeRunProbe.wake);
     try std.testing.expectError(error.WakeSubmitRefused, loop.runUntil(&probe.done, 0));
     try std.testing.expectEqual(@as(usize, 1), probe.count);
+    try loop.closeAndDrain();
+}
+
+test "completion wake: a refused receive buffer growth keeps the wake armed for the next signal" {
+    const Backend = switch (builtin.target.os.tag) {
+        .linux => glowcap.net.epoll_white_box.TestBackend,
+        else => if (builtin.target.os.tag.isDarwin())
+            glowcap.net.kqueue_white_box.TestBackend
+        else
+            return error.SkipZigTest,
+    };
+    var failing = FailingOnce.init(std.testing.allocator, std.math.maxInt(usize));
+    var loop = try completion.Loop(Backend, tcp.DialResolver).init(
+        failing.allocator(),
+        makeServerPeer,
+        null,
+        .{ .max_conns = 1 },
+    );
+    defer loop.deinit();
+    const channel = try glowcap.net.wake_channel.WakeChannel.open();
+    defer channel.deinit();
+
+    var probe: WakeRunProbe = .{};
+    try loop.armWake(channel.read, &probe, WakeRunProbe.wake);
+    _ = try channel.nudge();
+
+    // The pool's lazy growth is the next allocation. Its refusal completes the
+    // wake receive with `OutOfMemory`, which must not retire the wake: the
+    // loop re-arms and the still-readable channel runs the handler.
+    failing.fail_index = failing.alloc_index;
+    try loop.runUntil(&probe.done, 5_000);
+    try std.testing.expect(failing.induced);
+    try std.testing.expectEqual(@as(usize, 1), probe.count);
+    try std.testing.expect(loop.wake != null);
+    try std.testing.expectEqual(@as(usize, 1), loop.backend.buffer_pool.items.items.len);
     try loop.closeAndDrain();
 }
 

@@ -370,6 +370,7 @@ comptime {
         _ = @import("net/onion_control_test.zig");
         _ = @import("net/onion_control_session_test.zig");
         _ = @import("net/onion_completion_test.zig");
+        _ = @import("net/onion_control_reply_limits_test.zig");
         _ = @import("net/onion_resident_test.zig");
         _ = @import("net/onion_socks5_test.zig");
         _ = @import("net/tcp_parse_test.zig");

@@ -10,12 +10,15 @@ const stub = @import("iroh_sidecar_stub.zig");
 
 var readiness_user_data: ?u64 = null;
 var emit_platform_readiness = false;
+/// Emit the readiness record in the shape a refused buffer growth produces.
+var emit_refused_readiness = false;
 var delegated_accepts: usize = 0;
 
 fn resetSidecar() void {
     stub.reset();
     readiness_user_data = null;
     emit_platform_readiness = false;
+    emit_refused_readiness = false;
     delegated_accepts = 0;
 }
 
@@ -216,6 +219,15 @@ const ScriptPlatform = struct {
     pub fn poll(_: *ScriptPlatform, out: []net.completion.Completion, _: i32) !usize {
         if (!emit_platform_readiness) return 0;
         emit_platform_readiness = false;
+        if (emit_refused_readiness) {
+            emit_refused_readiness = false;
+            out[0] = .{
+                .user_data = readiness_user_data orelse return error.ReadinessNotArmed,
+                .result = -1,
+                .failure = error.OutOfMemory,
+            };
+            return 1;
+        }
         out[0] = .{
             .user_data = readiness_user_data orelse return error.ReadinessNotArmed,
             .result = 1,
@@ -509,5 +521,33 @@ test "iroh completion backend drops accepts past the stash bound and keeps servi
     try backend.submitAccept(77, Backend.listen_fd);
     try std.testing.expectEqual(@as(usize, 1), try backend.poll(&completions, 0));
     try std.testing.expectEqual(@as(u64, 77), completions[0].user_data);
+    try std.testing.expect(completions[0].accepted_fd != null);
+}
+
+// Projection proof: the scripted platform injects exactly the completion the
+// epoll backend produces for a refused buffer growth (negative result,
+// `OutOfMemory`, no borrow, no `recv_no_buffer`). The allocator refusal itself
+// is proved at the epoll pool in `linux_completion_test.zig`.
+test "iroh readiness signal drains when its receive lacked a buffer to grow" {
+    resetSidecar();
+    var transport = resident(undefined);
+    const Backend = iroh.CompletionBackend(ScriptPlatform);
+    var backend = try Backend.initBoundWithPlatform(std.testing.allocator, &transport, .{}, 1, 64);
+    defer backend.deinit();
+    _ = try backend.openListener({});
+    var completions: [1]net.completion.Completion = undefined;
+    try std.testing.expectEqual(@as(usize, 0), try backend.poll(&completions, 0));
+
+    stub.accept_burst = 1;
+    stub.emit_sidecar_accept = true;
+    emit_platform_readiness = true;
+    emit_refused_readiness = true;
+    try std.testing.expectEqual(@as(usize, 0), try backend.poll(&completions, 0));
+    try std.testing.expect(!emit_refused_readiness);
+    try std.testing.expectEqual(@as(usize, 0), stub.accept_burst);
+
+    try backend.submitAccept(78, Backend.listen_fd);
+    try std.testing.expectEqual(@as(usize, 1), try backend.poll(&completions, 0));
+    try std.testing.expectEqual(@as(u64, 78), completions[0].user_data);
     try std.testing.expect(completions[0].accepted_fd != null);
 }

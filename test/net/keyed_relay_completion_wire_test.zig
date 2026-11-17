@@ -11,6 +11,7 @@ const admission = @import("../support/keyed_relay_admission.zig");
 
 const net = glowcap.net;
 const keyed_relay = net.relay;
+const FailingOnce = @import("../support/failing_once.zig").FailingOnce;
 
 const Io = std.Io;
 
@@ -414,6 +415,43 @@ test "keyed-relay completion receive advances a cursor without shifting payload"
     try std.testing.expectEqual(@as(usize, 0), conn.raw_in.items.len);
     try std.testing.expectEqual(@as(usize, 0), conn.raw_in_head);
     backend.recycleBorrowed(completions[0]);
+}
+
+test "keyed-relay refused receive buffer growth retires the wire with the exact cause" {
+    var failing = FailingOnce.init(std.testing.allocator, std.math.maxInt(usize));
+    var backend = try admissionBackend(failing.allocator());
+    defer deinitAdmissionBackend(&backend);
+    const fd = try openAdmissionRelay(&backend);
+    const conn = backend.conns.get(1).?;
+    var wire: [132]u8 = undefined;
+    @memcpy(wire[0..4], &[_]u8{ 0x82, 126, 0, 128 });
+    @memset(wire[4..], 0x5a);
+    try conn.raw_in.ensureTotalCapacityPrecise(backend.allocator, wire.len);
+    conn.raw_in.appendSliceAssumeCapacity(&wire);
+    try std.testing.expectEqual(@as(usize, 0), backend.buffer_pool.items.items.len);
+
+    // The retained raw input carries a data frame whose payload is owed, and
+    // the relay's own pool refuses its lazy buffer.
+    // The ready queue's own growth is fixture setup, so the next allocation
+    // is the pool's lazy buffer.
+    try backend.ready.ensureUnusedCapacity(backend.allocator, 8);
+    failing.fail_index = failing.alloc_index;
+    try backend.submitRecv(65, fd);
+    var completions: [2]net.completion.Completion = undefined;
+    try std.testing.expectEqual(@as(usize, 1), try backend.poll(&completions, 0));
+    try std.testing.expect(failing.induced);
+    try std.testing.expectEqual(@as(usize, 0), backend.buffer_pool.items.items.len);
+    try std.testing.expectEqual(@as(usize, 0), backend.buffer_pool.leasedCount());
+    try std.testing.expectEqual(@as(u64, 65), completions[0].user_data);
+    try std.testing.expect(completions[0].result < 0);
+    try std.testing.expect(!completions[0].recv_no_buffer);
+    try std.testing.expect(completions[0].borrowed.kind != .recv);
+    try std.testing.expectEqual(error.OutOfMemory, completions[0].failure.?);
+    try std.testing.expectEqual(net.carrier_failure.Phase.receive, completions[0].borrowed.carrierPhase().?);
+    if (completions[0].borrowed.active()) backend.recycleBorrowed(completions[0]);
+    try std.testing.expectEqual(@as(?u64, null), conn.external_recv_ud);
+    try std.testing.expect(conn.state != .open);
+    failing.fail_index = std.math.maxInt(usize);
 }
 
 test "keyed-relay retries wrapped-platform recv-buffer starvation" {

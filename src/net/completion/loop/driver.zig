@@ -286,10 +286,13 @@ pub fn Machine(
                     }
                     // A momentarily empty buffer pool completes a recv with
                     // no data and a negative result, which is transient
-                    // pressure and not a closed channel. The connection arm
-                    // parks and re-arms for exactly this; the wake must too,
-                    // or one starved poll deafens it for the loop's life.
-                    if (comp.recv_no_buffer) {
+                    // pressure and not a closed channel. The connection
+                    // arm parks and re-arms for it, and the wake must too, or
+                    // one starved poll deafens it for the loop's life. A
+                    // refused allocation (`OutOfMemory`) fails a data receive,
+                    // but the wake retries it, because the channel still owes
+                    // its signal.
+                    if (comp.receiveMemoryPressure()) {
                         self.wake_rearm_pending = true;
                     } else {
                         try Wake.onWakeCompletion(self, comp.result);

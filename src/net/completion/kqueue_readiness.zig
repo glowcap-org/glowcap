@@ -50,46 +50,52 @@ pub fn complete(
                 var comp: completion.Completion = .{ .user_data = ud, .result = -1 };
                 if (ev.flags & EV_ERROR != 0) {
                     comp.failure = completion.failureFromErrno(@fromBackingInt(@intCast(@as(c_int, @intCast(ev.data)))));
-                } else if (backend.buffer_pool.acquire()) |idx| {
-                    const buf = backend.buffer_pool.buffer(idx);
-                    const r = c.recv(fd, buf.ptr, buf.len, 0);
-                    if (r < 0) switch (std.posix.errno(r)) {
-                        // Readiness is a hint, not a promise, and a
-                        // signal can land between the wakeup and the
-                        // syscall. Neither is a connection failure, but
-                        // both return -1, and the loop reads a negative
-                        // result as fatal. Re-arm and produce nothing:
-                        // the operation is still outstanding, so the
-                        // contract that every submitted op eventually
-                        // yields a completion still holds.
-                        .AGAIN, .INTR => {
+                } else if (backend.buffer_pool.acquire()) |slot| {
+                    if (slot) |idx| {
+                        const buf = backend.buffer_pool.buffer(idx);
+                        const r = c.recv(fd, buf.ptr, buf.len, 0);
+                        if (r < 0) switch (std.posix.errno(r)) {
+                            // Readiness is a hint, not a promise, and a
+                            // signal can land between the wakeup and the
+                            // syscall. Neither is a connection failure, but
+                            // both return -1, and the loop reads a negative
+                            // result as fatal. Re-arm and produce nothing:
+                            // the operation is still outstanding, so the
+                            // contract that every submitted op eventually
+                            // yields a completion still holds.
+                            .AGAIN, .INTR => {
+                                backend.buffer_pool.release(idx);
+                                backend.register(fd, c.EVFILT.READ) catch {
+                                    // The re-arm is the only way this op
+                                    // can ever complete, so a failure here
+                                    // does have to end the connection.
+                                    p.read = .idle;
+                                    comp.failure = error.KeventFailed;
+                                    out[produced.*] = comp;
+                                    produced.* += 1;
+                                };
+                                return;
+                            },
+                            else => comp.failure = completion.failureFromErrno(std.posix.errno(r)),
+                        };
+                        comp.result = @intCast(r);
+                        if (r > 0) {
+                            comp.borrowed = .recv(buf[0..@intCast(r)], idx);
+                        } else {
+                            // EOF or error: nothing for the loop to consume,
+                            // so the buffer goes straight back to the pool.
                             backend.buffer_pool.release(idx);
-                            backend.register(fd, c.EVFILT.READ) catch {
-                                // The re-arm is the only way this op
-                                // can ever complete, so a failure here
-                                // does have to end the connection.
-                                p.read = .idle;
-                                comp.failure = error.KeventFailed;
-                                out[produced.*] = comp;
-                                produced.* += 1;
-                            };
-                            return;
-                        },
-                        else => comp.failure = completion.failureFromErrno(std.posix.errno(r)),
-                    };
-                    comp.result = @intCast(r);
-                    if (r > 0) {
-                        comp.borrowed = .recv(buf[0..@intCast(r)], idx);
+                        }
                     } else {
-                        // EOF or error: nothing for the loop to consume,
-                        // so the buffer goes straight back to the pool.
-                        backend.buffer_pool.release(idx);
+                        // Pool exhausted: surface starvation. The one-shot
+                        // interest is spent; the loop's re-arm registers a
+                        // fresh one once a buffer recycles.
+                        comp.recv_no_buffer = true;
                     }
-                } else {
-                    // Pool exhausted: surface starvation. The one-shot
-                    // interest is spent; the loop's re-arm registers a
-                    // fresh one once a buffer recycles.
-                    comp.recv_no_buffer = true;
+                } else |err| {
+                    // A refused acquisition creates no lease, so no recycle is
+                    // owed: the receive ends once with the exact cause.
+                    comp.failure = err;
                 }
                 p.read = .idle;
                 out[produced.*] = comp;

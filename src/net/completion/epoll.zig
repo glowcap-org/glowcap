@@ -440,7 +440,13 @@ pub const Backend = struct {
                 return null;
             }
         }
-        const index = self.buffer_pool.acquire() orelse return .{
+        const index = (self.buffer_pool.acquire() catch |err| return .{
+            // A refused acquisition creates no lease, so no recycle is owed:
+            // the receive fails once with the exact cause.
+            .user_data = user_data,
+            .result = -1,
+            .failure = err,
+        }) orelse return .{
             .user_data = user_data,
             .result = -1,
             .recv_no_buffer = true,

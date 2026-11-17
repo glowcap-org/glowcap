@@ -79,12 +79,12 @@ test "completion buffer pool bounds leases and reuses released storage" {
     var pool = try completion.BufferPool.init(std.testing.allocator, 2, 32);
     defer pool.deinit();
 
-    const first = pool.acquire().?;
-    const second = pool.acquire().?;
-    try std.testing.expect(pool.acquire() == null);
+    const first = (try pool.acquire()).?;
+    const second = (try pool.acquire()).?;
+    try std.testing.expect((try pool.acquire()) == null);
     try std.testing.expectEqual(@as(usize, 2), pool.leasedCount());
     pool.release(first);
-    try std.testing.expectEqual(first, pool.acquire().?);
+    try std.testing.expectEqual(first, (try pool.acquire()).?);
     pool.release(first);
     pool.release(second);
     try std.testing.expectEqual(@as(usize, 0), pool.leasedCount());

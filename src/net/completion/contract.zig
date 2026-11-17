@@ -39,7 +39,10 @@
 //!     non-negative OS handle. Failure reports a negative result and no handle.
 //!   * `submitRecv(self, user_data, fd)`: the backend selects a shared-pool
 //!     buffer and lends it through `Completion.borrowed`. Pool pressure reports
-//!     `recv_no_buffer` rather than a connection failure.
+//!     `recv_no_buffer` rather than a connection failure. A refused lazy buffer
+//!     allocation completes the receive once with a negative result,
+//!     `error.OutOfMemory`, no borrow, and no `recv_no_buffer`, because a refused
+//!     acquisition creates no lease whose recycle could wake the read.
 //!   * `submitSend(self, user_data, fd, bytes)`: send `bytes` on `fd`.
 //!   * `submitCancel(self, cancel_user_data, target_user_data, fd)`: cancel the
 //!     exact submitted recv without closing its handle. The target and
@@ -396,6 +399,16 @@ pub const Completion = struct {
     /// Pool pressure, not channel failure. The loop parks and re-arms the read
     /// after another completion returns a buffer.
     recv_no_buffer: bool = false,
+
+    /// A receive that ended under memory pressure: `recv_no_buffer`, or a
+    /// failure of `error.OutOfMemory`, whether the pool's allocator refused or
+    /// the kernel reported ENOMEM. It establishes only that the receive could
+    /// not lend a buffer. Signal consumers can still drain into stack storage.
+    pub fn receiveMemoryPressure(self: Completion) bool {
+        if (self.recv_no_buffer) return true;
+        const cause = self.failure orelse return false;
+        return cause == error.OutOfMemory;
+    }
 };
 
 comptime {
