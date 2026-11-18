@@ -374,6 +374,10 @@ fn deinitImpl(self: *HostRuntime, cancel_core: bool) void {
     self.extra_fd_scratch.deinit(self.allocator);
     self.listener_fds.deinit(self.allocator);
     if (self.mailbox) |mailbox| mailbox.deinit();
+    switch (self.drive) {
+        .blocking => {},
+        .stepped => |*stepped| stepped.ready_query.deinit(self.allocator),
+    }
     self.drive.deinit();
     if (self.owns_core) {
         if (self.core.deinitOutcome()) |failure| self.noteTerminalFailure(failure);

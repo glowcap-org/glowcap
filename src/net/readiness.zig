@@ -70,7 +70,66 @@ const darwin_ev_delete: u16 = 0x0002;
 pub const InitError = error{ReadinessUnavailable};
 pub const UpdateError = error{ReadinessUpdateFailed};
 pub const DrainError = error{ReadinessDrainFailed};
+pub const QueryError = error{ReadinessQueryFailed};
 pub const Interest = enum { read, write };
+
+/// One kernel event row as the set's query reports it.
+const Event = if (is_linux) linux.epoll_event else if (is_darwin) DarwinKevent else extern struct { fd: i32 };
+
+/// Event rows a stack buffer holds. A set with at most this many members
+/// queries without heap storage.
+const small_query_rows = 32;
+
+fn eventFd(event: Event) i32 {
+    if (is_linux) return event.data.fd;
+    if (is_darwin) return @intCast(event.ident);
+    return event.fd;
+}
+
+fn eventLess(_: void, a: Event, b: Event) bool {
+    return eventFd(a) < eventFd(b);
+}
+
+fn eventOrder(fd: i32, event: Event) std.math.Order {
+    return std.math.order(fd, eventFd(event));
+}
+
+/// Caller-owned storage for asking a `ReadySet` which of some descriptors are
+/// ready now, in zero time and consuming nothing. The kernel reports at most
+/// as many rows as the buffer holds, so a query must hold every member of the
+/// set: a short buffer would hide a ready member behind earlier ones. A set of
+/// up to `small_query_rows` members queries from the stack. A larger set needs
+/// `reserve` first, which the owner calls where it registers a member, before
+/// that member reaches the kernel, so the query itself never allocates.
+pub const ReadyQuery = struct {
+    spill: std.ArrayList(Event) = .empty,
+
+    /// Make room to query a set of `members`. Total capacity, so a repeat call
+    /// is free, and a refusal leaves earlier growth in place.
+    pub fn reserve(self: *ReadyQuery, gpa: std.mem.Allocator, members: usize) std.mem.Allocator.Error!void {
+        if (members > small_query_rows) try self.spill.ensureTotalCapacity(gpa, members);
+    }
+
+    pub fn deinit(self: *ReadyQuery, gpa: std.mem.Allocator) void {
+        self.spill.deinit(gpa);
+    }
+
+    /// The index in `fds` of the first descriptor the kernel reports ready, or
+    /// null. `members` is an upper bound on the set's membership that an
+    /// earlier `reserve` covered. An interrupted query retries.
+    pub fn firstReady(self: *ReadyQuery, set: *const ReadySet, members: usize, fds: []const i32) QueryError!?usize {
+        var stack: [small_query_rows]Event = undefined;
+        const rows: []Event = if (members <= stack.len) stack[0..members] else rows: {
+            std.debug.assert(self.spill.capacity >= members);
+            break :rows self.spill.items.ptr[0..members];
+        };
+        const ready = try set.query(rows);
+        for (fds, 0..) |fd, index| {
+            if (std.sort.binarySearch(Event, ready, fd, eventOrder) != null) return index;
+        }
+        return null;
+    }
+};
 
 pub const ReadySet = struct {
     /// The pollable set descriptor an embedder parks on.
@@ -219,6 +278,44 @@ pub const ReadySet = struct {
         try self.refresh();
     }
 
+    /// The ready members, ordered by descriptor, written to the front of
+    /// `rows`. An interruption retries, and any other errno is the failure.
+    fn query(self: *const ReadySet, rows: []Event) QueryError![]Event {
+        std.debug.assert(rows.len > 0);
+        while (true) {
+            const count: usize = switch (kernelQuery(self, rows)) {
+                .count => |ready| ready,
+                .errno => |err| switch (err) {
+                    .INTR => continue,
+                    else => return error.ReadinessQueryFailed,
+                },
+            };
+            const ready = rows[0..count];
+            std.mem.sortUnstable(Event, ready, {}, eventLess);
+            return ready;
+        }
+    }
+
+    const KernelResult = union(enum) { count: usize, errno: std.posix.E };
+
+    /// One zero-time `epoll_wait` or `kevent`, as the raw count or errno. A
+    /// test build first takes the scoped errno, which stands for that call's
+    /// result and is classified by the same switch as a real one.
+    fn kernelQuery(self: *const ReadySet, rows: []Event) KernelResult {
+        if (builtin.is_test) if (testing.take()) |injected| return .{ .errno = injected };
+        if (is_linux) {
+            const rc = linux.epoll_wait(self.fd, rows.ptr, @intCast(rows.len), 0);
+            return switch (linux.errno(rc)) {
+                .SUCCESS => .{ .count = rc },
+                else => |err| .{ .errno = err },
+            };
+        } else if (is_darwin) {
+            var timeout = DarwinTimespec{ .tv_sec = 0, .tv_nsec = 0 };
+            const rc = kevent(self.fd, null, 0, rows.ptr, @intCast(rows.len), @ptrCast(&timeout));
+            return if (rc >= 0) .{ .count = @intCast(rc) } else .{ .errno = std.c.errno(rc) };
+        } else return .{ .errno = .NOSYS };
+    }
+
     /// Refresh queued hints after member I/O without consuming a new wake.
     pub fn refresh(self: *const ReadySet) DrainError!void {
         if (!is_darwin) return;
@@ -250,3 +347,47 @@ fn closeFd(fd: i32) void {
         _ = close(fd);
     }
 }
+
+/// Test seams: the stack buffer's size, so a test builds a set that outgrows it,
+/// and one scoped errno for the zero-time query of the thread that holds the
+/// guard. It stands for the first call's result and never reaches the kernel.
+/// Every later call reaches `epoll_wait` or `kevent`, so the rows and readiness
+/// stay real.
+pub const testing = if (builtin.is_test) struct {
+    pub const small_query_rows = readiness_small_query_rows;
+
+    pub const Script = struct {
+        errno: std.posix.E,
+        spent: bool = false,
+        /// Calls that reached `epoll_wait` or `kevent`, so a test shows that
+        /// branch ran.
+        kernel_calls: usize = 0,
+    };
+
+    threadlocal var active: ?*Script = null;
+
+    fn take() ?std.posix.E {
+        const script = active orelse return null;
+        if (script.spent) {
+            script.kernel_calls += 1;
+            return null;
+        }
+        script.spent = true;
+        return script.errno;
+    }
+
+    const Guard = struct {
+        previous: ?*Script,
+        pub fn deinit(self: Guard) void {
+            active = self.previous;
+        }
+    };
+
+    pub fn inject(script: *Script) Guard {
+        const guard: Guard = .{ .previous = active };
+        active = script;
+        return guard;
+    }
+} else struct {};
+
+const readiness_small_query_rows = small_query_rows;

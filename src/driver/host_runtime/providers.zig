@@ -7,6 +7,7 @@ const net = @import("net");
 const driver_core = @import("driver_core");
 
 const contract = @import("contract.zig");
+const descriptor_wait = @import("descriptor_wait.zig");
 const provider_package = @import("provider_package.zig");
 const runtime_transports = @import("transports.zig");
 const runtime = @import("../host_runtime.zig");
@@ -202,7 +203,7 @@ pub fn addProviders(self: *HostRuntime, registrations: []const HostRuntime.Provi
 
 /// Rows the two wait paths add beyond one per resident: the mailbox wake and
 /// the stepped ready set's wake.
-const wait_signal_rows = 2;
+pub const wait_signal_rows = 2;
 
 /// Reserve the descriptor rows of the descriptor-poll wait
 /// (`pump.waitAnySource`) and the terminal signal wait
@@ -210,13 +211,15 @@ const wait_signal_rows = 2;
 /// the only derivation of that capacity: both waits append with assumed
 /// capacity and so never allocate. Total capacity, not unused capacity, keeps a
 /// repeat call free, and the arrays grow with the list's ordinary amortized
-/// step, so retained capacity exceeds the logical rows. A refusal leaves any
-/// capacity already grown in place and publishes nothing. The parking branch of
-/// the wait is outside this reserve.
+/// step, so retained capacity exceeds the logical rows. It also reserves the
+/// stepped face's readiness query rows (`descriptor_wait.reserveQuery`) for the
+/// same residents. A refusal leaves any capacity already grown in place and
+/// publishes nothing. The parking branch of the wait is outside this reserve.
 fn reserveWaitScratch(self: *HostRuntime, residents: usize) !void {
     const rows = residents + wait_signal_rows;
     try self.poll_scratch.ensureTotalCapacity(self.allocator, rows);
     try self.extra_fd_scratch.ensureTotalCapacity(self.allocator, rows);
+    try descriptor_wait.reserveQuery(self, residents, self.listener_fds.items.len);
 }
 
 fn addProvidersAfterAdmission(self: *HostRuntime, registrations: []const HostRuntime.ProviderRegistration, indices: []usize) !void {

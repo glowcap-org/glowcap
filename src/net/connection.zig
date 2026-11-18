@@ -275,13 +275,16 @@ pub const Connection = struct {
 
     /// Whether a read would make progress within `timeout_ms` for an fd-backed
     /// transport: true when bytes are already buffered or the fd polls readable,
-    /// false only on a poll timeout. A poll failure means the transport is gone.
+    /// false only on a poll timeout. An invalid descriptor is `ConnectionLost`.
+    /// A refused poll reports its raw cause (`poll.WaitError`) and this layer
+    /// retries nothing: pacing a temporary refusal belongs to the owner that
+    /// can wait.
     ///
     /// A transport with no pollable fd returns true after the buffer check. That
     /// is not a deadline guarantee. It is the blocking-stream fallback for
     /// userspace transports. Deadline-sensitive multiplexers reject fd-less
     /// connections before they call this.
-    pub fn waitReadable(self: *Connection, timeout_ms: i32) error{ConnectionLost}!bool {
+    pub fn waitReadable(self: *Connection, timeout_ms: i32) WaitError!bool {
         if (self.hasBufferedInbound()) return true;
         const handle = self.socketHandle() orelse return true;
         return try pollHandle(handle, .read, timeout_ms) != 0;
@@ -292,7 +295,7 @@ pub const Connection = struct {
     /// delivery guarantee: the writer can still report the concrete failure.
     /// A transport with no pollable fd returns true, matching `waitReadable`'s
     /// blocking-stream fallback.
-    pub fn waitWritable(self: *Connection, timeout_ms: i32) error{ConnectionLost}!bool {
+    pub fn waitWritable(self: *Connection, timeout_ms: i32) WaitError!bool {
         const handle = self.socketHandle() orelse return true;
         const revents = try pollHandle(handle, .write, timeout_ms);
         return revents & (std.posix.POLL.OUT | std.posix.POLL.HUP | std.posix.POLL.ERR) != 0;
@@ -300,9 +303,9 @@ pub const Connection = struct {
 
     /// Poll one descriptor for `interest`: its returned events, zero on
     /// timeout. An invalid descriptor is a lost connection.
-    fn pollHandle(handle: std.Io.net.Socket.Handle, interest: WaitInterest, timeout_ms: i32) error{ConnectionLost}!PollEvents {
+    fn pollHandle(handle: std.Io.net.Socket.Handle, interest: WaitInterest, timeout_ms: i32) WaitError!PollEvents {
         var fds = [_]std.posix.pollfd{.{ .fd = handle, .events = interest.events(), .revents = 0 }};
-        const ready = poll.wait(&fds, timeout_ms) catch return error.ConnectionLost;
+        const ready = try poll.wait(&fds, timeout_ms);
         if (fds[0].revents & std.posix.POLL.NVAL != 0) return error.ConnectionLost;
         return if (ready == 0) 0 else fds[0].revents;
     }
@@ -342,7 +345,10 @@ pub const Connection = struct {
         while (true) {
             if (timeout_ms != 0) {
                 try self.flush();
-                if (!try self.waitReadable(timeout_ms)) return error.Timeout;
+                // A refused poll ends this convenience as a lost connection,
+                // as it always has. `waitReadable` carries the raw cause.
+                const ready = self.waitReadable(timeout_ms) catch return error.ConnectionLost;
+                if (!ready) return error.Timeout;
             }
             const progress = try self.pump();
             if (progress == .closed) return .closed;
@@ -377,7 +383,11 @@ pub fn waitAnyReadable(
     return waitAny(conns, &.{}, pollfds, timeout_ms, extra_fds, &.{}, 0);
 }
 
-pub const WaitAnyError = error{ ConnectionLost, NotPollable };
+/// What a single-descriptor wait reports: an invalid descriptor as
+/// `ConnectionLost`, and a refused `poll` as its raw cause.
+pub const WaitError = error{ConnectionLost} || poll.WaitError;
+
+pub const WaitAnyError = error{NotPollable} || WaitError;
 
 /// `waitAnyReadable` over caller-owned descriptors alone, for an owner that
 /// multiplexes no `Connection`. Every row has a descriptor, so nothing here
@@ -386,7 +396,7 @@ pub fn waitAnyDescriptor(
     pollfds: []std.posix.pollfd,
     timeout_ms: i32,
     fds: []const std.posix.fd_t,
-) error{ConnectionLost}!?usize {
+) WaitError!?usize {
     std.debug.assert(pollfds.len >= fds.len);
     fillDescriptorRows(pollfds, 0, fds, &.{});
     return pollRows(pollfds[0..fds.len], 0, 0, timeout_ms);
@@ -451,9 +461,9 @@ fn fillDescriptorRows(
 
 /// Poll the filled rows and report the first ready one, scanning the first
 /// `conns` rows from `start` with wraparound and the rest in order.
-fn pollRows(rows: []std.posix.pollfd, conns: usize, start: usize, timeout_ms: i32) error{ConnectionLost}!?usize {
+fn pollRows(rows: []std.posix.pollfd, conns: usize, start: usize, timeout_ms: i32) WaitError!?usize {
     if (rows.len == 0) return null;
-    const ready = poll.wait(rows, timeout_ms) catch return error.ConnectionLost;
+    const ready = try poll.wait(rows, timeout_ms);
     if (ready == 0) return null;
     for (0..rows.len) |k| {
         const i = if (k < conns) (start + k) % conns else k;

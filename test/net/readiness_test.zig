@@ -173,3 +173,82 @@ test "ready set switches one carrier between write and read progress" {
     _ = try carrier.nudge();
     try std.testing.expectEqual(@as(usize, 1), try std.posix.poll(&fds, 0));
 }
+
+test "ready query retries an interrupted kernel query and then reports the real ready row" {
+    var set = try net.readiness.ReadySet.init();
+    defer set.deinit();
+    const channel = try WakeChannel.open();
+    defer channel.deinit();
+    try set.add(channel.read);
+    _ = try channel.nudge();
+    var query: net.readiness.ReadyQuery = .{};
+    defer query.deinit(std.testing.allocator);
+
+    var script: net.readiness.testing.Script = .{ .errno = .INTR };
+    const guard = net.readiness.testing.inject(&script);
+    defer guard.deinit();
+    // The interruption retries in place, then the kernel query answers with the
+    // member the kernel really holds ready, and the quiet wake is not one.
+    try std.testing.expectEqual(@as(?usize, 0), try query.firstReady(&set, 4, &.{channel.read}));
+    try std.testing.expect(script.spent);
+    try std.testing.expectEqual(@as(usize, 1), script.kernel_calls);
+    try std.testing.expectEqual(@as(?usize, null), try query.firstReady(&set, 4, &.{set.wakeFd()}));
+    try std.testing.expectEqual(@as(usize, 2), script.kernel_calls);
+}
+
+test "ready query reports a hard kernel failure as ReadinessQueryFailed" {
+    var set = try net.readiness.ReadySet.init();
+    defer set.deinit();
+    var query: net.readiness.ReadyQuery = .{};
+    defer query.deinit(std.testing.allocator);
+    var script: net.readiness.testing.Script = .{ .errno = .BADF };
+    const guard = net.readiness.testing.inject(&script);
+    defer guard.deinit();
+    try std.testing.expectError(error.ReadinessQueryFailed, query.firstReady(&set, 2, &.{set.wakeFd()}));
+    try std.testing.expectEqual(@as(usize, 0), script.kernel_calls);
+    // The next query reaches the kernel: a failure leaves the set usable.
+    try std.testing.expectEqual(@as(?usize, null), try query.firstReady(&set, 2, &.{set.wakeFd()}));
+    try std.testing.expectEqual(@as(usize, 1), script.kernel_calls);
+}
+
+test "ready query reports every ready member past the small buffer" {
+    var set = try net.readiness.ReadySet.init();
+    defer set.deinit();
+    const small = net.readiness.testing.small_query_rows;
+    const members = small * 2 + 3;
+    // The set's own wakes count toward the bound the caller reserves.
+    const bound = members + 2;
+    var channels: [members]WakeChannel = undefined;
+    var opened: usize = 0;
+    defer for (channels[0..opened]) |channel| channel.deinit();
+    for (&channels) |*channel| {
+        channel.* = try WakeChannel.open();
+        opened += 1;
+        try set.add(channel.read);
+        _ = try channel.nudge();
+    }
+    var query: net.readiness.ReadyQuery = .{};
+    defer query.deinit(std.testing.allocator);
+    try query.reserve(std.testing.allocator, bound);
+
+    // Every member is ready, and a query that holds them all finds each one.
+    for (channels) |channel| {
+        try std.testing.expectEqual(@as(?usize, 0), try query.firstReady(&set, bound, &.{channel.read}));
+    }
+    // The set's own wake was never nudged.
+    try std.testing.expectEqual(@as(?usize, null), try query.firstReady(&set, bound, &.{set.wakeFd()}));
+    // The first ready row in the caller's order wins.
+    try std.testing.expectEqual(@as(?usize, 1), try query.firstReady(&set, bound, &.{ set.wakeFd(), channels[5].read }));
+
+    // A query sized to the small buffer hides ready members past it, which is
+    // why the host reserves for the full membership.
+    var seen: usize = 0;
+    for (channels) |channel| seen += @intFromBool((try query.firstReady(&set, small, &.{channel.read})) != null);
+    try std.testing.expectEqual(small, seen);
+
+    // Draining one member removes only it, and the query consumed nothing.
+    try channels[members - 1].drain();
+    try std.testing.expectEqual(@as(?usize, null), try query.firstReady(&set, bound, &.{channels[members - 1].read}));
+    try std.testing.expectEqual(@as(?usize, 0), try query.firstReady(&set, bound, &.{channels[0].read}));
+    try std.testing.expectEqual(@as(?usize, 0), try query.firstReady(&set, bound, &.{channels[members - 2].read}));
+}

@@ -151,6 +151,16 @@ Releases before 0.1.7 are in the
   `GLOWCAP_RESOLUTION_BREAK`, and `GLOWCAP_RESOLUTION_HANDOFF`. No function,
   field, or callback took or returned them. C code that names them deletes
   the use.
+- `net.Connection.waitReadable`, `waitWritable`, `waitAny`,
+  `waitAnyReadable`, and `waitAnyDescriptor` report a refused `poll(2)` as
+  its own cause (`SystemResources`, `InvalidWait`, or `Unexpected`) instead of
+  `ConnectionLost`. `ConnectionLost` remains the answer for an invalid
+  descriptor. A Zig caller that switched exhaustively on these error sets adds
+  the three names, and `net.WaitError` is the set a single-descriptor wait
+  returns. `net.poll.wait` returns the same three errors, treats every
+  negative timeout as an infinite wait, and no longer restarts an interrupted
+  wait with its whole timeout: an interruption continues to the original
+  deadline.
 
 ### Added
 
@@ -274,6 +284,15 @@ Releases before 0.1.7 are in the
 
 ### Fixed
 
+- A Zig `HostRuntime` whose descriptor poll is refused for lack of kernel
+  memory paces the wait and keeps running. The refusal holds the poll off for
+  `memory_retry_ms`, so a zero-timeout step in that window skips the descriptor poll.
+  A longer wait rests to the end of the window without outlasting its own
+  deadline, and a ready resident or wake on the stepped face is still serviced
+  at once. The first poll after the window retries and clears the pacing on
+  success. Any other `poll(2)` failure latches as the runtime's
+  terminal cause and every later verb reports it. Before, a refusal ended the
+  wait as an unlatched `ConnectionLost`.
 - `glowcap_driver_release` returns the valid failures a stream provider's
   cancel or close callback reports while the release runs it. The primary is
   the earliest cause, including one latched before release, and keeps its

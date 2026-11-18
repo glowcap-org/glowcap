@@ -96,6 +96,17 @@ custody costs.
     Debug test build with Zig 0.17.1. Each provider owns the
     storage its `watch` callback needs. A refused watch is retried on the
     next wait.
+  - Ready query rows, `Drive.Stepped.ready_query` (`net.readiness.ReadyQuery`):
+    a stepped runtime whose descriptor poll is refused asks its ready set which
+    members are ready, in zero time, and the set's membership is residents plus
+    `watchFd` descriptors plus the two wakes (`providers.wait_signal_rows`). A
+    set of at most 32 members uses a 512-byte stack buffer and allocates
+    nothing. A larger one reserves its rows at resident admission and at
+    `watchFd`, before either publishes to the kernel, so the refusal path
+    allocates nothing. At 68 members the list holds 110 rows, 1760 bytes
+    (16-byte rows on aarch64 Linux). The query adds 32 bytes to the stepped arm,
+    and so to `HostRuntime` on both faces (48 bytes together with the due
+    below, Debug aarch64 Linux: 1544 to 1592 bytes in the integrated layout probe).
 - **Pending open rows**: `HostRuntime.startDial`, a resident listener's
   accept, and the redeem drain into `HostRuntime.stageDial` (ADR-0024). One gpa
   row per in-flight dial or accept, carrying stage, outcome route, and, for a
@@ -224,6 +235,24 @@ custody costs.
   - A completion resident answers from its debt count and reads its failure
     state only when the count is nonzero. The scan stops at the first that owes
     and allocates nothing.
+- **Descriptor refusal due**: `HostRuntime.descriptor_refusal_due_ms`. One
+  optional `i64` deadline (16 bytes of the growth above), armed by a descriptor
+  poll the kernel refused for lack of memory and cleared by the next poll that
+  succeeds or by the first transition to terminal.
+  - It paces the wait that met the refusal to one `memory_retry_ms` interval
+    from a fresh clock reading, never postponed by a later refusal. It is
+    separate from the core's and the residents' debt, so neither a core retry
+    nor a zero-timeout step advances it.
+  - A live due holds the poll off as well. The wait makes no raw descriptor poll
+    until the due and takes the ready-set query (stepped, operational) and the rest
+    instead. At the due it polls once, clearing on success and arming the next
+    due on a fresh refusal.
+  - The rest runs with cancellation held off for its length alone, against the
+    deadline the wait's bound named at entry, and allocates nothing.
+  - Steady cost: a positive wait reads the runtime clock once at entry and `net.poll.wait` reads the kernel clock
+    to preserve its deadline across interrupts. A zero wait reads no clock while no due is armed. Under
+    a due every wait, zero included, reads the clock and skips the descriptor poll until the due.
+    Operational stepped waits still query the ready set.
 - **Advertised locator custody**: `retainCanonical` in `engine/node/locators.zig`
   makes the sole Node-owned snapshot before replacement. Host preparation borrows
   input and `HelloHints` scratch through that copy. `Host.prepareAdvertisedLocator`

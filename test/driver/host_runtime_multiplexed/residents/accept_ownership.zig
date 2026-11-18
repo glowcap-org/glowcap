@@ -88,6 +88,9 @@ pub const AcceptOwnershipResident = struct {
     retry_calls: usize = 0,
     /// The reap on which `owes_debt` turns on, as a completion the spin took.
     reap_debt_at: ?usize = null,
+    /// The deadline of timed work this resident holds, as a resident owing a
+    /// timer would bound the wait. Null leaves the requested wait alone.
+    timed_work_ms: ?i32 = null,
     /// A resident that parks in its own queue, recording each wait.
     parking: bool = false,
     park_calls: usize = 0,
@@ -185,6 +188,7 @@ pub const AcceptOwnershipResident = struct {
         .ready_pending = readyPending,
         .before_wait = beforeWait,
         .reap = reap,
+        .wait_bound_ms = waitBound,
         .drain_ready = drainReady,
         .memory_retry = .{ .owes = owesDebt, .retry = retryDebt },
         .dial = .{
@@ -208,6 +212,10 @@ pub const AcceptOwnershipResident = struct {
         .conn_close = connClose,
         .conn_remote_key = connRemoteKey,
     };
+
+    fn waitBound(ctx: *anyopaque, requested_ms: i32) i32 {
+        return of(ctx).timed_work_ms orelse requested_ms;
+    }
 
     fn of(ctx: *anyopaque) *AcceptOwnershipResident {
         return @ptrCast(@alignCast(ctx));

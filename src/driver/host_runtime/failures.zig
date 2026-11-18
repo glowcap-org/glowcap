@@ -24,6 +24,9 @@ pub fn noteTerminalFailureChain(self: *HostRuntime, chain: net.netlayer.Listener
 /// retire both retry deadlines. After fail-stop no operational drain clears
 /// them, `noteMemoryDebt` arms nothing, and no resident is queried again.
 fn latchTerminal(self: *HostRuntime, failure: OperationFailure) void {
+    // The operational descriptor pacing ends with the operational phase. A
+    // later report must not erase the terminal wait's own pacing.
+    if (self.terminal_failure == null) self.descriptor_refusal_due_ms = null;
     foundation.latchFailure(&self.terminal_failure, failure);
     Internal.clearMemoryDebt(self);
     self.resident_retry_due_ms = null;
