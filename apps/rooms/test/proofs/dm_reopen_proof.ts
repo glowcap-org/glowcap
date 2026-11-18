@@ -1,4 +1,5 @@
-import { spawnWeb, webAnnouncements, webPort } from "../support/web_front.ts";
+import { Announcements } from "../support/announce.ts";
+import { spawnWeb, webPort } from "../support/web_front.ts";
 // Closing a direct message and starting another one with the same person opens
 // a second connection, and the second one carries.
 //
@@ -51,6 +52,7 @@ import { waitForHttp } from "../support/rooms_server.ts";
 import { until } from "../support/wait.ts";
 import { fail } from "../support/fail.ts";
 import { fromPlaywright, ReopenCapture } from "../support/reopen_capture.ts";
+import { reportReopenJournals } from "../support/reopen_journal.ts";
 import { confirmTitleLeave, openDmTo } from "../page/harness.ts";
 
 const ROOT = new URL("../../../../", import.meta.url).pathname;
@@ -234,12 +236,14 @@ const deadline = setTimeout(() => fail("web-dm-reopen timed out after 300s"), 30
 const web = spawnWeb({
 	args: ["--transport=tcp", "0", "0"],
 	cwd: ROOT,
-	env: { GLOWCAP_ROOMS_CAPABILITIES: "trace", GLOWCAP_ROOMS_TRACE_PORT: "0" },
+	env: { GLOWCAP_ROOMS_CAPABILITIES: "trace,operator", GLOWCAP_ROOMS_TRACE_PORT: "0" },
 	stdout: "piped",
 	stderr: "piped",
 });
-const traceRef = webAnnouncements(web).line("ROOMS-TRACE-LISTENING", "rooms-web");
-const httpPort = await webPort(web);
+// Its operator announcement belongs to the disposable server and never goes in the log.
+const announcements = new Announcements(web.stdout, false);
+const httpPort = await webPort(web, announcements);
+const traceRef = announcements.line("ROOMS-TRACE-LISTENING", "rooms-web");
 
 let browser: Browser | null = null;
 let watched: Timeline | null = null;
@@ -445,7 +449,19 @@ try {
 	// Disarm the whole-run deadline first: it throws from a timer, and an
 	// awaited snapshot must not be raced by it into replacing this failure.
 	clearTimeout(deadline);
-	await capture.report(error, watched === null ? "not watching yet" : describe(watched));
+	const snapshot = await capture.report(error, watched === null ? "not watching yet" : describe(watched));
+	if (snapshot && browser) {
+		try {
+			await reportReopenJournals(
+				snapshot,
+				`http://127.0.0.1:${httpPort}`,
+				browser.contexts().flatMap((context) => context.pages()).map((page) => [capture.who(page), page]),
+				(ms) => announcements.line("ROOMS-OPERATOR", "rooms-web", ms),
+			);
+		} catch {
+			// tolerant: even a failed journal write must preserve the original exception.
+		}
+	}
 	throw error;
 } finally {
 	clearTimeout(deadline);

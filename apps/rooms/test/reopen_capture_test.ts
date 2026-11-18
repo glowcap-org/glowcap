@@ -568,7 +568,8 @@ Deno.test("reporting a failure never throws, even when the snapshot or the write
 				throw new Error("sync throw");
 			}),
 		);
-		await broken.report(new Error("first"), "timeline");
+		const written = await broken.report(new Error("first"), "timeline");
+		assertEquals(written?.tabs[0].status, "unavailable");
 		assertEquals(lines.length, 1);
 		assert(
 			lines[0].includes("[reopen capture]") && lines[0].includes("unavailable"),
@@ -578,7 +579,7 @@ Deno.test("reporting a failure never throws, even when the snapshot or the write
 		console.error = () => {
 			throw new Error("stderr closed");
 		};
-		await new ReopenCapture().report(new Error("first"), "timeline");
+		assertEquals(await new ReopenCapture().report(new Error("first"), "timeline"), undefined);
 	} finally {
 		console.error = original;
 	}

@@ -27,8 +27,7 @@ export function webAnnouncements(proc: Deno.ChildProcess): Announcements {
 }
 
 /** The HTTP port a front started with port 0 bound, read from its announcement. */
-export async function webPort(proc: Deno.ChildProcess): Promise<number> {
-	const lines = webAnnouncements(proc);
+export async function webPort(proc: Deno.ChildProcess, lines = webAnnouncements(proc)): Promise<number> {
 	let port: string;
 	try {
 		port = await lines.line("ROOMS-WEB-LISTENING", "rooms-web");
