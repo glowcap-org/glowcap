@@ -7,7 +7,6 @@ const model = @import("model");
 const net = @import("net");
 const driver = @import("driver");
 const shared = @import("c_abi_shared");
-const foundation = @import("foundation");
 const owner_mod = @import("owner.zig");
 const validation = @import("validation.zig");
 const stream_completion = @import("stream_completion.zig");
@@ -48,9 +47,10 @@ pub const Adapter = struct {
         self.owner.failContract(message);
     }
 
-    fn teardown(ctx: *anyopaque, failure: foundation.FailureChain) void {
+    fn teardown(ctx: *anyopaque, failure: driver.OperationFailure) void {
         const self: *Adapter = @ptrCast(@alignCast(ctx));
-        self.owner.runtime.reportUnhandledFailure(.fromChain(failure));
+        if (self.owner.claimReleaseFailure(failure)) return;
+        self.owner.runtime.reportUnhandledFailure(failure);
     }
 };
 

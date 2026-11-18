@@ -100,6 +100,21 @@ and stream costs.
   `conn_try_read`. Writes stay borrowed through the provider's `try_write`,
   which copies only what it accepts. Rows hold handles and readiness
   descriptors, no bytes.
+- **C provider release-cell borrow**: `Owner.releasing`
+  (`provider_registry/owner.zig`). The registry of each C driver loop borrows
+  one pointer to the loop's `Instance.releasing` flag, so a provider teardown
+  callback learns whether the consuming `glowcap_driver_release` is running it.
+  - The cost is one pointer per installed loop, with no per-stream, wire, or
+    registration cost, and one relaxed load on a failed teardown.
+  - Measured on aarch64 Linux with the pinned Zig, `Owner` and `Registry` grow
+    from 40 to 48 bytes and `Instance` by the same 8 bytes (2960 to 2968 in
+    Debug, 2824 to 2832 in ReleaseFast).
+  - The registry is embedded in `Instance`, so `Registry.deinit` invalidates it
+    without freeing separate memory.
+  - Two reader groups use the flag. The registry's borrow is read during
+    `runtime.deinitOutcome`, before `Registry.deinit`. The loop's own reentry
+    and wake guards read `Instance`'s flag through the later host teardown
+    callbacks, which the flag outlives.
 - **Completion-resident send staging**: `completion_resident.Resident`
   (ADR-0018). `try_write` hands bytes over on return while the backend borrows
   a send until it completes, so each connection copies into staging bounded by
