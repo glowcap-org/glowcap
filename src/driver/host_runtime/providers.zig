@@ -80,6 +80,8 @@ pub fn init(
     // The drive is chosen inside the teardown's scope: a stepped face that
     // cannot open its readiness set fails construction whole.
     result.drive = try HostRuntime.Drive.init(opts.drive);
+    // Installation admits residents, so the zero-resident reserve comes first.
+    try reserveWaitScratch(&result, 0);
     try runtime_transports.install(&result, transports);
     return result;
 }
@@ -121,6 +123,8 @@ pub fn initWithCore(
     };
     errdefer result.deinitAfterFailedAdoption();
     result.drive = try HostRuntime.Drive.init(adoption.drive);
+    // Installation admits residents, so the zero-resident reserve comes first.
+    try reserveWaitScratch(&result, 0);
     try runtime_transports.install(&result, transports);
     return result;
 }
@@ -196,6 +200,25 @@ pub fn addProviders(self: *HostRuntime, registrations: []const HostRuntime.Provi
     try addProvidersAfterAdmission(self, registrations, indices);
 }
 
+/// Rows the two wait paths add beyond one per resident: the mailbox wake and
+/// the stepped ready set's wake.
+const wait_signal_rows = 2;
+
+/// Reserve the descriptor rows of the descriptor-poll wait
+/// (`pump.waitAnySource`) and the terminal signal wait
+/// (`step.waitForTerminalSignal`) for `residents` distinct residents. This is
+/// the only derivation of that capacity: both waits append with assumed
+/// capacity and so never allocate. Total capacity, not unused capacity, keeps a
+/// repeat call free, and the arrays grow with the list's ordinary amortized
+/// step, so retained capacity exceeds the logical rows. A refusal leaves any
+/// capacity already grown in place and publishes nothing. The parking branch of
+/// the wait is outside this reserve.
+fn reserveWaitScratch(self: *HostRuntime, residents: usize) !void {
+    const rows = residents + wait_signal_rows;
+    try self.poll_scratch.ensureTotalCapacity(self.allocator, rows);
+    try self.extra_fd_scratch.ensureTotalCapacity(self.allocator, rows);
+}
+
 fn addProvidersAfterAdmission(self: *HostRuntime, registrations: []const HostRuntime.ProviderRegistration, indices: []usize) !void {
     if (registrations.len == 0 or indices.len != registrations.len) return error.InvalidProviderPackage;
     const Prepared = struct {
@@ -255,6 +278,7 @@ fn addProvidersAfterAdmission(self: *HostRuntime, registrations: []const HostRun
     defer self.allocator.free(readiness_fds);
     try self.providers.ensureUnusedCapacity(self.allocator, registrations.len);
     try self.residents.ensureUnusedCapacity(self.allocator, new_resident_count);
+    try reserveWaitScratch(self, self.residents.items.len + new_resident_count);
     var readiness_added: usize = 0;
     errdefer for (readiness_fds[0..readiness_added]) |fd| Internal.removeReadyFd(self, fd);
     switch (self.drive) {

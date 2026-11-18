@@ -518,17 +518,19 @@ pub fn waitAnySource(self: *HostRuntime, requested_ms: i32, empty_ok: bool) !?us
     }
     self.extra_fd_scratch.clearRetainingCapacity();
     for (0..residents) |k| {
-        try self.extra_fd_scratch.append(self.allocator, self.residents.items[(start + k) % residents].readiness_fd);
+        self.extra_fd_scratch.appendAssumeCapacity(self.residents.items[(start + k) % residents].readiness_fd);
     }
-    if (self.mailbox) |mb| try self.extra_fd_scratch.append(self.allocator, mb.wakeFd());
+    if (self.mailbox) |mb| self.extra_fd_scratch.appendAssumeCapacity(mb.wakeFd());
     // The readiness wake polls as its own row, so a cross-thread
     // `wakeReadiness` interrupts a blocking wait here, not only an
     // embedder parked outside on the set descriptor.
     switch (self.drive) {
         .blocking => {},
-        .stepped => |*stepped| try self.extra_fd_scratch.append(self.allocator, stepped.ready_set.wakeFd()),
+        .stepped => |*stepped| self.extra_fd_scratch.appendAssumeCapacity(stepped.ready_set.wakeFd()),
     }
-    try self.poll_scratch.resize(self.allocator, self.extra_fd_scratch.items.len);
+    // Admission reserved these rows (`providers.reserveWaitScratch`).
+    std.debug.assert(self.extra_fd_scratch.items.len <= self.poll_scratch.capacity);
+    self.poll_scratch.items.len = self.extra_fd_scratch.items.len;
     const idx = try net.waitAnyDescriptor(self.poll_scratch.items, wait_ms, self.extra_fd_scratch.items) orelse
         return timed_resident;
     if (idx < residents) return (start + idx) % residents;

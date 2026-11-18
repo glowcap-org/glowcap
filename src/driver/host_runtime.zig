@@ -77,6 +77,8 @@ pub const HostRuntime = struct {
         pub const feedReadable = runtime_pump.feedReadable;
         pub const advancePendingOpens = runtime_opens.advancePendingOpens;
         pub const pendingOpenFor = runtime_opens.pendingOpenFor;
+        pub const waitAnySource = runtime_pump.waitAnySource;
+        pub const waitForTerminalSignal = runtime_step.waitForTerminalSignal;
     } else struct {};
 
     allocator: std.mem.Allocator,
@@ -172,9 +174,12 @@ pub const HostRuntime = struct {
     /// Scratch a resident's ready records drain into. Batch-sized, so a drain
     /// pass allocates nothing.
     event_scratch: [resident_event_batch]net.multiplexed_resident.ReadyEvent = undefined,
-    /// Scratch for the readiness wait: one poll row per resident readiness
-    /// descriptor, then the mailbox and readiness wakes. Retained, so the
-    /// wait itself allocates nothing.
+    /// Scratch for the descriptor-poll wait and the terminal signal wait: one
+    /// poll row per resident readiness descriptor, then the mailbox and
+    /// readiness wakes. Construction and each resident admission reserve their
+    /// capacity (`providers.reserveWaitScratch` owns the derivation), so
+    /// building those rows allocates nothing. The parking branch of the wait
+    /// watches its sources through `watched_fds` and the parker instead.
     poll_scratch: std.ArrayList(std.posix.pollfd) = .empty,
     extra_fd_scratch: std.ArrayList(std.posix.fd_t) = .empty,
     /// Wake descriptors already handed to the parking resident

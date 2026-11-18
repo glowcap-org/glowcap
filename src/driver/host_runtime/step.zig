@@ -178,10 +178,10 @@ pub fn waitForTerminalSignal(self: *HostRuntime, timeout_ms: i32) !void {
 
     self.extra_fd_scratch.clearRetainingCapacity();
     if (self.mailbox) |mailbox|
-        try self.extra_fd_scratch.append(self.allocator, mailbox.wakeFd());
+        self.extra_fd_scratch.appendAssumeCapacity(mailbox.wakeFd());
     switch (self.drive) {
         .blocking => {},
-        .stepped => |*stepped| try self.extra_fd_scratch.append(self.allocator, stepped.ready_set.wakeFd()),
+        .stepped => |*stepped| self.extra_fd_scratch.appendAssumeCapacity(stepped.ready_set.wakeFd()),
     }
 
     if (self.extra_fd_scratch.items.len == 0) {
@@ -189,7 +189,9 @@ pub fn waitForTerminalSignal(self: *HostRuntime, timeout_ms: i32) !void {
         try std.Io.sleep(self.io, std.Io.Duration.fromMilliseconds(sleep_ms), .awake);
         return;
     }
-    try self.poll_scratch.resize(self.allocator, self.extra_fd_scratch.items.len);
+    // Admission reserved these rows (`providers.reserveWaitScratch`).
+    std.debug.assert(self.extra_fd_scratch.items.len <= self.poll_scratch.capacity);
+    self.poll_scratch.items.len = self.extra_fd_scratch.items.len;
     _ = try net.waitAnyDescriptor(self.poll_scratch.items, timeout, self.extra_fd_scratch.items);
 }
 

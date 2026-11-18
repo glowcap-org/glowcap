@@ -242,6 +242,7 @@ comptime {
             _ = @import("driver/host_runtime_multiplexed/conversation_test.zig");
             _ = @import("driver/host_runtime_multiplexed/completion_resident_test.zig");
             _ = @import("driver/host_runtime_multiplexed/provider_test.zig");
+            _ = @import("driver/host_runtime_multiplexed/wait_scratch_test.zig");
             _ = @import("driver/session_wire_fault_test.zig");
             _ = @import("driver/host_runtime_step/dial_retry_test.zig");
             _ = @import("driver/host_runtime_step/accept_refusal_test.zig");
