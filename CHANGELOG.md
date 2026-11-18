@@ -216,6 +216,9 @@ Releases before 0.1.7 are in the
 
 ### Added
 
+- Contributors can check Loam record sizes, Cap'n Proto pointer fields, and
+  the policy laws with `zig build bend-proofs`.
+
 - Contributors can check Loam's delegation, prerequisite and ordered-bound laws with
   `zig build loam-policy-proof`. The [test guide](test/README.md#loam-policy-laws)
   gives the command that supplies the proof tools.

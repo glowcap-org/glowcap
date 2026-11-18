@@ -60,7 +60,8 @@ zig build arch-check                        # Enforce the layer dependency DAG o
 zig build source-check                      # Enforce formatting and cross-file source, generated, documentation, and scaffolding contracts; part of check
 zig build infrastructure-check              # Run devcontainer, worktree, and agent hook behavior checks (needs bash, git, python3, jq, rustfmt, and deno)
 zig build toolchain-check                   # Hold `zig build check` to the external runtimes it declares, and to their presence here; part of check
-zig build loam-policy-proof                 # Prove Loam policy intersection and attenuation (run through .devcontainer/bin/tools.sh exec bend --)
+zig build bend-proofs                       # Check Bend laws and compare them with Zig (run through .devcontainer/bin/tools.sh exec bend --)
+zig build loam-policy-proof                 # Prove Loam policy intersection and attenuation (run through .devcontainer/bin/tools.sh exec bend --); part of bend-proofs
 zig build loam-core-wasm-check              # Compile portable Loam record and transaction calls for 32-bit Wasm without LMDB; part of check-build
 zig build loam-abi-test                     # Check Loam C ownership and atomic resource creation through atomic storage; part of check
 zig build loam-browser-build                # Build the Loam Rust browser consumer and check its compiled Wasm contract (needs cargo + wasm-bindgen); part of loam-browser-test

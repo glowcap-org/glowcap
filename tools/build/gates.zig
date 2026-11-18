@@ -125,6 +125,9 @@ pub fn register(ctx: Context) Registered {
         .build = b.step("runtime-check-build", "Compile everything runtime-check runs, so its deadline measures only the runs"),
     };
 
+    const proof_mods = if (target.query.eql(b.graph.host.query)) host_mods else graphFromTable(b, b.graph.host, .debug, &layer_table, false);
+    @import("bend.zig").register(b, proof_mods[layerIndex("foundation")], proof_mods[layerIndex("loam_records")], proof_mods[layerIndex("syrup")]);
+
     // ── Tests ────────────────────────────────────────────────────────────────
     const tests_mod = b.createModule(.{
         .root_source_file = b.path("test/all_test.zig"),

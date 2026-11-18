@@ -36,30 +36,8 @@ pub fn register(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.l
     };
     const profiled = benchExecutable(b, "loam-profile", profiles.moduleOptions(b, "bench/loam_bench.zig"), profiles.module("glowcap"), profiled_engines);
     b.step("profile-loam", "Profile bench-loam under callgrind: self cost per file and function for each marked phase, taking bench-loam's filters after -- (needs valgrind)").dependOn(profile_build.addRun(b, profiles, profiled));
-    policyProof(b);
     portableCheck(b, optimize, gates);
     return engines;
-}
-
-fn policyProof(b: *std.Build) void {
-    const book = "test/loam/access/policy_laws";
-    const step = b.step("loam-policy-proof", "Prove Loam policy intersection and attenuation (run through .devcontainer/bin/tools.sh exec bend --)");
-    const laws = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{"bend"});
-    laws.addFileArg(b.path(book ++ "/PROOF.bend"));
-    laws.addArg("--verdict");
-    execution.showOutput(laws);
-    step.dependOn(&laws.step);
-
-    const table = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{"bend"});
-    table.addFileArg(b.path(book ++ "/bounds/table.bend"));
-    execution.showOutput(table);
-    const native = b.createModule(.{
-        .root_source_file = b.path("test/loam/access/policy_laws/bounds/table_test.zig"),
-        .target = b.graph.host,
-    });
-    native.addAnonymousImport("policy", .{ .root_source_file = b.path("src/loam/access/core/policy.zig") });
-    native.addAnonymousImport("bend_table", .{ .root_source_file = table.captureStdOut(.{}) });
-    step.dependOn(&execution.addZigTest(b, b.addTest(.{ .root_module = native }), .unit_test).step);
 }
 
 fn portableCheck(b: *std.Build, optimize: std.lang.Optimize, gates: Gates) void {

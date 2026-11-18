@@ -18,7 +18,9 @@ const Separate = struct {
 const separately_registered = [_]Separate{
     .{ .test_path = "c_abi/loam_execution_test.zig", .owner_path = "tools/build/loam_abi.zig" },
     .{ .test_path = "c_abi/loam_test.zig", .owner_path = "tools/build/loam_abi.zig" },
-    .{ .test_path = "loam/access/policy_laws/bounds/table_test.zig", .owner_path = "tools/build/loam.zig" },
+    .{ .test_path = "loam/access/policy_laws/bounds/table_test.zig", .owner_path = "tools/build/bend.zig" },
+    .{ .test_path = "loam/core/record_laws/table_test.zig", .owner_path = "tools/build/bend.zig" },
+    .{ .test_path = "codec/capnp_laws/table_test.zig", .owner_path = "tools/build/bend.zig" },
     .{ .test_path = "loam_lmdb_test.zig", .owner_path = "tools/build/loam/lmdb.zig" },
     .{ .test_path = "loam_sqlite_test.zig", .owner_path = "tools/build/loam/sqlite.zig" },
     .{ .test_path = "net/completion_loop_deadlines_test.zig", .owner_path = "tools/build/gates.zig" },

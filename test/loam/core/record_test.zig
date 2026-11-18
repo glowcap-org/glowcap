@@ -55,33 +55,38 @@ test "loam encoding refuses oversized records before allocating and uses one all
     try std.testing.expect(!fail.has_induced_failure);
 }
 
-test "loam schema size bounds match complete envelopes at scalar and decimal limits" {
+test "loam schema bound admits a complete envelope and refuses before allocation" {
     const id: f.core.ObjectId = .{ .store = f.id, .incarnation = std.math.maxInt(u64), .sequence = std.math.maxInt(u64) };
-    var payload: [1000]u8 = @splat(0xab);
+    const payload: [1000]u8 = @splat(0xab);
     const edges = [_]loam.records.Edge{ .{ .target = id }, .{ .target = id, .strength = .weak, .restoration = .recipe } };
-    for ([_]usize{ 0, 1, 9, 10, 99, 100, 999, 1000 }) |length| {
-        for ([_]u64{ 1, 9, 10, std.math.maxInt(u64) }) |schema_id| {
-            const schema: loam.records.Schema = .{ .id = schema_id, .version = std.math.maxInt(u32), .max_payload = length, .max_edges = edges.len };
-            const bound = try schema.encodedSizeBound();
-            const record: loam.records.Record = .{ .id = id, .revision = std.math.maxInt(u64), .schema = schema.id, .schema_version = schema.version, .rooted = true, .payload = payload[0..length], .edges = &edges };
-            const limits: loam.records.Limits = .{ .max_record_bytes = bound, .max_edges = edges.len };
-            const bytes = try record.encodeAlloc(std.testing.allocator, limits, &.{schema});
-            defer std.testing.allocator.free(bytes);
-            try std.testing.expectEqual(bound, bytes.len);
-            _ = try loam.records.View.decode(bytes, limits, &.{schema});
-            var refusing = limits;
-            refusing.max_record_bytes -= 1;
-            var fail = std.testing.FailingAllocator.init(std.testing.allocator, .{ .fail_index = 0 });
-            try std.testing.expectError(error.RecordTooLarge, record.encodeAlloc(fail.allocator(), refusing, &.{schema}));
-            try std.testing.expect(!fail.has_induced_failure);
-        }
+    for ([_][]const u8{ "", &payload }) |sample| {
+        const schema: loam.records.Schema = .{
+            .id = std.math.maxInt(u64),
+            .version = std.math.maxInt(u32),
+            .max_payload = sample.len,
+            .max_edges = edges.len,
+        };
+        const bound = try schema.encodedSizeBound();
+        const record: loam.records.Record = .{ .id = id, .revision = std.math.maxInt(u64), .schema = schema.id, .schema_version = schema.version, .rooted = true, .payload = sample, .edges = &edges };
+        const limits: loam.records.Limits = .{ .max_record_bytes = bound, .max_edges = edges.len };
+        const bytes = try record.encodeAlloc(std.testing.allocator, limits, &.{schema});
+        defer std.testing.allocator.free(bytes);
+        try std.testing.expectEqual(bound, bytes.len);
+        _ = try loam.records.View.decode(bytes, limits, &.{schema});
+
+        var refusing = limits;
+        refusing.max_record_bytes -= 1;
+        var fail = std.testing.FailingAllocator.init(std.testing.allocator, .{ .fail_index = 0 });
+        try std.testing.expectError(error.RecordTooLarge, record.encodeAlloc(fail.allocator(), refusing, &.{schema}));
+        try std.testing.expect(!fail.has_induced_failure);
     }
-    var schema = f.schemas[0];
-    schema.max_payload = std.math.maxInt(usize);
-    try std.testing.expectError(error.Overflow, schema.encodedSizeBound());
-    schema.max_payload = 0;
-    schema.max_edges = std.math.maxInt(usize);
-    try std.testing.expectError(error.Overflow, schema.encodedSizeBound());
+
+    var overflowing = f.schemas[0];
+    overflowing.max_payload = std.math.maxInt(usize);
+    try std.testing.expectError(error.Overflow, overflowing.encodedSizeBound());
+    overflowing.max_payload = 0;
+    overflowing.max_edges = std.math.maxInt(usize);
+    try std.testing.expectError(error.Overflow, overflowing.encodedSizeBound());
 }
 
 fn allocationFailures(allocator: std.mem.Allocator) !void {

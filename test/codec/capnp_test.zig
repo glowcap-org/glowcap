@@ -6,26 +6,6 @@ const capnp = glowcap.ocapn.codec.capnp;
 const wire = capnp.wire;
 const messagesEqual = @import("../support/message_equality.zig").messagesEqual;
 
-test "struct pointer round-trips offset and section sizes (both signs)" {
-    for ([_]i32{ 0, 1, 7, -1, -3, 100, -100 }) |offset| {
-        const word = wire.encodeStructPointer(offset, 2, 1);
-        try std.testing.expectEqual(wire.PointerKind.@"struct", wire.pointerKind(word));
-        const decoded = wire.decodeStructPointer(word);
-        try std.testing.expectEqual(offset, decoded.offset);
-        try std.testing.expectEqual(@as(u16, 2), decoded.data_words);
-        try std.testing.expectEqual(@as(u16, 1), decoded.ptr_words);
-    }
-}
-
-test "list pointer round-trips offset, element size, and count" {
-    const word = wire.encodeListPointer(-5, .eight_bytes, 42);
-    try std.testing.expectEqual(wire.PointerKind.list, wire.pointerKind(word));
-    const decoded = wire.decodeListPointer(word);
-    try std.testing.expectEqual(@as(i32, -5), decoded.offset);
-    try std.testing.expectEqual(wire.ElementSize.eight_bytes, decoded.elem);
-    try std.testing.expectEqual(@as(u29, 42), decoded.count);
-}
-
 test "op:gc-answers round-trips through the Cap'n Proto codec" {
     const allocator = std.testing.allocator;
 

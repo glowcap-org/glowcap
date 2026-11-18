@@ -5,6 +5,20 @@ protocol corpus and scenario drivers, `support/` for shared fixtures, and the
 crash and fault suites at this level. The [tests rule](../.agents/rules/tests.md)
 places a new test.
 
+## Bend proof gate
+
+Run `.devcontainer/bin/tools.sh exec bend -- zig build bend-proofs` in the
+devcontainer to check every Bend book, including the Loam policy laws.
+
+Loam's record proof checks that the size bound grows with the payload and
+edge count. The Zig comparison checks the decimal width transitions and
+the real schema calculation. [Record laws](loam/core/record_laws/LAWS.bend)
+
+Cap'n Proto's pointer proof checks that splitting and joining fields are
+inverse operations. It checks sign extension separately. The Zig comparison
+exercises each field bit through the actual encoders and decoders.
+[Pointer laws](codec/capnp_laws/LAWS.bend)
+
 ## Loam policy laws
 
 A delegated permission survives exactly when every grant carries it.
