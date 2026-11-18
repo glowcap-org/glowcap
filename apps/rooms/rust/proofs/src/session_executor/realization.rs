@@ -121,6 +121,20 @@ pub(super) async fn directory(
 	let acquired = workspace.snapshot().await.unwrap();
 	assert_eq!(acquired.intent.directories.as_slice()[0].name, Some(destination));
 	assert_eq!(count.get(), 1, "result retry cannot register again");
+	// The registered name hears the member's decline through its selected route.
+	let route = workspace
+		.signaling(&workspace::SignalingSelection::directory(&acquired.intent.directories.as_slice()[0]).unwrap())
+		.await
+		.unwrap();
+	route
+		.signal_decline(
+			&rooms_application::signaling::Id::parse("exchange").unwrap(),
+			&rooms_application::signaling::Reason::parse("busy").unwrap(),
+		)
+		.unwrap();
+	// The check reply orders after the decline on the same route.
+	route.check().await.unwrap();
+	drop(route);
 	checked.check_inbox(&selection, inbox.reference()).await.unwrap();
 	host.send(inbox.reference(), "notify", &[]).await.unwrap();
 	assert_eq!(

@@ -315,6 +315,9 @@ Releases before 0.1.7 are in the
 
 ### Fixed
 
+- When a Rooms member declines a direct connection offer, the offering member
+  now hears the refusal at once and can use the relay, instead of waiting
+  out the signaling timeout.
 - The mushroom mark on the website and in Rooms no longer drops frames on a
   phone with a three-times screen, such as an iPhone Pro. It draws at the
   screen's own resolution there, skips its beams while its light is off, and

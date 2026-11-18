@@ -201,18 +201,32 @@ async fn run_scenarios(scenarios: &[Scenario]) {
 					let replacement = environment::create(&store, &policy, DIRECTORY, b"replacement", 3).await;
 					let host = Host::from_seed([118; 32]).unwrap();
 					let exporter = Host::from_seed([119; 32]).unwrap();
+					let declined = Rc::new(Cell::new(0));
 					exporter
-						.publish("name", || {
-							Box::new(|verb, args| {
-								let verb = verb.ok_or("fixture requires a method")?;
-								if verb == "leave" {
+						.publish("name", {
+							let declined = declined.clone();
+							move || {
+								let declined = declined.clone();
+								Box::new(move |verb, args| {
+									let verb = verb.ok_or("fixture requires a method")?;
+									if verb == rooms_application::signaling::CHECK {
+										assert!(args.is_empty());
+										return Ok(Argument::Void);
+									}
+									if verb == rooms_application::signaling::DECLINE {
+										assert_eq!(args, &["exchange".into(), "busy".into()]);
+										declined.set(declined.get() + 1);
+										return Ok(Argument::Void);
+									}
+									if verb == "leave" {
+										assert!(args.is_empty());
+										return Ok(Argument::Void);
+									}
+									assert_eq!(verb, "voucher");
 									assert!(args.is_empty());
-									return Ok(Argument::Void);
-								}
-								assert_eq!(verb, "voucher");
-								assert!(args.is_empty());
-								Ok(Argument::Bytes(vec![7; 32]))
-							})
+									Ok(Argument::Bytes(vec![7; 32]))
+								})
+							}
 						})
 						.unwrap();
 					let notifications = Rc::new(Cell::new(0));
@@ -320,6 +334,7 @@ async fn run_scenarios(scenarios: &[Scenario]) {
 							&platform,
 						)
 						.await;
+						assert_eq!(declined.get(), 1, "the registered name hears one decline");
 						owner.close().await.unwrap();
 						attachment.close().await.unwrap();
 						host.close(PendingWork::Cancel).await.unwrap();
