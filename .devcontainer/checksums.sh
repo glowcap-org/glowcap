@@ -22,6 +22,18 @@ zig_sha256() {
     esac
 }
 
+bend_sha256() {
+    glowcap_pick_by_arch bend_sha256 \
+        "c9ff8d67bd903fb6ad9a26b43d8a62c01021de82a44d55ce4a3dcd4732113d6b" \
+        "2f42a6fa34ecdaa71ae105e5fa734f9a07e129d333e45448ab6d2ff03a837570"
+}
+
+lean_sha256() {
+    glowcap_pick_by_arch lean_sha256 \
+        "caaa98356098c85dc0fcbbd28e1ec66f39eb6551829972b752ff20e1286b646b" \
+        "40b04fdb7fb849d3c80e10c3bbeebc7b7354b6d3f07450b9168c2149b40d2a82"
+}
+
 deno_sha256() {
     glowcap_pick_by_arch deno_sha256 \
         "e890975bc2549807bbcc0b584ffafda72cc7c93349dd99c80483dd784f6c4609" \

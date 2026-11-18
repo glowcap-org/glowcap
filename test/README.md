@@ -5,6 +5,19 @@ protocol corpus and scenario drivers, `support/` for shared fixtures, and the
 crash and fault suites at this level. The [tests rule](../.agents/rules/tests.md)
 places a new test.
 
+## Loam policy laws
+
+A delegated permission survives exactly when every grant carries it.
+Intersection preserves prerequisites. A child bound fits a chain exactly
+when it fits every parent, including the starting grant.
+[Permission laws](loam/access/policy_laws/LAWS.bend) · [Bound laws](loam/access/policy_laws/bounds/LAWS.bend)
+
+Run `.devcontainer/bin/tools.sh exec bend -- zig build loam-policy-proof` in
+the devcontainer. The permission proof models one bit per right. Zig tests
+exercise the masks and prerequisite edges together. Bend proves the bound laws over natural numbers. The gate
+compares Zig’s public policy operations with Bend for each ordering and each
+combination of absent bounds, using zero and the largest `u64` as witnesses.
+
 ## Fuzz regression inputs
 
 Each layer's `fuzz_regressions/` holds one file per fuzzer finding: a byte

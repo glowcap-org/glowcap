@@ -130,7 +130,7 @@ run_check() {
 # ---------------------------------------------------------------------------
 
 run_bump() {
-    local dep var pinned latest class changed="" gates="" rebuild=""
+    local dep var pinned latest class lean changed="" gates="" rebuild=""
     # The staged paths stay global: the EXIT trap fires after this function's
     # locals are gone, and a moved file is a harmless rm -f no-op.
     staged_pins="$(mktemp -t glowcap-pins-XXXXXX)"
@@ -157,6 +157,14 @@ run_bump() {
         if [[ "${latest}" == "${pinned}" ]]; then
             echo "${dep}: already ${pinned}"
             continue
+        fi
+        if [[ "${dep}" == bend ]]; then
+            lean="$(glowcap_pins_lean_for_bend "${latest}")"
+            if [[ "${lean}" != "${LEAN_VERSION}" ]]; then
+                glowcap_pins_replace_line "${staged_pins}" LEAN_VERSION "${lean}"
+                glowcap_pins_refresh_hashes lean "${lean}" "${staged_sums}"
+                changed="${changed}${changed:+, }lean ${LEAN_VERSION} -> ${lean}"
+            fi
         fi
         if [[ "${dep}" == zig ]]; then
             glowcap_pins_stage_zls_source "${staged_pins}" "$(glowcap_pins_latest_version zls)"

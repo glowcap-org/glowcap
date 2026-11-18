@@ -24,7 +24,8 @@ glowcap_tools_registry_rows() {
         "codex|codex|CODEX_VERSION|codex|seed" \
         "opencode|opencode|OPENCODE_VERSION|opencode|seed" \
         "cursor-agent|agent,cursor-agent|CURSOR_AGENT_VERSION|cursor-agent|seed" \
-        "playwright|-|PLAYWRIGHT_VERSION|playwright|pinned"
+        "playwright|-|PLAYWRIGHT_VERSION|playwright|pinned" \
+        "bend|-|BEND_REQUIREMENT|bend|pinned"
 }
 
 glowcap_tools_all() {

@@ -216,6 +216,10 @@ Releases before 0.1.7 are in the
 
 ### Added
 
+- Contributors can check Loam's delegation, prerequisite and ordered-bound laws with
+  `zig build loam-policy-proof`. The [test guide](test/README.md#loam-policy-laws)
+  gives the command that supplies the proof tools.
+
 - The website serves ocapnviz at `/ocapnviz/`. Play works as it does from a
   checkout, and Live watches a server on the same computer as the browser. A
   trace link for any other address is refused with the reason: a browser

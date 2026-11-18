@@ -1,8 +1,4 @@
-//! Runtime managed access permission and ordered-bound algebra. Fixtures pin the meaning
-//! of each bound. Finite laws exercise intersection independently of grant use.
-//! The law test fails under permission-union and reversed-bound defects.
-//! Dependency closure fails if intersection drops a prerequisite.
-//! It covers Boolean sets and unsigned bounds, not application fact mappings.
+//! Managed access policies link permission masks and bound keys to the policy laws.
 
 const std = @import("std");
 const Policy = @import("glowcap").loam.access.core.Policy;
@@ -32,14 +28,9 @@ test "access policy dependencies distinguish configured terms from effect demand
     try std.testing.expectError(error.MissingPrerequisite, policy.isSubsetOf(forged, full));
     try std.testing.expectError(error.MissingPrerequisite, policy.intersect(full, forged));
     try std.testing.expectError(error.MissingPrerequisite, policy.allows(forged, .{ .permissions = &.{post} }));
-    // Enumerate the closed values and check that every intersection remains closed.
-    const values = [_]Policy.Value{ try policy.value(&.{}, &.{}), reader, try policy.value(&.{ read, post }, &.{}), full };
-    for (values) |a| for (values) |b| {
-        const meet = try policy.intersect(a, b);
-        try policy.validate(meet);
-        try std.testing.expect(try policy.isSubsetOf(meet, a));
-        try std.testing.expect(try policy.isSubsetOf(meet, b));
-    };
+    try std.testing.expectEqualDeep(reader, try policy.intersect(full, reader));
+    try std.testing.expect(try policy.isSubsetOf(reader, full));
+    try std.testing.expect(!try policy.isSubsetOf(full, reader));
 }
 
 test "access policy dependency declarations reject malformed matrices and support mutual implications" {
@@ -74,6 +65,11 @@ test "access policy dependency declarations reject malformed matrices and suppor
     try std.testing.expectError(error.MissingPrerequisite, wide.value(&.{keys[63]}, &.{}));
     const both = try wide.value(&.{ keys[0], keys[63] }, &.{});
     try std.testing.expect(try wide.allows(both, .{ .permissions = &.{keys[63]} }));
+    const left = try wide.value(&.{ keys[0], keys[1], keys[63] }, &.{});
+    const right = try wide.value(&.{ keys[0], keys[2], keys[63] }, &.{});
+    const common = try wide.intersect(left, right);
+    try wide.validate(common);
+    try std.testing.expectEqualDeep(both, common);
 }
 
 test "access policy validates runtime schemas values and requirements" {
@@ -130,40 +126,16 @@ test "access policy copies descriptors and handles full width limits" {
     try empty.validate(try empty.value(&.{}, &.{}));
 }
 
-test "access policy intersection laws over finite permission and bound values" {
+test "policy intersection applies each field's declared operator" {
     const policy = try Policy.init(descriptor);
-    var values: [16]Policy.Value = undefined;
-    for (&values, 0..) |*value, i| {
-        value.* = try policy.value(&.{}, &.{});
-        value.permissions = @intCast(i % 4);
-        switch (i / 4) {
-            0 => {},
-            1 => {
-                value.setBound(0, 0);
-                value.setBound(1, std.math.maxInt(u64));
-            },
-            2 => {
-                value.setBound(0, 5);
-                value.setBound(1, 10);
-            },
-            3 => {
-                value.setBound(0, std.math.maxInt(u64));
-                value.setBound(1, 0);
-            },
-            else => unreachable,
-        }
-    }
-    for (values) |a| {
-        try std.testing.expectEqualDeep(a, try policy.intersect(a, a));
-        for (values) |b| {
-            const meet = try policy.intersect(a, b);
-            try std.testing.expect(try policy.isSubsetOf(meet, a));
-            try std.testing.expect(try policy.isSubsetOf(meet, b));
-            try std.testing.expectEqualDeep(meet, try policy.intersect(b, a));
-            for (values) |c| {
-                try std.testing.expectEqualDeep(try policy.intersect(meet, c), try policy.intersect(a, try policy.intersect(b, c)));
-                if (try policy.isSubsetOf(c, a) and try policy.isSubsetOf(c, b)) try std.testing.expect(try policy.isSubsetOf(c, meet));
-            }
-        }
-    }
+    const a = try policy.value(&.{read}, &.{ .{ .key = history, .value = 20 }, .{ .key = upload, .value = 100 } });
+    const b = try policy.value(&.{post}, &.{ .{ .key = history, .value = 10 }, .{ .key = upload, .value = 80 } });
+    const common = try policy.value(&.{}, &.{ .{ .key = history, .value = 20 }, .{ .key = upload, .value = 80 } });
+    try std.testing.expectEqualDeep(common, try policy.intersect(a, b));
+    var wider = common;
+    wider.setBound(0, b.bound(0));
+    try std.testing.expect(!try policy.isSubsetOf(wider, common));
+    wider = common;
+    wider.setBound(1, a.bound(1));
+    try std.testing.expect(!try policy.isSubsetOf(wider, common));
 }

@@ -21,6 +21,19 @@ glowcap_pins_github_latest_tag() {
     glowcap_pins_fetch "https://api.github.com/repos/$1/releases/latest" | jq -r .tag_name
 }
 
+# BendTT checks the Lean version before it compiles its kernel. Read the
+# version the tagged compiler requires, without executing upstream source.
+glowcap_pins_lean_for_bend() {
+    local release="$1" lean
+    lean="$(glowcap_pins_fetch "https://raw.githubusercontent.com/bendlang/bend/v${release}/bend2/safe.ts" \
+        | sed -nE 's/^const LEAN_VERSION = "([0-9]+\.[0-9]+\.[0-9]+)";$/\1/p')" || return 1
+    if ! [[ "${lean}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+        echo "update-pins: Bend ${release} declares no unique Lean kernel version" >&2
+        return 1
+    fi
+    printf '%s\n' "${lean}"
+}
+
 # SHA-256 of a GitHub release asset: the API digest when published, else the
 # asset itself, downloaded and hashed.
 glowcap_pins_github_asset_sha256() {
@@ -81,7 +94,7 @@ glowcap_pins_require_hex64() {
 #   manual - a generation move; bump prints the procedure instead of editing
 # ---------------------------------------------------------------------------
 
-GLOWCAP_PINS_DEPS="debian distroless zig zls rust rustup-init deno node npm bun playwright uv python serena claude codex cursor-agent opencode devcontainer-cli racket goblins"
+GLOWCAP_PINS_DEPS="debian distroless zig zls bend rust rustup-init deno node npm bun playwright uv python serena claude codex cursor-agent opencode devcontainer-cli racket goblins"
 
 glowcap_pins_dep_var() {
     case "$1" in
@@ -89,6 +102,7 @@ glowcap_pins_dep_var() {
         distroless) echo DISTROLESS_BASE_DIGEST ;;
         zig) echo ZIG_VERSION ;;
         zls) echo ZLS_SOURCE_REVISION ;;
+        bend) echo BEND_VERSION ;;
         rust) echo RUST_VERSION ;;
         rustup-init) echo RUSTUP_INIT_VERSION ;;
         deno) echo DENO_VERSION ;;
@@ -127,6 +141,7 @@ glowcap_pins_dep_gate() {
         distroless) echo "release workflow Linux image proofs" ;;
         zig) echo "zig build check with the new toolchain" ;;
         zls) echo "rebuild + post-create.sh (verify-toolchains)" ;;
+        bend) echo "bash .devcontainer/bin/tools.sh exec bend -- zig build loam-policy-proof" ;;
         rust) echo "zig build check (rust-test rides it)" ;;
         rustup-init | deno | node | bun) echo "zig build check" ;;
         playwright) echo "rebuild (new baked Chromium), then zig build rooms-web-page and siblings" ;;
@@ -144,7 +159,7 @@ glowcap_pins_dep_gate() {
 # on the next explicit ensure or a cold first use.
 glowcap_pins_dep_requires_devcontainer_rebuild() {
     case "$1" in
-        distroless | claude | codex | opencode | cursor-agent) return 1 ;;
+        distroless | bend | claude | codex | opencode | cursor-agent) return 1 ;;
         *) return 0 ;;
     esac
 }
@@ -171,6 +186,7 @@ glowcap_pins_query_version() {
                 glowcap_pins_fetch https://api.github.com/repos/zigtools/zls/commits/master | jq -r .sha
             fi
             ;;
+        bend) glowcap_pins_github_latest_tag bendlang/bend | sed 's/^v//' ;;
         # Several packages in the channel file carry a version line; only
         # [pkg.rust]'s is the toolchain version.
         rust) glowcap_pins_fetch https://static.rust-lang.org/dist/channel-rust-stable.toml \
