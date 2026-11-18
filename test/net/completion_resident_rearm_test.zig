@@ -216,7 +216,7 @@ fn Tests(comptime Backend: type) type {
             try std.testing.expectEqual(@as(usize, 2), server.accept_seats);
             switch (server.resident().vtable.listen.?.stop_listen(&server, armed)) {
                 .complete, .pending => {},
-                .failed => |failure| return failure.cause,
+                .failed => |failure| return failure.chain.cause,
             }
             try std.testing.expectEqual(@as(usize, 1), server.accept_seats);
         }
@@ -231,7 +231,7 @@ fn Tests(comptime Backend: type) type {
             try expectOwed(&server, row);
             switch (server.resident().vtable.listen.?.stop_listen(&server, row)) {
                 .complete, .pending => {},
-                .failed => |failure| return failure.cause,
+                .failed => |failure| return failure.chain.cause,
             }
             try std.testing.expectEqual(@as(usize, 0), server.rearm_owed_count);
             try std.testing.expectEqual(@as(usize, 0), server.accept_seats);
@@ -274,7 +274,7 @@ fn Tests(comptime Backend: type) type {
             // consumed.
             switch (server.resident().vtable.listen.?.stop_listen(&server, row)) {
                 .complete, .pending => {},
-                .failed => |failure| return failure.cause,
+                .failed => |failure| return failure.chain.cause,
             }
             try std.testing.expectEqual(@as(usize, 0), server.accept_seats);
             const records = server.records.items.len;

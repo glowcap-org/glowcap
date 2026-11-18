@@ -400,6 +400,15 @@ pub fn newByteFedHost(seed_byte: u8) !?*cd.GlowcapHost {
     return host;
 }
 
+/// The carrier fields of one event, as the C driver reports them.
+pub const Carrier = struct {
+    phase: u32 = 0,
+    detail_flags: u32 = 0,
+    verification_flags: u32 = 0,
+    peer_alert: u32 = 0,
+    engine_code: i32 = 0,
+};
+
 /// What one loop's drained events amounted to. Scalar facts only, because a
 /// COMPLETION's views die at the next `glowcap_driver_next_event`.
 pub const Drained = struct {
@@ -422,6 +431,7 @@ pub const Drained = struct {
     closed_secondary_count: u32 = 0,
     closed_secondary_message: [64]u8 = undefined,
     closed_secondary_message_len: usize = 0,
+    closed_carrier: Carrier = .{},
     settle_ticket: u64 = 0,
     settled_reference: c.GlowcapReference = .{ .id = 0 },
     fail_ticket: u64 = 0,
@@ -544,6 +554,13 @@ pub fn drainEvents(loop: ?*cdrv.GlowcapDriverLoop, into: *Drained) !void {
                     @memcpy(into.closed_message[0..into.closed_message_len], event.primary_name.?[0..into.closed_message_len]);
                 into.closed_secondary_result = event.secondary_result;
                 into.closed_secondary_count = event.secondary_count;
+                into.closed_carrier = .{
+                    .phase = event.carrier_phase,
+                    .detail_flags = event.carrier_detail_flags,
+                    .verification_flags = event.carrier_verification_flags,
+                    .peer_alert = event.carrier_peer_alert,
+                    .engine_code = event.carrier_engine_code,
+                };
                 into.closed_secondary_message_len = @min(event.secondary_name_len, into.closed_secondary_message.len);
                 if (into.closed_secondary_message_len != 0)
                     @memcpy(

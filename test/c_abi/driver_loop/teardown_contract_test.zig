@@ -131,6 +131,7 @@ test "pending and active listener teardown return exact provider chains" {
             failure.secondary_name.?[0..failure.secondary_name_len],
         );
         try std.testing.expectEqual(@as(u32, 2), failure.secondary_count);
+        try std.testing.expectEqual(cdrv.GLOWCAP_CARRIER_PHASE_SHUTDOWN, failure.carrier_phase);
         try std.testing.expectEqual(@as(usize, 1), resident.stop_listen_calls);
     }
 
@@ -173,6 +174,7 @@ test "pending and active listener teardown return exact provider chains" {
             event.secondary_name.?[0..event.secondary_name_len],
         );
         try std.testing.expectEqual(@as(u32, 2), event.secondary_count);
+        try std.testing.expectEqual(cdrv.GLOWCAP_CARRIER_PHASE_SHUTDOWN, event.carrier_phase);
         try std.testing.expectEqual(@as(usize, 2), resident.stop_listen_calls);
     }
 }

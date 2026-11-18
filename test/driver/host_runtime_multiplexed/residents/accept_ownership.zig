@@ -436,7 +436,7 @@ pub const AcceptOwnershipResident = struct {
         std.debug.assert(conn == conn_id);
         self.close_calls += 1;
         if (self.close_pending) return .pending;
-        if (self.close_failure) |failure| return .{ .failed = failure };
+        if (self.close_failure) |failure| return .{ .failed = .{ .chain = failure } };
         return .complete;
     }
 

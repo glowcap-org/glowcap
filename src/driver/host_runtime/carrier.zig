@@ -2,7 +2,6 @@
 
 const std = @import("std");
 
-const foundation = @import("foundation");
 const engine = @import("engine");
 const net = @import("net");
 
@@ -165,8 +164,8 @@ pub fn closeWire(self: *HostRuntime, wire: *Wire, cause: ?anyerror) void {
 
 fn takeWireFailure(self: *HostRuntime, wire: *Wire) ?OperationFailure {
     const rl = &wire.link;
-    const chain = self.residents.items[rl.index].resident.takeFailure(rl.conn) orelse return null;
-    return OperationFailure.fromChain(chain);
+    const report = self.residents.items[rl.index].resident.takeFailure(rl.conn) orelse return null;
+    return OperationFailure.fromReport(report);
 }
 
 fn closeWireFailure(self: *HostRuntime, wire: *Wire, failure: ?OperationFailure) void {
@@ -207,13 +206,6 @@ fn noteWireCloseFailure(wire: *Wire, later: OperationFailure) void {
         wire.close_failure = later;
 }
 
-fn noteWireCloseChain(wire: *Wire, later: foundation.FailureChain) void {
-    if (wire.close_failure) |*primary|
-        primary.noteChain(later)
-    else
-        wire.close_failure = OperationFailure.fromChain(later);
-}
-
 pub fn progressWireCarrierClose(self: *HostRuntime, wire: *Wire) void {
     if (!wire.closed or wire.carrierClosed()) return;
     const expired = if (wire.carrier_close_deadline_ms) |deadline|
@@ -239,7 +231,7 @@ pub fn progressWireCarrierClose(self: *HostRuntime, wire: *Wire) void {
         // complete or failed.
         .pending => {},
         .failed => |reported| {
-            noteWireCloseChain(wire, reported);
+            noteWireCloseFailure(wire, .fromReport(reported));
             finishWireCarrierClose(self, wire);
         },
     }

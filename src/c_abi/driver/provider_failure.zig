@@ -71,10 +71,12 @@ fn name(pointer: ?[*]const u8, len: usize) ?[]const u8 {
     return bytes;
 }
 
-pub fn operation(
+/// The provider's primary chain with the carrier phase and detail it
+/// reported. A report that named no phase keeps none.
+pub fn carrierReport(
     code: i32,
     report: shared.GlowcapProviderFailure,
-) error{InvalidProviderFailure}!driver.OperationFailure {
+) error{InvalidProviderFailure}!net.carrier_failure.Report {
     const primary_name = name(report.primary_name, report.primary_name_len);
     const secondary_name = name(report.secondary_name, report.secondary_name_len);
     const phase = carrier_phase.decode(report.carrier_phase) catch
@@ -88,35 +90,42 @@ pub fn operation(
     ) catch return error.InvalidProviderFailure;
     if (report.result != code or primary_name == null) return error.InvalidProviderFailure;
     const primary = status(code) orelse return error.InvalidProviderFailure;
-    var failure: driver.OperationFailure = .{
+    var out: net.carrier_failure.Report = .{
         .chain = .{
             .cause = primary.cause,
             .cause_name = primary_name,
             .classification = primary.classification,
         },
-        .carrier_phase = phase,
-        .carrier_detail = detail,
+        .phase = phase,
+        .detail = detail,
     };
     if (report.secondary_count == 0) {
         if (report.secondary_result != 0 or report.secondary_name != null or report.secondary_name_len != 0)
             return error.InvalidProviderFailure;
-        return failure;
+        return out;
     }
     if (report.secondary_count > std.math.maxInt(u16) or secondary_name == null)
         return error.InvalidProviderFailure;
     const secondary = status(report.secondary_result) orelse return error.InvalidProviderFailure;
-    failure.chain.secondary_cause = secondary.cause;
-    failure.chain.secondary_cause_name = secondary_name;
-    failure.chain.secondary_classification = secondary.classification;
-    failure.chain.secondary_count = @intCast(report.secondary_count);
-    return failure;
+    out.chain.secondary_cause = secondary.cause;
+    out.chain.secondary_cause_name = secondary_name;
+    out.chain.secondary_classification = secondary.classification;
+    out.chain.secondary_count = @intCast(report.secondary_count);
+    return out;
+}
+
+pub fn operation(
+    code: i32,
+    report: shared.GlowcapProviderFailure,
+) error{InvalidProviderFailure}!driver.OperationFailure {
+    return .fromReport(try carrierReport(code, report));
 }
 
 pub fn chain(
     code: i32,
     report: shared.GlowcapProviderFailure,
 ) error{InvalidProviderFailure}!foundation.FailureChain {
-    return (try operation(code, report)).chain;
+    return (try carrierReport(code, report)).chain;
 }
 
 /// Project a provider's dial failure onto the `DialError` retry axis. A

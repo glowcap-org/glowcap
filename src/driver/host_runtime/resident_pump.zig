@@ -169,7 +169,7 @@ fn handleResidentEvent(
         if (event.events & er.ev_closed != 0) switch (self.residents.items[resident_index].resident.connCloseOutcome(event.subject)) {
             .complete => {},
             .pending => self.noteTerminalFailure(error.ProviderContract),
-            .failed => |failure| Internal.noteTerminalFailureChain(self, failure),
+            .failed => |failure| self.noteTerminalOperationFailure(.fromReport(failure)),
         };
         return 0;
     };

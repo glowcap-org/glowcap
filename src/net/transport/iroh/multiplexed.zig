@@ -240,8 +240,8 @@ pub const MultiplexedAdapter = struct {
         from(ctx).closeConnection(id);
         return .complete;
     }
-    fn takeFailureCallback(ctx: *anyopaque, id: usize) ?foundation.FailureChain {
-        return from(ctx).takeFailure(id);
+    fn takeFailureCallback(ctx: *anyopaque, id: usize) ?net.carrier_failure.Report {
+        return .{ .chain = from(ctx).takeFailure(id) orelse return null };
     }
     fn key(ctx: *anyopaque, id: usize) net.multiplexed_resident.ContractError!?foundation.crypto.PeerKey {
         return from(ctx).remoteKey(id);

@@ -2,16 +2,15 @@
 
 const std = @import("std");
 
-const foundation = @import("foundation");
 const net = @import("net");
 const multiplexed = @import("multiplexed.zig");
 const validation = @import("validation.zig");
 const owner_mod = @import("owner.zig");
+const provider_failure = @import("../provider_failure.zig");
 const shared = @import("c_abi_shared");
 
 const crypto = @import("foundation").crypto;
 const Adapter = multiplexed.Adapter;
-const failureChainFromProvider = owner_mod.failureChainFromProvider;
 const providerFailureIsEmpty = owner_mod.providerFailureIsEmpty;
 
 fn of(ctx: *anyopaque) *Adapter {
@@ -51,14 +50,14 @@ pub fn close(ctx: *anyopaque, conn: usize) net.multiplexed_resident.TeardownOutc
     return self.teardownOutcome(code, report, "conn_close");
 }
 
-pub fn takeFailure(ctx: *anyopaque, conn: usize) ?foundation.FailureChain {
+pub fn takeFailure(ctx: *anyopaque, conn: usize) ?net.carrier_failure.Report {
     const self = of(ctx);
     var report = std.mem.zeroes(shared.GlowcapProviderFailure);
     self.table.conn_take_failure.?(self.table.ctx, @intCast(conn), &report);
     if (providerFailureIsEmpty(report)) return null;
-    return failureChainFromProvider(report.result, report) catch {
+    return provider_failure.carrierReport(report.result, report) catch {
         self.failContract("multiplexed conn_take_failure returned an invalid report");
-        return foundation.FailureChain.init(error.ProviderContract);
+        return .init(error.ProviderContract);
     };
 }
 
