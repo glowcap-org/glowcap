@@ -4,13 +4,16 @@
 // connection, and a single failure says only that the timeline did not show
 // one. This capture keeps the evidence that tells the next failure apart:
 // the viewer's own arrivals, the proof's wait boundaries, and what each
-// WebRTC tab's DataChannels did. It emits nothing while the proof passes, and
-// a failing proof prints one snapshot before its cleanup runs.
+// WebRTC tab's peer connections and DataChannels did. A failing proof prints
+// one snapshot before cleanup. A passing proof emits none.
 //
 // What it can show. A viewer arrival is a record the live trace delivered to
-// this process. A page event is something the browser did on a channel. A
-// phase marker is where the proof stood, with the number of viewer arrivals at
-// that moment. Times are each process's own `performance.now()`, plus
+// this process. A page event is something the browser did on a channel, or a
+// peer's signaling, ICE connection or connection event, whose `ready` holds
+// the state read when the event was dispatched. The last such state seen can
+// differ from the peer's current one. A phase marker is where the proof stood,
+// with the number of viewer arrivals at that moment.
+// Times are each process's own `performance.now()`, plus
 // `performance.timeOrigin + performance.now()` for placing them against each
 // other on one machine. That placement is approximate: clocks differ and a
 // page snapshot is read after the failure, so no exact order across processes

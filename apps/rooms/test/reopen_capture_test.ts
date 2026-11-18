@@ -339,6 +339,60 @@ Deno.test("a send's size is read only from a string or a branded buffer, never f
 	assertEquals(channel.sent.length, sends.length);
 });
 
+/** Move one native state of `peer` and dispatch the event that names it. */
+function transition(
+	peer: EventTarget,
+	state: "signalingState" | "iceConnectionState" | "connectionState",
+	value: string,
+): void {
+	Object.defineProperty(peer, state, { value, configurable: true });
+	peer.dispatchEvent(new Event(state.toLowerCase() + "change"));
+}
+
+Deno.test("peer state changes are recorded in order against the peer that changed", () => {
+	const fx = fixture();
+	install(fx);
+	const [first, second] = [peerOf(fx), peerOf(fx)];
+	const heard: Array<string | undefined> = [];
+	first.addEventListener("signalingstatechange", () => heard.push(snapshotOf(fx).events.at(-1)?.ready));
+	transition(first, "signalingState", "have-local-offer");
+	transition(second, "signalingState", "have-remote-offer");
+	transition(first, "iceConnectionState", "checking");
+	transition(second, "connectionState", "connecting");
+	transition(first, "signalingState", "stable");
+	assertEquals(heard, ["have-local-offer", "stable"]);
+	const snap = snapshotOf(fx);
+	assertEquals(snap.events.slice(2).map((e) => [e.peer, e.kind, e.ready]), [
+		[1, "signalingstatechange", "have-local-offer"],
+		[2, "signalingstatechange", "have-remote-offer"],
+		[1, "iceconnectionstatechange", "checking"],
+		[2, "connectionstatechange", "connecting"],
+		[1, "signalingstatechange", "stable"],
+	]);
+	assertEquals([snap.peers, snap.faults], [2, 0]);
+});
+
+Deno.test("an unreadable peer state is counted and the product's own listeners still run", () => {
+	const fx = fixture();
+	install(fx);
+	const peer = peerOf(fx);
+	Object.defineProperty(peer, "connectionState", {
+		get() {
+			throw new Error("state");
+		},
+	});
+	const productHeard: string[] = [];
+	peer.addEventListener("connectionstatechange", () => productHeard.push("connection"));
+	peer.addEventListener("iceconnectionstatechange", () => productHeard.push("ice"));
+	assertEquals(peer.dispatchEvent(new Event("connectionstatechange")), true);
+	transition(peer, "iceConnectionState", "connected");
+	assertEquals(productHeard, ["connection", "ice"]);
+	const snap = snapshotOf(fx);
+	assertEquals(snap.events.map((e) => e.kind), ["peer", "iceconnectionstatechange"]);
+	assertEquals(snap.events[1].ready, "connected");
+	assertEquals(snap.faults, 1);
+});
+
 Deno.test("a page keeps its most recent events and reports the eviction", () => {
 	const fx = fixture();
 	install(fx, 4);

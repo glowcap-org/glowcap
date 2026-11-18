@@ -69,6 +69,9 @@ export interface ChannelLike extends EventTargetLike {
 }
 
 interface PeerLike extends EventTargetLike {
+	signalingState?: string;
+	iceConnectionState?: string;
+	connectionState?: string;
 	createDataChannel(...args: unknown[]): ChannelLike;
 }
 
@@ -86,6 +89,8 @@ export interface PageEvent {
 	peer?: number;
 	channel?: number;
 	origin?: string;
+	/** A channel's `readyState`, or for a peer event the state its own event
+	 * type names. */
 	ready?: string;
 	bytes?: number | null;
 	sctpId?: number | null;
@@ -224,6 +229,13 @@ export function installPageCapture(scope: PageScope, key: string, binding: strin
 		});
 	};
 	const readyOf = (channel: ChannelLike): string | undefined => text(channel.readyState, TEXT);
+	// Three distinct native state spaces, each recorded under its event type. An
+	// absent event says only that none was heard.
+	const peerStates = [
+		["signalingstatechange", "signalingState"],
+		["iceconnectionstatechange", "iceConnectionState"],
+		["connectionstatechange", "connectionState"],
+	] as const;
 
 	const channelId = (channel: ChannelLike, origin?: string, peer?: number): number => {
 		let id = channels.get(channel);
@@ -260,6 +272,11 @@ export function installPageCapture(scope: PageScope, key: string, binding: strin
 						if (event.channel) channelId(event.channel, "incoming", id);
 					});
 				});
+				for (const [type, stateKey] of peerStates) {
+					peer.addEventListener(type, () => {
+						guard(() => record({ kind: type, peer: id, ready: text(peer[stateKey], TEXT) }));
+					});
+				}
 			});
 			return peer;
 		},
