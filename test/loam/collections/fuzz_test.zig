@@ -7,17 +7,10 @@
 //! a lot of bookkeeping to get right, and getting it wrong does not crash: it
 //! frees a node another version is still reading, or never frees one at all.
 //!
-//! Which is why this target is worth more than a crash check. There is a
-//! reference implementation sitting in the standard library, so every operation
-//! has an answer to be checked against rather than merely surviving. The fuzzer
-//! writes the sequence of puts, removes, and lookups. A plain hash map says what
-//! the answers should be, and any disagreement is a bug in the trie.
-//!
-//! One property the reference cannot model, and the one the whole design exists
-//! for: an old version keeps its own contents. Versions are kept alive here
-//! while later ones are built on top, and each is re-checked at the end against
-//! what it held when it was made. A path copy that mutates a shared subtree in
-//! place would pass every check above and fail this one.
+//! The fuzzer writes the sequence of puts, removes, and lookups. A plain
+//! array tracks the value of each key in the bounded input space. Every new
+//! map is checked against it. Older map versions are kept alive and checked
+//! against a copy of the array after later writes have shared their paths.
 //!
 //! Leaks and double frees are caught underneath by the testing allocator, which
 //! is what turns "the counts are wrong" from a silent condition into a failure.
@@ -49,26 +42,18 @@ const op_keep: u8 = 3;
 const corpus = @import("../../support/corpus_seeds.zig");
 
 const Map = persistent.PersistentMap(u32);
+const Reference = [key_space]?u32;
 
-/// A version kept alive, and what it held when it was made.
-const Kept = struct {
-    map: Map,
-    /// The reference's contents at that moment, so the version can be checked
-    /// again later against what it should still hold.
-    expected: std.AutoHashMapUnmanaged(u64, u32),
-};
+const Kept = struct { map: Map, expected: Reference };
 
-/// Copy what the reference holds right now, so a kept version can be checked
-/// against it later.
-fn snapshotReference(
-    gpa: std.mem.Allocator,
-    reference: *const std.AutoHashMapUnmanaged(u64, u32),
-) !std.AutoHashMapUnmanaged(u64, u32) {
-    var out: std.AutoHashMapUnmanaged(u64, u32) = .empty;
-    errdefer out.deinit(gpa);
-    var it = reference.iterator();
-    while (it.next()) |entry| try out.put(gpa, entry.key_ptr.*, entry.value_ptr.*);
-    return out;
+fn expectVersion(map: Map, expected: *const Reference) !void {
+    var count: usize = 0;
+    for (expected, 0..) |value, key| {
+        count += @intFromBool(value != null);
+        try std.testing.expectEqual(value != null, map.contains(key));
+        try std.testing.expectEqual(value, map.get(key));
+    }
+    try std.testing.expectEqual(count, map.len());
 }
 
 fn mapOne(_: void, smith: *std.testing.Smith) anyerror!void {
@@ -82,18 +67,10 @@ fn mapOne(_: void, smith: *std.testing.Smith) anyerror!void {
     var kept: [kept_versions]?Kept = @splat(null);
     defer {
         if (live_owned) live.deinit();
-        for (&kept) |*slot| {
-            if (slot.*) |*k| {
-                var m = k.map;
-                m.deinit();
-                k.expected.deinit(gpa);
-            }
-        }
+        for (&kept) |*slot| if (slot.*) |*version| version.map.deinit();
     }
 
-    var reference: std.AutoHashMapUnmanaged(u64, u32) = .empty;
-    defer reference.deinit(gpa);
-
+    var reference: Reference = @splat(null);
     var ops: usize = 0;
     while (ops < max_ops and !smith.eos()) : (ops += 1) {
         const key = smith.valueRangeAtMost(u8, 0, key_space - 1);
@@ -105,7 +82,7 @@ fn mapOne(_: void, smith: *std.testing.Smith) anyerror!void {
                 if (live_owned) live.deinit();
                 live = next;
                 live_owned = true;
-                try reference.put(gpa, key, value);
+                reference[key] = value;
             },
             // Erase. Removing a key that is not there is a legitimate no-op on
             // both sides.
@@ -114,7 +91,7 @@ fn mapOne(_: void, smith: *std.testing.Smith) anyerror!void {
                 if (live_owned) live.deinit();
                 live = next;
                 live_owned = true;
-                _ = reference.remove(key);
+                reference[key] = null;
             },
             // Hand the current version to a slot, which keeps it alive while
             // later writes are built on top. That is what makes those writes
@@ -122,61 +99,37 @@ fn mapOne(_: void, smith: *std.testing.Smith) anyerror!void {
             op_keep => {
                 if (!live_owned) continue; // already kept; one owner only
                 const slot = smith.valueRangeAtMost(u8, 0, kept_versions - 1);
-                const snapshot = try snapshotReference(gpa, &reference);
-                if (kept[slot]) |*old| {
-                    var m = old.map;
-                    m.deinit();
-                    old.expected.deinit(gpa);
-                }
-                kept[slot] = .{ .map = live, .expected = snapshot };
+                if (kept[slot]) |*old| old.map.deinit();
+                kept[slot] = .{ .map = live, .expected = reference };
                 live_owned = false;
             },
             else => {},
         }
 
-        // Every lookup answered the same way by both.
-        try std.testing.expectEqual(reference.count(), live.len());
-        var probe: u64 = 0;
-        while (probe < key_space) : (probe += 1) {
-            try std.testing.expectEqual(reference.contains(probe), live.contains(probe));
-        }
+        try expectVersion(live, &reference);
     }
 
-    // The property the reference cannot model: an old version still holds what
-    // it held. A rebuild that touched a shared subtree in place passes every
-    // check above and fails here.
-    for (&kept) |*slot| {
-        if (slot.*) |*k| {
-            try std.testing.expectEqual(k.expected.count(), k.map.len());
-            var it = k.expected.iterator();
-            while (it.next()) |entry| {
-                try std.testing.expect(k.map.contains(entry.key_ptr.*));
-                try std.testing.expectEqual(entry.value_ptr.*, k.map.get(entry.key_ptr.*).?);
-            }
-        }
-    }
+    // A later write must leave every retained version as it was.
+    for (&kept) |*slot| if (slot.*) |*version|
+        try expectVersion(version.map, &version.expected);
 }
 
 test "fuzz: the persistent map answers like a plain one, and old versions keep their contents" {
-    // Write, keep the version, write again: the shape where a later write has to
-    // share structure with an earlier version rather than own what it touches.
-    // Built rather than hand-counted, because the first version of this seed
-    // stopped after the keep and never reached the sharing at all.
-    // Each row is that step's draws in the order the loop makes them, and this
-    // loop draws the key before the operation.
+    // Write, keep the version, then write to a different key.
     const seed = corpus.program(&.{
-        &.{ 0, op_put },
-        &.{ 0, op_keep },
-        &.{ 1, op_put },
+        &.{ 0, op_put, 17 },
+        &.{ 0, op_keep, 0 },
+        &.{ 1, op_put, 23 },
     });
-
-    // And it has to encode that program, not merely look like it.
-    {
-        var reader: std.testing.Smith = .{ .in = seed };
-        for ([_]u8{ op_put, op_keep, op_put }) |want| {
-            try std.testing.expect(!reader.eos());
-            _ = reader.valueRangeAtMost(u8, 0, key_space - 1);
-            try std.testing.expectEqual(want, reader.valueRangeAtMost(u8, 0, 3));
+    var reader: std.testing.Smith = .{ .in = seed };
+    for ([_]u8{ 0, 0, 1 }, [_]u8{ op_put, op_keep, op_put }) |key, op| {
+        try std.testing.expect(!reader.eos());
+        try std.testing.expectEqual(key, reader.valueRangeAtMost(u8, 0, key_space - 1));
+        try std.testing.expectEqual(op, reader.valueRangeAtMost(u8, 0, 3));
+        if (op == op_keep) {
+            try std.testing.expectEqual(@as(u8, 0), reader.valueRangeAtMost(u8, 0, kept_versions - 1));
+        } else {
+            try std.testing.expectEqual(@as(u32, if (key == 0) 17 else 23), reader.value(u32));
         }
     }
 
