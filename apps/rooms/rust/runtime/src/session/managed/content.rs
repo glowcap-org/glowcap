@@ -226,6 +226,7 @@ impl<P: Tasks + Deadline + Clone + 'static> loam::ForwardAdmission for SessionCo
 			| "discard"
 			| "revoke"
 			| rooms_application::signaling::DONE
+			| rooms_application::signaling::DECLINE
 			| "close"
 			| "removeLease"
 			| "closeConnection" => Class::Cleanup,
@@ -314,6 +315,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Content for SessionContent<P> {
 			| rooms_application::signaling::ANSWER
 			| rooms_application::signaling::CANDIDATE
 			| rooms_application::signaling::DONE
+			| rooms_application::signaling::DECLINE
 			| rooms_application::signaling::CHECK
 			| protocol::AWAY
 			| protocol::LEAVE

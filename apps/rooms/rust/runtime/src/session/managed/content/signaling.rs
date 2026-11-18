@@ -116,10 +116,11 @@ pub(super) fn invoke(call: &mut Call<'_>, input: Invocation<'_>) -> Result<Argum
 		policy::ANSWER,
 		policy::CANDIDATE,
 		policy::DONE,
+		policy::DECLINE,
 		policy::CHECK,
 	]
 	.map(|verb| ReadMethod { verb, results: &[] });
-	// Source arguments and six method declarations are charged by the shared
+	// Source arguments and method declarations are charged by the shared
 	// continuation budget. Neither directory owner authority nor name leave
 	// and voucher methods are disclosed through this ephemeral route.
 	call.disclose_reads_copying(&target, &[ReadInterface { methods: &methods }], 0)
