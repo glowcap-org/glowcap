@@ -226,6 +226,12 @@ pub const Backend = struct {
         return self.poll(out, 0);
     }
 
+    /// Whether a close completion is held for the next `peek`. No descriptor
+    /// reports it.
+    pub fn readyPending(self: *const Backend) bool {
+        return self.ready.len() > 0;
+    }
+
     /// Nothing here waits on a timer: every completion arrives through the
     /// descriptor.
     /// A platform listener is bound when `openListener` returns. Nothing

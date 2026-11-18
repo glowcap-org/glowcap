@@ -191,6 +191,13 @@ pub const Backend = struct {
         return self.poll(out, 0);
     }
 
+    /// Whether the next `peek` has held work to surface without consulting the
+    /// kernel: a close completion, or a registration fault
+    /// `syncAfterCompletion` left for the caller. No descriptor reports either.
+    pub fn readyPending(self: *const Backend) bool {
+        return self.ready.len() > 0 or self.deferred_error != null;
+    }
+
     /// Nothing here waits on a timer: every completion arrives through the
     /// descriptor.
     /// A platform listener is bound when `openListener` returns. Nothing

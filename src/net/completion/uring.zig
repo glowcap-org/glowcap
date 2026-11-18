@@ -202,6 +202,13 @@ pub const Backend = struct {
         return false;
     }
 
+    /// Whether a listener-close completion is held for the next `peek`. The
+    /// ring's descriptor does not report it. A flush-only fault is not held
+    /// work: it fails the next `flush`, not a peek.
+    pub fn readyPending(self: *const Backend) bool {
+        return self.listeners.close_ready.items.len != 0;
+    }
+
     pub fn waitBoundMs(_: *const Backend, requested_ms: i32) i32 {
         return requested_ms;
     }

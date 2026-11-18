@@ -199,6 +199,12 @@ pub const Backend = union(Selection) {
         return false;
     }
 
+    pub fn readyPending(self: *const Backend) bool {
+        return switch (self.*) {
+            inline else => |*backend| backend.readyPending(),
+        };
+    }
+
     pub fn waitBoundMs(self: *const Backend, requested_ms: i32) i32 {
         return switch (self.*) {
             inline else => |*backend| backend.waitBoundMs(requested_ms),

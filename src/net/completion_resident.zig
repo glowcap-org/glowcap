@@ -58,6 +58,16 @@ pub const Options = struct {
     spare_send_bytes: usize = 16 << 10,
 };
 
+/// `Backend` is a completion backend with `readyPending(*const Backend)
+/// bool`, which `ready_pending` calls. It reports, with no peek, sleep, I/O,
+/// allocation, lock, or callback, whether the backend holds work no
+/// descriptor reports: a completion held in user space, or a fault deferred
+/// for the next `peek`. The next nonblocking drain can advance or surface that
+/// work, though an adapter may consume a held completion internally instead
+/// of yielding it. An adapter answers for its own queue, then asks the backend
+/// it wraps. A backend holding nothing returns false. Only this generic
+/// resident needs the method, and a `completion.Loop` backend does not.
+///
 /// `Policy` binds the backend to transport symbols:
 ///
 ///   * `resolve(locator) !Backend.ConnectTarget`, the dial resolver.
@@ -177,7 +187,9 @@ pub fn Resident(comptime Backend: type, comptime Policy: type) type {
         backend: Backend,
         options: Options,
         /// Records reaped from the kernel and not yet handed to the runtime.
-        /// `ready_pending` reports them, because no descriptor does.
+        /// `ready_pending` reports them, because no descriptor does. It also
+        /// reports work the backend still holds, which the next pump advances
+        /// or surfaces.
         records: std.ArrayList(ReadyEvent) = .empty,
         /// Connections whose flushed batch starts at the next `beforeWait`.
         /// Bounded by the connections with staged bytes. Capacity is kept.
@@ -309,10 +321,12 @@ pub fn Resident(comptime Backend: type, comptime Policy: type) type {
             return of(ctx).backend.readinessFd();
         }
 
-        /// Records wait, or a failure the runtime must take at `drain_ready`.
+        /// Records wait, a failure the runtime must take at `drain_ready`, or
+        /// the backend holds work the next drain can advance or surface. That
+        /// work may end in no record. Records and the failure answer first.
         fn readyPending(ctx: *anyopaque) bool {
             const self = of(ctx);
-            return self.records.items.len != 0 or self.failure != null;
+            return self.records.items.len != 0 or self.failure != null or self.backend.readyPending();
         }
 
         fn beforeWaitVerb(ctx: *anyopaque, after: resident_mod.AfterTurn) void {

@@ -13,6 +13,14 @@ Releases before 0.1.7 are in the
 
 ### Breaking
 
+- A custom backend for `net.completion_resident.Resident` declares
+  `readyPending(*const Backend) bool`. It answers true while the backend holds
+  work the next `peek` can advance or surface: a completion held in user
+  space, or a fault deferred for that peek. An adapter over another backend
+  answers for its own queue, then asks the wrapped backend. The method never
+  allocates, locks, waits, or does I/O. A `completion.Loop` backend does not
+  need it.
+
 - Recovering a room's manager link in Rooms is its own operation. The
   browser no longer reads the room's manager identity and sends it with a
   generic operator request. The session reads that identity from the room's
@@ -284,6 +292,13 @@ Releases before 0.1.7 are in the
 
 ### Fixed
 
+- A stepped Zig `HostRuntime` no longer stalls behind a short stream write.
+  The completion that held the count of bytes already transferred sat in
+  the backend with no descriptor to report it, so a step or a park advanced
+  nothing until another event arrived. The completion resident now reports
+  held backend work, and the runtime services it before it parks. A resident
+  with nothing held still answers false without allocating, waiting, or
+  locking.
 - A Zig `HostRuntime` whose descriptor poll is refused for lack of kernel
   memory paces the wait and keeps running. The refusal holds the poll off for
   `memory_retry_ms`, so a zero-timeout step in that window skips the descriptor poll.

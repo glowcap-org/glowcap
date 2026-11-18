@@ -373,6 +373,14 @@ pub fn CompletionBackend(comptime Platform: type) type {
             return self.platform.submitPoll(user_data, fd, interest);
         }
 
+        /// Whether this adapter or its platform holds work no descriptor
+        /// reports, which the next `peek` can advance or surface. A held
+        /// platform completion may be consumed inside the adapter instead of
+        /// yielded.
+        pub fn readyPending(self: *const Self) bool {
+            return self.ready.len() != 0 or self.platform.readyPending();
+        }
+
         pub fn waitBoundMs(self: *const Self, requested_ms: i32) i32 {
             return Poll.waitBound(self, self.platform.waitBoundMs(requested_ms));
         }

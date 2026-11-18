@@ -144,6 +144,29 @@ fn Tests(comptime Backend: type) type {
             try std.testing.expect(!try readableNow(server.resident().readinessFd()));
         }
 
+        // Projection coverage, not a failed `epoll_ctl`: the fault is seeded
+        // where `syncAfterCompletion` leaves it, on an otherwise valid backend.
+        // The real short stream write in `host_runtime_multiplexed/
+        // external_short_write_test.zig` is the end-to-end regression.
+        test "a registration fault the backend defers is pending until a peek consumes it" {
+            if (comptime !@hasDecl(net.epoll_white_box, "TestBackend") or Backend != net.epoll_white_box.TestBackend) return error.SkipZigTest;
+            var server = try open();
+            defer retire(&server);
+            try std.testing.expect(!server.backend.readyPending());
+            try std.testing.expect(!server.resident().readyPending());
+            server.backend.deferred_error = error.EpollControlFailed;
+            try std.testing.expect(server.backend.readyPending());
+            try std.testing.expect(server.resident().readyPending());
+            // The resident's own reap is the consuming peek: it latches the
+            // fault, so the resident stays pending on its failure instead.
+            server.resident().reap();
+            try std.testing.expect(!server.backend.readyPending());
+            try std.testing.expectEqual(@as(?anyerror, error.EpollControlFailed), server.failure);
+            try std.testing.expect(server.resident().readyPending());
+            var out: [1]er.ReadyEvent = undefined;
+            try std.testing.expectError(error.ProviderContract, server.resident().drainReady(&out));
+        }
+
         test "a consumed receive re-arms at the park, not as the verb returns" {
             if (!(builtin.target.os.tag == .linux or builtin.target.os.tag.isDarwin())) return error.SkipZigTest;
             const allocator = std.testing.allocator;

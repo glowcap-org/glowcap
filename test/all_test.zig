@@ -251,6 +251,8 @@ comptime {
         }
         if (@import("builtin").target.os.tag == .linux or @import("builtin").target.os.tag.isDarwin())
             _ = @import("driver/host_runtime_step/serve_test.zig");
+        if (@import("builtin").target.os.tag == .linux or @import("builtin").target.os.tag.isDarwin())
+            _ = @import("driver/host_runtime_multiplexed/external_short_write_test.zig");
         _ = @import("driver/host_runtime_step/flood_test.zig");
         if (@import("builtin").target.os.tag == .linux or @import("builtin").target.os.tag.isDarwin())
             _ = @import("driver/host_runtime_step/deferred_release_claim_test.zig");
