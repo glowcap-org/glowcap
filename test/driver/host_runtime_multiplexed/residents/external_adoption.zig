@@ -62,12 +62,21 @@ pub const ExternalAdoptionResident = struct {
     write_fails: bool = false,
     conn: usize = conn_id,
     key_seed: u8 = 0x5d,
+    /// A resident that declares `conn_abort`. An abort records its mode.
+    abortable: bool = false,
+    abort_calls: usize = 0,
+    abort_mode: ?net.multiplexed_resident.CloseMode = null,
+    /// An abort finds the provider's close result already claimable and
+    /// fresh: an `awaited` abort returns it to its caller, a `no_wait` abort
+    /// delivers it to the resident's own sink.
+    abort_claims_failure: bool = false,
+    sink_failures: usize = 0,
 
     pub const transport = "external-close";
     pub const conn_id: usize = 9;
 
     pub fn multiplexedResident(self: *ExternalAdoptionResident) net.MultiplexedResident {
-        return .{ .ctx = self, .vtable = &vtable };
+        return .{ .ctx = self, .vtable = if (self.abortable) &abortable_vtable else &vtable };
     }
 
     /// The same resident reading through the borrowed-read group: a lent
@@ -99,6 +108,12 @@ pub const ExternalAdoptionResident = struct {
         .try_write = tryWrite,
         .conn_close = connClose,
         .conn_remote_key = connRemoteKey,
+    };
+
+    const abortable_vtable = abortable: {
+        var table = vtable;
+        table.conn_abort = connAbort;
+        break :abortable table;
     };
 
     const lending_vtable = lending: {
@@ -192,7 +207,7 @@ pub const ExternalAdoptionResident = struct {
         return @intCast(bytes.len);
     }
 
-    fn connClose(ctx: *anyopaque, conn: usize) net.multiplexed_resident.TeardownOutcome {
+    fn connClose(ctx: *anyopaque, conn: usize, _: net.multiplexed_resident.CloseMode) net.multiplexed_resident.TeardownOutcome {
         const self = of(ctx);
         std.debug.assert(conn == self.conn);
         self.close_calls += 1;
@@ -201,6 +216,21 @@ pub const ExternalAdoptionResident = struct {
         var failure = glowcap.foundation.FailureChain.init(error.ResidentCloseFailed);
         failure.note(error.ResidentCloseCleanupFailed);
         return .{ .failed = .{ .chain = failure } };
+    }
+
+    fn connAbort(ctx: *anyopaque, conn: usize, mode: net.multiplexed_resident.CloseMode) net.multiplexed_resident.TeardownOutcome {
+        const self = of(ctx);
+        std.debug.assert(conn == self.conn);
+        self.abort_calls += 1;
+        self.abort_mode = mode;
+        if (!self.abort_claims_failure) return .complete;
+        switch (mode) {
+            .awaited => return .{ .failed = .{ .chain = .init(error.ResidentCloseFailed) } },
+            .no_wait => {
+                self.sink_failures += 1;
+                return .complete;
+            },
+        }
     }
 
     fn connRemoteKey(ctx: *anyopaque, conn: usize) net.multiplexed_resident.ContractError!?glowcap.foundation.crypto.PeerKey {
@@ -220,6 +250,8 @@ pub const ObservedOpen = struct {
     failure_detail: ?driver.OperationFailure = null,
     close_events: usize = 0,
     close_failure: ?anyerror = null,
+    /// The whole failure the last close event carried.
+    close_detail: ?driver.OperationFailure = null,
     close_tail: usize = 0,
     /// The answers the session had accepted from its partner when the close
     /// arrived: one per request dispatched.
@@ -283,6 +315,7 @@ pub const ObservedOpen = struct {
         self.close_events += 1;
         if (self.in_opened or !self.did_open) self.close_inside_open = true;
         self.close_failure = if (failure) |f| f.chain.cause else null;
+        self.close_detail = failure;
         self.close_tail = session.feed_tail.len;
         self.close_inbound_answers = session.served.port.peer.session_state.inbound_answers.len();
     }

@@ -20,6 +20,7 @@ const shared = @import("c_abi_shared");
 const owner_mod = @import("owner.zig");
 const validation = @import("validation.zig");
 const provider_locator = @import("../provider_locator.zig");
+const provider_failure = @import("../provider_failure.zig");
 
 const external = net.external_completion;
 const crypto = foundation.crypto;
@@ -56,7 +57,7 @@ pub const StreamProvider = struct {
         .try_read = tryRead,
         .try_write = tryWrite,
         .conn_take_failure = connTakeFailure,
-        .conn_close = connClose,
+        .conn_close = .{ .reporting = connClose },
     };
 
     const listening_vtable = blk: {
@@ -110,7 +111,7 @@ pub const StreamProvider = struct {
         const code = self.table.finish_connect.?(attempt, &conn, &fd, &report);
         if (code != GLOWCAP_OK) return .{ .failed = self.dialCause(code, report, "stream connect finish") };
         const handle = self.checkedHandle(report, conn, fd, "stream connect finish") orelse {
-            if (conn) |orphan| connClose(ctx, orphan);
+            if (conn) |orphan| std.debug.assert(connClose(ctx, orphan, .sink) == null);
             return .{ .failed = error.ProviderContract };
         };
         return .{ .ready = handle };
@@ -193,7 +194,7 @@ pub const StreamProvider = struct {
         const code = self.table.accept.?(self.table.ctx, listener, &conn, &fd, &report);
         if (code != GLOWCAP_OK) return .{ .failed = self.chainOf(code, report, "stream accept").cause };
         const handle = self.checkedHandle(report, conn, fd, "stream accept") orelse {
-            if (conn) |orphan| connClose(ctx, orphan);
+            if (conn) |orphan| std.debug.assert(connClose(ctx, orphan, .sink) == null);
             return .{ .failed = error.ProviderContract };
         };
         return .{ .ready = handle };
@@ -292,10 +293,29 @@ pub const StreamProvider = struct {
         return .{ .transferred = @intCast(wrote) };
     }
 
-    fn connClose(ctx: *anyopaque, conn: *anyopaque) void {
+    /// The one `conn_close` call per handle. A failure goes to the waiting
+    /// `caller`, or to the sink when nobody waits. A contract violation goes
+    /// to the sink and reports no failure either way.
+    fn connClose(ctx: *anyopaque, conn: *anyopaque, recipient: external.CloseRecipient) ?net.carrier_failure.Report {
         const self = of(ctx);
         var report = shared.transport_provider.emptyProviderFailure();
-        self.released(self.table.conn_close.?(self.table.ctx, conn, &report), report, "stream close");
+        const code = self.table.conn_close.?(self.table.ctx, conn, &report);
+        if (code == GLOWCAP_OK) {
+            if (!owner_mod.providerFailureIsEmpty(report))
+                self.sink.violation(self.sink.ctx, "stream close reported failure data on success");
+            return null;
+        }
+        const reported = provider_failure.carrierReport(code, report) catch {
+            self.sink.violation(self.sink.ctx, "stream close returned an invalid structured failure");
+            return null;
+        };
+        switch (recipient) {
+            .caller => return reported,
+            .sink => {
+                self.sink.teardown(self.sink.ctx, .fromReport(reported));
+                return null;
+            },
+        }
     }
 
     /// A successful handle-producing call: an empty report, a handle, and a

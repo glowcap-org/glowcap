@@ -89,7 +89,7 @@ pub fn Machine(comptime Self: type) type {
         pub fn armAccept(self: *Self, listener: *Listener) !void {
             if (listener.accept_armed) return;
             try listener.accepted.ensureUnusedCapacity(self.allocator, 1);
-            try self.records.ensureTotalCapacity(self.allocator, self.records.items.len + self.accept_seats + 1);
+            try self.records.ensureTotalCapacity(self.allocator, self.records.items.len + self.accept_seats + self.close_seats + 1);
             try self.backend.submitAccept(userData(.accept, listener.token), listener.fd);
             self.accept_seats += 1;
             listener.accept_armed = true;
@@ -373,6 +373,19 @@ pub fn Machine(comptime Self: type) type {
                 .close => {
                     const conn = self.conns.getPtr(id) orelse return;
                     conn.inflight -= 1;
+                    if (conn.close_wait == .awaited) {
+                        // The awaiting caller's close answers through the seat
+                        // reserved at adoption, whatever the backend reported.
+                        std.debug.assert(conn.close_seat);
+                        conn.close_seat = false;
+                        self.close_seats -= 1;
+                        // Only a backend that declares `close_claimable` (the
+                        // external provider backend) reports a claimable close.
+                        const Backend = @TypeOf(self.backend);
+                        const claimable = @hasDecl(Backend, "close_claimable") and comp.result == Backend.close_claimable;
+                        conn.close_wait = if (claimable) .claimable else .none;
+                        self.records.appendAssumeCapacity(.{ .subject = id, .events = resident_mod.ev_closed });
+                    }
                     retireIfQuiet(self, id, conn);
                 },
                 .listen_close => self.closing_listeners -= 1,
@@ -433,10 +446,12 @@ pub fn Machine(comptime Self: type) type {
         }
 
         pub fn retireIfQuiet(self: *Self, id: usize, conn: *Conn) void {
-            if (conn.close == .closing and conn.inflight == 0) releaseConn(self, id, conn);
+            if (conn.close == .closing and conn.inflight == 0 and conn.close_wait != .claimable)
+                releaseConn(self, id, conn);
         }
 
         fn releaseConn(self: *Self, id: usize, conn: *Conn) void {
+            if (conn.close_seat) self.close_seats -= 1;
             retireStaging(self, &conn.front);
             retireStaging(self, &conn.back);
             std.debug.assert(self.conns.remove(id));
@@ -490,9 +505,9 @@ pub fn Machine(comptime Self: type) type {
             };
         }
 
-        /// Keeps the capacity law: armed accepts hold their seats.
+        /// Keeps the capacity law: armed accepts and awaitable closes hold their seats.
         fn record(self: *Self, subject: usize, events: u32) void {
-            self.records.ensureTotalCapacity(self.allocator, self.records.items.len + self.accept_seats + 1) catch {
+            self.records.ensureTotalCapacity(self.allocator, self.records.items.len + self.accept_seats + self.close_seats + 1) catch {
                 return latch(self, error.OutOfMemory);
             };
             self.records.appendAssumeCapacity(.{ .subject = subject, .events = events });

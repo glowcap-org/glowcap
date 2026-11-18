@@ -13,6 +13,27 @@ Releases before 0.1.7 are in the
 
 ### Breaking
 
+- A valid close failure from a foreign stream provider's `conn_close` now
+  reaches the session whose close ran it. A live session reports it as the
+  session's close failure, with the primary and secondary the provider gave,
+  where it was previously dropped. The C ABI is unchanged. Zig embedders that
+  write a resident or an external provider change as follows:
+
+  - `net.MultiplexedResident.VTable.conn_close` and `connCloseOutcome` take a
+    `net.multiplexed_resident.CloseMode`, `.awaited` or `.no_wait`, which names
+    who receives the provider's close result. Pass `.no_wait` from a call that
+    does not wait. Either mode may still answer `.pending` while admitted
+    bytes drain. The optional `conn_abort` and `connAbortOutcome` take the same
+    mode: an abort delivers an already claimable result to that recipient.
+  - A resident keeps the provider's handle for an `.awaited` caller only when
+    it will publish `ev_closed` and return the result from the next `.awaited`
+    call.
+  - `net.external_completion.VTable.conn_close` is now a choice. Wrap an
+    existing close as `.{ .plain = close }`. A provider that wants a live
+    session to receive its close failure supplies `.{ .reporting = close }`,
+    one function that takes a `CloseRecipient` (`.caller` returns the failure,
+    `.sink` delivers it to the provider's own sink).
+
 - A custom `net.MultiplexedResident.park` callback now returns
   `net.MultiplexedResident.Park`. Replace `true` with `.woke` and `false`
   with `.timeout`. Return `.unavailable` before waiting if the resident

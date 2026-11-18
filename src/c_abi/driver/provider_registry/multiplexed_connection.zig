@@ -43,7 +43,7 @@ pub fn tryWrite(ctx: *anyopaque, conn: usize, bytes: []const u8) isize {
     return wrote;
 }
 
-pub fn close(ctx: *anyopaque, conn: usize) net.multiplexed_resident.TeardownOutcome {
+pub fn close(ctx: *anyopaque, conn: usize, _: net.multiplexed_resident.CloseMode) net.multiplexed_resident.TeardownOutcome {
     const self = of(ctx);
     var report = shared.transport_provider.emptyProviderFailure();
     const code = self.table.conn_close.?(self.table.ctx, @intCast(conn), &report);

@@ -16,6 +16,7 @@ const foundation = @import("foundation");
 const model = @import("model");
 const completion = @import("../../completion/loop.zig");
 const netlayer = @import("../../netlayer.zig");
+const carrier_failure = @import("../../carrier_failure.zig");
 
 /// The durable key of the Host a provider listener serves.
 pub const PeerKey = foundation.crypto.PeerKey;
@@ -87,10 +88,42 @@ pub const VTable = struct {
     /// Claim the structured failure behind a refused read or write on
     /// `conn`, once. Null when the provider keeps none.
     conn_take_failure: ?*const fn (ctx: *anyopaque, conn: *anyopaque) ?foundation.FailureChain = null,
-    /// Releases `conn` and its descriptor. A teardown failure is the
-    /// provider's to record. Nothing waits on it here.
-    conn_close: *const fn (ctx: *anyopaque, conn: *anyopaque) void,
+    /// Releases `conn` and its descriptor, once, through the one close this
+    /// provider declares. The choice also decides which connections can hand
+    /// a close failure to a waiting caller: only `reporting` ones.
+    conn_close: Close,
+
+    /// A provider's one close.
+    pub const Close = union(enum) {
+        /// A teardown failure is the provider's to record. Nothing waits.
+        plain: *const fn (ctx: *anyopaque, conn: *anyopaque) void,
+        /// Reports a teardown failure to `recipient`: `caller` returns it, and
+        /// `sink` delivers it to the provider's own sink and returns null.
+        reporting: *const fn (ctx: *anyopaque, conn: *anyopaque, recipient: CloseRecipient) ?carrier_failure.Report,
+    };
+
+    /// Release `conn` and return the failure the provider's close reports to
+    /// the caller. A `plain` close has none to return.
+    pub fn closeToCaller(self: *const VTable, ctx: *anyopaque, conn: *anyopaque) ?carrier_failure.Report {
+        switch (self.conn_close) {
+            .plain => |close| close(ctx, conn),
+            .reporting => |close| return close(ctx, conn, .caller),
+        }
+        return null;
+    }
+
+    /// Release `conn` with no waiting caller: a failure goes to the
+    /// provider's sink, so none returns.
+    pub fn closeToSink(self: *const VTable, ctx: *anyopaque, conn: *anyopaque) void {
+        switch (self.conn_close) {
+            .plain => |close| close(ctx, conn),
+            .reporting => |close| std.debug.assert(close(ctx, conn, .sink) == null),
+        }
+    }
 };
+
+/// Who receives a close failure: the waiting caller, or the provider's sink.
+pub const CloseRecipient = enum { caller, sink };
 
 /// One foreign provider serving one transport symbol.
 pub const Provider = struct {

@@ -49,6 +49,12 @@ pub fn Types(comptime Platform: type, comptime Namespace: type) type {
             start_poll: bool = false,
             /// Cancellations submitted for this row's polls, not yet retired.
             cancels: u2 = 0,
+            /// Who receives the provider's close result. `awaited` keeps the
+            /// handle once the row is quiet, and the close completion tells
+            /// the waiting caller the result can be claimed. `claimable` is
+            /// that quiet state: no poll or borrow remains and the provider's
+            /// close has not run.
+            close_phase: enum { sink, awaited, claimable } = .sink,
 
             pub fn quiet(entry: *const Entry) bool {
                 return !entry.read_poll and !entry.write_poll and !entry.start_poll and entry.cancels == 0;

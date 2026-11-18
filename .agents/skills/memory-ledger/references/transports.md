@@ -155,6 +155,34 @@ and stream costs.
   - Each listener holds up to `max_unclaimed_accepts` accepted descriptors
     until claimed. That bound is logical: the `ArrayList` capacity may grow
     past it.
+- **Completion-resident close seat**: `completion_resident.Resident.adopt`
+  and `completion_resident/teardown.zig` `closingOutcome`. A foreign stream
+  provider's close result reaches an awaiting caller by value, so a quiet
+  `awaited` connection keeps its provider handle and publishes `ev_closed`
+  through one readiness-record seat. Adoption reserves the seat
+  (`records.ensureTotalCapacity(len + accept_seats + close_seats + 1)`) only
+  when the backend's `awaitsClose` accepts that handle, so a platform
+  descriptor and a provider whose `conn_close` is `.plain` hold none. The
+  `.close` completion consumes the seat with `appendAssumeCapacity`, a
+  `no_wait` takeover or the row's release returns it, and `closeAndDrain`
+  asserts none remain. The notification and the by-value report need no
+  allocation when a close retires, and no result is stored: the failure comes
+  from the provider's own call in `claimClose`.
+  - The external `closeRow` is unchanged. It calls the fallible
+    `ready.reserve(allocator, 1)` once, before it mutates the row, and the
+    close completion (or the `close_claimable` result) takes that slot. A
+    refused reserve leaves the row open.
+  - The state is one `usize` (`close_seats`) on the resident, one `bool`
+    (`close_seat`) and one one-byte enum (`close_wait`) per `Conn`, and one
+    one-byte enum (`close_phase`) per external `Entry`. Debug, aarch64:
+    `Conn` 152 and `Entry` 128 unchanged (the fields fit padding; the
+    completion resident's test pins `Conn`, `test/net/external_close_claim_test.zig`
+    pins `Entry`), `Resident` 1128 to 1136
+    bytes.
+  - Each awaitable connection carries one 16-byte `ReadyEvent` of record
+    capacity for its life. An unclaimed close holds its provider handle and
+    descriptor until the next `awaited` call, the runtime's close deadline, or
+    the drain.
 - **Onion listener publish setup**: `onion/completion/listener.zig`. While
   the publish conversation runs, the one listener row holds about 2 KiB of
   setup state (two <!-- value ../../../../src/net/transport/onion/control.zig max_line_bytes bytes -->1 KiB<!-- /value --> line buffers for the outbound control line and the reply-line assembly, plus
