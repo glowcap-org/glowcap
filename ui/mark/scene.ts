@@ -478,6 +478,11 @@ fn fs(@builtin(position) coord: vec4f) -> @location(0) vec4f {
 		alpha = max(alpha, stroke);
 	}
 
+	// The air and the dust are most of a lit frame's cost and are drawn at
+	// the strength of the light, so a frame with the light out, the whole
+	// growth and every unlit control, skips them for the same pixels.
+	let lightUp = fr.rays * fr.glow > 0.0;
+
 	// The light lives in a sphere that holds the whole canvas, so no beam
 	// meets its wall: a beam ends where its light runs out, never at an edge
 	// of the march. The air ends at the mushroom's own depth for every ray,
@@ -491,7 +496,8 @@ fn fs(@builtin(position) coord: vec4f) -> @location(0) vec4f {
 	let b = dot(oc, rd);
 	let disc = b * b - dot(oc, oc) + 5.4 * 5.4;
 	var vol = 0.0;
-	if (disc > 0.0) {
+	var dust = 0.0;
+	if (lightUp && disc > 0.0) {
 		let root = sqrt(disc);
 		let near = max(-b - root, 0.0);
 		let farPlane = dot(bodyC - ro, ww) / max(dot(rd, ww), 0.01);
@@ -501,7 +507,7 @@ fn fs(@builtin(position) coord: vec4f) -> @location(0) vec4f {
 			vol = marchAir(ro, rd, near, far, farBack, coord.xy, lamps, fr);
 		}
 	}
-	let dust = drift(ro, rd, hit, lamps, fr);
+	if (lightUp) { dust = drift(ro, rd, hit, lamps, fr); }
 
 	// A ceiling on the lit air, so a ray down the middle of a beam sums to a
 	// bright teal and never to white: the light has one colour. By day the

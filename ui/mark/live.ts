@@ -14,7 +14,7 @@
 // box where the mark would be, and the control around it keeps its name and
 // its action.
 
-import { keepOnPageDevice } from "../gpu/device.ts";
+import { FrameGate, keepOnPageDevice } from "../gpu/device.ts";
 import { BEAT, beats, CYCLE, readColours, Renderer, VIEW } from "./renderer.ts";
 
 /** How a mark plays: the opening screen's loop, one arrival that settles into
@@ -56,8 +56,22 @@ const STRIKE_OUT = 0.12;
 const FADE = 0.35;
 /** A standing mark's frame rate: the drift in its light is slow, and a
  * lockup in the chrome should not keep a device awake at sixty a second. The
- * strike runs at full rate. */
+ * strike runs at full rate. A frame is drawn on the first display frame at
+ * least this long after the last one: every third at sixty hertz, every
+ * fifth at a hundred and twenty. */
 const STAND_INTERVAL_MS = 1000 / 24;
+/** How early a display frame may arrive and still count as `STAND_INTERVAL_MS`
+ * after the last. Display timestamps wobble by a fraction of a millisecond,
+ * and where the interval is a whole number of display frames, as five are at
+ * a hundred and twenty hertz, a wobble without this slack drops one frame in
+ * some and not others, and the breathing judders. */
+const STAND_SLACK_MS = 2;
+/** The least a supersample must add per axis to be drawn. Below it the
+ * screen is dense enough, or the canvas large enough, that the edges hold
+ * without one, and the canvas would still pay nearly twice the pixels: a three-times screen
+ * capped at four is a third more per axis and seventy-eight percent more
+ * pixels. */
+const MIN_SUPERSAMPLE = 1.5;
 
 /** Put a live mark inside `host`, which is the mushroom's own box: the canvas
  * hangs around it by `VIEW` so the light has room. Resolves to null when this
@@ -83,22 +97,25 @@ export async function start(host: HTMLElement, play: MarkPlay): Promise<MarkLive
 
 	let running = true;
 	let renderer: Renderer | null = null;
+	let device: GPUDevice | null = null;
+	const gate = new FrameGate();
 	let width = 0;
 	let height = 0;
 	let oversample = 1;
 
 	const release = await keepOnPageDevice({
-		mount: (device, format) => {
+		mount: (mounted, format) => {
 			try {
-				renderer = new Renderer(device, format);
+				renderer = new Renderer(mounted, format);
 			} catch {
 				// tolerant: a device that refuses the pipelines draws no mark.
 				return false;
 			}
+			device = mounted;
 			// Premultiplied, because the drawing is mostly soft edges and light
 			// with partial coverage: composited any other way, every one of them
 			// takes a dark fringe from the transparent black underneath.
-			ctx.configure({ device, format, alphaMode: "premultiplied" });
+			ctx.configure({ device: mounted, format, alphaMode: "premultiplied" });
 			width = 0;
 			height = 0;
 			return true;
@@ -106,6 +123,8 @@ export async function start(host: HTMLElement, play: MarkPlay): Promise<MarkLive
 		lost: () => {
 			renderer?.destroy();
 			renderer = null;
+			device = null;
+			gate.reset();
 		},
 		relit: () => wake(),
 	});
@@ -126,8 +145,11 @@ export async function start(host: HTMLElement, play: MarkPlay): Promise<MarkLive
 		const real = globalThis.devicePixelRatio || 1;
 		// Bounded: the supersample is for the small mark, where it is cheap
 		// and where the edges need it. A large canvas gets fewer samples per
-		// pixel, because its cost is pixels and its edges are already long.
-		const dpr = Math.min(real * 2, 4, 1200 / Math.max(box.width, box.height, 1));
+		// pixel, because its cost is pixels and its edges are already long,
+		// and one too small to matter is not drawn at all.
+		const cap = 1200 / Math.max(box.width, box.height, 1);
+		const over = Math.min(real * 2, 4, cap);
+		const dpr = over >= real * MIN_SUPERSAMPLE ? over : Math.min(real, cap);
 		const w = Math.max(1, Math.min(2048, Math.round(box.width * dpr)));
 		const h = Math.max(1, Math.min(2048, Math.round(box.height * dpr)));
 		if (w === width && h === height) return;
@@ -205,13 +227,14 @@ export async function start(host: HTMLElement, play: MarkPlay): Promise<MarkLive
 	};
 
 	const draw = (seconds: number) => {
-		if (renderer === null) return;
+		if (renderer === null || device === null) return;
 		size();
 		const { frame, dim } = frameAt(seconds);
 		const b = beats(frame, seconds, still.matches);
 		b.glow *= dim;
 		b.rays *= dim;
 		renderer.draw(ctx.getCurrentTexture().createView(), width, height, seconds, colours, b, oversample);
+		gate.submitted(device);
 	};
 
 	let raf = 0;
@@ -219,11 +242,12 @@ export async function start(host: HTMLElement, play: MarkPlay): Promise<MarkLive
 	const tick = (now: number) => {
 		if (!running) return;
 		raf = requestAnimationFrame(tick);
+		if (gate.busy) return;
 		const seconds = (now - begin) / 1000;
 		// An arriving mark is not settled however its phase reads: it is
 		// running the cycle, and the cycle wants every frame.
 		const settled = !arriving(seconds) && (phase === "rest" || phase === "lit");
-		if (play !== "loop" && settled && now - drawn < STAND_INTERVAL_MS) return;
+		if (play !== "loop" && settled && now - drawn < STAND_INTERVAL_MS - STAND_SLACK_MS) return;
 		drawn = now;
 		draw((now - begin) / 1000);
 	};

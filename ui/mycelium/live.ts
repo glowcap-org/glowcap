@@ -7,7 +7,7 @@
 
 import { Activity } from "./activity.ts";
 import { readColors } from "../gpu/color.ts";
-import { keepOnPageDevice } from "../gpu/device.ts";
+import { FrameGate, keepOnPageDevice } from "../gpu/device.ts";
 import { grow, type Links, linksOf, type Network, READING } from "./network.ts";
 import { onOpenGround } from "./open_ground.ts";
 import { runAlong, TRAIL, WAVE_BAND, WAVE_REACH, WAVE_SPEED, waveAlong } from "./light.ts";
@@ -148,21 +148,26 @@ export async function startMycelium(options: MyceliumOptions = {}): Promise<Myce
 	let colors = read;
 
 	let renderer: GroundRenderer | null = null;
+	let device: GPUDevice | null = null;
+	const gate = new FrameGate();
 	let activity: Activity | null = null;
 	const release = await keepOnPageDevice({
-		mount: (device, format) => {
+		mount: (mounted, format) => {
 			try {
-				renderer = new GroundRenderer(device, format);
+				renderer = new GroundRenderer(mounted, format);
 			} catch {
 				// tolerant: a device that refuses the pipelines draws no threads.
 				return false;
 			}
-			for (const { context } of shown) context.configure({ device, format, alphaMode: "premultiplied" });
+			device = mounted;
+			for (const { context } of shown) context.configure({ device: mounted, format, alphaMode: "premultiplied" });
 			return true;
 		},
 		lost: () => {
 			renderer?.destroy();
 			renderer = null;
+			device = null;
+			gate.reset();
 			activity?.refresh();
 		},
 		// Drawn again whole, with whatever light was alight left out.
@@ -225,7 +230,10 @@ export async function startMycelium(options: MyceliumOptions = {}): Promise<Myce
 	// and run alight. The last frame of any of them draws it gone, so the
 	// light canvas is left empty when it rests.
 	const frame = (now: number) => {
-		if (renderer === null || focus === null) return false;
+		if (renderer === null || device === null || focus === null) return false;
+		// The light waits a display frame for the device rather than queue
+		// behind it. Asking again is the same as still being busy.
+		if (gate.busy) return true;
 		let busy = false;
 		const resting = now - mouse.at;
 		let hover = 0;
@@ -276,6 +284,7 @@ export async function startMycelium(options: MyceliumOptions = {}): Promise<Myce
 			busy = true;
 		}
 		renderer.light(lightSheet(), { mouse, hover, upTo, front, waves: alight, runs: running }, colors.light, scale);
+		gate.submitted(device);
 		return busy;
 	};
 
