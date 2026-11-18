@@ -93,10 +93,9 @@ The conformance submodules are pinned commits on other forges. A job checks them
 out from a cache named by those pins, so it clones only when a pin moves. A
 clone that fails waits and tries twice more.
 
-The Loam policy proof runs when its sources, build step or tools change, and
-on nightly and requested checks. CI caches the Bend and Lean archives and
-verifies their checksums on each run. From the repository root, the same
-check runs with `.agents/skills/work/bin/glowcap-dev .devcontainer/bin/tools.sh exec bend -- zig build loam-policy-proof`.
+The Loam policy proof runs when its sources, build step, devcontainer or CI
+wiring change, and on nightly and requested checks. From the repository
+root, run `.agents/skills/work/bin/glowcap-dev .devcontainer/bin/tools.sh exec bend -- zig build loam-policy-proof`.
 
 ## Files
 

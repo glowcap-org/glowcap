@@ -1,5 +1,4 @@
-//! Managed access permissions and ordered bounds. The policy fixtures link
-//! the Zig operations to the pointwise set laws in policy_laws/LAWS.bend.
+//! Managed access policies link permission masks and bound keys to the policy laws.
 
 const std = @import("std");
 const Policy = @import("glowcap").loam.access.core.Policy;
@@ -29,9 +28,9 @@ test "access policy dependencies distinguish configured terms from effect demand
     try std.testing.expectError(error.MissingPrerequisite, policy.isSubsetOf(forged, full));
     try std.testing.expectError(error.MissingPrerequisite, policy.intersect(full, forged));
     try std.testing.expectError(error.MissingPrerequisite, policy.allows(forged, .{ .permissions = &.{post} }));
-    // Each prefix of read, post, upload satisfies the prerequisite chain.
-    const values = [_]Policy.Value{ try policy.value(&.{}, &.{}), reader, try policy.value(&.{ read, post }, &.{}), full };
-    try expectIntersectionModel(&policy, &values);
+    try std.testing.expectEqualDeep(reader, try policy.intersect(full, reader));
+    try std.testing.expect(try policy.isSubsetOf(reader, full));
+    try std.testing.expect(!try policy.isSubsetOf(full, reader));
 }
 
 test "access policy dependency declarations reject malformed matrices and support mutual implications" {
@@ -66,6 +65,11 @@ test "access policy dependency declarations reject malformed matrices and suppor
     try std.testing.expectError(error.MissingPrerequisite, wide.value(&.{keys[63]}, &.{}));
     const both = try wide.value(&.{ keys[0], keys[63] }, &.{});
     try std.testing.expect(try wide.allows(both, .{ .permissions = &.{keys[63]} }));
+    const left = try wide.value(&.{ keys[0], keys[1], keys[63] }, &.{});
+    const right = try wide.value(&.{ keys[0], keys[2], keys[63] }, &.{});
+    const common = try wide.intersect(left, right);
+    try wide.validate(common);
+    try std.testing.expectEqualDeep(both, common);
 }
 
 test "access policy validates runtime schemas values and requirements" {
@@ -122,58 +126,16 @@ test "access policy copies descriptors and handles full width limits" {
     try empty.validate(try empty.value(&.{}, &.{}));
 }
 
-test "policy intersection and subset agree with the sets used in the attenuation proof" {
+test "policy intersection applies each field's declared operator" {
     const policy = try Policy.init(descriptor);
-    const unrestricted = try policy.value(&.{}, &.{});
-    const lower = [_]?u64{ null, 0, 5, std.math.maxInt(u64) };
-    const upper = [_]?u64{ null, std.math.maxInt(u64), 10, 0 };
-    const permissions = 1 << descriptor.permissions.len;
-    var values: [permissions * lower.len * upper.len]Policy.Value = undefined;
-    var count: usize = 0;
-    for (0..permissions) |bits| {
-        for (lower) |floor| {
-            for (upper) |ceiling| {
-                var value = unrestricted;
-                value.permissions = @intCast(bits);
-                value.setBound(0, floor);
-                value.setBound(1, ceiling);
-                values[count] = value;
-                count += 1;
-            }
-        }
-    }
-
-    try expectIntersectionModel(&policy, &values);
-}
-
-fn expectIntersectionModel(policy: *const Policy, values: anytype) !void {
-    // Represent each policy by the set of fixture policies it can delegate.
-    // Distinct values need distinct sets for equality in the proof to carry back to Zig.
-    const Set = @Int(.unsigned, values.len);
-    var sets: [values.len]Set = @splat(0);
-    for (values, 0..) |parent, j| {
-        try policy.validate(parent);
-        for (values, 0..) |child, i| {
-            if (fixtureAllows(parent, child)) sets[j] |= @as(Set, 1) << @intCast(i);
-        }
-        try std.testing.expect(std.mem.findScalar(Set, sets[0..j], sets[j]) == null);
-    }
-
-    // Closure makes the same correspondence hold at every step of a chain.
-    for (values, sets) |a, left| {
-        for (values, sets) |b, right| {
-            const common = left & right;
-            const index = std.mem.findScalar(Set, &sets, common) orelse return error.MissingIntersection;
-            try std.testing.expectEqualDeep(values[index], try policy.intersect(a, b));
-            try std.testing.expectEqual(common == left, try policy.isSubsetOf(a, b));
-        }
-    }
-}
-
-// The bounds fixture puts the floor in slot zero and the ceiling in slot one.
-// Both slots are empty in the prerequisite fixture.
-fn fixtureAllows(parent: Policy.Value, child: Policy.Value) bool {
-    if (parent.bound(0)) |floor| if ((child.bound(0) orelse return false) < floor) return false;
-    if (parent.bound(1)) |ceiling| if ((child.bound(1) orelse return false) > ceiling) return false;
-    return child.permissions & ~parent.permissions == 0;
+    const a = try policy.value(&.{read}, &.{ .{ .key = history, .value = 20 }, .{ .key = upload, .value = 100 } });
+    const b = try policy.value(&.{post}, &.{ .{ .key = history, .value = 10 }, .{ .key = upload, .value = 80 } });
+    const common = try policy.value(&.{}, &.{ .{ .key = history, .value = 20 }, .{ .key = upload, .value = 80 } });
+    try std.testing.expectEqualDeep(common, try policy.intersect(a, b));
+    var wider = common;
+    wider.setBound(0, b.bound(0));
+    try std.testing.expect(!try policy.isSubsetOf(wider, common));
+    wider = common;
+    wider.setBound(1, a.bound(1));
+    try std.testing.expect(!try policy.isSubsetOf(wider, common));
 }
