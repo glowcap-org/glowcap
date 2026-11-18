@@ -1,5 +1,6 @@
 import Base
 import ./LAWS.bend as Laws
+import ./bounds/PROOF.bend as Bounds
 
 def Laws.idempotent(a):
   match a:
@@ -42,3 +43,13 @@ def Laws.withheld_by_any_ancestor(prefix, suffix, held):
         case True{}: Laws.lost_right_stays_lost(suffix)
     case grant <> rest:
       Laws.withheld_by_any_ancestor(rest, suffix, Bool.and(held, grant))
+
+def Laws.intersection_preserves_prerequisite(a, b, required_a, required_b, valid_a, valid_b):
+  match a b:
+    case False{} False{}: {==}
+    case False{} True{}: {==}
+    case True{} False{}: {==}
+    case True{} True{}:
+      %valid_a : {Bool.and(required_a, required_b) == Bool.and(_, True{}) : Bool}
+      %valid_b : {Bool.and(required_a, required_b) == Bool.and(required_a, _) : Bool}
+      {==}

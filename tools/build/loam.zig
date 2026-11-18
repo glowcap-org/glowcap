@@ -36,13 +36,30 @@ pub fn register(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.l
     };
     const profiled = benchExecutable(b, "loam-profile", profiles.moduleOptions(b, "bench/loam_bench.zig"), profiles.module("glowcap"), profiled_engines);
     b.step("profile-loam", "Profile bench-loam under callgrind: self cost per file and function for each marked phase, taking bench-loam's filters after -- (needs valgrind)").dependOn(profile_build.addRun(b, profiles, profiled));
+    policyProof(b);
+    portableCheck(b, optimize, gates);
+    return engines;
+}
+
+fn policyProof(b: *std.Build) void {
+    const book = "test/loam/access/policy_laws";
+    const comparisons = b.createModule(.{
+        .root_source_file = b.path(book ++ "/bounds/comparisons.zig"),
+        .target = b.graph.host,
+        .optimize = .debug,
+    });
+    comparisons.addImport("policy_bounds", b.createModule(.{ .root_source_file = b.path("src/loam/access/core/policy_bounds.zig") }));
+    const emitter = b.addExecutable(.{ .name = "policy-bound-comparisons", .root_module = comparisons });
+    const run = execution.addArtifact(b, .build_tool, emitter);
+    const files = b.addWriteFiles();
+    _ = files.addCopyDirectory(b.path(book), "book", .{ .include_extensions = &.{".bend"} });
+    _ = files.addCopyFile(run.captureStdOut(.{}), "book/bounds/comparisons.bend");
+
     const laws = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{"bend"});
-    laws.addFileArg(b.path("test/loam/access/policy_laws/PROOF.bend"));
+    laws.addFileArg(files.getDirectory().path(b, "book/PROOF.bend"));
     laws.addArg("--verdict");
     execution.showOutput(laws);
     b.step("loam-policy-proof", "Prove Loam policy intersection and attenuation (run through .devcontainer/bin/tools.sh exec bend --)").dependOn(&laws.step);
-    portableCheck(b, optimize, gates);
-    return engines;
 }
 
 fn portableCheck(b: *std.Build, optimize: std.lang.Optimize, gates: Gates) void {

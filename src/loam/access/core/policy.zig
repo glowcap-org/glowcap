@@ -4,6 +4,7 @@
 //! committed facts. The algebra performs no allocation or callbacks.
 
 const std = @import("std");
+const ordered = @import("policy_bounds.zig");
 const KindId = @import("identity.zig").KindId;
 
 pub const Policy = struct {
@@ -27,7 +28,7 @@ pub const Policy = struct {
     /// Masks use the complete vocabulary's stable ordering. Subtree support
     /// includes future descendants and must contain exact-object support.
     pub const KindRule = struct { kind: KindId, permissions: u64, subtree_permissions: u64 };
-    pub const Operator = enum { lower_bound, upper_bound };
+    pub const Operator = ordered.Operator;
     pub const Constraint = struct { key: Key, operator: Operator };
     pub const Bound = struct { key: Key, value: u64 };
     pub const Dependency = struct { permission: Key, required: Key };
@@ -233,10 +234,7 @@ pub const Policy = struct {
         try self.validate(parent);
         if (child.permissions & ~parent.permissions != 0) return false;
         for (self.constraint_fields[0..self.constraint_count], 0..) |field, i| {
-            if (parent.bound(i)) |limit| {
-                const selected = child.bound(i) orelse return false;
-                if (!satisfies(field.operator, selected, limit)) return false;
-            }
+            if (!ordered.fits(field.operator, child.bound(i), parent.bound(i))) return false;
         }
         return true;
     }
@@ -249,10 +247,7 @@ pub const Policy = struct {
         result.permissions &= b.permissions;
         for (self.constraint_fields[0..self.constraint_count], 0..) |field, i| {
             if (b.bound(i)) |limit| {
-                result.setBound(i, if (a.bound(i)) |other| switch (field.operator) {
-                    .lower_bound => @max(other, limit),
-                    .upper_bound => @min(other, limit),
-                } else limit);
+                result.setBound(i, ordered.intersect(field.operator, a.bound(i), limit));
             }
         }
         return result;
@@ -276,17 +271,10 @@ pub const Policy = struct {
         var allowed = requested.permissions & ~terms.permissions == 0;
         for (self.constraint_fields[0..self.constraint_count], 0..) |field, i| {
             if (requested.bound(i)) |fact| {
-                if (terms.bound(i)) |limit| allowed = satisfies(field.operator, fact, limit) and allowed;
+                allowed = ordered.fits(field.operator, fact, terms.bound(i)) and allowed;
             }
         }
         return allowed;
-    }
-
-    fn satisfies(operator: Operator, fact: u64, limit: u64) bool {
-        return switch (operator) {
-            .lower_bound => fact >= limit,
-            .upper_bound => fact <= limit,
-        };
     }
 
     fn permissionMask(self: *const Policy, keys: []const Key) Error!u64 {

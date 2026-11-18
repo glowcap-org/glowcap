@@ -49,3 +49,14 @@ law withheld_by_any_ancestor:
   for suffix: List<Bool>
   for held: Bool
   {attenuate(List.append(&1, Bool, prefix, False{} <> suffix), held) == False{} : Bool}
+
+# Fix any edge in the policy schema. Both parents carry the prerequisite
+# whenever they carry the dependent permission.
+law intersection_preserves_prerequisite:
+  for a: Bool
+  for b: Bool
+  for required_a: Bool
+  for required_b: Bool
+  for valid_a: {fits(a, required_a) == True{} : Bool}
+  for valid_b: {fits(b, required_b) == True{} : Bool}
+  {fits(Bool.and(a, b), Bool.and(required_a, required_b)) == True{} : Bool}

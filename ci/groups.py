@@ -301,6 +301,7 @@ NIGHTLY = {
     "loam-policy-proof": (
         "build.zig",
         "test/loam/access/policy_laws/",
+        "src/loam/access/core/policy_bounds.zig",
         "tools/build/loam.zig",
         ".devcontainer/bin/tools.sh",
         ".devcontainer/tools/lib/bend.sh",

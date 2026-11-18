@@ -7,12 +7,19 @@ places a new test.
 
 ## Loam policy laws
 
-A delegation chain can only narrow the rights held at its start. The
-[Bend laws](loam/access/policy_laws/LAWS.bend) state this for any number of
-intersections. The [Zig tests](loam/access/policy_test.zig) check the link to
-Loam on two finite sets of policies, one with prerequisites and one with
-ordered bounds. Each Zig bit stands for a child policy the parent can delegate.
-Bitwise intersection applies Bend’s Boolean AND to each child.
+A delegation chain can only narrow its starting rights. Intersecting valid
+grants also preserves each permission's prerequisites. The
+[permission laws](loam/access/policy_laws/LAWS.bend) prove these properties
+one permission or dependency at a time.
+
+A child bound fits a delegation chain exactly when it fits every parent,
+including the starting grant. A supplied fact follows the same rule. The
+[bound laws](loam/access/policy_laws/bounds/LAWS.bend) cover absent bounds
+and inclusive floors and ceilings. They use Zig's decisions and assume
+`std.math.order` orders `u64` the same way Bend orders natural numbers.
+The gate exercises the Zig adapters with absent bounds, zero, and the largest
+value. [Policy tests](loam/access/policy_test.zig) check how Loam applies the
+rules across fields.
 
 Run `.devcontainer/bin/tools.sh exec bend -- zig build loam-policy-proof` in the
 devcontainer to check the proof. `zig build test` checks the Zig operations.
