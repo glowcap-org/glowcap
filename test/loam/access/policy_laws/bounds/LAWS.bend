@@ -41,19 +41,6 @@ law intersection:
   for +b: Bound
   {fits(d, child, meet(d, a, b)) == Bool.and(fits(d, child, a), fits(d, child, b)) : Bool}
 
-# An omitted fact places no demand on the policy.
-def admits(d: Direction, fact: Bound, limit: Bound) -> Bool:
-  match fact:
-    case Open{}: True{}
-    case At{value}: fits(d, At{value}, limit)
-
-law admission_intersection:
-  for +d: Direction
-  for +fact: Bound
-  for +a: Bound
-  for +b: Bound
-  {admits(d, fact, meet(d, a, b)) == Bool.and(admits(d, fact, a), admits(d, fact, b)) : Bool}
-
 def chain(+d: Direction, parents: List<&2, Bound>, held: Bound) -> Bound:
   match parents:
     case Nil{}: held

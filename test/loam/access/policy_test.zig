@@ -75,7 +75,6 @@ test "access policy dependency declarations reject malformed matrices and suppor
 test "access policy validates runtime schemas values and requirements" {
     const policy = try Policy.init(descriptor);
     const terms = try policy.value(&.{read}, &.{ .{ .key = history, .value = 50 }, .{ .key = upload, .value = 100 } });
-    try std.testing.expect(!try policy.allows(terms, .{ .permissions = &.{post}, .facts = &.{.{ .key = history, .value = 50 }} }));
     try std.testing.expectError(error.UnknownPermission, policy.value(&.{@fromBackingInt(99)}, &.{}));
     try std.testing.expectError(error.UnknownConstraint, policy.value(&.{}, &.{.{ .key = @fromBackingInt(99), .value = 0 }}));
     try std.testing.expectError(error.DuplicateKey, policy.value(&.{ read, read }, &.{}));
@@ -101,6 +100,36 @@ test "access policy validates runtime schemas values and requirements" {
     bad = descriptor;
     bad.constraints = &.{ .{ .key = history, .operator = .lower_bound }, .{ .key = history, .operator = .upper_bound } };
     try std.testing.expectError(error.NonCanonicalSchema, Policy.init(bad));
+}
+
+test "an effect passes the intersection exactly when it passes both parent policies" {
+    const policy = try Policy.init(descriptor);
+    const facts = [_]Policy.Bound{ .{ .key = history, .value = 50 }, .{ .key = upload, .value = 100 } };
+    // One bit each for read, the floor, and the ceiling.
+    var parents: [8]Policy.Value = undefined;
+    for (&parents, 0..) |*parent, mask| {
+        parent.* = try policy.value(if (mask & 1 != 0) &.{read} else &.{}, &.{
+            .{ .key = history, .value = if (mask & 2 != 0) 50 else 51 },
+            .{ .key = upload, .value = if (mask & 4 != 0) 100 else 99 },
+        });
+    }
+    for (parents, 0..) |left, a| for (parents, 0..) |right, b| {
+        const common = try policy.intersect(left, right);
+        for (0..parents.len) |requested| {
+            const effect: Policy.Requirement = .{
+                .permissions = if (requested & 1 != 0) &.{read} else &.{},
+                .facts = switch (requested & 6) {
+                    2 => facts[0..1],
+                    4 => facts[1..2],
+                    6 => &facts,
+                    else => &.{},
+                },
+            };
+            try std.testing.expectEqual(requested & ~a == 0, try policy.allows(left, effect));
+            try std.testing.expectEqual(requested & ~b == 0, try policy.allows(right, effect));
+            try std.testing.expectEqual(requested & ~(a & b) == 0, try policy.allows(common, effect));
+        }
+    };
 }
 
 test "access policy copies descriptors and handles full width limits" {

@@ -44,11 +44,6 @@ def L.intersection(d, child, a, b):
     case L.At{x} L.Open{}: and_true(L.fits(d, child, L.At{x}))
     case L.At{x} L.At{y}: bounded(d, child, x, y)
 
-def L.admission_intersection(d, fact, a, b):
-  match fact:
-    case L.Open{}: {==}
-    case L.At{value}: L.intersection(d, L.At{value}, a, b)
-
 def L.delegation(d, parents, child, held):
   match parents:
     case Nil{}: {==}

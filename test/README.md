@@ -12,15 +12,11 @@ Intersection preserves prerequisites. A child bound fits a chain exactly
 when it fits every parent, including the starting grant.
 [Permission laws](loam/access/policy_laws/LAWS.bend) · [Bound laws](loam/access/policy_laws/bounds/LAWS.bend)
 
-In the devcontainer, run `.devcontainer/bin/tools.sh exec bend -- zig build loam-policy-proof`.
-
-The permission proof models one bit per right. Zig tests exercise the masks
-and prerequisite edges together.
-
-Bend proves the bound laws over natural numbers. A supplied fact must satisfy
-each parent bound. An omitted fact places no demand. The gate compares Zig’s
-policy operations with Bend for every ordering and combination of absent
-bounds, using zero and the largest `u64` as witnesses.
+Run `.devcontainer/bin/tools.sh exec bend -- zig build loam-policy-proof` in
+the devcontainer. The permission proof models one bit per right. Zig tests
+exercise the masks and prerequisite edges together. Bend proves the bound laws over natural numbers. The gate
+compares Zig’s public policy operations with Bend for each ordering and each
+combination of absent bounds, using zero and the largest `u64` as witnesses.
 
 ## Fuzz regression inputs
 

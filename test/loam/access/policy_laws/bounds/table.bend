@@ -12,16 +12,14 @@ def bit(value: Bool) -> String:
   Bool.pick(String, value, "1", "0")
 
 def compare(+d: L.Direction, +child: L.Bound, +parent: L.Bound) -> String:
-  bit(L.fits(d, child, parent)) ++ bit(equal(L.meet(d, child, parent), child)) ++
-  bit(L.admits(d, child, parent))
+  bit(L.fits(d, child, parent)) ++ bit(equal(L.meet(d, child, parent), child))
 
 # Zero and one stand for the two endpoints in the Zig witness.
 def row(+d: L.Direction) -> String:
   +low: L.Bound = L.At{0n}
   +high: L.Bound = L.At{1n}
   compare(d, L.Open{}, L.Open{}) ++ " " ++ compare(d, high, L.Open{}) ++ " " ++
-  compare(d, L.Open{}, low) ++ " " ++ compare(d, L.Open{}, high) ++ " " ++
-  compare(d, low, high) ++ " " ++
+  compare(d, L.Open{}, low) ++ " " ++ compare(d, low, high) ++ " " ++
   compare(d, high, high) ++ " " ++ compare(d, high, low)
 
 def main() -> IO(Unit):
