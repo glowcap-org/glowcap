@@ -293,7 +293,7 @@ Declared in [`.devcontainer/pins.sh`](../.devcontainer/pins.sh):
 - **Distroless**: The minimal base for the Rooms server image.
 - **Zig**: Builds the library, the C archives, the CLI and every check.
 - **ZLS**: The Zig language server for editors, built against the pinned Zig.
-- **Bend**: Checks the host callbacks imported by the WebAssembly driver.
+- **Bend**: Generates the binding Host action decoders and checks the WebAssembly driver imports.
 - **Rust and rustup**: The Rust binding, the iroh and WebRTC transports, and Rooms.
 - **Deno**: The TypeScript binding, Rooms' web client, ocapnviz and the browser tests.
 - **Node and npm**: Install the coding agents the container offers.

@@ -25,7 +25,7 @@ ZLS_VERSION="0.17.0"
 ZLS_SOURCE_REVISION="542462c4ddf045493fa9ca028ee6bc3f38b2754a"
 ZLS_SOURCE_SHA256="3eb3107317ef948783cdc3daae07238f1fe7c6cf28fe8ed1a776ff38df781224"
 
-# dep Bend: Checks the host callbacks imported by the WebAssembly driver.
+# dep Bend: Generates the binding Host action decoders and checks the WebAssembly driver imports.
 BEND_VERSION="2.0.40"
 
 # --- Rust ---

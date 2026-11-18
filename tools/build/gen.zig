@@ -412,7 +412,7 @@ pub fn register(ctx: Context) *std.Build.Step.Compile {
             .check_desc = "Verify binding HostAction decode/types match src/c_abi/host (fails if stale)",
             .write_desc = "Regenerate binding HostAction decode/types from src/c_abi/host",
             .generator = "tools/gen/binding/host_action.zig",
-            .reflects = .{ .name = "c_abi_host", .module = host_abi_mod },
+            .extra_imports = @import("gen/host_action.zig").projections(b, target, optimize, host_abi_mod),
         },
         // The Rooms wire grammar reflects no archive: the declaration in the
         // generator is the authority, and the Deno test holds it to the

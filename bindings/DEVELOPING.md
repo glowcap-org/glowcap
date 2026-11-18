@@ -51,6 +51,11 @@ one step plus the event queue. The byte-fed drain can request:
 - `CANCEL_DIAL`: interrupt and join the dial named by the ticket, then report
   that it was cancelled.
 
+The C ABI defines the tags and layout of `GlowcapHostAction`. Each binding
+reads the payload before the next queue pop and supplies its own I/O handlers.
+Run `zig build gen-binding-host-action` after editing the
+[Host action schema](../tools/gen/binding/host_action/schema.bend).
+
 A pump hook returning non-OK is a transactional refusal: it must have committed
 no external effect, and the same action remains first for the next drain call.
 Once a hook copies, parks, or otherwise takes responsibility for an action, it
@@ -131,9 +136,6 @@ benches, and probes live under the package's `test/` (or the workspace-level
 `test/`), which every package `deno.json` names in `publish.exclude`.
 `zig build source-check` refuses a test-shaped file outside `test/` and a
 publish block that does not exclude `test/**`.
-
-Host action tags and layouts are generated from one Zig table. Callback bodies
-are handwritten because they cross into language-specific I/O.
 
 ## Callback rules
 

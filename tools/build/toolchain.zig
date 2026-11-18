@@ -52,6 +52,11 @@ const in_tree_runtimes = [_]toolchain_check.Runtime{
         .why = "checked TypeScript examples and site surfaces catch binding API drift",
     },
     .{
+        .program = "bend",
+        .scripts = &@import("../gen/binding/host_action.zig").scripts,
+        .why = "the binding Host action decoders are checked against the compiled C ABI",
+    },
+    .{
         .program = "capnp",
         .why = "the build-only interface authoring comparison reads compiler requests from Cap'n Proto 1.1.0",
     },

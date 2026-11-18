@@ -21,7 +21,7 @@ const cp = @import("c_abi_shared");
 const ConstOmission = reflect.ConstOmission;
 
 const plan_dial = "Vocabulary of glowcap_host_plan_dial, which every binding omits (bindings/ffi_omissions/shared.zig): driver providers plan dials inside Zig, and plan_dial serves a C embedder that opens its own sockets.";
-const host_action = "Reaches Rust, Python, and Racket through the generated host-action mirror (tools/gen/binding/host_action_py_rs_rkt.zig).";
+const host_action = "Reaches Rust, Python, and Racket through the generated host-action mirror (zig build gen-binding-host-action).";
 
 /// The provider contract: glowcap_transport_provider.h declares these and a
 /// transport archive fills the structs they describe. No binding writes a

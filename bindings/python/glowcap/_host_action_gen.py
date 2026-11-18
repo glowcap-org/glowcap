@@ -108,11 +108,7 @@ def decode(a) -> HostAction:
 
 
 async def dispatch(action: HostAction, handlers) -> None:
-    """Exhaustive dispatch: handlers expose one coroutine/callable per arm
-    (`dial`, `flush`, `need_gift_id`, `settle`, `fail`, `close`, `resume`).
-    An eighth
-    kind fails here rather than silently missing in `_action.py`.
-    """
+    """Await the handler method named for the action's variant."""
     match action:
         case Dial():
             await handlers.dial(action)

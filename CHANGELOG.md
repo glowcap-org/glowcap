@@ -217,6 +217,11 @@ Releases before 0.1.7 are in the
 
 ### Changed
 
+- The TypeScript, Python, Rust, and Racket bindings generate their Host action
+  decoders from one Bend declaration. Running `zig build check` or regenerating
+  these bindings requires Bend. The TypeScript decoder uses the binding’s
+  Deno formatter. The devcontainer includes both tools.
+
 - The browser Host’s Wasm import check runs with Bend. Contributors running
   `zig build wasm-import-check` use the Bend release pinned in the devcontainer.
 
