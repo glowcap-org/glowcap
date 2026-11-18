@@ -411,7 +411,7 @@ fn Tests(comptime Backend: type) type {
             try std.testing.expectEqual(@as(usize, 2), server.rearm_owed_count);
             const retry = server.resident().memoryRetry().?;
             try std.testing.expect(!server.resident().readyPending() or server.records.items.len != 0);
-            net.epoll_white_box.failNextControl(&server.backend);
+            net.epoll_white_box.failNextControl(&server.backend, .INVAL);
             retry.retry();
             // The first retried listener latched the failure and cleared its
             // flag. The sibling stays owed and untouched.

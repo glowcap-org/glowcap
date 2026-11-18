@@ -237,7 +237,6 @@ comptime {
         if (@import("builtin").target.os.tag == .linux) {
             _ = @import("driver/host_runtime_multiplexed/lifecycle_test.zig");
             _ = @import("driver/host_runtime_multiplexed/park_test.zig");
-            _ = @import("driver/host_runtime_multiplexed/park_watch_test.zig");
             _ = @import("driver/host_runtime_multiplexed/parked_input_test.zig");
             _ = @import("driver/host_runtime_multiplexed/zig_server_test.zig");
             _ = @import("driver/host_runtime_multiplexed/conversation_test.zig");
@@ -253,6 +252,8 @@ comptime {
             _ = @import("driver/host_runtime_step/serve_test.zig");
         if (@import("builtin").target.os.tag == .linux or @import("builtin").target.os.tag.isDarwin())
             _ = @import("driver/host_runtime_multiplexed/external_short_write_test.zig");
+        if (@import("builtin").target.os.tag == .linux or @import("builtin").target.os.tag.isDarwin())
+            _ = @import("driver/host_runtime_multiplexed/park_watch_test.zig");
         _ = @import("driver/host_runtime_step/flood_test.zig");
         if (@import("builtin").target.os.tag == .linux or @import("builtin").target.os.tag.isDarwin())
             _ = @import("driver/host_runtime_step/deferred_release_claim_test.zig");
@@ -382,6 +383,7 @@ comptime {
         _ = @import("net/completion_resident_test.zig");
         _ = @import("net/completion_resident_listener_test.zig");
         _ = @import("net/completion_resident_rearm_test.zig");
+        _ = @import("net/completion_resident_watch_test.zig");
         _ = @import("net/fuzz_test.zig");
         _ = @import("net/connection_test.zig");
         _ = @import("net/completion_contract_test.zig");

@@ -45,7 +45,7 @@ pub const Backend = struct {
     buffer_pool: BufferPool,
     listener_ip4: [4]u8,
     test_state: if (builtin.is_test) struct {
-        fail_next_control: bool = false,
+        fail_next_control: ?linux.E = null,
         defer_next_recv: bool = false,
     } else struct {} = .{},
 
@@ -138,32 +138,51 @@ pub const Backend = struct {
         return events;
     }
 
-    fn control(self: *Backend, operation: u32, fd: Fd, events: u32) !void {
+    /// The one `epoll_ctl` call, as its errno. A test build may substitute the
+    /// errno of its next call, with no syscall made.
+    fn controlErrno(self: *Backend, operation: u32, fd: Fd, events: u32) linux.E {
         if (comptime builtin.is_test) {
-            if (self.test_state.fail_next_control) {
-                self.test_state.fail_next_control = false;
-                return error.EpollControlFailed;
+            if (self.test_state.fail_next_control) |injected| {
+                self.test_state.fail_next_control = null;
+                return injected;
             }
         }
         var event: linux.epoll_event = .{
             .events = events,
             .data = .{ .fd = fd },
         };
-        const result = linux.epoll_ctl(
+        return linux.errno(linux.epoll_ctl(
             self.epoll_fd,
             operation,
             fd,
             if (operation == linux.EPOLL.CTL_DEL) null else &event,
-        );
-        if (linux.errno(result) != .SUCCESS) return error.EpollControlFailed;
+        ));
+    }
+
+    fn control(self: *Backend, operation: u32, fd: Fd, events: u32) !void {
+        if (self.controlErrno(operation, fd, events) != .SUCCESS) return error.EpollControlFailed;
+    }
+
+    /// Select ADD for a row the kernel has not seen and MOD for one it has.
+    fn registration(inserted: bool) u32 {
+        return if (inserted) linux.EPOLL.CTL_ADD else linux.EPOLL.CTL_MOD;
     }
 
     fn register(self: *Backend, fd: Fd, pending: Pending, inserted: bool) !void {
-        try self.control(
-            if (inserted) linux.EPOLL.CTL_ADD else linux.EPOLL.CTL_MOD,
-            fd,
-            interests(pending),
-        );
+        try self.control(registration(inserted), fd, interests(pending));
+    }
+
+    /// `register` for a poll, whose refusal names its cause: ENOSPC is the
+    /// user's watch quota (`error.EpollWatchLimit`) and ENOMEM the kernel's
+    /// memory (`error.OutOfMemory`). Neither registered anything. Every other
+    /// errno is `error.EpollControlFailed`.
+    fn registerPoll(self: *Backend, fd: Fd, pending: Pending, inserted: bool) !void {
+        switch (self.controlErrno(registration(inserted), fd, interests(pending))) {
+            .SUCCESS => {},
+            .NOSPC => return error.EpollWatchLimit,
+            .NOMEM => return error.OutOfMemory,
+            else => return error.EpollControlFailed,
+        }
     }
 
     /// Reflect a completed operation in the kernel interest set. The old mask
@@ -289,7 +308,7 @@ pub const Backend = struct {
                 next.write = .{ .poll = user_data };
             },
         }
-        try self.register(fd, next, reserved.inserted);
+        try self.registerPoll(fd, next, reserved.inserted);
         reserved.pending.* = next;
     }
 
@@ -590,8 +609,9 @@ pub const white_box = if (builtin.is_test) struct {
         return backend.pending.count();
     }
 
-    pub fn failNextControl(backend: *Backend) void {
-        backend.test_state.fail_next_control = true;
+    /// The next `epoll_ctl` result is `errno`, as the syscall would have returned it.
+    pub fn failNextControl(backend: *Backend, errno: linux.E) void {
+        backend.test_state.fail_next_control = errno;
     }
 
     pub fn deferNextRecv(backend: *Backend) void {

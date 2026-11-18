@@ -171,8 +171,10 @@ pub const Backend = struct {
         std.debug.assert(self.pending.remove(fd));
     }
 
-    /// Arm a one-shot interest. `kqueue_readiness` re-arms a spurious edge.
-    pub fn register(self: *Backend, fd: c.fd_t, filter: i16) !void {
+    /// The one `kevent` call that adds a one-shot interest. A refusal for lack
+    /// of kernel memory (ENOMEM) is `error.OutOfMemory`: nothing was
+    /// registered. Every other errno is `error.KeventFailed`.
+    fn addOneShot(self: *Backend, fd: c.fd_t, filter: i16) error{ OutOfMemory, KeventFailed }!void {
         var change: c.Kevent = .{
             .ident = @intCast(fd),
             .filter = filter,
@@ -185,9 +187,20 @@ pub const Backend = struct {
         while (true) {
             const rc = c.kevent(self.kq, @ptrCast(&change), 1, @ptrCast(&change), 0, null);
             if (rc >= 0) return;
-            if (std.posix.errno(rc) == .INTR) continue;
-            return error.KeventFailed;
+            switch (std.posix.errno(rc)) {
+                .INTR => continue,
+                .NOMEM => return error.OutOfMemory,
+                else => return error.KeventFailed,
+            }
         }
+    }
+
+    /// Arm a one-shot interest. `kqueue_readiness` re-arms a spurious edge.
+    /// Capacity is not distinguished here: only a watch is optional.
+    pub fn register(self: *Backend, fd: c.fd_t, filter: i16) !void {
+        self.addOneShot(fd, filter) catch |err| switch (err) {
+            error.OutOfMemory, error.KeventFailed => return error.KeventFailed,
+        };
     }
 
     fn unregister(self: *Backend, fd: c.fd_t, filter: i16) !void {
@@ -302,11 +315,11 @@ pub const Backend = struct {
         errdefer self.rollbackSlot(fd, reserved);
         switch (interest) {
             .readable => {
-                try self.register(fd, c.EVFILT.READ);
+                try self.addOneShot(fd, c.EVFILT.READ);
                 reserved.pending.read = .{ .poll = user_data };
             },
             .writable => {
-                try self.register(fd, c.EVFILT.WRITE);
+                try self.addOneShot(fd, c.EVFILT.WRITE);
                 reserved.pending.write = .{ .poll = user_data };
             },
         }

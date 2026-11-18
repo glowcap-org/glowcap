@@ -454,7 +454,9 @@ pub fn applySettleMailboxWith(self: *HostRuntime, effect_mode: ExternalEffectMod
 /// mailbox, the stepped ready set's wake, and its siblings' readiness
 /// descriptors, and the wait runs inside its kernel queue, so the work the
 /// kernel owes this thread for a completion runs inside the one wake.
-/// Otherwise the wait polls every readiness descriptor.
+/// Otherwise the wait polls every readiness descriptor, and so does a wait whose
+/// parker could not install a watch or answers `.unavailable`: one blocking
+/// wait per call, at the wait left and the timed owner already chosen.
 pub fn waitAnySource(self: *HostRuntime, requested_ms: i32, empty_ok: bool) !?usize {
     const timeout_ms = requested_ms;
     Internal.progressCarrierCloseDeadlines(self);
@@ -477,8 +479,12 @@ pub fn waitAnySource(self: *HostRuntime, requested_ms: i32, empty_ok: bool) !?us
     const residents = self.residents.items.len;
     const start = if (residents > 0) self.wait_cursor % residents else 0;
     self.wait_cursor +%= 1;
-    const parking = Internal.parkingResident(self);
-    if (parking) try watchWakeSources(self);
+    // The watches are optional: a parker that cannot install one declines
+    // the park for this call, and the wait below polls every descriptor.
+    var parking = Internal.parkingResident(self);
+    if (parking) watchWakeSources(self) catch |err| switch (err) {
+        error.OutOfMemory => parking = false,
+    };
     Internal.flushResidents(self, .park);
     if (Internal.readyResident(self, start)) |index| return index;
     // The nearest pending deadline bounds the spin as it bounds the park, so
@@ -511,14 +517,17 @@ pub fn waitAnySource(self: *HostRuntime, requested_ms: i32, empty_ok: bool) !?us
             timed_resident = index;
         }
     }
-    if (parking) {
-        const woke = self.residents.items[0].resident.park(wait_ms);
+    if (parking) park: {
+        const ended = self.residents.items[0].resident.park(wait_ms);
+        // A parker that did not wait leaves the whole bound and the timed
+        // owner to the one descriptor wait below.
+        if (ended == .unavailable) break :park;
         // A sibling's readiness ended the park through the watch on its
         // descriptor: it reaps now, as the descriptor poll would have
         // selected it.
         for (self.residents.items[1..]) |registered| registered.resident.reap();
         if (Internal.readyResident(self, start)) |index| return index;
-        return if (woke) null else timed_resident;
+        return if (ended == .woke) null else timed_resident;
     }
     self.extra_fd_scratch.clearRetainingCapacity();
     for (0..residents) |k| {
@@ -555,9 +564,9 @@ pub fn parkingResident(self: *const HostRuntime) bool {
 /// over at the next one. Each mark (`HostRuntime.watched_siblings`,
 /// `watched_mailbox`, `watched_ready_wake`) advances after its callback
 /// returns, so a refusal ends the call and the next one offers that descriptor
-/// again. The runtime allocates nothing here, and the callback keeps its own
-/// failure.
-fn watchWakeSources(self: *HostRuntime) !void {
+/// again. The runtime allocates nothing here. A refusal only declines the park
+/// for the call: the descriptors the parker already holds stay watched.
+fn watchWakeSources(self: *HostRuntime) error{OutOfMemory}!void {
     const parker = self.residents.items[0].resident;
     const siblings = self.residents.items[1..];
     std.debug.assert(self.watched_siblings <= siblings.len);

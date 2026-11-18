@@ -146,11 +146,11 @@ pub const AcceptOwnershipResident = struct {
         break :parking table;
     };
 
-    fn park(ctx: *anyopaque, timeout_ms: i32) bool {
+    fn park(ctx: *anyopaque, timeout_ms: i32) net.MultiplexedResident.Park {
         const self = of(ctx);
         self.park_calls += 1;
         self.park_timeout_ms = timeout_ms;
-        return false;
+        return .timeout;
     }
 
     fn watch(_: *anyopaque, _: i32) error{OutOfMemory}!void {}

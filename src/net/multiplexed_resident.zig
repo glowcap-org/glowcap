@@ -144,17 +144,25 @@ pub const MultiplexedResident = struct {
         wait_bound_ms: ?*const fn (ctx: *anyopaque, requested_ms: i32) i32 = null,
         /// Wait in the resident's own kernel queue until a completion lands,
         /// a watched descriptor reads ready, or `timeout_ms` passes (negative
-        /// for no limit), and turn what arrived into held records. True when
-        /// something arrived. The runtime parks here, not on the readiness
-        /// descriptor, when every resident it has offers it, so the work the
-        /// kernel owes this thread for a completion runs inside the one
-        /// wake. Absent means the runtime polls the descriptor.
-        park: ?*const fn (ctx: *anyopaque, timeout_ms: i32) bool = null,
+        /// for no limit), and turn what arrived into held records. The
+        /// runtime parks here, not on the readiness descriptor, when every
+        /// resident it has offers it, so the work the kernel owes this thread
+        /// for a completion runs inside the one wake. A resident that cannot
+        /// install a watch it owes the park answers `.unavailable` before it
+        /// waits, and the runtime polls every readiness descriptor, this
+        /// resident's included, in its place, so one call never waits twice. A
+        /// resident that cannot decline answers only `.woke` or `.timeout`.
+        /// Absent means the runtime polls the descriptor.
+        park: ?*const fn (ctx: *anyopaque, timeout_ms: i32) Park = null,
         /// Wake `park` when `fd` reads ready, consuming nothing from it, from
         /// the next park on. The runtime hands the resident that
         /// parks it the descriptors it would otherwise poll beside that one:
         /// its settle mailbox, a stepped ready set's wake, and its other
-        /// residents. Present exactly when `park` is.
+        /// residents. `error.OutOfMemory` means nothing was installed: the
+        /// runtime skips the park for this call and polls every readiness
+        /// descriptor instead (each resident's, the mailbox's, and a stepped
+        /// ready set's wake), then offers this one again at the next call.
+        /// Present exactly when `park` is.
         watch: ?*const fn (ctx: *anyopaque, fd: i32) error{OutOfMemory}!void = null,
         /// Drain pending ready records into `out`. Returns how many records
         /// were written.
@@ -523,13 +531,21 @@ pub const MultiplexedResident = struct {
         take(self.ctx);
     }
 
+    /// How a `park` ended. `.woke` is a completion or watched descriptor, or a
+    /// failure `ready_pending` now reports. `.timeout` is the bound passing
+    /// with nothing arrived. `.unavailable` is a park that did not wait because
+    /// an optional watch could not be installed for lack of memory or kernel
+    /// watch capacity: nothing waited, watches already armed stay armed, and
+    /// the next park offers only the rest.
+    pub const Park = enum { woke, timeout, unavailable };
+
     /// Whether the runtime may park inside this resident.
     pub fn parks(self: MultiplexedResident) bool {
         return self.vtable.park != null and self.vtable.watch != null;
     }
 
     /// Requires `parks`.
-    pub fn park(self: MultiplexedResident, timeout_ms: i32) bool {
+    pub fn park(self: MultiplexedResident, timeout_ms: i32) Park {
         return self.vtable.park.?(self.ctx, timeout_ms);
     }
 
