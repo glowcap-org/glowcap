@@ -350,7 +350,7 @@ pub const Sink = struct {
         const pending = self.len > 0 or if (self.listener) |listener| listener.accept_queued else false;
         self.lock.unlock();
         // The latch reaches the owner's next poll, which reports it.
-        if (pending) _ = self.wake.nudge() catch |err| self.wake_failure.record(err);
+        if (pending) self.wake_failure.nudge(self.wake);
     }
 
     /// The owner is reaping, so a writer that queues news owes no nudge.
@@ -386,7 +386,7 @@ pub const Sink = struct {
     /// the link lock first.
     fn nudgeQueued(self: *Sink) void {
         // The latch reaches the owner's next poll, which reports it.
-        _ = self.wake.nudge() catch |err| self.wake_failure.record(err);
+        self.wake_failure.nudge(self.wake);
         _ = self.nudging.fetchSub(1, .release);
     }
 

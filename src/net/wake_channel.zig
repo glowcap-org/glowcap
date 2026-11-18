@@ -58,6 +58,17 @@ pub const FailureLatch = struct {
     pub fn check(self: *const FailureLatch) Failure!void {
         if (self.failure()) |err| return err;
     }
+
+    /// Nudge `wake` from a caller that cannot return the fault (a writer on
+    /// another thread). A fatal send publishes `WakeNudgeFailed` here before
+    /// the write half retires, because retiring ends the owner's receive with
+    /// EOF and the owner reads this latch to name that EOF.
+    pub fn nudge(self: *FailureLatch, wake: WakeChannel) void {
+        _ = wake.sendOnce() catch |err| {
+            self.record(err);
+            retireWrite(wake.write);
+        };
+    }
 };
 
 // Darwin reaches the socket calls through libc; Linux uses raw syscalls and
@@ -114,36 +125,35 @@ pub const WakeChannel = struct {
     /// `MSG_NOSIGNAL` on Linux keeps a torn-down read half from raising
     /// SIGPIPE. Teardown order (nudgers stop first) covers the rest.
     pub fn nudge(self: WakeChannel) error{WakeNudgeFailed}!NudgeResult {
+        return self.sendOnce() catch |err| {
+            retireWrite(self.write);
+            return err;
+        };
+    }
+
+    /// One send with the fault reported and the write half left open, so a
+    /// caller can publish the fault before retiring it.
+    fn sendOnce(self: WakeChannel) error{WakeNudgeFailed}!NudgeResult {
         const byte = [_]u8{1};
         while (true) {
             if (is_linux) {
                 const rc = linux.sendto(self.write, &byte, byte.len, linux.MSG.NOSIGNAL, null, 0);
                 switch (linux.errno(rc)) {
-                    .SUCCESS => if (rc == byte.len) return .sent else {
-                        retireWrite(self.write);
-                        return error.WakeNudgeFailed;
-                    },
+                    .SUCCESS => return if (rc == byte.len) .sent else error.WakeNudgeFailed,
                     .AGAIN => return .coalesced,
                     .INTR => continue,
-                    else => {
-                        retireWrite(self.write);
-                        return error.WakeNudgeFailed;
-                    },
+                    else => return error.WakeNudgeFailed,
                 }
             }
             const rc = send(self.write, &byte, byte.len, 0);
             if (rc >= 0) {
                 if (rc == byte.len) return .sent;
-                retireWrite(self.write);
                 return error.WakeNudgeFailed;
             }
             switch (std.c.errno(rc)) {
                 .AGAIN => return .coalesced,
                 .INTR => continue,
-                else => {
-                    retireWrite(self.write);
-                    return error.WakeNudgeFailed;
-                },
+                else => return error.WakeNudgeFailed,
             }
         }
     }
