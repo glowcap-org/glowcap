@@ -50,10 +50,14 @@ import { reapOwned } from "../support/children.ts";
 import { waitForHttp } from "../support/rooms_server.ts";
 import { until } from "../support/wait.ts";
 import { fail } from "../support/fail.ts";
+import { fromPlaywright, ReopenCapture } from "../support/reopen_capture.ts";
 import { confirmTitleLeave, openDmTo } from "../page/harness.ts";
 
 const ROOT = new URL("../../../../", import.meta.url).pathname;
 const ROOM = "lobby";
+
+/** What a failing run reports. Written to only through `capture`. */
+const capture = new ReopenCapture();
 
 /** The two ways a tab advertises itself for direct messages, and the transport
  * each one's line rides. The room itself runs over plain TCP, so a session on
@@ -62,6 +66,8 @@ const MODES = [
 	{ name: "webrtc", query: "?dm=webrtc", transport: "webrtc", first: "alice", second: "bob" },
 	{ name: "noise-relay", query: "?dm=relay", transport: "noise-relay", first: "carol", second: "dave" },
 ] as const;
+
+type Mode = typeof MODES[number];
 
 // ── The timeline, as a viewer sees it ────────────────────────────────────────
 
@@ -128,7 +134,11 @@ class Timeline {
  * the sturdyref the server announced. */
 async function watch(sturdyref: string): Promise<Timeline> {
 	const timeline = new Timeline();
-	await connectTraceViewer(sturdyref, (record) => timeline.apply(record));
+	const viewer = await connectTraceViewer(sturdyref, (record) => {
+		capture.viewer(record);
+		timeline.apply(record);
+	});
+	capture.observeClosed(viewer.closed);
 	return timeline;
 }
 
@@ -142,8 +152,14 @@ async function settles(
 	want: (live: Set<string>) => boolean,
 	timeoutMs = 30_000,
 ): Promise<void> {
-	await until(() => want(timeline.on(transport)), what, timeoutMs).catch(() =>
-		fail(`${what}; the timeline held ${timeline.held(transport)}`)
+	await capture.phase(
+		"settles",
+		transport,
+		() =>
+			until(() => want(timeline.on(transport)), what, timeoutMs).catch(() =>
+				fail(`${what}; the timeline held ${timeline.held(transport)}`)
+			),
+		what,
 	);
 }
 
@@ -152,12 +168,17 @@ async function settles(
 async function joinAs(
 	browser: Browser,
 	port: number,
-	query: string,
+	mode: Mode,
 	nick: string,
 	trace: string,
 ): Promise<Page> {
+	const query = mode.query;
 	const context = await browser.newContext();
+	// Only the tabs whose line is a DataChannel have one to observe.
+	const instrumented = mode.name === "webrtc";
+	if (instrumented) await capture.instrument(context);
 	const tab = await context.newPage();
+	capture.register(tab, nick, mode.name, instrumented, fromPlaywright(tab));
 	tab.on("pageerror", (e) => console.error(`  [${nick} page error]`, e.message));
 	tab.on("console", (m) => {
 		if (m.type() === "error") console.error(`  [${nick} console.error]`, m.text());
@@ -176,21 +197,35 @@ async function joinAs(
 }
 
 async function say(tab: Page, text: string): Promise<void> {
-	await tab.fill("#line", text);
-	await tab.press("#line", "Enter");
-}
-
-async function sees(tab: Page, text: string, who: string): Promise<void> {
-	await tab.waitForFunction(
-		(t) => [...document.querySelectorAll(".bubble")].some((b) => b.textContent?.includes(t)),
-		text,
-		{ timeout: 30_000 },
-	).catch(async () => {
-		const log = (await tab.textContent("#log").catch(() => "?")) ?? "?";
-		console.error(`  [${who} #log] ${JSON.stringify(log)}`);
-		fail(`${who} never saw "${text}"`);
+	await capture.phase("say", capture.who(tab), async () => {
+		await tab.fill("#line", text);
+		await tab.press("#line", "Enter");
 	});
 }
+
+/** `openDmTo`, marked for the failure capture. */
+const openDm = (tab: Page, peer: string): Promise<void> =>
+	capture.phase("openDmTo", capture.who(tab), () => openDmTo(tab, peer), peer);
+
+/** `confirmTitleLeave`, marked for the failure capture. */
+const leaveDm = (tab: Page): Promise<void> =>
+	capture.phase("confirmTitleLeave", capture.who(tab), () => confirmTitleLeave(tab));
+
+async function sees(tab: Page, text: string, who: string): Promise<void> {
+	await capture.phase("sees", capture.who(tab), () =>
+		tab.waitForFunction(
+			(t) => [...document.querySelectorAll(".bubble")].some((b) => b.textContent?.includes(t)),
+			text,
+			{ timeout: 30_000 },
+		).catch(async () => {
+			const log = (await tab.textContent("#log").catch(() => "?")) ?? "?";
+			console.error(`  [${who} #log] ${JSON.stringify(log)}`);
+			fail(`${who} never saw "${text}"`);
+		}).then(() => {}));
+}
+
+/** The live sessions the timeline held, per transport, for the failure report. */
+const describe = (timeline: Timeline): string => MODES.map((m) => timeline.held(m.transport)).join("; ");
 
 const deadline = setTimeout(() => fail("web-dm-reopen timed out after 300s"), 300_000);
 
@@ -207,21 +242,23 @@ const traceRef = webAnnouncements(web).line("ROOMS-TRACE-LISTENING", "rooms-web"
 const httpPort = await webPort(web);
 
 let browser: Browser | null = null;
+let watched: Timeline | null = null;
 try {
 	await waitForHttp(httpPort);
 	const timeline = await watch(await traceRef);
+	watched = timeline;
 	const trace = await traceRef;
 	browser = await chromium.launch({ args: ["--no-sandbox"] });
 
 	for (const mode of MODES) {
-		const opener = await joinAs(browser, httpPort, mode.query, mode.first, trace);
-		const other = await joinAs(browser, httpPort, mode.query, mode.second, trace);
+		const opener = await joinAs(browser, httpPort, mode, mode.first, trace);
+		const other = await joinAs(browser, httpPort, mode, mode.second, trace);
 
 		// The first conversation: the opener redeems the room's introduction, the
 		// line opens, and both directions carry.
-		await openDmTo(opener, mode.second);
+		await openDm(opener, mode.second);
 		await say(opener, `${mode.name}: first line`);
-		await openDmTo(other, mode.first);
+		await openDm(other, mode.first);
 		await sees(other, `${mode.name}: first line`, mode.second);
 		await say(other, `${mode.name}: first reply`);
 		await sees(opener, `${mode.name}: first reply`, mode.first);
@@ -236,7 +273,7 @@ try {
 		// The opener ends the conversation with the mark in its title. The
 		// connection is the conversation's, so it goes with it, and the timeline is
 		// where that claim is checkable.
-		await confirmTitleLeave(opener);
+		await leaveDm(opener);
 		await settles(
 			timeline,
 			mode.transport,
@@ -249,7 +286,7 @@ try {
 		// because it is the sharper fact: a reopen that opened nothing is a reopen
 		// that resolved to something already there, and saying so beats waiting
 		// out a message that was never going to arrive.
-		await openDmTo(opener, mode.second);
+		await openDm(opener, mode.second);
 		await say(opener, `${mode.name}: second line`);
 		await settles(
 			timeline,
@@ -277,7 +314,7 @@ try {
 				[opener, other, mode.first],
 			] as const
 		) {
-			await confirmTitleLeave(sender);
+			await leaveDm(sender);
 			await sender.waitForFunction(
 				() => document.querySelectorAll("#dmList li:not(.closed) .dm-open").length === 0,
 				undefined,
@@ -285,7 +322,7 @@ try {
 					timeout: 20_000,
 				},
 			);
-			await openDmTo(sender, sender === other ? mode.first : mode.second);
+			await openDm(sender, sender === other ? mode.first : mode.second);
 			const message = `${mode.name}: ${nick} reopened`;
 			await say(sender, message);
 			await sees(receiver, message, "the receiving peer");
@@ -404,6 +441,12 @@ try {
 			"relay rendezvous cold dial alike — the closed line left the timeline, the reopened " +
 			"one arrived on a session nobody had seen, and messages crossed it both ways",
 	);
+} catch (error) {
+	// Disarm the whole-run deadline first: it throws from a timer, and an
+	// awaited snapshot must not be raced by it into replacing this failure.
+	clearTimeout(deadline);
+	await capture.report(error, watched === null ? "not watching yet" : describe(watched));
+	throw error;
 } finally {
 	clearTimeout(deadline);
 	if (browser) await browser.close().catch(() => {});
