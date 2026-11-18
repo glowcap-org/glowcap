@@ -98,6 +98,9 @@ expect_pin_contains() {
 }
 
 expect_pin_equals "zig" ZIG_VERSION zig version
+if require_pin "bend" BEND_VERSION; then
+    expect_equals "bend" "bend ${BEND_VERSION}" bend version
+fi
 expect_pin_equals "zls" ZLS_VERSION zls --version
 
 expect_pin_contains "racket" RACKET_VERSION racket --version

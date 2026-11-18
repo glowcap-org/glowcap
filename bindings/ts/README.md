@@ -66,7 +66,7 @@ zig build deno-test
 zig build bun-test
 zig build wasm-host-test
 zig build wasm-abi-layout-check
-zig build wasm-import-check
+zig build wasm-import-check     # Uses Bend from the devcontainer.
 ```
 
 `zig build bindings` runs the binding checks together. The

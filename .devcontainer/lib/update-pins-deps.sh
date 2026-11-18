@@ -81,7 +81,7 @@ glowcap_pins_require_hex64() {
 #   manual - a generation move; bump prints the procedure instead of editing
 # ---------------------------------------------------------------------------
 
-GLOWCAP_PINS_DEPS="debian distroless zig zls rust rustup-init deno node npm bun playwright uv python serena claude codex cursor-agent opencode devcontainer-cli racket goblins"
+GLOWCAP_PINS_DEPS="debian distroless zig zls bend rust rustup-init deno node npm bun playwright uv python serena claude codex cursor-agent opencode devcontainer-cli racket goblins"
 
 glowcap_pins_dep_var() {
     case "$1" in
@@ -89,6 +89,7 @@ glowcap_pins_dep_var() {
         distroless) echo DISTROLESS_BASE_DIGEST ;;
         zig) echo ZIG_VERSION ;;
         zls) echo ZLS_SOURCE_REVISION ;;
+        bend) echo BEND_VERSION ;;
         rust) echo RUST_VERSION ;;
         rustup-init) echo RUSTUP_INIT_VERSION ;;
         deno) echo DENO_VERSION ;;
@@ -127,6 +128,7 @@ glowcap_pins_dep_gate() {
         distroless) echo "release workflow Linux image proofs" ;;
         zig) echo "zig build check with the new toolchain" ;;
         zls) echo "rebuild + post-create.sh (verify-toolchains)" ;;
+        bend) echo "zig build wasm-import-check" ;;
         rust) echo "zig build check (rust-test rides it)" ;;
         rustup-init | deno | node | bun) echo "zig build check" ;;
         playwright) echo "rebuild (new baked Chromium), then zig build rooms-web-page and siblings" ;;
@@ -171,6 +173,7 @@ glowcap_pins_query_version() {
                 glowcap_pins_fetch https://api.github.com/repos/zigtools/zls/commits/master | jq -r .sha
             fi
             ;;
+        bend) glowcap_pins_github_latest_tag bendlang/bend | sed 's/^v//' ;;
         # Several packages in the channel file carry a version line; only
         # [pkg.rust]'s is the toolchain version.
         rust) glowcap_pins_fetch https://static.rust-lang.org/dist/channel-rust-stable.toml \

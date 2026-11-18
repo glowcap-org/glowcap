@@ -97,6 +97,7 @@ COPY .devcontainer/tools/ "${GLOWCAP_DEVCONTAINER_DIR}/tools/"
 
 RUN bash "${GLOWCAP_DEVCONTAINER_DIR}/image/zig.sh" \
  && bash "${GLOWCAP_DEVCONTAINER_DIR}/image/zls.sh" \
+ && bash "${GLOWCAP_DEVCONTAINER_DIR}/image/bend.sh" \
  && bash "${GLOWCAP_DEVCONTAINER_DIR}/image/rust.sh" \
  && bash "${GLOWCAP_DEVCONTAINER_DIR}/image/js-toolchains.sh" \
  && bash "${GLOWCAP_DEVCONTAINER_DIR}/image/python.sh" \

@@ -469,7 +469,7 @@ zig build wasm-host             # Build the browser binding's freestanding wasm3
 zig build wasm-archives         # Build freestanding Host, OCapN, and Loam static archives for Wasm application linking; part of loam-browser-build, portable-pack, rooms-browser-build, rooms-managed-rooms-browser-test, rooms-managed-sharing-browser-test, rooms-rust-contract-browser-test, rooms-rust-lint, rooms-session-executor-browser-test, rooms-session-foreign-browser-reload-test, rooms-session-foreign-browser-test, rooms-session-graph-browser-test
 zig build wasm-host-test        # Prove the wasm32 Host handshakes and checks sturdyref peer authority from JS (needs deno, ADR-0034 and ADR-0007)
 zig build wasm-abi-layout-check # Prove the wasm32 Host's layout descriptor (glowcap_wasm_abi_layout) decodes cleanly and agrees with the abi.ts field counts (needs deno, ADR-0034)
-zig build wasm-import-check     # Prove the wasm32 Host imports exactly its behavior and hosted-retirement callbacks (needs deno, ADR-0034)
+zig build wasm-import-check     # Prove the wasm32 Host imports exactly its behavior and hosted-retirement callbacks (needs Bend, ADR-0034)
 zig build web-peer-test         # Prove @glowcap/web holds keyed WebSocket and sealed Noise-relay sessions with Zig peers (needs deno + Playwright, ADR-0034 and ADR-0041)
 ```
 

@@ -22,6 +22,12 @@ zig_sha256() {
     esac
 }
 
+bend_sha256() {
+    glowcap_pick_by_arch bend_sha256 \
+        "c9ff8d67bd903fb6ad9a26b43d8a62c01021de82a44d55ce4a3dcd4732113d6b" \
+        "2f42a6fa34ecdaa71ae105e5fa734f9a07e129d333e45448ab6d2ff03a837570"
+}
+
 deno_sha256() {
     glowcap_pick_by_arch deno_sha256 \
         "e890975bc2549807bbcc0b584ffafda72cc7c93349dd99c80483dd784f6c4609" \

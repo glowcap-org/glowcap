@@ -8,7 +8,7 @@
 //! freestanding Host carries no thread-id reader, so it checks no affinity.
 //!
 //! This file also registers its install step, the static Wasm archives, and the
-//! deno proofs of the module: `wasm-host`, `wasm-archives`, `wasm-host-test`,
+//! checks on the module: `wasm-host`, `wasm-archives`, `wasm-host-test`,
 //! `wasm-abi-layout-check`, `web-peer-test`, and `wasm-import-check`.
 
 const std = @import("std");
@@ -200,12 +200,13 @@ pub fn register(b: *std.Build, cross_check_step: *std.Build.Step) Registered {
 
     // The wasm32 Host imports exactly the behavior-dispatch and hosted-
     // retirement seams (ADR-0034). Parse the module statically and assert that
-    // fixed set, so an accidental extra import or rename fails the build. A
-    // sibling step (needs deno), not folded into the Zig-hermetic `check`.
-    const wasm_import_check = commands.addRootedSystemCommand(b, .{ .deterministic = 30 }, &.{ "deno", "run", "--allow-read", "tools/wasm/import_check.ts" });
+    // fixed set, so an accidental extra import or rename fails the build. The
+    // build passes the freshly compiled artifact directly to the checker.
+    const wasm_import_check = commands.addRootedSystemCommand(b, .{ .deterministic = 30 }, &.{ "bend", "tools/wasm/import_check.bend" });
     wasm_import_check.has_side_effects = true;
     wasm_import_check.step.dependOn(&wasm_driver_install.step);
-    const wasm_import_check_step = b.step("wasm-import-check", "Prove the wasm32 Host imports exactly its behavior and hosted-retirement callbacks (needs deno, ADR-0034)");
+    wasm_import_check.addFileArg(wasm_driver.getEmittedBin());
+    const wasm_import_check_step = b.step("wasm-import-check", "Prove the wasm32 Host imports exactly its behavior and hosted-retirement callbacks (needs Bend, ADR-0034)");
     wasm_import_check_step.dependOn(&wasm_import_check.step);
 
     return .{ .install = &wasm_driver_install.step, .archives = wasm_archives_step };

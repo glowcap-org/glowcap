@@ -217,6 +217,9 @@ Releases before 0.1.7 are in the
 
 ### Changed
 
+- The browser Host’s Wasm import check runs with Bend. Contributors running
+  `zig build wasm-import-check` use the Bend release pinned in the devcontainer.
+
 - The website and introductory guides shorten repeated explanations and clarify
   installation, shared-session lifetimes, history recovery limits, and Loam's
   supported interfaces.

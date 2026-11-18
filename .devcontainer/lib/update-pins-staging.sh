@@ -117,6 +117,11 @@ EOF
                 "$(glowcap_pins_fetch "${base}/x86_64-unknown-linux-gnu/rustup-init.sha256" | cut -d' ' -f1)" \
                 "$(glowcap_pins_fetch "${base}/aarch64-unknown-linux-gnu/rustup-init.sha256" | cut -d' ' -f1)"
             ;;
+        bend)
+            glowcap_pins_replace_arch_hashes "${file}" bend_sha256 \
+                "$(glowcap_pins_github_asset_sha256 bendlang/bend "v${version}" "bend-${version}-linux-x64.tar.gz")" \
+                "$(glowcap_pins_github_asset_sha256 bendlang/bend "v${version}" "bend-${version}-linux-arm64.tar.gz")"
+            ;;
         deno)
             glowcap_pins_replace_arch_hashes "${file}" deno_sha256 \
                 "$(glowcap_pins_github_asset_sha256 denoland/deno "v${version}" deno-x86_64-unknown-linux-gnu.zip)" \
