@@ -331,9 +331,28 @@ pub fn advertiseParts(loop: ?*cdrv.GlowcapDriverLoop, listener: u64, transport: 
 pub const TestLoop = struct {
     raw: ?*cdrv.GlowcapDriverLoop,
     host: ?*cd.GlowcapHost,
+    context: *c.GlowcapContext,
+
+    pub fn release(self: *TestLoop, failure: ?*cdrv.GlowcapDriverFailure) i32 {
+        const rc = if (self.raw) |loop|
+            cdrv.glowcap_driver_release(loop, failure)
+        else
+            cd.glowcap_host_release(self.host);
+        if (c.ReleaseResult.fromRaw(rc).ownership == .consumed) {
+            self.raw = null;
+            self.host = null;
+        }
+        return rc;
+    }
 
     pub fn deinit(self: TestLoop) void {
-        _ = releaseLoop(self.raw);
+        if (self.host != null) {
+            var owned = self;
+            var failure = cdrv.GlowcapDriverFailure.init();
+            const result = c.ReleaseResult.fromRaw(owned.release(&failure));
+            if (result.ownership == .retained) @panic("test fixture retained its Host at teardown");
+        }
+        c.glowcap_context_release(self.context);
     }
 };
 
@@ -366,12 +385,14 @@ pub fn installRelay(
 }
 
 pub fn newEmptyLoop(seed_byte: u8) !TestLoop {
-    const host = try newByteFedHost(seed_byte);
-    errdefer _ = cd.glowcap_host_release(host);
-    var loop: ?*cdrv.GlowcapDriverLoop = null;
-    try expectOk(cdrv.glowcap_driver_take_host(host, &driver_options_10s, &loop));
-    errdefer _ = releaseLoop(loop);
-    return .{ .raw = loop, .host = host };
+    return newEmptyLoopWithOptions(seed_byte, &driver_options_10s);
+}
+
+pub fn newEmptyLoopWithOptions(seed_byte: u8, options: *const cdrv.GlowcapDriverOptions) !TestLoop {
+    var owned = try newByteFedHost(seed_byte, null);
+    errdefer owned.deinit();
+    try expectOk(cdrv.glowcap_driver_take_host(owned.host, options, &owned.raw));
+    return owned;
 }
 
 pub fn newLoop(seed_byte: u8) !TestLoop {
@@ -382,10 +403,18 @@ pub fn newLoop(seed_byte: u8) !TestLoop {
     return owned;
 }
 
-pub fn newByteFedHost(seed_byte: u8) !?*cd.GlowcapHost {
+/// Own the Context and byte-fed Host through any later transfer to the driver.
+pub fn newByteFedHost(seed_byte: u8, allocator: ?*const c.GlowcapAllocator) !TestLoop {
+    var ctx: ?*c.GlowcapContext = null;
+    try expectOk(if (allocator) |spec|
+        c.glowcap_context_new_with_allocator(spec, &ctx)
+    else
+        c.glowcap_context_new(&ctx));
+    errdefer c.glowcap_context_release(ctx);
     var host: ?*cd.GlowcapHost = null;
     const seed = hostSeed(seed_byte);
-    try expectOk(cd.glowcap_host_new(
+    try expectOk(cd.glowcap_host_new_in(
+        ctx,
         &seed,
         seed.len,
         frame_cap,
@@ -397,7 +426,7 @@ pub fn newByteFedHost(seed_byte: u8) !?*cd.GlowcapHost {
         1,
         &host,
     ));
-    return host;
+    return .{ .raw = null, .host = host, .context = ctx.? };
 }
 
 /// The carrier fields of one event, as the C driver reports them.

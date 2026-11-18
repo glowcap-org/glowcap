@@ -54,6 +54,13 @@ no alternate stack per archive on every thread.
 | `libglowcap_net_transport_tcp` | `glowcap_net_transport_tcp.h` | The complete TCP transport archive: `noise-tcp`, `keyed-tcp`, and testing `tcp`, plus low-level blocking framed connections for a byte-fed Host. |
 | `libglowcap_net_transport_inproc` | `glowcap_net_transport_inproc.h` | In-process connections for tests and local scenarios. |
 
+Create a Context with `glowcap_context_new` or `glowcap_context_new_with_allocator`
+and pass it to `glowcap_host_new_in` when creating a Host for the driver.
+Keep the Context until `glowcap_driver_release` consumes the loop. You can
+still drain recorded failures from that Context after release. A Host created
+with `glowcap_host_new` supports byte-fed operation. Attempting to adopt it
+returns `GLOWCAP_ERR_INVALID_ARGUMENT` and leaves its queued actions available.
+
 The driver archive starts with zero transports. To add `noise-tcp`, create a
 `GlowcapTcpNetlayer`, call `glowcap_tcp_transport_provider`, and pass the
 result to `glowcap_driver_add_provider`. iroh installs the same way through

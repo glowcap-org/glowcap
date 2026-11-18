@@ -361,14 +361,17 @@ test "stream provider failure chain reaches SESSION_CLOSED exactly" {
 test "loop-owned session release refuses callback reentry before dropping the wire" {
     const server = try newLoop(0x5f);
     var release = ReentrantSessionRelease{ .loop = server.raw, .listener = 0 };
-    try expectOk(cd.glowcap_host_publish(
+    expectOk(cd.glowcap_host_publish(
         server.host,
         "release-probe",
         "release-probe".len,
         reentrantSessionReleaseBehavior,
         &release,
         null,
-    ));
+    )) catch |err| {
+        server.deinit();
+        return err;
+    };
     var pair = try connectAndFetch(server, 0x60, "release-probe");
     defer pair.deinit();
     release.listener = pair.listener;
@@ -403,7 +406,10 @@ test "loop-owned session release refuses callback reentry before dropping the wi
 
 test "exporter claims succeed in a turn a Host verb tail runs outside step" {
     const server = try newLoop(0x69);
-    try expectOk(cd.glowcap_host_publish(server.host, "widget", "widget".len, widgetBehavior, null, null));
+    expectOk(cd.glowcap_host_publish(server.host, "widget", "widget".len, widgetBehavior, null, null)) catch |err| {
+        server.deinit();
+        return err;
+    };
     var pair = try connectAndFetch(server, 0x6a, "widget");
     defer pair.deinit();
 
@@ -439,14 +445,17 @@ test "exporter claims succeed in a turn a Host verb tail runs outside step" {
 test "driver retirement requested in a behavior defers listener effects until callback unwind" {
     const server = try newLoop(0x67);
     var retirement = CallbackRetirement{ .loop = server.raw };
-    try expectOk(cd.glowcap_host_publish(
+    expectOk(cd.glowcap_host_publish(
         server.host,
         "retirement-probe",
         "retirement-probe".len,
         callbackRetirementBehavior,
         &retirement,
         null,
-    ));
+    )) catch |err| {
+        server.deinit();
+        return err;
+    };
     var pair = try connectAndFetch(server, 0x68, "retirement-probe");
     defer pair.deinit();
 

@@ -213,7 +213,8 @@ test "driver release returns a stream cancel failure with its carrier detail and
         .release_code = c.GLOWCAP_ERR_INTERNAL,
     };
     defer package.wake.deinit();
-    const owned_loop = try harness.newEmptyLoop(0x74);
+    var owned_loop = try harness.newEmptyLoop(0x74);
+    defer owned_loop.deinit();
     var table = package.table();
     const profile = harness.providerProfile("stream-release-cancel");
     try installPendingListen(owned_loop.raw, &package, &table, &profile, "stream-release-cancel");
@@ -221,7 +222,7 @@ test "driver release returns a stream cancel failure with its carrier detail and
     try std.testing.expectEqual(@as(usize, 0), package.releases);
 
     var failure = cdrv.GlowcapDriverFailure.init();
-    try std.testing.expectEqual(-c.GLOWCAP_ERR_IO, cdrv.glowcap_driver_release(owned_loop.raw, &failure));
+    try std.testing.expectEqual(-c.GLOWCAP_ERR_IO, owned_loop.release(&failure));
 
     // Each callback ran once, inside that release, in this order.
     try std.testing.expectEqual(@as(usize, 1), package.cancels);
@@ -248,7 +249,8 @@ test "a refused driver release does not run the stream cleanup" {
         .cancel_code = c.GLOWCAP_ERR_IO,
     };
     defer package.wake.deinit();
-    const owned_loop = try harness.newEmptyLoop(0x76);
+    var owned_loop = try harness.newEmptyLoop(0x76);
+    defer owned_loop.deinit();
     var table = package.table();
     const profile = harness.providerProfile("stream-release-refused");
     try installPendingListen(owned_loop.raw, &package, &table, &profile, "stream-release-refused");
@@ -257,12 +259,12 @@ test "a refused driver release does not run the stream cleanup" {
     var bad = cdrv.GlowcapDriverFailure.init();
     bad.struct_size = 1;
     // A refusal keeps the handle: its code is negative, a consumed failure positive.
-    try std.testing.expect(cdrv.glowcap_driver_release(owned_loop.raw, &bad) < 0);
+    try std.testing.expect(owned_loop.release(&bad) < 0);
     try std.testing.expectEqual(@as(usize, 0), package.cancels);
     try std.testing.expectEqual(@as(usize, 0), package.releases);
 
     var failure = cdrv.GlowcapDriverFailure.init();
-    try std.testing.expectEqual(-c.GLOWCAP_ERR_IO, cdrv.glowcap_driver_release(owned_loop.raw, &failure));
+    try std.testing.expectEqual(-c.GLOWCAP_ERR_IO, owned_loop.release(&failure));
     try std.testing.expectEqual(@as(usize, 1), package.cancels);
     try std.testing.expectEqual(@as(usize, 1), package.releases);
 }
@@ -281,7 +283,8 @@ test "driver release keeps one retained contract failure and joins the stream fa
         .release_contradicts = true,
     };
     defer contradictory.wake.deinit();
-    const owned_loop = try harness.newEmptyLoop(0x77);
+    var owned_loop = try harness.newEmptyLoop(0x77);
+    defer owned_loop.deinit();
     var stream_table = stream.table();
     var contradictory_table = contradictory.table();
     const stream_profile = harness.providerProfile("stream-release-joined");
@@ -294,7 +297,7 @@ test "driver release keeps one retained contract failure and joins the stream fa
     try std.testing.expectEqualSlices(Step, &.{ .retain, .retain }, log.slice());
 
     var failure = cdrv.GlowcapDriverFailure.init();
-    const status = cdrv.glowcap_driver_release(owned_loop.raw, &failure);
+    const status = owned_loop.release(&failure);
 
     // Each callback ran once inside that release. The completion backend
     // decides whether the pending listen's cancel runs before or after the
@@ -347,7 +350,8 @@ test "package rollback keeps a valid release failure secondary and its candidate
         .opaque_hint = &.{},
         .release_code = c.GLOWCAP_ERR_IO,
     };
-    const owned_loop = try harness.newEmptyLoop(0x78);
+    var owned_loop = try harness.newEmptyLoop(0x78);
+    defer owned_loop.deinit();
     var first_table = first.table();
     var aliased_table = aliased.table();
     const first_profile = harness.providerProfile("typed-test");
@@ -387,7 +391,8 @@ test "package rollback keeps a valid release failure secondary and its candidate
 
     // Release returns the first package once and does not repeat the
     // candidate's cleanup.
-    try expectOk(harness.releaseLoop(owned_loop.raw));
+    var release_report = cdrv.GlowcapDriverFailure.init();
+    try expectOk(owned_loop.release(&release_report));
     try std.testing.expectEqual(@as(usize, 1), first.releases);
     try std.testing.expectEqual(@as(usize, 1), aliased.releases);
 }
@@ -403,7 +408,8 @@ test "package rollback with a contradictory release returns the live refusal and
         .opaque_hint = &.{},
         .release_reports_failure = true,
     };
-    const owned_loop = try harness.newEmptyLoop(0x79);
+    var owned_loop = try harness.newEmptyLoop(0x79);
+    defer owned_loop.deinit();
     var first_table = first.table();
     var aliased_table = aliased.table();
     const first_profile = harness.providerProfile("rollback-malformed-first");
@@ -422,7 +428,7 @@ test "package rollback with a contradictory release returns the live refusal and
 
     // The contradiction is retained once on the runtime. Release returns it.
     var failure = cdrv.GlowcapDriverFailure.init();
-    try std.testing.expect(cdrv.glowcap_driver_release(owned_loop.raw, &failure) > 0);
+    try std.testing.expect(owned_loop.release(&failure) > 0);
     try expectName(failure.primary_name, failure.primary_name_len, "ProviderContract");
     try expectName(failure.secondary_name, failure.secondary_name_len, "ContradictoryReleaseFailure");
     try std.testing.expectEqual(@as(u32, 1), failure.secondary_count);

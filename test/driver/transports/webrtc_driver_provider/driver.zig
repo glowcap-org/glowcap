@@ -14,6 +14,7 @@
 const std = @import("std");
 
 const driver_provider = @import("driver_provider");
+const c = @import("c_abi");
 const cs = @import("c_abi_shared");
 const ch = @import("c_abi_host");
 const cd = @import("c_abi_driver");
@@ -59,9 +60,10 @@ fn addDriverProvider(loop: ?*cd.GlowcapDriverLoop, provider: *const cs.GlowcapTr
     try expectOk(rc);
 }
 
-fn newHostLoop(seed: *const [64]u8, advertise: bool) !?*cd.GlowcapDriverLoop {
+fn newHostLoop(ctx: *c.GlowcapContext, seed: *const [64]u8, advertise: bool) !?*cd.GlowcapDriverLoop {
     var host: ?*ch.GlowcapHost = null;
-    try expectOk(ch.glowcap_host_new(
+    try expectOk(ch.glowcap_host_new_in(
+        ctx,
         seed,
         seed.len,
         frame_cap,
@@ -244,10 +246,13 @@ pub fn main(init: std.process.Init) !void {
     const answerer_netlayer = try newNetlayer(acceptor.signaling());
     defer glue.reportCleanup("WebRTC answerer netlayer teardown failed", cw.glowcap_webrtc_netlayer_release(answerer_netlayer));
 
-    const offerer_loop = try newHostLoop(&offerer_seed, false);
+    var ctx: ?*c.GlowcapContext = null;
+    try expectOk(c.glowcap_context_new(&ctx));
+    defer c.glowcap_context_release(ctx);
+    const offerer_loop = try newHostLoop(ctx.?, &offerer_seed, false);
     var offerer_loop_released = false;
     defer if (!offerer_loop_released) glue.releaseDriver("WebRTC offerer driver teardown failed", offerer_loop);
-    const answerer_loop = try newHostLoop(&answerer_seed, true);
+    const answerer_loop = try newHostLoop(ctx.?, &answerer_seed, true);
     defer glue.releaseDriver("WebRTC answerer driver teardown failed", answerer_loop);
 
     var offerer_provider: cs.GlowcapTransportProvider = undefined;

@@ -18,7 +18,6 @@ const CountingHost = @import("../../support/c_abi_counting_alloc.zig").CountingH
 const harness = @import("harness.zig");
 const typed_resident = @import("typed_resident.zig");
 const Drained = harness.Drained;
-const TestLoop = harness.TestLoop;
 const drainEvents = harness.drainEvents;
 const expectLoopReadable = harness.expectLoopReadable;
 const expectOk = harness.expectOk;
@@ -81,33 +80,16 @@ fn runOn(counting: *CountingHost, offset: usize, install: Install) !Outcome {
     const spec = counting.spec();
     var stream_netlayer: ?*ctcp.GlowcapTcpNetlayer = null;
     defer ctcp.glowcap_tcp_netlayer_release(stream_netlayer);
-    var ctx: ?*c.GlowcapContext = null;
-    try expectOk(c.glowcap_context_new_with_allocator(&spec, &ctx));
-    defer c.glowcap_context_release(ctx);
-
-    const seed = harness.hostSeed(0x41);
-    var host: ?*cd.GlowcapHost = null;
-    try expectOk(cd.glowcap_host_new_in(
-        ctx,
-        &seed,
-        seed.len,
-        harness.frame_cap,
-        1,
-        c.GLOWCAP_CODEC_SYRUP,
-        c.GLOWCAP_CAPTP_V1_0,
-        c.GLOWCAP_FEATURE_FULL,
-        0,
-        1,
-        &host,
-    ));
-    try expectOk(cd.glowcap_host_publish(host, "widget", 6, typed_resident.widgetBehavior, null, null));
-    var raw: ?*cdrv.GlowcapDriverLoop = null;
-    try expectOk(cdrv.glowcap_driver_take_host(host, &harness.driver_options_10s, &raw));
-    switch (install) {
-        .packaged => try harness.installTcp(raw),
-        .stream_table => try installStreamTable(raw, &stream_netlayer),
+    var server = try harness.newByteFedHost(0x41, &spec);
+    {
+        errdefer server.deinit();
+        try expectOk(cd.glowcap_host_publish(server.host, "widget", 6, typed_resident.widgetBehavior, null, null));
+        try expectOk(cdrv.glowcap_driver_take_host(server.host, &harness.driver_options_10s, &server.raw));
+        switch (install) {
+            .packaged => try harness.installTcp(server.raw),
+            .stream_table => try installStreamTable(server.raw, &stream_netlayer),
+        }
     }
-    const server: TestLoop = .{ .raw = raw, .host = host };
 
     // An established session on the listener, answering a fetch.
     var pair = try harness.connectAndFetch(server, 0x42, "widget");

@@ -13,6 +13,12 @@ Releases before 0.1.7 are in the
 
 ### Breaking
 
+- C callers passing a Host to `glowcap_driver_take_host` must create it with
+  `glowcap_host_new_in` and keep its Context alive until driver release consumes
+  the loop. A Host created with `glowcap_host_new` now gets
+  `GLOWCAP_ERR_INVALID_ARGUMENT` on adoption and remains usable for byte-fed
+  operation.
+
 - A valid close failure from a foreign stream provider's `conn_close` now
   reaches the session whose close ran it. A live session reports it as the
   session's close failure, with the primary and secondary the provider gave,

@@ -31,7 +31,7 @@ pub const DriverClaim = struct {
     }
 };
 
-pub const ClaimError = error{HostAlreadyOwned};
+pub const ClaimError = error{ HostAlreadyOwned, HostRequiresContext };
 
 /// Borrow the existing Host for a companion attachment. Terminal release is
 /// refused until the companion returns this borrow. It owns no driving rights.
@@ -68,6 +68,7 @@ pub const valueProjectionBound = marshal.valueProjectionBound;
 pub fn claimForDriver(handle: ?*c.GlowcapHost) ClaimError!?DriverClaim {
     const inst = instance.instanceFrom(handle) orelse return null;
     if (inst.drive_owner != .embedder) return error.HostAlreadyOwned;
+    if (inst.diagnostic_id == 0) return error.HostRequiresContext;
     inst.drive_owner = .driver;
     return .{ .inst = inst };
 }

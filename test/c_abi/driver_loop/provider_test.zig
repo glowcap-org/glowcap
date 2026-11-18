@@ -318,9 +318,8 @@ test "each stream profile requires its own implementation table" {
 }
 
 test "driver failure records refuse before provider or loop ownership commits" {
-    const owned_loop = try newEmptyLoop(0x66);
-    var loop_live = true;
-    defer if (loop_live) owned_loop.deinit();
+    var owned_loop = try newEmptyLoop(0x66);
+    defer owned_loop.deinit();
     var tcp: ?*ctcp.GlowcapTcpNetlayer = null;
     try expectOk(ctcp.glowcap_tcp_netlayer_new(&default_tcp_config, &tcp));
     defer ctcp.glowcap_tcp_netlayer_release(tcp);
@@ -342,17 +341,17 @@ test "driver failure records refuse before provider or loop ownership commits" {
     try std.testing.expectEqual(@as(u8, 0), present);
 
     try expectOk(harness.addProvider(owned_loop.raw, &provider));
-    try std.testing.expectEqual(c.GLOWCAP_ERR_NULL_POINTER, cdrv.glowcap_driver_release(owned_loop.raw, null));
+    try std.testing.expectEqual(c.GLOWCAP_ERR_NULL_POINTER, owned_loop.release(null));
     invalid = cdrv.GlowcapDriverFailure.init();
     invalid.abi_version += 1;
     try std.testing.expectEqual(
         c.GLOWCAP_ERR_INVALID_ARGUMENT,
-        cdrv.glowcap_driver_release(owned_loop.raw, &invalid),
+        owned_loop.release(&invalid),
     );
     try expectOk(cdrv.glowcap_driver_has_transport(owned_loop.raw, "tcp", 3, &present));
     try std.testing.expectEqual(@as(u8, 1), present);
-    try expectOk(harness.releaseLoop(owned_loop.raw));
-    loop_live = false;
+    var release_report = cdrv.GlowcapDriverFailure.init();
+    try expectOk(owned_loop.release(&release_report));
 }
 
 test "an external-claim-only resident routes adoption through the generic driver" {
@@ -411,15 +410,9 @@ test "the provider ABI preserves typed locators and holds one package lease" {
     };
     defer resident.wake.deinit();
 
-    const host = try newByteFedHost(0x4a);
-    errdefer _ = cd.glowcap_host_release(host);
-    var loop: ?*cdrv.GlowcapDriverLoop = null;
-    try expectOk(cdrv.glowcap_driver_take_host(host, &driver_options_1s, &loop));
-    var loop_live = true;
-    defer if (loop_live) {
-        _ = harness.releaseLoop(loop);
-    };
-
+    var owned_loop = try harness.newEmptyLoopWithOptions(0x4a, &driver_options_1s);
+    defer owned_loop.deinit();
+    const loop = owned_loop.raw;
     var table = resident.table();
     const profiles = [_]cdrv.GlowcapTransportProfile{
         providerProfile("typed-test"),
@@ -540,8 +533,7 @@ test "the provider ABI preserves typed locators and holds one package lease" {
 
     // The carrier error remains exact even though teardown consumed ownership.
     var release_failure = cdrv.GlowcapDriverFailure.init();
-    const released = c.ReleaseResult.fromRaw(cdrv.glowcap_driver_release(loop, &release_failure));
-    loop_live = false;
+    const released = c.ReleaseResult.fromRaw(owned_loop.release(&release_failure));
     try std.testing.expectEqual(.consumed, released.ownership);
     try std.testing.expectEqual(c.GLOWCAP_ERR_INVALID_ARGUMENT, released.code());
     try std.testing.expectEqual(c.GLOWCAP_ERR_INVALID_ARGUMENT, release_failure.primary_result);
@@ -549,7 +541,6 @@ test "the provider ABI preserves typed locators and holds one package lease" {
         "ProviderContract",
         release_failure.primary_name.?[0..release_failure.primary_name_len],
     );
-    loop_live = false;
     try std.testing.expectEqual(@as(usize, 1), resident.releases);
 }
 
@@ -566,11 +557,8 @@ test "provider registration keeps rollback release failure secondary" {
     };
     defer conflicting.wake.deinit();
 
-    const owned_loop = try newEmptyLoop(0x63);
-    var loop_live = true;
-    defer if (loop_live) {
-        _ = harness.releaseLoop(owned_loop.raw);
-    };
+    var owned_loop = try newEmptyLoop(0x63);
+    defer owned_loop.deinit();
     var first_table = first.table();
     var conflicting_table = conflicting.table();
     const profile = providerProfile("release-conflict");
@@ -597,8 +585,8 @@ test "provider registration keeps rollback release failure secondary" {
         registration_failure.secondary_name.?[0..registration_failure.secondary_name_len],
     );
 
-    try expectOk(harness.releaseLoop(owned_loop.raw));
-    loop_live = false;
+    var release_report = cdrv.GlowcapDriverFailure.init();
+    try expectOk(owned_loop.release(&release_report));
 }
 
 test "contradictory retain diagnostics retire the committed package lease" {
@@ -629,7 +617,8 @@ test "driver release returns final provider package failure" {
         .release_code = c.GLOWCAP_ERR_IO,
     };
     defer resident.wake.deinit();
-    const owned_loop = try newEmptyLoop(0x64);
+    var owned_loop = try newEmptyLoop(0x64);
+    defer owned_loop.deinit();
     var table = resident.table();
     const profile = providerProfile("release-failure");
     const provider = typedProvider(&resident, &table, &profile);
@@ -638,7 +627,7 @@ test "driver release returns final provider package failure" {
     var release_failure = cdrv.GlowcapDriverFailure.init();
     try std.testing.expectEqual(
         -c.GLOWCAP_ERR_IO,
-        cdrv.glowcap_driver_release(owned_loop.raw, &release_failure),
+        owned_loop.release(&release_failure),
     );
     try std.testing.expectEqual(@as(usize, 1), resident.releases);
     try std.testing.expectEqual(c.GLOWCAP_ERR_IO, release_failure.primary_result);

@@ -143,13 +143,14 @@ typedef struct GlowcapDriverEvent {
 
 /* Read the exact reflected callable and layout identity of this driver archive. */
 uint64_t glowcap_driver_archive_fingerprint(void);
-/* Move a quiescent Host into a transport loop. Failure leaves Host ownership
-   unchanged. Success transfers transport execution, action draining, session
-   release, and terminal Host release to the loop. The loop starts with no
-   transports; add provider packages before dial or listen. The options layout
-   must be recognized; buffer and admission limits must be positive, while zero
-   wait budgets select an unbounded wait. Release only through
-   glowcap_driver_release. */
+/* Move a quiescent Host created by glowcap_host_new_in into a transport loop.
+   Keep its Context alive until glowcap_driver_release consumes the loop. Passing
+   a Host created by glowcap_host_new returns GLOWCAP_ERR_INVALID_ARGUMENT. Failure
+   preserves Host ownership and leaves out_loop untouched. Success transfers
+   transport execution, action draining, session release, and terminal Host release
+   to the loop. Add provider packages before dialing or listening. Use a recognized
+   options layout with positive buffer and admission limits. A zero wait budget
+   selects an unbounded wait. */
 int32_t glowcap_driver_take_host(GlowcapHost *host, const GlowcapDriverOptions *options, GlowcapDriverLoop **out_loop);
 /* Seal admission, stop listeners, and begin or escalate one terminal close
    barrier without blocking. CANCEL interrupts admitted opens and closes sessions.

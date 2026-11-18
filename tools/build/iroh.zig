@@ -303,6 +303,7 @@ pub fn registerSteps(ctx: StepsContext) StepsRegistration {
         const seam_imports = [_]AbiImport{
             .{ .name = "glowcap", .module = lib_mod },
             .{ .name = "iroh", .module = iroh_resident_mod },
+            .{ .name = "c_abi", .module = host_mods[layerIndex("c_abi")] },
             .{ .name = "c_abi_shared", .module = host_mods[layerIndex("c_abi_shared")] },
             .{ .name = "c_abi_host", .module = host_abi_mod },
             .{ .name = "c_abi_driver", .module = driver_abi_mod },

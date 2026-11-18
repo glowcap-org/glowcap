@@ -61,11 +61,8 @@ test "a package holds a lease only while it serves a profile" {
         .opaque_hint = &.{},
     };
     defer second.wake.deinit();
-    const owned_loop = try harness.newEmptyLoop(0x66);
-    var loop_live = true;
-    defer if (loop_live) {
-        _ = harness.releaseLoop(owned_loop.raw);
-    };
+    var owned_loop = try harness.newEmptyLoop(0x66);
+    defer owned_loop.deinit();
     var first_table = first.table();
     var second_table = second.table();
     const both = [_]cdrv.GlowcapTransportProfile{ providerProfile("compose-a"), providerProfile("compose-b") };
@@ -89,8 +86,8 @@ test "a package holds a lease only while it serves a profile" {
     try std.testing.expectEqual(@as(usize, 1), second.releases);
     try std.testing.expectEqual(@as(usize, 0), first.releases);
 
-    try expectOk(harness.releaseLoop(owned_loop.raw));
-    loop_live = false;
+    var release_report = cdrv.GlowcapDriverFailure.init();
+    try expectOk(owned_loop.release(&release_report));
     try std.testing.expectEqual(@as(usize, 1), first.releases);
     try std.testing.expectEqual(@as(usize, 2), second.releases);
 }

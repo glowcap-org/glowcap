@@ -131,15 +131,11 @@ fn scenario(mode: Mode, seed: u8) !void {
     const locator = try harness.readListenerLocator(server.raw, listener);
     defer glowcap.ocapn.model.freePeerLocator(std.testing.allocator, locator);
 
-    var ctx: ?*c.GlowcapContext = null;
-    try expectOk(c.glowcap_context_new(&ctx));
-    defer c.glowcap_context_release(ctx);
-    const hseed = harness.hostSeed(seed +% 1);
-    var host: ?*cd.GlowcapHost = null;
-    try expectOk(cd.glowcap_host_new_in(ctx, &hseed, hseed.len, harness.frame_cap, 1, c.GLOWCAP_CODEC_SYRUP, c.GLOWCAP_CAPTP_V1_0, c.GLOWCAP_FEATURE_FULL, 0, 1, &host));
-    var client: ?*cdrv.GlowcapDriverLoop = null;
-    try expectOk(cdrv.glowcap_driver_take_host(host, &harness.driver_options_10s, &client));
     var shim: Shim = .{};
+    var owned_client = try harness.newEmptyLoop(seed +% 1);
+    defer owned_client.deinit();
+    const ctx = owned_client.context;
+    const client = owned_client.raw;
     try shim.install(client);
 
     var op: u64 = 0;
@@ -216,9 +212,9 @@ fn scenario(mode: Mode, seed: u8) !void {
         try std.testing.expectEqual(@as(usize, 0), try journalRecords(ctx));
         try expectOk(cdrv.glowcap_driver_session_release(client, csess));
     }
-    const rc = cdrv.glowcap_driver_release(client, &release_failure);
+    const rc = owned_client.release(&release_failure);
     if (consuming) {
-        try std.testing.expect(rc != c.GLOWCAP_OK);
+        try std.testing.expectEqual(-c.GLOWCAP_ERR_IO, rc);
         try expectReleaseFailure(release_failure);
         if (mode == .release_with_admitted_bytes) try std.testing.expect(refused_writes != 0);
     } else {

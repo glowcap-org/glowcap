@@ -11,6 +11,7 @@ const std = @import("std");
 
 const glowcap = @import("glowcap");
 const driver_provider = @import("driver_provider");
+const c = @import("c_abi");
 const cs = @import("c_abi_shared");
 const cd = @import("c_abi_host");
 const cdrv = @import("c_abi_driver");
@@ -128,12 +129,13 @@ fn newNetlayer(seed: *const [32]u8) !?*ci.GlowcapIrohNetlayer {
     return netlayer;
 }
 
-fn newLoop(seed_byte: u8) !?*cdrv.GlowcapDriverLoop {
+fn newLoop(ctx: *c.GlowcapContext, seed_byte: u8) !?*cdrv.GlowcapDriverLoop {
     var seed: [64]u8 = undefined;
     @memset(seed[0..32], seed_byte);
     @memset(seed[32..], seed_byte ^ 0xa5);
     var host: ?*cd.GlowcapHost = null;
-    try expectOk(cd.glowcap_host_new(
+    try expectOk(cd.glowcap_host_new_in(
+        ctx,
         &seed,
         seed.len,
         frame_cap,
@@ -174,9 +176,12 @@ pub fn main(init: std.process.Init) !void {
     const client_netlayer = try newNetlayer(&client_seed);
     defer glue.reportCleanup("iroh client netlayer teardown failed", ci.glowcap_iroh_netlayer_release(client_netlayer, null, 0, null));
 
-    const server_loop = try newLoop(0x51);
+    var ctx: ?*c.GlowcapContext = null;
+    try expectOk(c.glowcap_context_new(&ctx));
+    defer c.glowcap_context_release(ctx);
+    const server_loop = try newLoop(ctx.?, 0x51);
     defer glue.releaseDriver("iroh server driver teardown failed", server_loop);
-    const client_loop = try newLoop(0x52);
+    const client_loop = try newLoop(ctx.?, 0x52);
     defer glue.releaseDriver("iroh client driver teardown failed", client_loop);
 
     var server_provider: cs.GlowcapTransportProvider = undefined;
