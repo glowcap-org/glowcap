@@ -4,6 +4,9 @@
 //! give the loop up is the consuming [`LoopHandle::release`], which hands the
 //! handle back when the driver refuses before consuming it.
 use core::ptr::NonNull;
+use std::rc::Rc;
+
+use crate::ContextInner;
 
 use crate::driver_failure::{decode, empty};
 use crate::sys::GlowcapTransportProvider;
@@ -13,12 +16,18 @@ use crate::{Error, Result, sys};
 /// One live FFI driver loop. The loop stays allocated until `release`
 /// consumes this handle. Dropping the handle without releasing leaks the loop,
 /// which is why every owner either releases it or parks it with the finalizer.
-pub(crate) struct LoopHandle(NonNull<GlowcapDriverLoop>);
+pub(crate) struct LoopHandle {
+	raw: NonNull<GlowcapDriverLoop>,
+	pub(crate) context: Rc<ContextInner>,
+}
 
 /// What one release attempt did with FFI ownership.
 pub(crate) enum Released {
 	/// FFI ownership is gone, with the release's own outcome.
-	Consumed(Result<()>),
+	Consumed {
+		outcome: Result<()>,
+		context: Rc<ContextInner>,
+	},
 	/// The driver refused before consuming. The loop is still live.
 	Refused { handle: LoopHandle, error: Error },
 }
@@ -29,13 +38,14 @@ impl LoopHandle {
 	/// # Safety
 	///
 	/// `raw` came from a successful `glowcap_driver_take_host` and no other owner releases it.
-	pub(crate) unsafe fn adopt(raw: *mut GlowcapDriverLoop) -> Option<Self> {
-		NonNull::new(raw).map(Self)
+	/// `context` owns the allocation scope of the Host transferred to that loop.
+	pub(crate) unsafe fn adopt(raw: *mut GlowcapDriverLoop, context: Rc<ContextInner>) -> Option<Self> {
+		NonNull::new(raw).map(|raw| Self { raw, context })
 	}
 
 	/// The raw loop for a C ABI call made while this handle is borrowed.
 	pub(crate) fn as_ptr(&self) -> *mut GlowcapDriverLoop {
-		self.0.as_ptr()
+		self.raw.as_ptr()
 	}
 
 	/// Install one provider package. The driver copies its profiles and tables.
@@ -71,7 +81,10 @@ impl LoopHandle {
 		let code = unsafe { ffi::glowcap_driver_release(self.as_ptr(), &mut failure) };
 		let result = decode(sys::release_result_code(code), failure, "driver release");
 		if crate::sys::release_result_consumed(code) {
-			return Released::Consumed(result);
+			return Released::Consumed {
+				outcome: result,
+				context: self.context,
+			};
 		}
 		let error = match result {
 			Err(error) => error,

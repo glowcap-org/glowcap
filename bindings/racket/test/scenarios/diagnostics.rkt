@@ -1,7 +1,8 @@
 #lang racket/base
 ;; One family of the Racket binding's test suite, loadable on its own.
 
-(require "prelude.rkt")
+(require (only-in ffi/unsafe void/reference-sink)
+         "prelude.rkt")
 
 ;; The generated return-code inventory is the same reflected C ABI family the
 ;; binding branches on. `check-with` must leave OK alone and translate every
@@ -37,25 +38,33 @@
 ;; TypeScript, and Python. This crosses the FFI Context seam; Racket owns
 ;; only the pins and the projection into its immutable failure-event value.
 (define matrix-host (make-host (make-bytes 32 9)))
+(void (open-driver-loop #:host matrix-host))
 (define matrix-operation #"listener.close")
 (define matrix-primary-name #"CloseFailed")
 (define matrix-primary-message #"socket refused shutdown")
 (define matrix-secondary-name #"ReleaseFailed")
 (define matrix-secondary-message #"descriptor remained live")
+(define matrix-operation-buffer (pin-immobile matrix-operation))
+(define matrix-primary-name-buffer (pin-immobile matrix-primary-name))
+(define matrix-primary-message-buffer (pin-immobile matrix-primary-message))
+(define matrix-secondary-name-buffer (pin-immobile matrix-secondary-name))
+(define matrix-secondary-message-buffer (pin-immobile matrix-secondary-message))
 (define matrix-report
   (make-GlowcapFailureReport
    FAILURE-EVENT-ABI-VERSION (ctype-sizeof _GlowcapFailureReport)
    FAILURE-LAYER-TRANSPORT FAILURE-SCOPE-LISTENER
    31 47 ERR-IO ERR-INTERNAL 2
-   (pin-immobile matrix-operation) (bytes-length matrix-operation)
-   (pin-immobile matrix-primary-name) (bytes-length matrix-primary-name)
-   (pin-immobile matrix-primary-message) (bytes-length matrix-primary-message)
-   (pin-immobile matrix-secondary-name) (bytes-length matrix-secondary-name)
-   (pin-immobile matrix-secondary-message) (bytes-length matrix-secondary-message)))
+   matrix-operation-buffer (bytes-length matrix-operation)
+   matrix-primary-name-buffer (bytes-length matrix-primary-name)
+   matrix-primary-message-buffer (bytes-length matrix-primary-message)
+   matrix-secondary-name-buffer (bytes-length matrix-secondary-name)
+   matrix-secondary-message-buffer (bytes-length matrix-secondary-message)))
 (call-with-host
  matrix-host
  (lambda ()
    (check (glowcap_context_report_failure (host-context matrix-host) matrix-report))))
+(host-close! matrix-host)
+(collect-garbage)
 (define matrix-failures (host-take-failures! matrix-host))
 (define matrix-failure (and (= (length matrix-failures) 1) (car matrix-failures)))
 (expect (and matrix-failure
@@ -77,7 +86,6 @@
                      "descriptor remained live")
              (null? (host-take-failures! matrix-host)))
         "Context preserves the cross-language FFI failure vector exactly once")
-(host-close! matrix-host)
 (printf "racket test OK: Context preserves the cross-language FFI failure vector exactly once\n")
 
 (expect (with-handlers ([exn:fail? (lambda (_) #t)])
@@ -161,6 +169,12 @@
   (open-driver-loop #:host loop-background-failure-host))
 (define loop-background-failure
   (exn:fail "driver loop background failed" (current-continuation-marks)))
+(call-with-host
+ loop-background-failure-host
+ (lambda ()
+   (check (glowcap_context_report_failure (host-context loop-background-failure-host) matrix-report))))
+(void/reference-sink matrix-operation-buffer matrix-primary-name-buffer matrix-primary-message-buffer
+                     matrix-secondary-name-buffer matrix-secondary-message-buffer)
 (loop-background-failed! loop-for-background-failure loop-background-failure)
 (define observed-loop-background-failure
   (with-handlers ([exn:fail? values])
@@ -168,6 +182,11 @@
     #f))
 (expect (eq? observed-loop-background-failure loop-background-failure)
         "Host close returns its exact driver-loop background failure")
+(expect (unbox (host-released? loop-background-failure-host))
+        "the failing close consumed the driver before the caller drains its Context")
+(expect (and (equal? (host-take-failures! loop-background-failure-host) matrix-failures)
+             (null? (host-take-failures! loop-background-failure-host)))
+        "the caller can drain the original Context after Host close returns a failure")
 
 ;; The sidecar iroh readiness thread has the raw endpoint as its owner. Its
 ;; exact first failure wakes parked work and is re-observed at endpoint close,

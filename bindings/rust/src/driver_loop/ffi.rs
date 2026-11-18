@@ -15,7 +15,7 @@ use crate::sys::GlowcapTransportProvider;
 use crate::sys::driver::{self as ffi, GlowcapDriverEvent, GlowcapDriverLoop, GlowcapDriverOptions};
 use crate::sys::{self, host as ffi_host};
 use crate::uri::OwnedLocator;
-use crate::{ContextInner, Error, Locator, PendingWork, Result};
+use crate::{Context, ContextInner, Error, Locator, PendingWork, Result};
 
 /// One archive-owned provider package. Registration acquires the package lease.
 /// The driver releases it after every copied callback and transport handle.
@@ -31,7 +31,6 @@ pub struct ProviderPackage<'owner> {
 pub struct DriverLoop {
 	handle: RefCell<Option<LoopHandle>>,
 	host: *mut ffi_host::GlowcapHost,
-	_context: Option<Rc<ContextInner>>,
 }
 
 /// One release attempt on a `DriverLoop`.
@@ -99,11 +98,11 @@ crate::error_slot::error_slot!(
 );
 
 impl DriverLoop {
-	/// Create a loop over a fresh host. `seed` is the host constructor's
-	/// 64-byte contract (durable identity, then a fresh session-key root).
+	/// Create a loop over a fresh host in `context`. Use that Context to drain
+	/// callerless failures, including after dropping the loop. The 64-byte
+	/// `seed` holds the durable identity followed by a fresh session-key root.
 	/// `options` owns the retained wire-buffer size and three positive wait bounds.
-	pub fn open(seed: &[u8; 64], options: DriverLoopOptions) -> Result<Self> {
-		let context = Rc::new(ContextInner::new()?);
+	pub fn open(context: &Context, seed: &[u8; 64], options: DriverLoopOptions) -> Result<Self> {
 		crate::require_archive_fingerprint(
 			"host",
 			// SAFETY: this fingerprint query takes no arguments and returns a constant.
@@ -111,12 +110,12 @@ impl DriverLoop {
 			sys::HOST_ARCHIVE_FINGERPRINT,
 		)?;
 		let mut host: *mut ffi_host::GlowcapHost = core::ptr::null_mut();
-		// SAFETY: `context.raw` is the allocator context the `Rc<ContextInner>` keeps live for this call; `seed` is a
+		// SAFETY: `context.inner.raw` is kept live by the borrowed Context; `seed` is a
 		// borrowed 64-byte array whose pointer and length stay live for the call and the callee copies it; `host` is an
 		// out-parameter the callee fills.
 		crate::host::check_host(unsafe {
 			ffi_host::glowcap_host_new_in(
-				context.raw,
+				context.inner.raw,
 				seed.as_ptr(),
 				seed.len(),
 				options.frame_cap,
@@ -129,18 +128,15 @@ impl DriverLoop {
 				&mut host,
 			)
 		})?;
-		match Self::take_host(host, options) {
-			Ok(mut loop_) => {
-				loop_._context = Some(context);
-				Ok(loop_)
-			}
+		match Self::take_host(host, context.retain_inner(), options) {
+			Ok(loop_) => Ok(loop_),
 			Err(primary) => {
 				// SAFETY: `host` is the handle `glowcap_host_new_in` just wrote and this function still owns, because
 				// `take_host` failed and left Host ownership unchanged; it is released exactly once here.
 				let cleanup_rc = unsafe { ffi_host::glowcap_host_release(host) };
 				let cleanup = crate::host::check_host(crate::sys::release_result_code(cleanup_rc));
 				if !crate::sys::release_result_consumed(cleanup_rc) {
-					core::mem::forget(context);
+					crate::finalizer::park_host(host, context.retain_inner(), true);
 				}
 				Err(crate::retain_cleanup_failure(primary, cleanup))
 			}
@@ -150,7 +146,11 @@ impl DriverLoop {
 	/// Transfer an existing quiescent Host to a driver loop. The C transaction
 	/// leaves Host ownership unchanged on failure and makes this loop the sole
 	/// transport/action-drain/release owner on success.
-	pub(crate) fn take_host(host: *mut ffi_host::GlowcapHost, options: DriverLoopOptions) -> Result<Self> {
+	pub(crate) fn take_host(
+		host: *mut ffi_host::GlowcapHost,
+		context: Rc<ContextInner>,
+		options: DriverLoopOptions,
+	) -> Result<Self> {
 		crate::require_archive_fingerprint(
 			"driver",
 			// SAFETY: this fingerprint query takes no arguments and returns a constant.
@@ -165,12 +165,11 @@ impl DriverLoop {
 		check(unsafe { ffi::glowcap_driver_take_host(host, &options, &mut raw) })?;
 		// SAFETY: `raw` is the loop `glowcap_driver_take_host` just wrote on success, and this `DriverLoop` becomes its
 		// only owner.
-		let handle = unsafe { LoopHandle::adopt(raw) }
+		let handle = unsafe { LoopHandle::adopt(raw, context) }
 			.ok_or_else(|| Error::with_detail(sys::ERR_INTERNAL, "driver take_host returned no loop".to_string()))?;
 		Ok(Self {
 			handle: RefCell::new(Some(handle)),
 			host,
-			_context: None,
 		})
 	}
 
@@ -185,8 +184,8 @@ impl DriverLoop {
 			.map_err(|_| Error::with_detail(sys::ERR_INVALID_ARGUMENT, "driver loop already released".to_string()))
 	}
 
-	pub(super) fn retained_context(&self) -> Option<Rc<ContextInner>> {
-		self._context.as_ref().map(Rc::clone)
+	pub(super) fn retained_context(&self) -> Result<Rc<ContextInner>> {
+		Ok(Rc::clone(&self.live()?.context))
 	}
 
 	/// The wrapped `GlowcapHost` handle for application verbs. Never release
@@ -492,7 +491,7 @@ impl DriverLoop {
 			return ReleaseOutcome::Consumed(Ok(()));
 		};
 		match handle.release() {
-			Released::Consumed(result) => ReleaseOutcome::Consumed(result),
+			Released::Consumed { outcome, .. } => ReleaseOutcome::Consumed(outcome),
 			Released::Refused { handle, error } => {
 				*slot = Some(handle);
 				ReleaseOutcome::Refused(error)
@@ -504,9 +503,8 @@ impl DriverLoop {
 	/// allocator policy it was created under. `None` when nothing is left to
 	/// transfer, or when a verb still borrows the loop. The slot then keeps
 	/// the handle for the next release attempt.
-	pub(super) fn transfer_refused(&self) -> Option<(LoopHandle, Option<Rc<ContextInner>>)> {
-		let handle = self.handle.try_borrow_mut().ok()?.take()?;
-		Some((handle, self.retained_context()))
+	pub(super) fn transfer_refused(&self) -> Option<LoopHandle> {
+		self.handle.try_borrow_mut().ok()?.take()
 	}
 
 	/// Release from a last-owner path. A refusal transfers the live loop and
@@ -515,8 +513,8 @@ impl DriverLoop {
 		match self.release() {
 			ReleaseOutcome::Consumed(result) => result,
 			ReleaseOutcome::Refused(error) => {
-				if let Some((handle, context)) = self.transfer_refused() {
-					crate::finalizer::park_driver(handle, context, true);
+				if let Some(handle) = self.transfer_refused() {
+					crate::finalizer::park_driver(handle, true);
 				}
 				Err(error)
 			}
@@ -526,8 +524,19 @@ impl DriverLoop {
 
 impl Drop for DriverLoop {
 	fn drop(&mut self) {
+		let Some(handle) = self.handle.get_mut().as_ref() else {
+			return;
+		};
+		let context = Rc::clone(&handle.context);
 		if let Err(error) = self.release_or_defer() {
-			crate::record_runtime_failure(crate::FailureLayer::Driver, "driver-loop-drop-release", error);
+			context.report_failure(
+				crate::FailureLayer::Driver,
+				crate::FailureScope::Context,
+				0,
+				0,
+				"driver-loop-drop-release",
+				&error,
+			);
 		}
 	}
 }

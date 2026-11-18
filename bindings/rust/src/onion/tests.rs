@@ -204,7 +204,9 @@ fn provider_registration_outlives_its_construction_reference() {
 	let (control_listener, control) = loopback();
 	let daemon = std::thread::spawn(move || fake_control(control_listener));
 	let config = Config::dial_only("127.0.0.1:1").with_control(&control, Auth::None);
+	let context = crate::Context::new().unwrap();
 	let driver = crate::driver_loop::DriverLoop::open(
+		&context,
 		&[0x71; 64],
 		crate::driver_loop::DriverLoopOptions {
 			handshake_ms: 1_000,

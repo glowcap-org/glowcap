@@ -187,7 +187,7 @@ pub(crate) struct HostShared {
 	seed: [u8; 32],
 	// A Host allocated in a caller Context borrows that FFI policy. Rc makes
 	// the order structural, including teardown parked from a callback.
-	context: Option<Rc<ContextInner>>,
+	context: Rc<ContextInner>,
 	/// Stable identity in the retained Context's diagnostic namespace.
 	diagnostic_id: u64,
 	// The driver loop this Host was adopted over (ADR-0024), or `None` for a
@@ -316,7 +316,7 @@ impl HostShared {
 			background_failure: RefCell::new(None),
 			retirement_failure: RefCell::new(None),
 			seed,
-			context: Some(context),
+			context,
 			diagnostic_id,
 			#[cfg(not(target_arch = "wasm32"))]
 			driver_loop: RefCell::new(None),
@@ -340,19 +340,17 @@ impl HostShared {
 		check_host(unsafe {
 			ffi::glowcap_host_designator_from_seed(seed.as_ptr(), seed.len(), designator.as_mut_ptr(), designator.len())
 		})?;
-		let context = driver_loop.retained_context();
+		let context = driver_loop.retained_context()?;
 		let mut diagnostic_id = 0;
 		// SAFETY: `raw` is the Host handle the driver loop minted and still owns; `diagnostic_id` is an out-parameter
 		// the callee writes.
 		check_host(unsafe { ffi::glowcap_host_diagnostic_id(raw, &mut diagnostic_id) })?;
-		if let Some(context) = context.as_ref() {
-			crate::trace::attach_host(
-				raw,
-				String::from_utf8_lossy(&designator).into_owned(),
-				Rc::clone(context),
-				diagnostic_id,
-			);
-		}
+		crate::trace::attach_host(
+			raw,
+			String::from_utf8_lossy(&designator).into_owned(),
+			Rc::clone(&context),
+			diagnostic_id,
+		);
 		Ok(Rc::new(HostShared {
 			#[cfg(feature = "loam")]
 			loam: crate::loam::Registry::default(),
@@ -485,24 +483,18 @@ impl HostShared {
 		self.seed
 	}
 
-	pub(crate) fn retained_context(&self) -> Option<Rc<ContextInner>> {
-		self.context.as_ref().map(Rc::clone)
+	pub(crate) fn retained_context(&self) -> Rc<ContextInner> {
+		Rc::clone(&self.context)
 	}
 
-	pub(crate) fn actor_cell(self: &Rc<Self>, behavior: InternalBehavior) -> Result<*mut ActorCell> {
-		let context = self.retained_context().ok_or_else(|| {
-			Error::with_detail(
-				sys::ERR_CLOSED,
-				"host diagnostic context was released before actor publication".to_string(),
-			)
-		})?;
-		Ok(Box::into_raw(Box::new(ActorCell {
+	pub(crate) fn actor_cell(self: &Rc<Self>, behavior: InternalBehavior) -> *mut ActorCell {
+		Box::into_raw(Box::new(ActorCell {
 			behavior: RefCell::new(behavior),
 			host: Rc::downgrade(self),
-			context,
+			context: self.retained_context(),
 			diagnostic_id: self.diagnostic_id(),
 			registration: Cell::new(core::ptr::null()),
-		})))
+		}))
 	}
 
 	pub(crate) fn diagnostic_id(&self) -> u64 {

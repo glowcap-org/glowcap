@@ -279,10 +279,10 @@ Failures with no caller, such as a refused finalizer or a late shutdown
 failure, become typed records in a bounded list on the Host. The application
 drains the list with:
 
-- Rust: `Host::take_failures`
+- Rust: `Host::take_failures`, or `Context::take_failures` on the Context passed to `DriverLoop::open`
 - TypeScript: `host.takeFailures()`
 - Python: `host.take_failures()`
-- Racket: `host-take-failures!`
+- Racket: `host-take-failures!`, including after `host-close!`
 
 A full list drops its oldest record and counts how many it dropped. A failure
 that a call returns or a close reports goes only to that caller.

@@ -210,9 +210,7 @@ impl Host {
 	/// context. This is the same queue a caller-supplied [`Context`] exposes.
 	/// Returned and close-barrier failures are not duplicated here.
 	pub fn take_failures(&self) -> Result<Vec<crate::FailureEvent>> {
-		let Some(context) = self.shared.retained_context() else {
-			return Ok(Vec::new());
-		};
+		let context = self.shared.retained_context();
 		let mut failures = Vec::new();
 		while let Some(failure) = context.next_failure()? {
 			failures.push(failure);
@@ -250,10 +248,8 @@ impl Host {
 	}
 
 	/// A Host with a fresh durable identity inside a caller-supplied
-	/// allocation scope: every FFI allocation the Host makes routes through
-	/// the context's allocator, and the Host must be dropped before the
-	/// context. This is the same attachment the Python and TypeScript bindings
-	/// offer at Host construction.
+	/// allocation scope. The Host retains the Context's allocator through
+	/// native release. Keep the public Context to drain failures after release.
 	pub fn new_in(context: &Context, options: HostOptions) -> Result<Host> {
 		let mut seed = [0u8; 32];
 		getrandom::fill(&mut seed).map_err(|_| Error::with_detail(sys::ERR_INTERNAL, "no OS entropy".to_string()))?;

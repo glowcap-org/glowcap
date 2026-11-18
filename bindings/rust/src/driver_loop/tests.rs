@@ -177,6 +177,7 @@ fn tcp_loopback_steps_dial_fetch_and_hangup() {
 	let stop_thread = Arc::clone(&stop);
 	let server = std::thread::spawn(move || {
 		let lp = DriverLoop::open(
+			&crate::Context::new().unwrap(),
 			&seed(0x61),
 			DriverLoopOptions {
 				wire_buffer_bytes: 1024,
@@ -207,6 +208,7 @@ fn tcp_loopback_steps_dial_fetch_and_hangup() {
 	let designator = designator_rx.recv().unwrap();
 
 	let lp = DriverLoop::open(
+		&crate::Context::new().unwrap(),
 		&seed(0x62),
 		DriverLoopOptions {
 			wire_buffer_bytes: 1024,
@@ -275,6 +277,7 @@ fn serve_tcp_on_a_thread(seed_byte: u8) -> (String, Arc<AtomicBool>, std::thread
 	let stop_thread = Arc::clone(&stop);
 	let server = std::thread::spawn(move || {
 		let lp = DriverLoop::open(
+			&crate::Context::new().unwrap(),
 			&seed(seed_byte),
 			DriverLoopOptions {
 				wire_buffer_bytes: 1024,
@@ -341,6 +344,7 @@ async fn exporter_claims_install_one_shell_and_refuse_foreign_handles() {
 
 			// An independent runtime that owns its own live session handle.
 			let lp_b = DriverLoop::open(
+				&crate::Context::new().unwrap(),
 				&seed(0x72),
 				DriverLoopOptions {
 					wire_buffer_bytes: 1024,
@@ -533,6 +537,7 @@ fn iroh_provider_dials_live() {
 					.map_err(|e| e.to_string())?;
 				let provider = netlayer.transport_provider().map_err(|e| e.to_string())?;
 				let lp = DriverLoop::open(
+					&crate::Context::new().map_err(|e| e.to_string())?,
 					&seed(0x63),
 					DriverLoopOptions {
 						handshake_ms: 20_000,

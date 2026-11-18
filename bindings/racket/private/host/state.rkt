@@ -140,36 +140,38 @@
   (cond
     [(= first WOULD-BLOCK) #f]
     [(= first ERR-BUFFER-TOO-SMALL)
-     (define payload (malloc required 'atomic))
+     (define payload (out-immobile required))
      (define-values (rc _required)
        (glowcap_context_next_failure context event payload required))
      (check rc)
-     (failure-event
-      (GlowcapFailureEvent-sequence event)
-      (GlowcapFailureEvent-dropped-before event)
-      (failure-symbol failure-layers (GlowcapFailureEvent-layer event) 'layer)
-      (failure-symbol failure-scopes (GlowcapFailureEvent-scope-kind event) 'scope)
-      (GlowcapFailureEvent-scope-id event)
-      (GlowcapFailureEvent-operation-id event)
-      (GlowcapFailureEvent-primary-result event)
-      (GlowcapFailureEvent-secondary-result event)
-      (GlowcapFailureEvent-secondary-count event)
-      (GlowcapFailureEvent-flags event)
-      (failure-text (GlowcapFailureEvent-operation event)
-                    (GlowcapFailureEvent-operation-len event))
-      (failure-text (GlowcapFailureEvent-primary-name event)
-                    (GlowcapFailureEvent-primary-name-len event))
-      (failure-text (GlowcapFailureEvent-primary-message event)
-                    (GlowcapFailureEvent-primary-message-len event))
-      (failure-text (GlowcapFailureEvent-secondary-name event)
-                    (GlowcapFailureEvent-secondary-name-len event))
-      (failure-text (GlowcapFailureEvent-secondary-message event)
-                    (GlowcapFailureEvent-secondary-message-len event)))]
+     (begin0
+       (failure-event
+        (GlowcapFailureEvent-sequence event)
+        (GlowcapFailureEvent-dropped-before event)
+        (failure-symbol failure-layers (GlowcapFailureEvent-layer event) 'layer)
+        (failure-symbol failure-scopes (GlowcapFailureEvent-scope-kind event) 'scope)
+        (GlowcapFailureEvent-scope-id event)
+        (GlowcapFailureEvent-operation-id event)
+        (GlowcapFailureEvent-primary-result event)
+        (GlowcapFailureEvent-secondary-result event)
+        (GlowcapFailureEvent-secondary-count event)
+        (GlowcapFailureEvent-flags event)
+        (failure-text (GlowcapFailureEvent-operation event)
+                      (GlowcapFailureEvent-operation-len event))
+        (failure-text (GlowcapFailureEvent-primary-name event)
+                      (GlowcapFailureEvent-primary-name-len event))
+        (failure-text (GlowcapFailureEvent-primary-message event)
+                      (GlowcapFailureEvent-primary-message-len event))
+        (failure-text (GlowcapFailureEvent-secondary-name event)
+                      (GlowcapFailureEvent-secondary-name-len event))
+        (failure-text (GlowcapFailureEvent-secondary-message event)
+                      (GlowcapFailureEvent-secondary-message-len event)))
+       (void/reference-sink payload))]
     [else (check first)]))
 
-;; Atomically claim every callerless FFI failure retained by m.
+;; The Context outlives native Host release. Its reader shares the terminal lock.
 (define (host-take-failures! m)
-  (call-with-host
+  (call-with-host/terminal
    m
    (lambda ()
      (let loop ([claimed '()])
