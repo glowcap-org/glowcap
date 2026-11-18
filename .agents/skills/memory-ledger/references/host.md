@@ -82,7 +82,15 @@ custody costs.
     with no allocation per packet.
   - An EOF marks the wire closed and breaks its vows **without freeing**, because
     a view still holds the pointers: the close-and-release split.
-  - Poll scratch grows once and then allocates nothing.
+  - Wait scratch, `HostRuntime.poll_scratch` and `HostRuntime.extra_fd_scratch`:
+    construction and each resident admission reserve one row per distinct
+    resident plus the mailbox and stepped wakes, so the descriptor-poll wait and
+    the terminal signal wait build their rows without allocating. The reserve
+    grows by the list's amortized step (8 bytes per poll row and 4 per
+    descriptor row), so retained bytes exceed the logical rows, and a
+    refused reserve leaves earlier growth in place. A resident parking branch
+    watches its sources through `HostRuntime.watched_fds` and the parker, outside
+    this entry.
 - **Pending open rows**: `HostRuntime.startDial`, a resident listener's
   accept, and the redeem drain into `HostRuntime.stageDial` (ADR-0024). One gpa
   row per in-flight dial or accept, carrying stage, outcome route, and, for a
