@@ -36,6 +36,11 @@ pub fn register(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.l
     };
     const profiled = benchExecutable(b, "loam-profile", profiles.moduleOptions(b, "bench/loam_bench.zig"), profiles.module("glowcap"), profiled_engines);
     b.step("profile-loam", "Profile bench-loam under callgrind: self cost per file and function for each marked phase, taking bench-loam's filters after -- (needs valgrind)").dependOn(profile_build.addRun(b, profiles, profiled));
+    const laws = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{"bend"});
+    laws.addFileArg(b.path("test/loam/access/policy_laws/PROOF.bend"));
+    laws.addArg("--verdict");
+    execution.showOutput(laws);
+    b.step("loam-policy-proof", "Prove Loam policy intersection and attenuation (run through .devcontainer/bin/tools.sh exec bend --)").dependOn(&laws.step);
     portableCheck(b, optimize, gates);
     return engines;
 }

@@ -65,6 +65,19 @@ class PlanTest(unittest.TestCase):
             (DEVELOPMENT, False),
         )
 
+    def test_policy_laws_run_for_proof_changes_and_nightlies(self):
+        def source(event, paths):
+            groups, _ = PLAN.plan(event, "refs/pull/7/merge", INTO_DEV, paths)
+            return next(group["phases"] for group in groups if group["name"] == "source")
+
+        for prefix in PLAN.NIGHTLY["loam-policy-proof"]:
+            path = prefix + "PROOF.bend" if prefix.endswith("/") else prefix
+            with self.subTest(path=path):
+                self.assertIn("loam-policy-proof", source("pull_request", [path]))
+        ordinary = ["src/loam/access/core/policy.zig"]
+        self.assertNotIn("loam-policy-proof", source("pull_request", ordinary))
+        self.assertIn("loam-policy-proof", source("schedule", ordinary))
+
     def test_a_change_plans_a_nightly_phase_only_for_its_owners(self):
         def interop(event, paths):
             # A pull request into dev selects groups by path, so each owner

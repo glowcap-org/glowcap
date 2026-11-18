@@ -5,6 +5,18 @@ protocol corpus and scenario drivers, `support/` for shared fixtures, and the
 crash and fault suites at this level. The [tests rule](../.agents/rules/tests.md)
 places a new test.
 
+## Loam policy laws
+
+A delegation chain can only narrow the rights held at its start. The
+[Bend laws](loam/access/policy_laws/LAWS.bend) state this for any number of
+intersections. The [Zig tests](loam/access/policy_test.zig) check the link to
+Loam on two finite sets of policies, one with prerequisites and one with
+ordered bounds. Each Zig bit stands for a child policy the parent can delegate.
+Bitwise intersection applies Bend’s Boolean AND to each child.
+
+Run `.devcontainer/bin/tools.sh exec bend -- zig build loam-policy-proof` in the
+devcontainer to check the proof. `zig build test` checks the Zig operations.
+
 ## Fuzz regression inputs
 
 Each layer's `fuzz_regressions/` holds one file per fuzzer finding: a byte

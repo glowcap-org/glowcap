@@ -282,6 +282,24 @@ jobs:
 
       - run: python3 ci/state.py stamp
 
+      - name: Read proof tool digests
+        if: matrix.phase == 'loam-policy-proof'
+        id: proof-tools
+        run: |
+          source .devcontainer/lib/fetch.sh
+          source .devcontainer/checksums.sh
+          bend="$(bend_sha256)"
+          lean="$(lean_sha256)"
+          echo "key=${bend}-${lean}" >> "$GITHUB_OUTPUT"
+
+      - name: Cache proof tool archives
+        if: matrix.phase == 'loam-policy-proof'
+        timeout-minutes: 5
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/glowcap/proof-archives/*.tar.*
+          key: proof-tools-${{ runner.os }}-${{ runner.arch }}-${{ steps.proof-tools.outputs.key }}
+
       - name: Run the phase
         if: ${{ !cancelled() && steps.fetch.outcome == 'success' }}
         env:
