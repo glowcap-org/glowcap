@@ -73,7 +73,12 @@ GROUPS = (
                 gate("python3 tools/run_with_timeout_test.py"),
                 gate("zig build infrastructure-check"),
             ],
-            "loam-policy-proof": [gate("bash .devcontainer/bin/tools.sh exec bend -- zig build loam-policy-proof")],
+            "bend-proofs": [
+                gate("bash .devcontainer/bin/tools.sh exec bend -- zig build loam-policy-proof"),
+                gate(
+                    "bash .devcontainer/bin/tools.sh exec bend -- bend test/engine/negotiation_laws/PROOF.bend --verdict"
+                ),
+            ],
         },
     ),
     Group(
@@ -298,7 +303,11 @@ assert len(PHASES) == sum(len(group.phases) for group in GROUPS), "a phase name 
 # sources whose change the phase alone proves. The Goblins matrix is the one
 # proof that reproduces the pinned Goblins handoff-count rejection.
 NIGHTLY = {
-    "loam-policy-proof": (
+    "bend-proofs": (
+        "src/ocapn/engine/negotiation.zig",
+        "src/ocapn/model/negotiated.zig",
+        "test/engine/negotiation_test.zig",
+        "test/engine/negotiation_laws/",
         "build.zig",
         "test/loam/access/policy_laws/",
         "src/loam/access/core/policy.zig",

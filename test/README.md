@@ -18,6 +18,15 @@ exercise the masks and prerequisite edges together. Bend proves the bound laws o
 compares Zig’s public policy operations with Bend for each ordering and each
 combination of absent bounds, using zero and the largest `u64` as witnesses.
 
+## Negotiation laws
+
+Swapping peers preserves candidate order at every rank. The Zig test
+checks the selector on the built-in offers, and the pairing tests
+exercise the handshake. [Rank proof](engine/negotiation_laws/PROOF.bend)
+
+In the devcontainer, run `.devcontainer/bin/tools.sh exec bend -- bend
+test/engine/negotiation_laws/PROOF.bend --verdict`.
+
 ## Fuzz regression inputs
 
 Each layer's `fuzz_regressions/` holds one file per fuzzer finding: a byte

@@ -4,27 +4,15 @@ const glowcap = @import("glowcap");
 const model = glowcap.ocapn.model;
 const negotiation = glowcap.ocapn.engine.negotiation;
 
-test "FeatureSet.intersect is the field-wise AND and is symmetric" {
-    const a = model.FeatureSet.full();
-    const b = model.FeatureSet.pipeliningAndHandoff();
-
-    const ab = a.intersect(b);
-    const ba = b.intersect(a);
-
-    // Symmetric.
-    try std.testing.expectEqual(ab, ba);
-    // The intersection drops whatever either side withholds.
-    try std.testing.expect(ab.pipelining);
-    try std.testing.expect(ab.handoff);
-    try std.testing.expect(ab.wire_delta);
-    try std.testing.expect(!ab.sturdyref);
-    try std.testing.expect(!ab.untag);
-    try std.testing.expect(!ab.multi_location);
-}
-
-test "intersect with minimum yields minimum" {
-    const intersected = model.FeatureSet.full().intersect(model.FeatureSet.minimum());
-    try std.testing.expectEqual(model.FeatureSet.minimum(), intersected);
+test "every packed feature set intersects pointwise" {
+    const Bits = @Int(.unsigned, @bitSizeOf(model.FeatureSet));
+    for (0..1 << @bitSizeOf(Bits)) |i| for (0..1 << @bitSizeOf(Bits)) |j| {
+        const a: Bits = @intCast(i);
+        const b: Bits = @intCast(j);
+        const left: model.FeatureSet = @bitCast(a);
+        try std.testing.expectEqual(a & b, @as(Bits, @bitCast(left.intersect(@bitCast(b)))));
+    };
+    try std.testing.expectEqual(model.FeatureSet{ .pipelining = true, .handoff = true, .wire_delta = true }, model.FeatureSet.pipeliningAndHandoff());
 }
 
 test "FeatureSet wire hint round-trips, refuses ambiguous forms, and drops unknown names" {
@@ -66,81 +54,42 @@ test "an absent feature hint never grants outbound untag" {
     try std.testing.expect(glowcap_peer.features.untag);
 }
 
-test "negotiate picks the most-preferred shared codec and intersects features" {
-    const local = negotiation.Offer.glowcap(model.FeatureSet.full());
-    const remote: negotiation.Offer = .{
-        .captp_versions = &.{ .v1_0, .next },
-        .codecs = &.{ .syrup, .capnp },
-        .features = model.FeatureSet.pipeliningAndHandoff(),
-    };
-
-    const n = negotiation.negotiate(local, remote).?;
-    // Both sum to preference 1; CaptpVersion declaration order breaks the tie to v1.0.
-    try std.testing.expectEqual(model.CaptpVersion.v1_0, n.captp_version);
-    // Both sum to preference 1; the CodecId tie-break picks `capnp` (declared
-    // first).
-    try std.testing.expectEqual(model.CodecId.capnp, n.codec);
-    try std.testing.expectEqual(model.FeatureSet.pipeliningAndHandoff(), n.features);
+fn offers(comptime T: type, comptime a: T, comptime b: T) [5][]const T {
+    return .{ &.{}, &.{a}, &.{b}, &.{ a, b }, &.{ b, a } };
 }
 
-test "v1.0 negotiation drops the glowcap-next multi-location feature" {
-    const local = negotiation.Offer.v1_0Syrup(model.FeatureSet.full());
-    const remote = negotiation.Offer.v1_0Syrup(model.FeatureSet.full());
-
-    const n = negotiation.negotiate(local, remote).?;
-    try std.testing.expectEqual(model.CaptpVersion.v1_0, n.captp_version);
-    try std.testing.expect(!n.features.multi_location);
-    try std.testing.expect(model.FeatureSet.full().forCaptpVersion(.next).multi_location);
+// The winner must be shared and no candidate may beat its rank or tie-break.
+fn expectWinner(comptime T: type, winner: T, a: []const T, b: []const T) !void {
+    const rank = (std.mem.findScalar(T, a, winner) orelse return error.UnsharedWinner) +
+        (std.mem.findScalar(T, b, winner) orelse return error.UnsharedWinner);
+    for (a, 0..) |option, i| {
+        const j = std.mem.findScalar(T, b, option) orelse continue;
+        try std.testing.expect(rank < i + j or (rank == i + j and @backingInt(winner) <= @backingInt(option)));
+    }
 }
 
-test "negotiate is symmetric under perspective swap" {
-    const a = negotiation.Offer.glowcap(model.FeatureSet.full());
-    const b: negotiation.Offer = .{
-        .captp_versions = &.{ .v1_0, .next },
-        .codecs = &.{.syrup},
-        .features = model.FeatureSet.full(),
+test "every built-in offer pair selects the best shared version and codec" {
+    const versions = offers(model.CaptpVersion, .v1_0, .next);
+    const codecs = offers(model.CodecId, .capnp, .syrup);
+    const full = model.FeatureSet.full();
+    for (versions) |a| for (versions) |b| for (codecs) |c| for (codecs) |d| {
+        const shared = std.mem.findAny(model.CaptpVersion, a, b) != null and std.mem.findAny(model.CodecId, c, d) != null;
+        for ([_]model.FeatureSet{ full, model.FeatureSet.pipeliningAndHandoff() }) |offered| {
+            const left: negotiation.Offer = .{ .captp_versions = a, .codecs = c, .features = full };
+            const right: negotiation.Offer = .{ .captp_versions = b, .codecs = d, .features = offered };
+            const result = negotiation.negotiate(left, right);
+            try std.testing.expectEqualDeep(result, negotiation.negotiate(right, left));
+            try std.testing.expectEqual(shared, result != null);
+            if (result) |n| {
+                try expectWinner(model.CaptpVersion, n.captp_version, a, b);
+                try expectWinner(model.CodecId, n.codec, c, d);
+                var expected = offered;
+                expected.multi_location = offered.multi_location and n.captp_version == .next;
+                expected.untag = offered.untag and n.captp_version == .v1_0;
+                try std.testing.expectEqual(expected, n.features);
+            }
+        }
     };
-
-    const from_a = negotiation.negotiate(a, b).?;
-    const from_b = negotiation.negotiate(b, a).?;
-    try std.testing.expectEqual(from_a.captp_version, from_b.captp_version);
-    try std.testing.expectEqual(from_a.codec, from_b.codec);
-    try std.testing.expectEqual(from_a.features, from_b.features);
-    // Both profiles are shared; the tie-break is profile declaration order, not
-    // the codec or target.
-    try std.testing.expectEqual(model.CaptpVersion.v1_0, from_a.captp_version);
-    // Only syrup is shared.
-    try std.testing.expectEqual(model.CodecId.syrup, from_a.codec);
-}
-
-test "negotiate returns null when no codec is shared" {
-    const a: negotiation.Offer = .{
-        .captp_versions = &.{.next},
-        .codecs = &.{.capnp},
-        .features = model.FeatureSet.full(),
-    };
-    const b: negotiation.Offer = .{
-        .captp_versions = &.{.next},
-        .codecs = &.{.syrup},
-        .features = model.FeatureSet.full(),
-    };
-    try std.testing.expect(negotiation.negotiate(a, b) == null);
-    try std.testing.expect(negotiation.negotiate(b, a) == null);
-}
-
-test "negotiate returns null when no profile is shared" {
-    const a: negotiation.Offer = .{
-        .captp_versions = &.{.next},
-        .codecs = &.{.syrup},
-        .features = model.FeatureSet.full(),
-    };
-    const b: negotiation.Offer = .{
-        .captp_versions = &.{.v1_0},
-        .codecs = &.{.syrup},
-        .features = model.FeatureSet.full(),
-    };
-    try std.testing.expect(negotiation.negotiate(a, b) == null);
-    try std.testing.expect(negotiation.negotiate(b, a) == null);
 }
 
 test "interop target offers constrain target without collapsing profile and codec axes" {
