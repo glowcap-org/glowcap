@@ -282,6 +282,9 @@ Releases before 0.1.7 are in the
   cause and saturates. Later causes carry no carrier fields. A malformed
   release report adds its contract failure once, and a contradictory report may
   add further causes.
+- A Zig `HostRuntime` with a busy-poll window no longer leaves its clock
+  frozen after `stepSession` or a resident connect wait. `nowMs` read the
+  same stale time on every later call.
 - `glowcap_driver_release` refuses reentry into the loop from provider and
   hosted callbacks during teardown, including the `has_transport`,
   `listener_locator`, and `wake` queries. A nested release returns the
