@@ -183,7 +183,7 @@ pub fn Machine(comptime Backend: type) type {
         }
 
         fn refuseAccepted(backend: *Backend, ud: u64, provider: *const Provider, handle: provider_mod.Handle, err: anyerror) void {
-            provider.vtable.conn_close(provider.ctx, handle.ptr);
+            provider.vtable.closeToSink(provider.ctx, handle.ptr);
             backend.ready.appendReserved(.{ .user_data = ud, .result = -1, .failure = err });
         }
 

@@ -22,9 +22,11 @@ const model = @import("model");
 const completion = @import("../../completion/loop.zig");
 const netlayer = @import("../../netlayer.zig");
 const provider_mod = @import("provider.zig");
+const carrier_failure = @import("../../carrier_failure.zig");
 const state = @import("state.zig");
 
 pub const Provider = provider_mod.Provider;
+pub const CloseRecipient = provider_mod.CloseRecipient;
 pub const VTable = provider_mod.VTable;
 pub const Handle = provider_mod.Handle;
 pub const Started = provider_mod.Started;
@@ -294,10 +296,60 @@ pub fn CompletionBackend(comptime Platform: type) type {
             if (!Namespace.ownsFd(fd)) self.platform.shutdownFd(fd);
         }
 
+        /// The completion `result` of an awaited close: the row is quiet and
+        /// its provider close waits for `claimClose`.
+        pub const close_claimable: i32 = 1;
+
+        /// Whether `fd` is a provider connection whose close result can reach
+        /// a waiting caller. A platform descriptor, the listener, and a
+        /// provider whose `conn_close` is `plain` keep `submitClose`.
+        pub fn awaitsClose(self: *const Self, fd: Fd) bool {
+            if (!Namespace.ownsFd(fd) or fd == listen_fd) return false;
+            const entry = self.conns.getPtr(fd) orelse return false;
+            return entry.phase == .open and entry.provider.vtable.conn_close == .reporting;
+        }
+
+        /// `submitClose` for a connection `awaitsClose` accepted: once the row
+        /// is quiet the close completion carries `close_claimable` and the
+        /// provider handle stays open until `claimClose` or `settleNoWait`.
+        pub fn submitCloseAwaited(self: *Self, user_data: u64, fd: Fd) !void {
+            std.debug.assert(self.awaitsClose(fd));
+            return self.closeRow(user_data, fd, true);
+        }
+
+        /// Release the provider handle of a claimable row and return the
+        /// teardown failure. Runs the provider's close once and removes the row.
+        pub fn claimClose(self: *Self, fd: Fd) ?carrier_failure.Report {
+            const entry = self.conns.getPtr(fd).?;
+            std.debug.assert(entry.close_phase == .claimable);
+            const provider = entry.provider;
+            const handle = entry.phase.open;
+            std.debug.assert(self.conns.remove(fd));
+            return provider.vtable.closeToCaller(provider.ctx, handle);
+        }
+
+        /// The waiting caller is gone. A row still draining finishes through
+        /// the ordinary no-wait close when it is quiet. A claimable row is
+        /// closed now, and the provider delivers the result to its sink.
+        pub fn settleNoWait(self: *Self, fd: Fd) void {
+            const entry = self.conns.getPtr(fd) orelse return;
+            const was = entry.close_phase;
+            entry.close_phase = .sink;
+            if (was != .claimable) return;
+            const provider = entry.provider;
+            const handle = entry.phase.open;
+            std.debug.assert(self.conns.remove(fd));
+            provider.vtable.closeToSink(provider.ctx, handle);
+        }
+
         /// Settle every seat, retire the row's armed polls, then release the
         /// provider handle and publish the close.
         pub fn submitClose(self: *Self, user_data: u64, fd: Fd) !void {
             if (!Namespace.ownsFd(fd)) return self.platform.submitClose(user_data, fd);
+            return self.closeRow(user_data, fd, false);
+        }
+
+        fn closeRow(self: *Self, user_data: u64, fd: Fd, awaited: bool) !void {
             if (fd == listen_fd) return Listening.close(self, user_data);
             const entry = self.conns.getPtr(fd) orelse {
                 try self.ready.reserve(self.allocator, 1);
@@ -313,6 +365,7 @@ pub fn CompletionBackend(comptime Platform: type) type {
             entry.connect_ud = null;
             entry.pending = .{};
             entry.close_ud = user_data;
+            entry.close_phase = if (awaited) .awaited else .sink;
             self.beginClose(fd, entry);
         }
 
@@ -461,10 +514,19 @@ pub fn CompletionBackend(comptime Platform: type) type {
         }
 
         fn maybeFinish(self: *Self, fd: Fd, entry: *Entry) void {
-            if (!entry.quiet()) return;
+            if (!entry.quiet() or entry.close_phase == .claimable) return;
             const provider = entry.provider;
+            if (entry.close_phase == .awaited) {
+                // Only an open row awaits: the close completion tells the
+                // caller the result can be claimed, in the seat reserved by
+                // `closeRow`.
+                std.debug.assert(entry.phase == .open and entry.close_ud != null);
+                entry.close_phase = .claimable;
+                self.ready.appendReserved(.{ .user_data = entry.close_ud.?, .result = close_claimable });
+                return;
+            }
             switch (entry.phase) {
-                .open => |conn| provider.vtable.conn_close(provider.ctx, conn),
+                .open => |conn| provider.vtable.closeToSink(provider.ctx, conn),
                 .connecting => |attempt| provider.vtable.cancel_connect(provider.ctx, attempt),
                 .failed => {},
             }

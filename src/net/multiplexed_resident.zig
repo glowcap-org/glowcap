@@ -38,6 +38,7 @@ pub const RawDialStartOutcome = dial.RawDialStartOutcome;
 pub const RawDialFinishOutcome = dial.RawDialFinishOutcome;
 
 pub const TeardownOutcome = @import("multiplexed_resident/teardown.zig").Outcome;
+pub const CloseMode = @import("multiplexed_resident/teardown.zig").CloseMode;
 pub const borrowed_read = @import("multiplexed_resident/borrowed_read.zig");
 pub const ReadyEvent = readiness.ReadyEvent;
 pub const ev_readable = readiness.ev_readable;
@@ -199,16 +200,25 @@ pub const MultiplexedResident = struct {
         /// failure. A claimed value cannot reappear.
         take_failure: ?*const fn (ctx: *anyopaque, conn: usize) ?carrier_failure.Report = null,
         /// Close and release one connection. Later records naming the id
-        /// drain to nothing.
-        conn_close: *const fn (ctx: *anyopaque, conn: usize) TeardownOutcome,
+        /// drain to nothing. `mode` names who receives the provider's close
+        /// result and is separate from pacing, so either mode may answer
+        /// `pending` while admitted bytes drain. A resident whose provider
+        /// reports its close after the call returns keeps the handle for an
+        /// `awaited` caller, publishes `ev_closed` once the result can be
+        /// claimed, and returns it from the next `awaited` call. A `no_wait`
+        /// call hands any later result to the resident's own sink.
+        conn_close: *const fn (ctx: *anyopaque, conn: usize, mode: CloseMode) TeardownOutcome,
         /// Drop one connection now, discarding what a pending `conn_close`
         /// was still sending, and release it. A resident whose pending close
         /// waits on the partner reading declares this, so that wait ends at
         /// the runtime's deadline instead of holding the socket and its read
         /// buffer. One whose pending close is its own asynchronous
         /// retirement, reported through `ev_closed`, leaves it null and the
-        /// runtime joins that close at release. It never reports `.pending`.
-        conn_abort: ?*const fn (ctx: *anyopaque, conn: usize) TeardownOutcome = null,
+        /// runtime joins that close at release. It never reports `.pending`:
+        /// a close whose result is claimable goes to `mode`'s recipient (the
+        /// caller claims it, a sink takes it), and one still waiting becomes
+        /// a `no_wait` close.
+        conn_abort: ?*const fn (ctx: *anyopaque, conn: usize, mode: CloseMode) TeardownOutcome = null,
         /// The channel-authenticated remote durable key, when this transport
         /// proves one (iroh's remote node id). Null on a transport whose
         /// channel proves nothing. The realizer seam then stays silent.
@@ -579,19 +589,22 @@ pub const MultiplexedResident = struct {
         if (self.vtable.flush_writes) |flush| flush(self.ctx, conn);
     }
 
+    /// The close of a connection nobody waits on. The result reduces to its
+    /// cause chain, and `pending` is a provider-contract failure because this
+    /// front keeps no readiness owner.
     pub fn connClose(self: MultiplexedResident, conn: usize) ?foundation.FailureChain {
-        return self.connCloseOutcome(conn).requireComplete();
+        return self.connCloseOutcome(conn, .no_wait).requireComplete();
     }
 
-    pub fn connCloseOutcome(self: MultiplexedResident, conn: usize) TeardownOutcome {
-        return self.vtable.conn_close(self.ctx, conn);
+    pub fn connCloseOutcome(self: MultiplexedResident, conn: usize, mode: CloseMode) TeardownOutcome {
+        return self.vtable.conn_close(self.ctx, conn, mode);
     }
 
     /// Null when the resident declares no abort, so its close completes on
     /// its own terms.
-    pub fn connAbortOutcome(self: MultiplexedResident, conn: usize) ?TeardownOutcome {
+    pub fn connAbortOutcome(self: MultiplexedResident, conn: usize, mode: CloseMode) ?TeardownOutcome {
         const abort = self.vtable.conn_abort orelse return null;
-        return abort(self.ctx, conn);
+        return abort(self.ctx, conn, mode);
     }
 
     pub fn takeFailure(self: MultiplexedResident, conn: usize) ?carrier_failure.Report {

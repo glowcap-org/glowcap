@@ -112,7 +112,9 @@ fn retireConsumedWire(self: *HostRuntime, wire: *Wire) void {
     wire.retiring_next = self.retiring_wires;
     if (self.retiring_wires) |head| head.retiring_prev = wire;
     self.retiring_wires = wire;
-    if (!wire.closed) closeWire(self, wire, null);
+    // A close already waiting on the provider has no recipient left: the
+    // detached call hands its result to the resident's own sink.
+    if (wire.closed) progressWireCarrierClose(self, wire) else closeWire(self, wire, null);
 }
 
 fn unlinkRetiringWire(self: *HostRuntime, wire: *Wire) void {
@@ -214,6 +216,8 @@ pub fn progressWireCarrierClose(self: *HostRuntime, wire: *Wire) void {
         false;
     const rl = &wire.link;
     const resident = self.residents.items[rl.index].resident;
+    // A detached wire has no caller left to receive a close result.
+    const mode: net.multiplexed_resident.CloseMode = if (wire.detached) .no_wait else .awaited;
     const outcome = if (expired) blk: {
         noteWireCloseFailure(wire, .fromError(error.CloseTimedOut));
         clearCarrierCloseDeadline(self, wire);
@@ -222,8 +226,8 @@ pub fn progressWireCarrierClose(self: *HostRuntime, wire: *Wire) void {
         // read buffer to the pool. One that cannot still owns the operation
         // and joins it at release: a timeout cannot fabricate physical
         // completion.
-        break :blk resident.connAbortOutcome(rl.conn) orelse return;
-    } else resident.connCloseOutcome(rl.conn);
+        break :blk resident.connAbortOutcome(rl.conn, mode) orelse return;
+    } else resident.connCloseOutcome(rl.conn, mode);
     switch (outcome) {
         .complete => finishWireCarrierClose(self, wire),
         // An abort never reports pending, so this is the close waiting on

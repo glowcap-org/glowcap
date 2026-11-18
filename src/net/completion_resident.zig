@@ -42,6 +42,7 @@ const resident_mod = @import("multiplexed_resident.zig");
 const completions = @import("completion_resident/completions.zig");
 const teardown = @import("completion_resident/teardown.zig");
 const listening = @import("completion_resident/listening.zig");
+const dialing = @import("completion_resident/dialing.zig");
 
 const MultiplexedResident = resident_mod.MultiplexedResident;
 const ReadyEvent = resident_mod.ReadyEvent;
@@ -143,6 +144,16 @@ pub fn Resident(comptime Backend: type, comptime Policy: type) type {
             close: enum { open, draining, closing } = .open,
             /// Completions the backend still owes this row.
             inflight: u8 = 0,
+            /// Holds one `records` seat (`close_seats`) for the `ev_closed`
+            /// that says the provider's close can be claimed. Set at
+            /// adoption on a connection whose backend `awaitsClose`, and
+            /// given back exactly once: by that record, or with the row.
+            close_seat: bool = false,
+            /// An awaiting caller's close: `awaited` while the backend still
+            /// holds borrows or the provider handle, `claimable` once the
+            /// backend reported the handle quiet and the next `awaited`
+            /// `conn_close` returns its result.
+            close_wait: enum { none, awaited, claimable } = .none,
         };
 
         /// Held per open connection, beside the map's key and metadata.
@@ -215,8 +226,12 @@ pub fn Resident(comptime Backend: type, comptime Policy: type) type {
         failure: ?anyerror = null,
         /// Armed accepts. Each holds one `records` seat and one `accepted`
         /// slot reserved before the submit, so its completion cannot fail to
-        /// record: `records.capacity >= records.items.len + accept_seats`.
+        /// record. `accept_seats` and `close_seats` together are the seats
+        /// `records.capacity` keeps free beyond `records.items.len`.
         accept_seats: usize = 0,
+        /// Open connections that hold a `close_seat`. Each one's `ev_closed`
+        /// record has its room reserved the same way an armed accept's does.
+        close_seats: usize = 0,
         /// Listeners with `rearm_owed` set.
         rearm_owed_count: usize = 0,
         /// Structured failures a backend lent with a failed completion, kept
@@ -294,9 +309,9 @@ pub fn Resident(comptime Backend: type, comptime Policy: type) type {
             .conn_abort = connAbort,
             .conn_remote_key = connRemoteKey,
             .dial = .{
-                .start_connect = startConnect,
-                .finish_connect = finishConnect,
-                .cancel_connect = cancelConnect,
+                .start_connect = Dialing.startConnect,
+                .finish_connect = Dialing.finishConnect,
+                .cancel_connect = Dialing.cancelConnect,
             },
             .listen = .{
                 .listen = Listening.listen,
@@ -496,13 +511,13 @@ pub fn Resident(comptime Backend: type, comptime Policy: type) type {
         /// The runtime's claim on the connection ends here. The row lives on,
         /// out of reach of every verb, until the backend retires the
         /// operations that borrow its staging.
-        fn connClose(ctx: *anyopaque, id: usize) resident_mod.TeardownOutcome {
-            return Teardown.connClose(of(ctx), id);
+        fn connClose(ctx: *anyopaque, id: usize, mode: resident_mod.CloseMode) resident_mod.TeardownOutcome {
+            return Teardown.connClose(of(ctx), id, mode);
         }
 
         /// Drop the connection now, whatever `connClose` was still sending.
-        fn connAbort(ctx: *anyopaque, id: usize) resident_mod.TeardownOutcome {
-            return Teardown.connAbort(of(ctx), id);
+        fn connAbort(ctx: *anyopaque, id: usize, mode: resident_mod.CloseMode) resident_mod.TeardownOutcome {
+            return Teardown.connAbort(of(ctx), id, mode);
         }
 
         fn connRemoteKey(ctx: *anyopaque, id: usize) resident_mod.ContractError!?crypto.PeerKey {
@@ -512,114 +527,34 @@ pub fn Resident(comptime Backend: type, comptime Policy: type) type {
             return crypto.PeerKey.fromBytes(key);
         }
 
-        fn startConnect(
-            ctx: *anyopaque,
-            request_id: usize,
-            locator: model.PeerLocator,
-            options: netlayer.OperationOptions,
-            _: netlayer.DialOrigin,
-        ) resident_mod.RawDialStartOutcome {
-            const self = of(ctx);
-            defer self.pump();
-            options.requireInherited() catch |err| return .{ .failed = .init(err) };
-            const target = Policy.resolve(locator) catch |err| return .{ .failed = dialFailure(err) };
-            self.dials.ensureUnusedCapacity(self.allocator, 1) catch |err| return .{ .failed = .init(err) };
-            const fd = self.backend.startDial(userData(.connect, request_id), target) catch |err|
-                return .{ .failed = dialFailure(err) };
-            self.dials.putAssumeCapacity(request_id, .{ .fd = fd, .state = .connecting });
-            return .admitted;
-        }
-
-        /// Keeps the exact cause in the chain and classifies it on the
-        /// closed retry axis. A cause outside that axis is a lost connection,
-        /// except an unroutable locator and a provider that broke its contract
-        /// or lacks the verb, which no retry repairs.
-        fn dialFailure(err: anyerror) netlayer.DialFailure {
-            const classification: netlayer.DialError = switch (err) {
-                error.InvalidAddress,
-                error.InvalidOptions,
-                error.WouldBlock,
-                error.ConnectionRefused,
-                error.NetworkUnreachable,
-                error.TimedOut,
-                error.ConnectionLost,
-                error.SocketConfigurationFailed,
-                error.WakeNudgeFailed,
-                error.OutOfMemory,
-                => |known| known,
-                error.UnknownTransport, error.AddressNotAvailable => error.InvalidAddress,
-                error.ProviderContract, error.OperationUnsupported => error.InvalidOptions,
-                else => error.ConnectionLost,
-            };
-            return .fromChain(classification, .init(err));
-        }
-
-        fn finishConnect(ctx: *anyopaque, request_id: usize) resident_mod.RawDialFinishOutcome {
-            const self = of(ctx);
-            defer self.pump();
-            const dial = self.dials.fetchRemove(request_id) orelse
-                return .{ .failed = .init(error.InvalidOptions) };
-            switch (dial.value.state) {
-                .connected => {},
-                .failed => |err| {
-                    self.backend.closeFd(dial.value.fd);
-                    var failure = dialFailure(err);
-                    if (self.dial_failures.fetchRemove(request_id)) |kept| failure.chain = kept.value;
-                    return .{ .failed = failure };
-                },
-                .connecting, .cancelling, .cancelled => {
-                    self.latch(error.ProviderContract);
-                    return .{ .failed = .fromChain(error.InvalidOptions, .init(error.ProviderContract)) };
-                },
-            }
-            const id = self.adopt(dial.value.fd) catch |err| {
-                self.backend.closeFd(dial.value.fd);
-                return .{ .failed = .init(err) };
-            };
-            return .{ .connected = id };
-        }
-
-        fn cancelConnect(ctx: *anyopaque, request_id: usize) ?foundation.FailureChain {
-            const self = of(ctx);
-            defer self.pump();
-            const dial = self.dials.getPtr(request_id) orelse return null;
-            switch (dial.state) {
-                .cancelled => {
-                    std.debug.assert(self.dials.remove(request_id));
-                    return null;
-                },
-                .cancelling => return null,
-                .connected, .failed => {
-                    self.backend.closeFd(dial.fd);
-                    std.debug.assert(self.dials.remove(request_id));
-                    // idempotent: only a failed dial kept a chain.
-                    _ = self.dial_failures.remove(request_id);
-                    return null;
-                },
-                .connecting => {
-                    dial.state = .cancelling;
-                    // A queued connect holds the socket, so closing the
-                    // descriptor alone leaves it connecting until the kernel
-                    // gives up. Shutting it down retires the connect now.
-                    self.backend.shutdownFd(dial.fd);
-                    self.backend.submitClose(userData(.dial_close, request_id), dial.fd) catch |err| {
-                        self.backend.closeFd(dial.fd);
-                        return .init(err);
-                    };
-                    dial.inflight += 1;
-                    return null;
-                },
-            }
-        }
+        const Dialing = dialing.Machine(Self, Policy);
 
         const Listening = listening.Machine(Self, Policy);
         pub const stopListen = Listening.stopListen;
 
+        /// Whether a connection of this backend can have its provider's close
+        /// result claimed after the close is submitted. Only a backend that
+        /// declares `awaitsClose` answers yes, and only for the connections it
+        /// names: a platform descriptor behind the same backend does not.
+        fn awaitsClose(self: *const Self, fd: Fd) bool {
+            if (comptime !@hasDecl(Backend, "awaitsClose")) return false;
+            return self.backend.awaitsClose(fd);
+        }
+
+        /// Admit connection `fd`. An awaitable connection also reserves its
+        /// `ev_closed` seat here, before the caller's close can need it, so
+        /// no later step allocates. A refusal reserves nothing.
         pub fn adopt(self: *Self, fd: Fd) !usize {
             try self.conns.ensureUnusedCapacity(self.allocator, 1);
+            const seat = self.awaitsClose(fd);
+            if (seat) try self.records.ensureTotalCapacity(
+                self.allocator,
+                self.records.items.len + self.accept_seats + self.close_seats + 1,
+            );
             const id = self.next_conn;
             self.next_conn += 1;
-            self.conns.putAssumeCapacity(id, .{ .fd = fd });
+            if (seat) self.close_seats += 1;
+            self.conns.putAssumeCapacity(id, .{ .fd = fd, .close_seat = seat });
             self.armRecv(id, self.conns.getPtr(id).?);
             return id;
         }

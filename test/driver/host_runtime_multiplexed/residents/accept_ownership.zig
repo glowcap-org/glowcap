@@ -176,7 +176,7 @@ pub const AcceptOwnershipResident = struct {
         break :abortable table;
     };
 
-    fn connAbort(ctx: *anyopaque, conn: usize) net.multiplexed_resident.TeardownOutcome {
+    fn connAbort(ctx: *anyopaque, conn: usize, _: net.multiplexed_resident.CloseMode) net.multiplexed_resident.TeardownOutcome {
         const self = of(ctx);
         std.debug.assert(conn == conn_id);
         self.abort_calls += 1;
@@ -431,7 +431,7 @@ pub const AcceptOwnershipResident = struct {
         return @intCast(bytes.len);
     }
 
-    fn connClose(ctx: *anyopaque, conn: usize) net.multiplexed_resident.TeardownOutcome {
+    fn connClose(ctx: *anyopaque, conn: usize, _: net.multiplexed_resident.CloseMode) net.multiplexed_resident.TeardownOutcome {
         const self = of(ctx);
         std.debug.assert(conn == conn_id);
         self.close_calls += 1;

@@ -388,7 +388,7 @@ pub const FakeResident = struct {
         }
     }
 
-    fn connClose(ctx: *anyopaque, conn_id: usize) net.multiplexed_resident.TeardownOutcome {
+    fn connClose(ctx: *anyopaque, conn_id: usize, _: net.multiplexed_resident.CloseMode) net.multiplexed_resident.TeardownOutcome {
         const self = of(ctx);
         const row = self.conns.fetchRemove(conn_id) orelse return .complete;
         self.ctlEpoll(linux.EPOLL.CTL_DEL, row.value.fd, 0, 0);

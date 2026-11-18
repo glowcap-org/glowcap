@@ -7,6 +7,7 @@ const std = @import("std");
 
 const completion = @import("../completion/loop.zig");
 const completions = @import("completions.zig");
+const carrier_failure = @import("../carrier_failure.zig");
 const resident_mod = @import("../multiplexed_resident.zig");
 
 const TeardownOutcome = resident_mod.TeardownOutcome;
@@ -19,10 +20,15 @@ pub fn Machine(comptime Self: type) type {
         /// The runtime's claim on connection `id` ends here. The row lives
         /// on, out of reach of every verb, until the backend retires the
         /// operations that borrow its staging.
-        pub fn connClose(self: *Self, id: usize) TeardownOutcome {
+        ///
+        /// `awaited` on a connection that holds a close seat keeps the
+        /// provider's close open until its result is claimed by the next
+        /// `awaited` call, which then returns it by value. `no_wait` hands
+        /// the provider close to its own sink.
+        pub fn connClose(self: *Self, id: usize, mode: resident_mod.CloseMode) TeardownOutcome {
             defer Completions.pump(self);
             const conn = self.conns.getPtr(id) orelse return .complete;
-            if (conn.close == .closing) return .complete;
+            if (conn.close == .closing) return closingOutcome(self, id, conn, mode);
             // Readiness backends perform sends when polled, not when submitted.
             // Keep the socket open until every admitted byte has completed.
             conn.send_queued = false;
@@ -40,16 +46,50 @@ pub fn Machine(comptime Self: type) type {
                 conn.owes_writable = true;
                 return .pending;
             }
-            return shutConn(self, id, conn);
+            return shutConn(self, id, conn, mode);
         }
 
         /// Drop connection `id` now, whatever `connClose` was still sending.
-        pub fn connAbort(self: *Self, id: usize) TeardownOutcome {
+        /// `mode` names who receives a result that is already claimable: the
+        /// caller, or the provider's sink when the wire was detached.
+        pub fn connAbort(self: *Self, id: usize, mode: resident_mod.CloseMode) TeardownOutcome {
             defer Completions.pump(self);
             const conn = self.conns.getPtr(id) orelse return .complete;
-            if (conn.close == .closing) return .complete;
+            if (conn.close == .closing) {
+                // An abort delivers a result that is ready to `mode`'s
+                // recipient and otherwise gives up the wait: it never reports
+                // pending.
+                return closingOutcome(self, id, conn, if (conn.close_wait == .claimable) mode else .no_wait);
+            }
             conn.send_queued = false;
-            return shutConn(self, id, conn);
+            return shutConn(self, id, conn, .no_wait);
+        }
+
+        /// A second close call on a closing row. An awaiting caller sees
+        /// `pending` until the backend reports the provider handle quiet,
+        /// then receives its close result and the row is released. A caller
+        /// that stopped waiting hands the provider close to its own sink.
+        fn closingOutcome(self: *Self, id: usize, conn: *Self.Conn, mode: resident_mod.CloseMode) TeardownOutcome {
+            switch (conn.close_wait) {
+                .none => return .complete,
+                .awaited => {
+                    if (mode == .awaited) return .pending;
+                    settle(self, conn.fd);
+                    conn.close_wait = .none;
+                    return .complete;
+                },
+                .claimable => {
+                    conn.close_wait = .none;
+                    const reported = if (mode == .awaited)
+                        claim(self, conn.fd)
+                    else blk: {
+                        settle(self, conn.fd);
+                        break :blk null;
+                    };
+                    Completions.retireIfQuiet(self, id, conn);
+                    return if (reported) |report| .{ .failed = report } else .complete;
+                },
+            }
         }
 
         /// Return a held pool buffer and leave the starved queue.
@@ -64,13 +104,19 @@ pub fn Machine(comptime Self: type) type {
 
         /// Release the row and shut its socket. The row lives on until the
         /// backend retires the operations still borrowing it.
-        fn shutConn(self: *Self, id: usize, conn: *Self.Conn) TeardownOutcome {
+        fn shutConn(self: *Self, id: usize, conn: *Self.Conn, mode: resident_mod.CloseMode) TeardownOutcome {
             releaseRecv(self, id, conn);
             conn.close = .closing;
             self.backend.shutdownFd(conn.fd);
             var outcome: TeardownOutcome = .complete;
-            if (self.backend.submitClose(userData(.close, id), conn.fd)) {
+            const awaited = mode == .awaited and conn.close_seat;
+            const submitted = if (awaited) submitAwaited(self, id, conn) else self.backend.submitClose(userData(.close, id), conn.fd);
+            if (submitted) {
                 conn.inflight += 1;
+                if (awaited) {
+                    conn.close_wait = .awaited;
+                    outcome = .pending;
+                }
             } else |err| {
                 self.backend.closeFd(conn.fd);
                 outcome = .{ .failed = .init(err) };
@@ -82,6 +128,22 @@ pub fn Machine(comptime Self: type) type {
             }
             Completions.retireIfQuiet(self, id, conn);
             return outcome;
+        }
+
+        fn submitAwaited(self: *Self, id: usize, conn: *Self.Conn) !void {
+            if (comptime !@hasDecl(@TypeOf(self.backend), "submitCloseAwaited")) unreachable;
+            return self.backend.submitCloseAwaited(userData(.close, id), conn.fd);
+        }
+
+        /// A row only waits when its backend declares the awaited verbs.
+        fn settle(self: *Self, fd: Self.Fd) void {
+            if (comptime !@hasDecl(@TypeOf(self.backend), "settleNoWait")) unreachable;
+            self.backend.settleNoWait(fd);
+        }
+
+        fn claim(self: *Self, fd: Self.Fd) ?carrier_failure.Report {
+            if (comptime !@hasDecl(@TypeOf(self.backend), "claimClose")) unreachable;
+            return self.backend.claimClose(fd);
         }
 
         pub fn closeAndDrain(self: *Self, timeout_ms: u32) !void {
@@ -98,7 +160,7 @@ pub fn Machine(comptime Self: type) type {
             // Every dial is settled with its descriptor closed.
             self.dials.clearRetainingCapacity();
             // `closeOpen` stopped every listener, so no accept holds a seat.
-            std.debug.assert(self.accept_seats == 0 and self.rearm_owed_count == 0);
+            std.debug.assert(self.accept_seats == 0 and self.rearm_owed_count == 0 and self.close_seats == 0);
             self.records.clearRetainingCapacity();
             std.debug.assert(self.drained());
         }
@@ -115,7 +177,15 @@ pub fn Machine(comptime Self: type) type {
             var conns = self.conns.iterator();
             while (conns.next()) |entry| {
                 const conn = entry.value_ptr;
-                if (conn.close == .closing) continue;
+                if (conn.close == .closing) {
+                    // The waiting caller is gone: finish the provider close
+                    // through its sink instead of leaving it claimable.
+                    if (conn.close_wait != .none) {
+                        settle(self, conn.fd);
+                        conn.close_wait = .none;
+                    }
+                    continue;
+                }
                 if (conn.recv == .holding) {
                     // Every receive is closing, so no starved one is fed.
                     self.backend.recycleBorrowed(conn.recv.holding.comp);

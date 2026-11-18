@@ -280,6 +280,8 @@ comptime {
         _ = @import("driver/host_runtime_step/unattended_close_test.zig");
         _ = @import("driver/host_runtime_step/sweep_edges_test.zig");
         _ = @import("driver/host_runtime_multiplexed/external_resident_test.zig");
+        _ = @import("driver/host_runtime_multiplexed/external_close_failure_test.zig");
+        _ = @import("driver/host_runtime_multiplexed/detached_abort_test.zig");
         _ = @import("driver/host_runtime_multiplexed/inproc_resident_test.zig");
         _ = @import("driver/host_runtime_multiplexed/relay_resident_test.zig");
         _ = @import("driver/host_runtime_multiplexed/noise_tcp_resident_test.zig");
@@ -429,6 +431,7 @@ comptime {
         if (@import("builtin").target.os.tag == .linux or @import("builtin").target.os.tag.isDarwin())
             _ = @import("net/completion_listener_test.zig");
         _ = @import("net/external_listen_failure_test.zig");
+        _ = @import("net/external_close_claim_test.zig");
         _ = @import("net/completion_loop_backpressure_test.zig");
         _ = @import("net/completion_loop_stream_test.zig");
         _ = @import("net/completion_loop_spill_test.zig");
@@ -558,6 +561,7 @@ comptime {
         _ = @import("c_abi/driver_loop/accept_pressure_test.zig");
         _ = @import("c_abi/driver_loop/stream_listen_failure_test.zig");
         _ = @import("c_abi/driver_loop/stream_release_failure_test.zig");
+        _ = @import("c_abi/driver_loop/live_stream_close_test.zig");
         _ = @import("c_abi/driver_loop/archive_test.zig");
         _ = @import("c_abi/driver_loop/loopback_test.zig");
         _ = @import("c_abi/driver_loop/session_release_test.zig");

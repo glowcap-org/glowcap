@@ -78,7 +78,7 @@ const Provider = struct {
         .cancel_connect = cancelConnect,
         .try_read = tryRead,
         .try_write = tryWrite,
-        .conn_close = connClose,
+        .conn_close = .{ .plain = connClose },
     };
 
     fn provider(self: *Provider) external.Provider {

@@ -334,7 +334,7 @@ fn Tests(comptime Backend: type) type {
             try std.testing.expectEqual(@as(isize, abort.len), client_ops.try_write(&client, pair.client_conn, abort));
             client_ops.flush_writes.?(&client, pair.client_conn);
             try std.testing.expect(client.conns.getPtr(pair.client_conn).?.send_queued);
-            try std.testing.expect(client_ops.conn_close(&client, pair.client_conn) == .complete);
+            try std.testing.expect(client_ops.conn_close(&client, pair.client_conn, .no_wait) == .complete);
 
             // The partner reads the abort, then end of stream.
             const server_ops = server.resident().vtable;
@@ -444,7 +444,7 @@ fn Tests(comptime Backend: type) type {
             try std.testing.expect(client.spare_sends.items.len <= 2);
 
             // The client closes; the server sees end of stream once.
-            try std.testing.expect(client_ops.conn_close(&client, client_conn) == .complete);
+            try std.testing.expect(client_ops.conn_close(&client, client_conn, .no_wait) == .complete);
             while (true) {
                 if (net.clock.nowMonotonicMs() >= deadline) return error.RecordNeverArrived;
                 const end = server_ops.try_read(&server, server_conn, &received);
@@ -498,13 +498,13 @@ fn Tests(comptime Backend: type) type {
 
             // The partner reads nothing, so the close waits on the drain, and
             // the draining row holds no read buffer for it.
-            try std.testing.expect(client_ops.conn_close(&client, pair.client_conn) == .pending);
+            try std.testing.expect(client_ops.conn_close(&client, pair.client_conn, .no_wait) == .pending);
             const conn = client.conns.getPtr(pair.client_conn).?;
             try std.testing.expect(conn.close == .draining);
             try std.testing.expect(conn.recv != .holding);
 
             // The abort releases the row whatever is left to send.
-            try std.testing.expect(client_ops.conn_abort.?(&client, pair.client_conn) == .complete);
+            try std.testing.expect(client_ops.conn_abort.?(&client, pair.client_conn, .no_wait) == .complete);
             if (client.conns.getPtr(pair.client_conn)) |row| try std.testing.expect(row.close == .closing);
 
             // The partner sees the stream end.

@@ -236,7 +236,7 @@ pub const MultiplexedAdapter = struct {
     fn write(ctx: *anyopaque, id: usize, bytes: []const u8) isize {
         return from(ctx).tryWrite(id, bytes);
     }
-    fn close(ctx: *anyopaque, id: usize) net.multiplexed_resident.TeardownOutcome {
+    fn close(ctx: *anyopaque, id: usize, _: net.multiplexed_resident.CloseMode) net.multiplexed_resident.TeardownOutcome {
         from(ctx).closeConnection(id);
         return .complete;
     }

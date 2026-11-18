@@ -121,7 +121,7 @@ const Script = struct {
         .accept = acceptNext,
         .try_read = tryRead,
         .try_write = unreachableWrite,
-        .conn_close = connClose,
+        .conn_close = .{ .plain = connClose },
     };
 
     fn closeDialWakes(self: *Script) void {

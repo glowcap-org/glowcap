@@ -49,6 +49,12 @@ pub const Spec = struct {
     clock_step_ns: ?i64 = null,
     /// The runtime's busy-poll window, validated by `HostRuntime.init`.
     busy_poll_ns: u64 = 0,
+    /// The resident's close stays pending until the carrier deadline.
+    close_pends: bool = false,
+    /// The resident declares `conn_abort`, and an abort finds the provider's
+    /// close failure claimable.
+    abortable: bool = false,
+    abort_claims_failure: bool = false,
 };
 
 /// A runtime serving one adopted connection whose partner is a raw core
@@ -98,7 +104,9 @@ pub const Rig = struct {
                 .read_result = net.multiplexed_resident.would_block,
                 .record_writes = allocator,
                 .edge_reads = true,
-                .close_completes = true,
+                .close_completes = !spec.close_pends,
+                .abortable = spec.abortable,
+                .abort_claims_failure = spec.abort_claims_failure,
             },
             .runtime = undefined,
             .partner = undefined,

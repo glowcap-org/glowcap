@@ -166,7 +166,7 @@ fn handleResidentEvent(
         .resident = resident_index,
         .conn = event.subject,
     }) orelse {
-        if (event.events & er.ev_closed != 0) switch (self.residents.items[resident_index].resident.connCloseOutcome(event.subject)) {
+        if (event.events & er.ev_closed != 0) switch (self.residents.items[resident_index].resident.connCloseOutcome(event.subject, .no_wait)) {
             .complete => {},
             .pending => self.noteTerminalFailure(error.ProviderContract),
             .failed => |failure| self.noteTerminalOperationFailure(.fromReport(failure)),
