@@ -66,6 +66,17 @@ try {
 				grown.planes,
 				"cooling must not redraw geometry",
 			);
+			// The light's frames wait for the device: a run of display frames
+			// with no time for the device to finish between them draws one.
+			await page.evaluate(() => myceliumFixture.settled());
+			const ready = (await page.evaluate(() => myceliumFixture.read())).submissions;
+			await page.clock.runFor(64);
+			assertEquals(
+				(await page.evaluate(() => myceliumFixture.read())).submissions,
+				ready + 1,
+				"a frame waits for the device to finish the last",
+			);
+			await page.evaluate(() => myceliumFixture.settled());
 			await page.evaluate(() => document.documentElement.setAttribute("data-theme", "dark"));
 			await page.clock.fastForward(100);
 			assert(

@@ -1,7 +1,7 @@
 // The page's one WebGPU device, shared by every mark on it and by the
-// mycelium under it, and how a drawing stays on it. Each drawing makes
-// resources of its own, so what one costs is released with it and the device
-// holds nothing but itself.
+// mycelium under it, how a drawing stays on it, and how a loop keeps pace
+// with it. Each drawing makes resources of its own, so what one costs is
+// released with it and the device holds nothing but itself.
 
 /// <reference lib="dom" />
 
@@ -80,4 +80,40 @@ export async function keepOnPageDevice(drawing: Drawing): Promise<(() => void) |
 	return () => {
 		released = true;
 	};
+}
+
+/** Whether the frame a loop last submitted is still on the device. A loop
+ * asks before drawing and lets a display frame pass while it is. A device
+ * that cannot keep up then draws fewer frames, and the time between them is
+ * time the page's own compositing gets: frames queued behind a busy device
+ * would hold up every update on the page, scrolling included. */
+export class FrameGate {
+	#ticket = 0;
+	#busy = false;
+
+	get busy(): boolean {
+		return this.#busy;
+	}
+
+	/** Call after submitting a frame on `device`. Only the latest frame
+	 * clears the gate, because an earlier one finishing says nothing about
+	 * work submitted after it. */
+	submitted(device: GPUDevice): void {
+		const ticket = ++this.#ticket;
+		this.#busy = true;
+		void device.queue.onSubmittedWorkDone().then(
+			() => {
+				if (ticket === this.#ticket) this.#busy = false;
+			},
+			// tolerant: a lost device may reject this or never settle it, and
+			// the drawing's `lost` resets the gate.
+			() => {},
+		);
+	}
+
+	/** Forget the frame in flight, on a device that was lost. */
+	reset(): void {
+		this.#ticket++;
+		this.#busy = false;
+	}
 }

@@ -115,8 +115,13 @@ const fixture = {
 		device.destroy();
 		return next;
 	},
-	async gpuErrors() {
+	/** Resolves once the device has finished everything submitted so far,
+	 * the way it would between display frames of a real page. */
+	async settled() {
 		await device?.queue.onSubmittedWorkDone();
+	},
+	async gpuErrors() {
+		await fixture.settled();
 		return gpuErrors;
 	},
 	expectMotionChange() {

@@ -315,6 +315,11 @@ Releases before 0.1.7 are in the
 
 ### Fixed
 
+- The mushroom mark on the website and in Rooms no longer drops frames on a
+  phone with a three-times screen, such as an iPhone Pro. It draws at the
+  screen's own resolution there, skips its beams while its light is off, and
+  waits for the GPU to finish a frame before starting the next. The
+  website's background threads wait for the GPU the same way.
 - A multiplexed connection's close reports the carrier phase, detail flags,
   verification flags, peer alert, and engine code of its primary failure to
   the C driver's `SESSION_CLOSED` event. They read zero before whenever the
