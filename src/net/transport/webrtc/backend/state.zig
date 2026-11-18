@@ -244,6 +244,7 @@ pub const Backend = struct {
     pub const readinessFd = ReadinessOps.readinessFd;
     pub const flush = ReadinessOps.flush;
     pub const waitBoundMs = ReadinessOps.waitBoundMs;
+    pub const readyPending = ReadinessOps.readyPending;
     pub const submitPoll = ReadinessOps.submitPoll;
     pub const submitCancel = ReadinessOps.submitCancel;
 };

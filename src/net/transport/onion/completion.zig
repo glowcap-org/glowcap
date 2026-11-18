@@ -134,6 +134,13 @@ pub fn CompletionBackend(comptime Inner: type) type {
             return self.inner.submitPoll(user_data, fd, interest);
         }
 
+        /// Whether this adapter or its inner backend holds work no descriptor
+        /// reports, which the next `peek` can advance or surface. A held inner
+        /// completion may be consumed inside the adapter instead of yielded.
+        pub fn readyPending(self: *const Self) bool {
+            return self.ready.len() != 0 or self.inner.readyPending();
+        }
+
         /// An owed inner submission retries on `submission_retry_ms`.
         pub fn waitBoundMs(self: *const Self, requested_ms: i32) i32 {
             // A pending listener setup asks for its own turn cadence: the

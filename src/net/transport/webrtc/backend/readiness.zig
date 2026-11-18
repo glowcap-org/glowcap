@@ -22,6 +22,13 @@ pub fn Machine(comptime Self: type, comptime Signaling: type, comptime Connectio
         /// Every operation reaches the sidecar or the inbox when submitted.
         pub fn flush(_: *Self) !void {}
 
+        /// Whether a completion is held for the next `peek`. The readiness
+        /// descriptor reports work to harvest, not what a harvest already
+        /// queued.
+        pub fn readyPending(self: *const Self) bool {
+            return self.ready.len() != 0;
+        }
+
         /// Nothing here waits on a timer.
         pub fn waitBoundMs(_: *const Self, requested_ms: i32) i32 {
             return requested_ms;

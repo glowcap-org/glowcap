@@ -43,7 +43,7 @@ test "supported WebRTC type surfaces and footprints stay exact" {
     try std.testing.expectEqual(resident_names.len, @typeInfo(webrtc.Resident).@"struct".decl_names.len);
     inline for (resident_names) |name| try std.testing.expect(@hasDecl(webrtc.Resident, name));
 
-    const backend_names = .{ "Fd", "ConnectTarget", "ListenerAddress", "ListenTarget", "loopListenTarget", "listen_fd", "connection_state_bytes", "initBound", "deinit", "openListener", "listenerAddress", "listenerPort", "startDial", "startAnswer", "adoptAnswerer", "provideAnswer", "provideRemoteCandidate", "wake", "applyKeepalive", "wireFraming", "closeFd", "shutdownFd", "recycleBorrowed", "verifiedChannelKey", "submitAccept", "submitRecv", "submitSend", "submitCancel", "submitClose", "poll", "peek", "readinessFd", "flush", "waitBoundMs", "submitPoll" };
+    const backend_names = .{ "Fd", "ConnectTarget", "ListenerAddress", "ListenTarget", "loopListenTarget", "listen_fd", "connection_state_bytes", "initBound", "deinit", "openListener", "listenerAddress", "listenerPort", "startDial", "startAnswer", "adoptAnswerer", "provideAnswer", "provideRemoteCandidate", "wake", "applyKeepalive", "wireFraming", "closeFd", "shutdownFd", "recycleBorrowed", "verifiedChannelKey", "submitAccept", "submitRecv", "submitSend", "submitCancel", "submitClose", "poll", "peek", "readinessFd", "readyPending", "flush", "waitBoundMs", "submitPoll" };
     try std.testing.expectEqual(backend_names.len, @typeInfo(webrtc.Backend).@"struct".decl_names.len);
     inline for (backend_names) |name| try std.testing.expect(@hasDecl(webrtc.Backend, name));
 

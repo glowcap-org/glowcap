@@ -110,9 +110,12 @@ pub const MultiplexedResident = struct {
         /// into a record.
         readiness_fd: *const fn (ctx: *anyopaque) i32,
         /// Whether records already taken from the kernel wait in the resident
-        /// now, where no descriptor reports them. A resident that reaps
-        /// completions at the end of its own verbs holds such records between
-        /// a verb and the next service. The runtime services the resident
+        /// now, where no descriptor reports them, or the resident holds
+        /// backend work its next drain can advance or surface (a send
+        /// completion a short write queued, a deferred poll error), which may
+        /// end in no public record. Neither is a descriptor event. A resident
+        /// that reaps completions at the end of its own verbs holds such
+        /// records between a verb and the next service. The runtime services the resident
         /// before it parks, and raises a stepped embedder's readiness
         /// descriptor when a verb leaves them behind. Absent means the
         /// descriptor reports every record.
