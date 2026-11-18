@@ -37,6 +37,17 @@ glowcap_fetch_verified "${bun_url}" "${tmp}/${bun_zip}" "$(bun_sha256)"
 unzip -q "${tmp}/${bun_zip}" -d "${tmp}/bun"
 install -m 0755 "${tmp}/bun/bun-linux-${bun_arch}/bun" /usr/local/bin/bun
 
+# Bend runs the browser Host import check on its JavaScript backend.
+bend_arch="$(glowcap_pick_by_arch bend x64 arm64)"
+bend_archive="bend-${BEND_VERSION}-linux-${bend_arch}.tar.gz"
+bend_url="https://github.com/bendlang/bend/releases/download/v${BEND_VERSION}/${bend_archive}"
+glowcap_fetch_verified "${bend_url}" "${tmp}/${bend_archive}" "$(bend_sha256)"
+# The compiler finds its standard library relative to its executable.
+mkdir -p /opt/bend
+tar -xzf "${tmp}/${bend_archive}" --strip-components=1 -C /opt/bend
+ln -sf /opt/bend/bin/bend /usr/local/bin/bend
+
+bend version
 deno --version
 node --version
 npm --version
