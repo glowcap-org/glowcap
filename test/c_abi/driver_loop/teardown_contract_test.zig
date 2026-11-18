@@ -249,12 +249,13 @@ const ReleaseProbe = struct {
 };
 
 test "driver release refuses reentry into the loop from both teardown phases" {
-    const owned = try harness.newEmptyLoop(0x81);
     var resident = typed.TypedResident{
         .wake = try glowcap.net.wake_channel.WakeChannel.open(),
         .opaque_hint = &.{},
     };
     defer resident.wake.deinit();
+    var owned = try harness.newEmptyLoop(0x81);
+    defer owned.deinit();
     var table = resident.table();
     const profile = harness.providerProfile("typed-test");
     var provider = typed.typedProvider(&resident, &table, &profile);
@@ -297,7 +298,8 @@ test "driver release refuses reentry into the loop from both teardown phases" {
 
     provider_probe.armed = true;
     hosted_probe.armed = true;
-    const released = c.ReleaseResult.fromRaw(harness.releaseLoop(owned.raw));
+    var release_report = cdrv.GlowcapDriverFailure.init();
+    const released = c.ReleaseResult.fromRaw(owned.release(&release_report));
 
     try std.testing.expectEqual(.consumed, released.ownership);
     try std.testing.expectEqual(c.GLOWCAP_OK, released.code());

@@ -32,9 +32,10 @@ const compactEventsIfDrained = events.compactEventsIfDrained;
 
 // ── Lifecycle ────────────────────────────────────────────────────────────────
 
-/// Move a byte-fed Host with no live sessions or borrowed action into a Zig
-/// loop. Unpopped actions move with the Host and are first consumed by the driver.
-/// Failure leaves the caller as the Host's runtime owner. Success transfers
+/// Move a Host created with `glowcap_host_new_in` into a Zig loop. Its Context
+/// must outlive the loop. The Host must have no live sessions or borrowed action.
+/// Unpopped actions move with the Host and are first consumed by the driver.
+/// Failure preserves the Host's runtime owner and the output slot. Success transfers
 /// transport execution, action draining, session release, and terminal Host
 /// release to the returned loop. Buffer and admission limits must be positive.
 /// A zero wait budget explicitly selects an unbounded wait, and each nonzero

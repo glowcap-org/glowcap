@@ -367,7 +367,7 @@ diagnostic text across archive copies, with typed Zig errors local to their
 compilation ([ADR-0022](decisions/adr/ADR-0022-composable-c-archives.md)).
 
 Bindings that load the C library use `libglowcap_host` and `libglowcap_driver`. The driver
-takes an idle Host and runs the loop. The binding waits on one readiness
+takes an idle Host created in a Context and runs the loop. The binding waits on one readiness
 descriptor, arms one timer from `glowcap_driver_step_wait_ms`, calls
 `glowcap_driver_step`, and drains one event queue. The driver decides
 which pending operation owns the nearest deadline, and the binding only

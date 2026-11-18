@@ -30,6 +30,7 @@ pub const Context = struct {
     engine_mod: *std.Build.Module,
     net_mod: *std.Build.Module,
     c_abi_shared_mod: *std.Build.Module,
+    ocapn_abi_mod: *std.Build.Module,
     host_abi_mod: *std.Build.Module,
     driver_abi_mod: *std.Build.Module,
     conversation_harness_mod: *std.Build.Module,
@@ -359,6 +360,7 @@ pub fn register(ctx: Context) Registered {
     {
         const seam_source = "test/driver/transports/webrtc_driver_provider/driver.zig";
         const seam_imports = [_]modules.AbiImport{
+            .{ .name = "c_abi", .module = ctx.ocapn_abi_mod },
             .{ .name = "c_abi_shared", .module = ctx.c_abi_shared_mod },
             .{ .name = "c_abi_host", .module = ctx.host_abi_mod },
             .{ .name = "c_abi_driver", .module = ctx.driver_abi_mod },

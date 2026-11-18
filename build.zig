@@ -469,6 +469,7 @@ pub fn build(b: *std.Build) void {
         .model_mod = host_mods[layerIndex("model")],
         .engine_mod = host_mods[layerIndex("engine")],
         .net_mod = host_mods[layerIndex("net")],
+        .ocapn_abi_mod = host_mods[layerIndex("c_abi")],
         .c_abi_shared_mod = host_mods[layerIndex("c_abi_shared")],
         .host_abi_mod = host_abi_mod,
         .driver_abi_mod = driver_abi_mod,

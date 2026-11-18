@@ -529,7 +529,8 @@ test "listener close cancels a connection still in the accepted handshake" {
 }
 
 test "driver release retires pending accepts before listener storage" {
-    const owned_server = try newLoop(0x61);
+    var owned_server = try newLoop(0x61);
+    defer owned_server.deinit();
     const server = owned_server.raw;
     const listener = try listenReady(server, "tcp", "127.0.0.1:0");
     try expectOk(cdrv.glowcap_driver_listener_select(server, listener));
@@ -545,7 +546,8 @@ test "driver release retires pending accepts before listener storage" {
 
     try expectLoopReadable(server);
     try expectStep(cdrv.glowcap_driver_step(server, 0));
-    try expectOk(harness.releaseLoop(server));
+    var release_report = cdrv.GlowcapDriverFailure.init();
+    try expectOk(owned_server.release(&release_report));
 }
 
 test "an arrival before a location is selected closes without failing the step" {

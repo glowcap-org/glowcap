@@ -33,9 +33,10 @@ pub fn reportDriverFailure(label: []const u8, rc: i32, failure: cdrv.GlowcapDriv
 /// The helpers that judge a return code through one proof's `expectOk`.
 pub fn Glue(comptime expectOk: anytype) type {
     return struct {
-        /// Log a failed teardown call and keep going, so every release runs.
+        /// A consumed failure permits the next teardown. A retained handle still owns its dependencies.
         pub fn reportCleanup(label: []const u8, rc: i32) void {
             expectOk(rc) catch |err| std.log.err("{s}: {s}", .{ label, @errorName(err) });
+            if (cs.ReleaseResult.fromRaw(rc).ownership == .retained) std.debug.panic("{s}: fixture still owns the handle", .{label});
         }
 
         /// Release a driver loop, reporting the driver's failure record and

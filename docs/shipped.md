@@ -68,8 +68,8 @@ listening, and events through one transport-independent ABI.
   `driver.listen`.
 - The onion archive supplies the standard Tor transport. Zig and the Rust, TypeScript, Python, and Racket bindings host onion like any other
   provider, and only the onion package reads the Tor service key it stores.
-- An idle Host can move into the driver in one step and keep its identity and capabilities. A refused move leaves
-  it untouched.
+- An idle Host created in a Context can move into the driver and keep its identity and capabilities.
+  A refused move leaves it untouched.
 - Closing a listener keeps the sessions it already handed out.
 - Wasm and caller-supplied byte channels use the byte-fed Host instead of the driver.
 

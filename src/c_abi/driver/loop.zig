@@ -103,6 +103,7 @@ fn errToCode(err: anyerror) i32 {
 fn claimHost(host: *ch.GlowcapHost) !ch.embedding.DriverClaim {
     return (ch.embedding.claimForDriver(host) catch |err| {
         switch (err) {
+            error.HostRequiresContext => shared.setLastError("driver: create the Host with glowcap_host_new_in before adoption", .{}),
             error.HostAlreadyOwned => shared.setLastError("driver: host already has a drive owner", .{}),
         }
         return error.InvalidArgument;

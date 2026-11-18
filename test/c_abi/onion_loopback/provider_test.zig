@@ -397,9 +397,13 @@ test "c-abi driver lease owns onion provider through listener withdrawal" {
         co.glowcap_onion_transport_provider(netlayer, &provider),
     );
 
+    var ctx: ?*c.GlowcapContext = null;
+    try std.testing.expectEqual(c.GLOWCAP_OK, c.glowcap_context_new(&ctx));
+    defer c.glowcap_context_release(ctx);
     var host: ?*cd.GlowcapHost = null;
     const seed: [64]u8 = @splat(0x75);
-    try std.testing.expectEqual(c.GLOWCAP_OK, cd.glowcap_host_new(
+    try std.testing.expectEqual(c.GLOWCAP_OK, cd.glowcap_host_new_in(
+        ctx,
         &seed,
         seed.len,
         frame_cap,
@@ -411,17 +415,22 @@ test "c-abi driver lease owns onion provider through listener withdrawal" {
         1,
         &host,
     ));
-    errdefer _ = cd.glowcap_host_release(host);
+    defer if (host) |owned| {
+        const result = c.ReleaseResult.fromRaw(cd.glowcap_host_release(owned));
+        if (result.ownership == .retained) @panic("onion fixture retained its Host at teardown");
+    };
 
     var loop: ?*cdrv.GlowcapDriverLoop = null;
     try std.testing.expectEqual(
         c.GLOWCAP_OK,
         cdrv.glowcap_driver_take_host(host, &driver_options, &loop),
     );
+    host = null;
     var loop_alive = true;
     defer if (loop_alive) {
         var failure = cdrv.GlowcapDriverFailure.init();
-        _ = cdrv.glowcap_driver_release(loop, &failure);
+        const result = c.ReleaseResult.fromRaw(cdrv.glowcap_driver_release(loop, &failure));
+        if (result.ownership == .retained) @panic("onion fixture retained a driver loop at teardown");
     };
 
     var install_failure = cdrv.GlowcapDriverFailure.init();
@@ -501,8 +510,9 @@ test "c-abi driver lease owns onion provider through listener withdrawal" {
         cdrv.glowcap_driver_listener_restoration_state(loop, listener, null, 0, &restoration_len),
     );
     var release_failure = cdrv.GlowcapDriverFailure.init();
-    try std.testing.expectEqual(c.GLOWCAP_OK, cdrv.glowcap_driver_release(loop, &release_failure));
-    loop_alive = false;
+    const rc = cdrv.glowcap_driver_release(loop, &release_failure);
+    loop_alive = c.ReleaseResult.fromRaw(rc).ownership == .retained;
+    try std.testing.expectEqual(c.GLOWCAP_OK, rc);
 
     if (forward.connect(io)) |stream| {
         stream.close(io);

@@ -82,18 +82,18 @@ test "driver C events preserve the first consequence and total count" {
 }
 
 test "loop refusals speak through the driver family's own error slot" {
-    var loop_slot: ?*cdrv.GlowcapDriverLoop = null;
+    var owned = try newByteFedHost(0x33, null);
+    defer owned.deinit();
+    const host = owned.host;
     // A null Host is a null-pointer refusal.
     try std.testing.expectEqual(
         c.GLOWCAP_ERR_NULL_POINTER,
-        cdrv.glowcap_driver_take_host(null, &driver_options_1s, &loop_slot),
+        cdrv.glowcap_driver_take_host(null, &driver_options_1s, &owned.raw),
     );
     // Malformed limits are refused with a message in this family's own slot.
-    const host = try newByteFedHost(0x33);
-    defer _ = cd.glowcap_host_release(host);
     try std.testing.expectEqual(
         c.GLOWCAP_ERR_NULL_POINTER,
-        cdrv.glowcap_driver_take_host(host, null, &loop_slot),
+        cdrv.glowcap_driver_take_host(host, null, &owned.raw),
     );
     try std.testing.expectEqual(
         c.GLOWCAP_ERR_NULL_POINTER,
@@ -104,25 +104,25 @@ test "loop refusals speak through the driver family's own error slot" {
     cdrv.glowcap_driver_clear_last_error();
     try std.testing.expectEqual(
         c.GLOWCAP_ERR_INVALID_ARGUMENT,
-        cdrv.glowcap_driver_take_host(host, &invalid_options, &loop_slot),
+        cdrv.glowcap_driver_take_host(host, &invalid_options, &owned.raw),
     );
     invalid_options = driver_options_1s;
     invalid_options.struct_size = @offsetOf(cdrv.GlowcapDriverOptions, "settle_ms");
     try std.testing.expectEqual(
         c.GLOWCAP_ERR_INVALID_ARGUMENT,
-        cdrv.glowcap_driver_take_host(host, &invalid_options, &loop_slot),
+        cdrv.glowcap_driver_take_host(host, &invalid_options, &owned.raw),
     );
     invalid_options = driver_options_1s;
     invalid_options.wire_buffer_bytes = 0;
     try std.testing.expectEqual(
         c.GLOWCAP_ERR_INVALID_ARGUMENT,
-        cdrv.glowcap_driver_take_host(host, &invalid_options, &loop_slot),
+        cdrv.glowcap_driver_take_host(host, &invalid_options, &owned.raw),
     );
     invalid_options = driver_options_1s;
     invalid_options.handshake_ms = cdrv.GLOWCAP_DRIVER_MAX_WAIT_MS + 1;
     try std.testing.expectEqual(
         c.GLOWCAP_ERR_INVALID_ARGUMENT,
-        cdrv.glowcap_driver_take_host(host, &invalid_options, &loop_slot),
+        cdrv.glowcap_driver_take_host(host, &invalid_options, &owned.raw),
     );
     var message: [256]u8 = undefined;
     try std.testing.expect(cdrv.glowcap_driver_last_error(&message, message.len) > 0);
@@ -131,18 +131,17 @@ test "loop refusals speak through the driver family's own error slot" {
     // accepted for retained memory or admission limits. Both successful calls
     // clear the prior refusal instead of leaving a stale cause for the next
     // undetailed status.
-    const unbounded_host = try newByteFedHost(0x35);
     var unbounded_options = driver_options_1s;
     unbounded_options.handshake_ms = 0;
     unbounded_options.listener_setup_ms = 0;
     unbounded_options.settle_ms = 0;
     try std.testing.expectEqual(
         c.GLOWCAP_OK,
-        cdrv.glowcap_driver_take_host(unbounded_host, &unbounded_options, &loop_slot),
+        cdrv.glowcap_driver_take_host(host, &unbounded_options, &owned.raw),
     );
-    try std.testing.expect(loop_slot != null);
-    try std.testing.expectEqual(c.GLOWCAP_OK, harness.releaseLoop(loop_slot));
-    loop_slot = null;
+    try std.testing.expect(owned.raw != null);
+    var release_failure = cdrv.GlowcapDriverFailure.init();
+    try std.testing.expectEqual(c.GLOWCAP_OK, owned.release(&release_failure));
     try std.testing.expectEqual(@as(usize, 0), cdrv.glowcap_driver_last_error(&message, message.len));
 
     const owned_loop = try newLoop(0x34);
@@ -277,40 +276,27 @@ test "driver step wait budget reports the nearest pending-work deadline" {
 
 test "driver close initiation succeeds under allocator pressure" {
     var counting = @import("../../support/c_abi_counting_alloc.zig").CountingHost{};
-    const spec = counting.spec();
-    var context: ?*c.GlowcapContext = null;
-    try expectOk(c.glowcap_context_new_with_allocator(&spec, &context));
+    {
+        const spec = counting.spec();
+        var owned = try newByteFedHost(0x5f, &spec);
+        defer owned.deinit();
+        try expectOk(cdrv.glowcap_driver_take_host(owned.host, &driver_options_1s, &owned.raw));
+        const loop = owned.raw;
 
-    const seed = hostSeed(0x5f);
-    var host: ?*cd.GlowcapHost = null;
-    try expectOk(cd.glowcap_host_new_in(
-        context,
-        &seed,
-        seed.len,
-        frame_cap,
-        1,
-        c.GLOWCAP_CODEC_SYRUP,
-        c.GLOWCAP_CAPTP_V1_0,
-        c.GLOWCAP_FEATURE_FULL,
-        0,
-        1,
-        &host,
-    ));
-    var loop: ?*cdrv.GlowcapDriverLoop = null;
-    try expectOk(cdrv.glowcap_driver_take_host(host, &driver_options_1s, &loop));
+        counting.fail_allocations = true;
+        errdefer counting.fail_allocations = false;
+        try expectOk(cdrv.glowcap_driver_close(loop, &close_cancel));
+        var state: u32 = undefined;
+        try expectOk(cdrv.glowcap_driver_lifecycle_state(loop, &state));
+        try std.testing.expectEqual(cd.GLOWCAP_LIFECYCLE_TERMINATING, state);
+        counting.fail_allocations = false;
 
-    counting.fail_allocations = true;
-    try expectOk(cdrv.glowcap_driver_close(loop, &close_cancel));
-    var state: u32 = undefined;
-    try expectOk(cdrv.glowcap_driver_lifecycle_state(loop, &state));
-    try std.testing.expectEqual(cd.GLOWCAP_LIFECYCLE_TERMINATING, state);
-    counting.fail_allocations = false;
-
-    try expectStep(cdrv.glowcap_driver_step(loop, 0));
-    try expectOk(cdrv.glowcap_driver_lifecycle_state(loop, &state));
-    try std.testing.expectEqual(cd.GLOWCAP_LIFECYCLE_CLOSED, state);
-    try expectOk(harness.releaseLoop(loop));
-    c.glowcap_context_release(context);
+        try expectStep(cdrv.glowcap_driver_step(loop, 0));
+        try expectOk(cdrv.glowcap_driver_lifecycle_state(loop, &state));
+        try std.testing.expectEqual(cd.GLOWCAP_LIFECYCLE_CLOSED, state);
+        var release_failure = cdrv.GlowcapDriverFailure.init();
+        try expectOk(owned.release(&release_failure));
+    }
     try std.testing.expect(counting.balanced());
 }
 
@@ -423,126 +409,91 @@ test "detach_thread hands a set-up loop between threads at quiescent boundaries 
     try std.testing.expect(!failed.load(.acquire));
 }
 
-fn releaseFromForeignThread(loop: ?*cdrv.GlowcapDriverLoop, result: *std.atomic.Value(i32)) void {
-    result.store(harness.releaseLoop(loop), .release);
+fn releaseFromForeignThread(owned: *TestLoop, result: *std.atomic.Value(i32)) void {
+    var failure = cdrv.GlowcapDriverFailure.init();
+    result.store(owned.release(&failure), .release);
 }
 
 test "a foreign-thread driver release is a nonfatal refusal" {
-    const owned_loop = try newLoop(0x34);
-    var loop_live = true;
-    defer if (loop_live) owned_loop.deinit();
+    var owned_loop = try newLoop(0x34);
+    defer owned_loop.deinit();
 
     // Claim the Host on this thread. A foreign finalizer or consumer cannot
     // silently transfer a live loop; it receives a retryable refusal and the
     // owning thread retains the deterministic release barrier.
     try expectOk(cd.glowcap_host_publish(owned_loop.host, "widget", 6, widgetBehavior, null, null));
     var result = std.atomic.Value(i32).init(c.GLOWCAP_OK);
-    const worker = try std.Thread.spawn(.{}, releaseFromForeignThread, .{ owned_loop.raw, &result });
+    const worker = try std.Thread.spawn(.{}, releaseFromForeignThread, .{ &owned_loop, &result });
     worker.join();
 
     try std.testing.expectEqual(c.GLOWCAP_ERR_INVALID_ARGUMENT, result.load(.acquire));
-    try expectOk(harness.releaseLoop(owned_loop.raw));
-    loop_live = false;
+    var release_report = cdrv.GlowcapDriverFailure.init();
+    try expectOk(owned_loop.release(&release_report));
 }
 
 test "a loop built over a counting context releases every byte it took" {
     var counting = @import("../../support/c_abi_counting_alloc.zig").CountingHost{};
-    const spec = counting.spec();
-    var ctx: ?*c.GlowcapContext = null;
-    try expectOk(c.glowcap_context_new_with_allocator(&spec, &ctx));
-
-    const seed = hostSeed(0x35);
-    var host: ?*cd.GlowcapHost = null;
-    try expectOk(cd.glowcap_host_new_in(
-        ctx,
-        &seed,
-        seed.len,
-        frame_cap,
-        1,
-        c.GLOWCAP_CODEC_SYRUP,
-        c.GLOWCAP_CAPTP_V1_0,
-        c.GLOWCAP_FEATURE_FULL,
-        0,
-        1,
-        &host,
-    ));
-    var host_owned = true;
-    errdefer if (host_owned) {
-        _ = cd.glowcap_host_release(host);
-    };
-    var loop: ?*cdrv.GlowcapDriverLoop = null;
-    try expectOk(cdrv.glowcap_driver_take_host(host, &driver_options_1s, &loop));
-    host_owned = false;
-    try installTcp(loop);
-    // An in-flight dial and a live listener both belong to loop release.
-    var ticket: u64 = 0;
-    try expectOk(try dialParts(loop, "tcp", "127.0.0.1:1", "127.0.0.1:1", &ticket));
-    var listener_id: u64 = 0;
-    try expectOk(cdrv.glowcap_driver_listen(loop, "tcp", 3, "127.0.0.1:0", 11, null, &listener_id));
-    try expectOk(harness.releaseLoop(loop));
-
-    c.glowcap_context_release(ctx);
+    {
+        const spec = counting.spec();
+        var owned = try newByteFedHost(0x35, &spec);
+        defer owned.deinit();
+        try expectOk(cdrv.glowcap_driver_take_host(owned.host, &driver_options_1s, &owned.raw));
+        const loop = owned.raw;
+        try installTcp(loop);
+        // An in-flight dial and a live listener both belong to loop release.
+        var ticket: u64 = 0;
+        try expectOk(try dialParts(loop, "tcp", "127.0.0.1:1", "127.0.0.1:1", &ticket));
+        var listener_id: u64 = 0;
+        try expectOk(cdrv.glowcap_driver_listen(loop, "tcp", 3, "127.0.0.1:0", 11, null, &listener_id));
+        var release_failure = cdrv.GlowcapDriverFailure.init();
+        try expectOk(owned.release(&release_failure));
+    }
     try std.testing.expect(counting.balanced());
 }
 
 test "pending-open admission is bounded and failure publishes from reserved capacity" {
     var counting = @import("../../support/c_abi_counting_alloc.zig").CountingHost{};
-    const spec = counting.spec();
-    var ctx: ?*c.GlowcapContext = null;
-    try expectOk(c.glowcap_context_new_with_allocator(&spec, &ctx));
+    {
+        var resident = AsyncFailureResident{ .wake = try glowcap.net.wake_channel.WakeChannel.open() };
+        defer resident.wake.deinit();
+        const spec = counting.spec();
+        var owned = try newByteFedHost(0x38, &spec);
+        defer owned.deinit();
+        try expectOk(cdrv.glowcap_driver_take_host(owned.host, &driver_options_cap1, &owned.raw));
+        const loop = owned.raw;
 
-    const seed = hostSeed(0x38);
-    var host: ?*cd.GlowcapHost = null;
-    try expectOk(cd.glowcap_host_new_in(
-        ctx,
-        &seed,
-        seed.len,
-        frame_cap,
-        1,
-        c.GLOWCAP_CODEC_SYRUP,
-        c.GLOWCAP_CAPTP_V1_0,
-        c.GLOWCAP_FEATURE_FULL,
-        0,
-        1,
-        &host,
-    ));
-    errdefer _ = cd.glowcap_host_release(host);
-    var loop: ?*cdrv.GlowcapDriverLoop = null;
-    try expectOk(cdrv.glowcap_driver_take_host(host, &driver_options_cap1, &loop));
+        var table = resident.table();
+        try expectOk(addMultiplexedProvider(loop, &table, "async-fail"));
+        try expectStep(cdrv.glowcap_driver_step(loop, 0)); // Warm poll scratch.
+        var ticket: u64 = 0;
+        try expectOk(try dialParts(loop, "async-fail", "target", "", &ticket));
+        var refused_operation_id: u64 = 99;
+        try std.testing.expectEqual(
+            c.GLOWCAP_ERR_WOULD_BLOCK,
+            try dialParts(loop, "async-fail", "other", "", &refused_operation_id),
+        );
+        try std.testing.expectEqual(@as(u64, 99), refused_operation_id);
+        counting.fail_allocations = true;
+        const step_rc = cdrv.glowcap_driver_step(loop, 10);
+        counting.fail_allocations = false;
+        try expectOk(step_rc);
 
-    var resident = AsyncFailureResident{ .wake = try glowcap.net.wake_channel.WakeChannel.open() };
-    defer resident.wake.deinit();
-    var table = resident.table();
-    try expectOk(addMultiplexedProvider(loop, &table, "async-fail"));
-    try expectStep(cdrv.glowcap_driver_step(loop, 0)); // Warm poll scratch.
-    var ticket: u64 = 0;
-    try expectOk(try dialParts(loop, "async-fail", "target", "", &ticket));
-    var refused_operation_id: u64 = 99;
-    try std.testing.expectEqual(
-        c.GLOWCAP_ERR_WOULD_BLOCK,
-        try dialParts(loop, "async-fail", "other", "", &refused_operation_id),
-    );
-    try std.testing.expectEqual(@as(u64, 99), refused_operation_id);
-    counting.fail_allocations = true;
-    const step_rc = cdrv.glowcap_driver_step(loop, 10);
-    counting.fail_allocations = false;
-    try expectOk(step_rc);
-
-    var event: cdrv.GlowcapDriverEvent = undefined;
-    try expectOk(cdrv.glowcap_driver_next_event(loop, &event));
-    try std.testing.expectEqual(cdrv.GLOWCAP_DRIVER_EVENT_OPEN_FAILED, event.kind);
-    try std.testing.expectEqual(ticket, event.operation_id);
-    try std.testing.expectEqualStrings("ForcedAsyncDialFailure", event.primary_name.?[0..event.primary_name_len]);
-    try std.testing.expectEqual(c.GLOWCAP_ERR_INTERNAL, event.secondary_result);
-    try std.testing.expectEqualStrings("ForcedDialCleanupFailure", event.secondary_name.?[0..event.secondary_name_len]);
-    try std.testing.expectEqual(@as(u32, 2), event.secondary_count);
-    try std.testing.expectEqual(
-        c.GLOWCAP_ERR_WOULD_BLOCK,
-        cdrv.glowcap_driver_next_event(loop, &event),
-    );
-    var retry_operation_id: u64 = 0;
-    try expectOk(try dialParts(loop, "async-fail", "retry", "", &retry_operation_id));
-    try expectOk(harness.releaseLoop(loop));
-    c.glowcap_context_release(ctx);
+        var event: cdrv.GlowcapDriverEvent = undefined;
+        try expectOk(cdrv.glowcap_driver_next_event(loop, &event));
+        try std.testing.expectEqual(cdrv.GLOWCAP_DRIVER_EVENT_OPEN_FAILED, event.kind);
+        try std.testing.expectEqual(ticket, event.operation_id);
+        try std.testing.expectEqualStrings("ForcedAsyncDialFailure", event.primary_name.?[0..event.primary_name_len]);
+        try std.testing.expectEqual(c.GLOWCAP_ERR_INTERNAL, event.secondary_result);
+        try std.testing.expectEqualStrings("ForcedDialCleanupFailure", event.secondary_name.?[0..event.secondary_name_len]);
+        try std.testing.expectEqual(@as(u32, 2), event.secondary_count);
+        try std.testing.expectEqual(
+            c.GLOWCAP_ERR_WOULD_BLOCK,
+            cdrv.glowcap_driver_next_event(loop, &event),
+        );
+        var retry_operation_id: u64 = 0;
+        try expectOk(try dialParts(loop, "async-fail", "retry", "", &retry_operation_id));
+        var release_failure = cdrv.GlowcapDriverFailure.init();
+        try expectOk(owned.release(&release_failure));
+    }
     try std.testing.expect(counting.balanced());
 }
