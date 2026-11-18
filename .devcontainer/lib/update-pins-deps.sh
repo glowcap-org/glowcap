@@ -141,7 +141,7 @@ glowcap_pins_dep_gate() {
         distroless) echo "release workflow Linux image proofs" ;;
         zig) echo "zig build check with the new toolchain" ;;
         zls) echo "rebuild + post-create.sh (verify-toolchains)" ;;
-        bend) echo "bash .devcontainer/bin/tools.sh exec bend -- zig build loam-policy-proof" ;;
+        bend) echo ".agents/skills/work/bin/glowcap-dev python3 ci/gates.py run bend-proofs" ;;
         rust) echo "zig build check (rust-test rides it)" ;;
         rustup-init | deno | node | bun) echo "zig build check" ;;
         playwright) echo "rebuild (new baked Chromium), then zig build rooms-web-page and siblings" ;;

@@ -39,6 +39,13 @@ def gate(command):
     return ("gate", command)
 
 
+def bend_proof(path):
+    return gate(
+        "bash .devcontainer/bin/tools.sh exec bend -- "
+        f"python3 tools/run-with-timeout.py --quiet-success --kill-after 2s 30s bend {path} --verdict"
+    )
+
+
 def prerequisite(command):
     return ("prerequisite", command)
 
@@ -74,10 +81,10 @@ GROUPS = (
                 gate("zig build infrastructure-check"),
             ],
             "bend-proofs": [
-                gate("bash .devcontainer/bin/tools.sh exec bend -- zig build loam-policy-proof"),
                 gate(
-                    "bash .devcontainer/bin/tools.sh exec bend -- bend test/engine/negotiation_laws/PROOF.bend --verdict"
+                    "bash .devcontainer/bin/tools.sh exec bend -- zig build loam-policy-proof --test-timeout 30s"
                 ),
+                bend_proof("test/engine/negotiation_laws/PROOF.bend"),
             ],
         },
     ),
@@ -314,6 +321,8 @@ NIGHTLY = {
         "src/loam/access/core/identity.zig",
         "tools/build/loam.zig",
         "tools/build/execution.zig",
+        "tools/run-with-timeout.py",
+        "ci/gates.py",
         ".devcontainer/",
         "ci/groups.py",
         ".github/workflows/check-group.yml",

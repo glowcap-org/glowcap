@@ -95,7 +95,7 @@ clone that fails waits and tries twice more.
 
 The Bend proofs run when their sources, build steps, devcontainer or CI
 wiring change, and on nightly and requested checks. The test guide gives the
-commands for both books. [Bend proofs](../test/README.md#loam-policy-laws)
+command. [Bend proofs](../test/README.md#bend-proofs)
 
 ## Files
 
