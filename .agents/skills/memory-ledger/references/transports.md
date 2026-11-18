@@ -168,10 +168,6 @@ and stream costs.
   asserts none remain. The notification and the by-value report need no
   allocation when a close retires, and no result is stored: the failure comes
   from the provider's own call in `claimClose`.
-  - The external `closeRow` is unchanged. It calls the fallible
-    `ready.reserve(allocator, 1)` once, before it mutates the row, and the
-    close completion (or the `close_claimable` result) takes that slot. A
-    refused reserve leaves the row open.
   - The state is one `usize` (`close_seats`) on the resident, one `bool`
     (`close_seat`) and one one-byte enum (`close_wait`) per `Conn`, and one
     one-byte enum (`close_phase`) per external `Entry`. Debug, aarch64:
@@ -183,6 +179,14 @@ and stream costs.
     capacity for its life. An unclaimed close holds its provider handle and
     descriptor until the next `awaited` call, the runtime's close deadline, or
     the drain.
+- **External connection close publication**: `external/completion.zig` `ready`.
+  `startDial` and `bindAccepted` reserve one `Completion` of shared queue
+  capacity for every provider connection, including a pending dial. The charge
+  is `@sizeOf(Completion)`, 48 bytes on native 64-bit, in a queue that grows
+  in buckets. Pending reads and writes each own another seat.
+  `closeRow` publishes their tokens immediately, and `maybeFinish` spends the
+  close seat once the platform retires the row's polls and cancellations.
+  A first direct `closeFd` returns the unused seat.
 - **Onion listener publish setup**: `onion/completion/listener.zig`. While
   the publish conversation runs, the one listener row holds about 2 KiB of
   setup state (two <!-- value ../../../../src/net/transport/onion/control.zig max_line_bytes bytes -->1 KiB<!-- /value --> line buffers for the outbound control line and the reply-line assembly, plus

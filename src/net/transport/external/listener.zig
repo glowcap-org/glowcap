@@ -178,6 +178,8 @@ pub fn Machine(comptime Backend: type) type {
         fn bindAccepted(backend: *Backend, ud: u64, provider: *const Provider, handle: provider_mod.Handle) void {
             const fd = backend.reserveFd() catch |err| return refuseAccepted(backend, ud, provider, handle, err);
             backend.conns.ensureUnusedCapacity(1) catch |err| return refuseAccepted(backend, ud, provider, handle, err);
+            // The listener owns the accept result. The new row owns its close.
+            backend.ready.reserve(backend.allocator, 1) catch |err| return refuseAccepted(backend, ud, provider, handle, err);
             backend.conns.putAssumeCapacity(fd, Backend.openEntry(provider, handle));
             backend.ready.appendReserved(.{ .user_data = ud, .result = 0, .accepted_fd = fd });
         }

@@ -42,6 +42,7 @@ const Script = struct {
     dial_wakes: [max_dials]net.wake_channel.WakeChannel = undefined,
     dials_started: usize = 0,
     dial_cancels: usize = 0,
+    finish_dial_failure: ?anyerror = null,
 
     fn of(ctx: *anyopaque) *Script {
         return @ptrCast(@alignCast(ctx));
@@ -88,7 +89,7 @@ const Script = struct {
         of(ctx).conn_closes += 1;
     }
 
-    /// A dial that stays pending on its own wake channel until closed.
+    /// Each dial waits on its own wake channel until nudged or closed.
     fn startConnect(ctx: *anyopaque, _: model.PeerLocator) external.Started {
         const self = of(ctx);
         if (self.dials_started == max_dials) return .{ .failed = error.ProviderIo };
@@ -102,8 +103,10 @@ const Script = struct {
         of(ctx).dial_cancels += 1;
     }
 
-    fn unreachableFinish(_: *anyopaque, _: *anyopaque) external.Finished {
-        unreachable;
+    fn finishConnect(ctx: *anyopaque, attempt: *anyopaque) external.Finished {
+        if (of(ctx).finish_dial_failure) |err| return .{ .failed = err };
+        const wake: *net.wake_channel.WakeChannel = @ptrCast(@alignCast(attempt));
+        return .{ .ready = .{ .ptr = attempt, .fd = wake.read } };
     }
 
     fn unreachableWrite(_: *anyopaque, _: *anyopaque, _: []const u8) net.completion.TryWrite {
@@ -112,7 +115,7 @@ const Script = struct {
 
     const vtable: external.VTable = .{
         .start_connect = startConnect,
-        .finish_connect = unreachableFinish,
+        .finish_connect = finishConnect,
         .cancel_connect = cancelConnect,
         .listen = listen,
         .finish_listen = finishListen,
@@ -334,6 +337,73 @@ fn drainAcceptRecords(resident: *Resident, route: usize) !usize {
     return accepts;
 }
 
+test "external connection admission holds a close seat across dial finish or releases both on refusal" {
+    if (!(builtin.target.os.tag == .linux or builtin.target.os.tag.isDarwin())) return error.SkipZigTest;
+    var script = try newScript(.{ .failed = named });
+    defer script.wake.deinit();
+    defer script.closeDialWakes();
+    const providers = [_]external.Provider{script.provider()};
+    var backend = try newBackend(&providers);
+    defer backend.deinit();
+    const peer: Backend.ConnectTarget = .{ .external = .hintless(transport, "peer") };
+    for ([_]?anyerror{ null, error.ProviderIo }, 0..) |failure, i| {
+        script.finish_dial_failure = failure;
+        const fd = try backend.startDial(7, peer);
+        try std.testing.expectEqual(2, backend.ready.reserved);
+        _ = try script.dial_wakes[i].nudge();
+        const result = try nextCompletion(&backend);
+        try std.testing.expectEqual(7, result.user_data);
+        try std.testing.expectEqual(failure, result.failure);
+        try std.testing.expectEqual(1, backend.ready.reserved);
+        backend.closeFd(fd);
+        try std.testing.expectEqual(0, backend.ready.reserved);
+    }
+    try std.testing.expectEqual(1, script.conn_closes);
+    try std.testing.expectEqual(0, script.dial_cancels);
+    backend.next_id = 0;
+    try std.testing.expectError(error.OutOfFds, backend.startDial(8, peer));
+    try std.testing.expectEqual(0, backend.ready.reserved);
+    try std.testing.expectEqual(2, script.dials_started);
+}
+
+test "external connection admission returns a refused accepted handle to the provider" {
+    if (!(builtin.target.os.tag == .linux or builtin.target.os.tag.isDarwin())) return error.SkipZigTest;
+    var script = try newScript(undefined);
+    defer script.wake.deinit();
+    defer script.closeDialWakes();
+    script.start = .{ .ready = script.handle() };
+    const providers = [_]external.Provider{script.provider()};
+    var backend = try newBackend(&providers);
+    defer backend.deinit();
+    const listener = try backend.openListener(target);
+    defer backend.closeFd(listener);
+    try backend.submitAccept(7, listener);
+    _ = try script.wake.nudge();
+    const accepted = try nextCompletion(&backend);
+    try std.testing.expectEqual(7, accepted.user_data);
+    try std.testing.expectEqual(1, backend.ready.reserved);
+    backend.closeFd(accepted.accepted_fd.?);
+    try std.testing.expectEqual(0, backend.ready.reserved);
+    try backend.submitAccept(8, listener);
+    const spare = backend.ready.items.capacity - backend.ready.reserved;
+    try backend.ready.reserve(backend.allocator, spare);
+    defer backend.ready.release(spare);
+    _ = try script.wake.nudge();
+    const healthy = backend.allocator;
+    var failing = std.testing.FailingAllocator.init(healthy, .{ .fail_index = 0, .resize_fail_index = 0 });
+    backend.allocator = failing.allocator();
+    defer backend.allocator = healthy;
+    const refused = try nextCompletion(&backend);
+    try std.testing.expectEqual(8, refused.user_data);
+    try std.testing.expectEqual(error.OutOfMemory, refused.failure.?);
+    try std.testing.expect(refused.accepted_fd == null);
+    try std.testing.expect(failing.has_induced_failure);
+    try std.testing.expectEqual(0, backend.conns.count());
+    try std.testing.expectEqual(spare, backend.ready.reserved);
+    try std.testing.expectEqual(2, script.accepts_issued);
+    try std.testing.expectEqual(2, script.conn_closes);
+}
+
 test "an established external listener at the unclaimed bound owes its re-arm when the claim meets backend pressure" {
     if (!(builtin.target.os.tag == .linux or builtin.target.os.tag.isDarwin())) return error.SkipZigTest;
     const allocator = std.testing.allocator;
@@ -347,6 +417,9 @@ test "an established external listener at the unclaimed bound owes its re-arm wh
         resident.closeAndDrain(2_000) catch |err| std.debug.panic("external resident drain failed: {t}", .{err});
         resident.deinit();
     }
+    const bound = Resident.max_unclaimed_accepts;
+    const requests = 2;
+    try resident.backend.ready.items.ensureTotalCapacityPrecise(allocator, bound + 2 * requests);
     const ops = resident.resident().vtable;
     const listener = switch (ops.listen.?.listen(&resident, 7, transport, .{ .designator = "endpoint" })) {
         .admitted => |admitted| admitted.ready,
@@ -371,7 +444,6 @@ test "an established external listener at the unclaimed bound owes its re-arm wh
     try std.testing.expectEqual(@as(usize, 0), try drainAcceptRecords(&resident, 7));
 
     // Real accepted handles, one per nudge, until the listener waits for a claim.
-    const bound = Resident.max_unclaimed_accepts;
     for (0..bound) |i| {
         _ = try script.wake.nudge();
         while (row.accepted.items.len == i) {
@@ -383,15 +455,15 @@ test "an established external listener at the unclaimed bound owes its re-arm wh
     try std.testing.expectEqual(@as(usize, 0), resident.accept_seats);
     try std.testing.expectEqual(bound, script.accepts_issued);
 
-    // Other pending dials, each a real request with its own handle and seat,
-    // take the backend queue's spare capacity.
+    // Each pending dial holds its result and close. Size the queue for exactly
+    // two more dials so the listener's next re-arm needs fresh capacity.
     const peer: model.PeerLocator = .hintless(transport, "peer");
-    var requests: usize = 0;
-    while (resident.backend.ready.reserved < resident.backend.ready.items.capacity) : (requests += 1) {
-        try std.testing.expect(ops.dial.?.start_connect(&resident, 5000 + requests, peer, .{}, .application) == .admitted);
+    for (0..requests) |i| {
+        try std.testing.expect(ops.dial.?.start_connect(&resident, 5000 + i, peer, .{}, .application) == .admitted);
     }
     try std.testing.expectEqual(requests, script.dials_started);
     const reserved = resident.backend.ready.reserved;
+    try std.testing.expectEqual(resident.backend.ready.items.capacity, reserved);
 
     // The claim re-arms first, and its seat is the refused growth. The
     // claimed connection is still adopted.
@@ -418,7 +490,7 @@ test "an established external listener at the unclaimed bound owes its re-arm wh
 
     // The dials are released, and the one group retry re-arms the listener.
     for (0..requests) |i| _ = ops.dial.?.cancel_connect(&resident, 5000 + i);
-    while (resident.backend.ready.reserved >= reserved) {
+    while (script.dial_cancels < requests) {
         if (net.clock.nowMonotonicMs() >= deadline) return error.DialsNeverReleased;
         try parkOnce(&resident);
     }
