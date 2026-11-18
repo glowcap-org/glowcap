@@ -47,6 +47,8 @@ pub const Spec = struct {
     /// nanoseconds per reading and otherwise only through `Rig.clock`, so a
     /// test crosses a deadline by naming the moment.
     clock_step_ns: ?i64 = null,
+    /// The runtime's busy-poll window, validated by `HostRuntime.init`.
+    busy_poll_ns: u64 = 0,
 };
 
 /// A runtime serving one adopted connection whose partner is a raw core
@@ -109,6 +111,7 @@ pub const Rig = struct {
         var options = if (spec.blocking) residents.opts else rig.observed.steppedOpts();
         // One read carries a whole burst, so a chunk is never split by scratch.
         options.wire_buffer_bytes = 64 * 1024;
+        options.busy_poll_ns = spec.busy_poll_ns;
         const runtime_io = if (spec.clock_step_ns) |step_ns| blk: {
             rig.clock = SteppedClock.init(rig.threaded.io(), 0, step_ns);
             break :blk rig.clock.io();

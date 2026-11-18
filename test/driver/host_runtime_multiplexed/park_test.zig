@@ -11,6 +11,8 @@ const driver = glowcap.driver;
 const net = glowcap.net;
 
 const fixtures = @import("residents.zig");
+const Rig = @import("../host_runtime_step/pressure_rig.zig").Rig;
+const SteppedClock = @import("../../support/stepped_clock.zig").SteppedClock;
 const AcceptOwnershipResident = fixtures.AcceptOwnershipResident;
 const opts = fixtures.opts;
 
@@ -145,4 +147,88 @@ test "a busy-poll window past the runtime's maximum is refused at adoption" {
     spinning.busy_poll_ns = driver.HostRuntime.max_busy_poll_ns;
     var runtime = try driver.HostRuntime.init(std.testing.allocator, io, .{}, .ephemeral, spinning);
     runtime.deinit();
+}
+
+const spin_step_ns = std.time.ns_per_us;
+const spin_window_ns = 20 * std.time.ns_per_us;
+const advance_ms = 31;
+
+/// A positive budget spins the window and reaps the resident. Zero does not.
+fn expectSpun(timeout_ms: i32, reaps: usize) !void {
+    if (timeout_ms > 0) try std.testing.expect(reaps > 0) else try std.testing.expectEqual(@as(usize, 0), reaps);
+}
+
+fn expectClockFollows(runtime: *driver.HostRuntime, clock: *const SteppedClock) !void {
+    const before = runtime.nowMs();
+    clock.advanceMs(advance_ms);
+    try std.testing.expect(runtime.nowMs() - before >= advance_ms);
+}
+
+fn stepSessionOutsideTurn(timeout_ms: i32) !void {
+    // Declared before the rig so it outlives the runtime the rig destroys.
+    var quiet = try AcceptOwnershipResident.init();
+    defer quiet.deinit();
+    const rig = try Rig.build(std.testing.allocator, .{
+        .fetches = 0,
+        .blocking = true,
+        .clock_step_ns = spin_step_ns,
+        .busy_poll_ns = spin_window_ns,
+    });
+    defer rig.destroy();
+    _ = try rig.runtime.addResident(.{
+        .symbol = AcceptOwnershipResident.transport,
+        .designator_scheme = .address,
+    }, quiet.multiplexedResident());
+
+    try std.testing.expectEqual(@as(?i64, null), rig.runtime.turn_ms);
+    try std.testing.expectEqual(@as(usize, 0), quiet.reap_calls);
+    try std.testing.expectEqual(@as(?net.Progress, null), try rig.runtime.stepSession(rig.session, timeout_ms));
+    try expectSpun(timeout_ms, quiet.reap_calls);
+    // `stepSession` owns no turn: the clock it leaves is the live one.
+    try std.testing.expectEqual(@as(?i64, null), rig.runtime.turn_ms);
+    try expectClockFollows(&rig.runtime, &rig.clock);
+}
+
+test "a session step with a busy-poll window spins and leaves no turn clock behind" {
+    try stepSessionOutsideTurn(3);
+}
+
+test "a session step with no budget does not spin or leave a turn clock behind" {
+    try stepSessionOutsideTurn(0);
+}
+
+fn waitInsideTurn(timeout_ms: i32) !void {
+    var threaded = std.Io.Threaded.init(std.testing.allocator, .{});
+    defer threaded.deinit();
+    var clock = SteppedClock.init(threaded.io(), 0, spin_step_ns);
+
+    var resident = try AcceptOwnershipResident.init();
+    defer resident.deinit();
+
+    var spinning = opts;
+    spinning.busy_poll_ns = spin_window_ns;
+    var runtime = try driver.HostRuntime.init(std.testing.allocator, clock.io(), .{}, .ephemeral, spinning);
+    defer runtime.deinit();
+    _ = try runtime.addResident(.{
+        .symbol = AcceptOwnershipResident.transport,
+        .designator_scheme = .address,
+    }, resident.multiplexedResident());
+
+    runtime.readTurnClock();
+    const seed = runtime.turn_ms.?;
+    clock.advanceMs(advance_ms);
+    try std.testing.expectEqual(seed, runtime.nowMs());
+    try std.testing.expectEqual(@as(?usize, null), try driver.HostRuntime.testing.waitAnySource(&runtime, timeout_ms, true));
+    try expectSpun(timeout_ms, resident.reap_calls);
+    // The turn the caller opened stays open and moves past the spin.
+    try std.testing.expect(runtime.turn_ms.? >= seed + advance_ms);
+    try std.testing.expectEqual(runtime.turn_ms.?, runtime.nowMs());
+}
+
+test "a wait inside a turn spins and refreshes the open turn clock" {
+    try waitInsideTurn(3);
+}
+
+test "a wait inside a turn with no budget keeps the turn open on a fresh reading" {
+    try waitInsideTurn(0);
 }

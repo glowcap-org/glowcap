@@ -489,9 +489,9 @@ pub fn waitAnySource(self: *HostRuntime, requested_ms: i32, empty_ok: bool) !?us
     // is serviced without a descriptor wake.
     if (self.opts.busy_poll_ns != 0 and residents > 0) {
         const found = Internal.spinForRecords(self, start, &wait_ms);
-        // The spin is a wait: the turn clock moves past it, so the park's
-        // remaining budget and the deadlines below are read from now.
-        self.readTurnClock();
+        // Refresh only a turn the caller opened. Outside one, `nowMs` reads
+        // fresh time, and caching a reading here would outlive this call.
+        if (self.turn_ms != null) self.readTurnClock();
         if (found) |index| return index;
         // The spin reaped with every resident looking. The park is next, so
         // a resident whose writers wake only a parked owner arms its wake
