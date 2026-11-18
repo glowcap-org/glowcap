@@ -5,6 +5,7 @@
 //! it before its ends were released, and a writer nudges only a parked reader.
 
 const std = @import("std");
+const builtin = @import("builtin");
 const glowcap = @import("glowcap");
 
 const net = glowcap.net;
@@ -15,7 +16,7 @@ const Backend = net.inproc_completion.CompletionBackend(net.Backend);
 
 const ring_bytes = 8;
 
-fn pollOne(backend: *Backend, user_data: u64) !completion.Completion {
+fn pollOne(backend: anytype, user_data: u64) !completion.Completion {
     var out: [8]completion.Completion = undefined;
     var attempts: usize = 0;
     while (attempts < 50) : (attempts += 1) {
@@ -141,6 +142,145 @@ test "inproc completion: a wake receive that lacked a buffer to grow drains inst
         error.SignalReadFailed,
         server.dispatchOwned(.{ .user_data = wake_ud, .result = -1, .failure = error.ConnectionResetByPeer }),
     );
+}
+
+/// Dial `designator` from `peer` and accept it on `server`'s open listener,
+/// returning each side's fd.
+fn connectOne(server: anytype, peer: anytype, listen: anytype, designator: []const u8) !struct { local: @TypeOf(listen), remote: @TypeOf(listen) } {
+    try server.submitAccept(1, listen);
+    const remote = try peer.startDial(2, .{ .inproc = designator });
+    try std.testing.expectEqual(@as(i32, 0), (try pollOne(peer, 2)).result);
+    return .{ .local = (try pollOne(server, 1)).accepted_fd.?, .remote = remote };
+}
+
+fn expectWakeAfterConsumed(comptime Platform: type) !void {
+    const Adapter = net.inproc_completion.CompletionBackend(Platform);
+    const allocator = std.testing.allocator;
+    var exchange = Exchange.init(allocator);
+    defer exchange.deinit();
+    var server = try Adapter.init(allocator, .{ .exchange = &exchange }, 32, 4, 64);
+    defer server.deinit();
+    var peer = try Adapter.init(allocator, .{ .exchange = &exchange }, 32, 4, 64);
+    defer peer.deinit();
+    const listen = try server.openListener(.{ .inproc = "wake-after-consumed" });
+    const a = try connectOne(&server, &peer, listen, "wake-after-consumed");
+    const b = try connectOne(&server, &peer, listen, "wake-after-consumed");
+
+    // Both connections wait for input, and the owner parks.
+    var out: [4]completion.Completion = undefined;
+    try server.submitRecv(10, a.local);
+    try server.submitRecv(11, b.local);
+    _ = try server.peek(&out);
+    try server.flush();
+
+    // A's input consumes the wake, and A holds no receive afterwards.
+    try peer.submitSend(3, a.remote, "a");
+    try std.testing.expectEqual(@as(i32, 1), (try pollOne(&peer, 3)).result);
+    const first = try pollOne(&server, 10);
+    try std.testing.expectEqualStrings("a", first.borrowed.recvBytes() orelse "");
+    server.recycleBorrowed(first);
+    try std.testing.expect(!server.wake_armed);
+
+    // The next park keeps a wake receive outstanding, so B's writer is seen
+    // through the descriptor an external waiter holds.
+    try server.flush();
+    var set = try net.readiness.ReadySet.init();
+    defer set.deinit();
+    try set.add(server.readinessFd());
+    try std.testing.expect(!try readableNow(set.descriptor()));
+    try peer.submitSend(4, b.remote, "second");
+    try std.testing.expectEqual(@as(i32, 6), (try pollOne(&peer, 4)).result);
+    var fds = [_]std.posix.pollfd{.{ .fd = set.descriptor(), .events = std.posix.POLL.IN, .revents = 0 }};
+    try std.testing.expectEqual(@as(usize, 1), try std.posix.poll(&fds, 1000));
+    const second = try pollOne(&server, 11);
+    try std.testing.expectEqualStrings("second", second.borrowed.recvBytes() orelse "");
+    server.recycleBorrowed(second);
+}
+
+test "inproc completion: a park after the wake was consumed still wakes the descriptor for another connection" {
+    try expectWakeAfterConsumed(net.Backend);
+    if (builtin.target.os.tag == .linux) try expectWakeAfterConsumed(net.epoll_white_box.TestBackend);
+}
+
+/// Refuse every later send on the sink's wake channel by shutting its write
+/// half, as the sink's own nudge would on a fatal fault. The descriptor stays
+/// open and owned.
+fn shutdownWake(sink: *Sink) !void {
+    const fd = sink.wake.write;
+    if (comptime builtin.target.os.tag == .linux) {
+        const linux = std.os.linux;
+        try std.testing.expectEqual(.SUCCESS, linux.errno(linux.shutdown(fd, linux.SHUT.WR)));
+    } else {
+        try std.testing.expectEqual(@as(c_int, 0), std.c.shutdown(fd, std.c.SHUT.WR));
+    }
+}
+
+test "inproc completion: a refused self nudge ends the wake receive with its own cause" {
+    if (!(builtin.target.os.tag == .linux or builtin.target.os.tag.isDarwin())) return error.SkipZigTest;
+    const allocator = std.testing.allocator;
+    var exchange = Exchange.init(allocator);
+    defer exchange.deinit();
+    var server = try Backend.init(allocator, .{ .exchange = &exchange }, 32, 4, 64);
+    defer server.deinit();
+    var peer = try Backend.init(allocator, .{ .exchange = &exchange }, 32, 4, 64);
+    defer peer.deinit();
+    _ = try server.openListener(.{ .inproc = "self-nudge" });
+    var out: [4]completion.Completion = undefined;
+    _ = try server.peek(&out);
+    // A dial queues news for the looking owner without a nudge. The owner's
+    // park then owes itself one, and the test refuses that send.
+    _ = try peer.startDial(1, .{ .inproc = "self-nudge" });
+    try shutdownWake(server.sink);
+    try std.testing.expectError(error.WakeNudgeFailed, server.poll(&out, 100));
+    try std.testing.expectError(error.WakeNudgeFailed, server.sink.wake_failure.check());
+}
+
+test "inproc completion: an end of stream with no recorded fault stays an independent receive failure" {
+    if (!(builtin.target.os.tag == .linux or builtin.target.os.tag.isDarwin())) return error.SkipZigTest;
+    const allocator = std.testing.allocator;
+    var exchange = Exchange.init(allocator);
+    defer exchange.deinit();
+    var server = try Backend.init(allocator, .{ .exchange = &exchange }, 32, 4, 64);
+    defer server.deinit();
+    _ = try server.openListener(.{ .inproc = "independent-eof" });
+    var out: [4]completion.Completion = undefined;
+    try shutdownWake(server.sink);
+    try std.testing.expectError(error.SignalReadFailed, server.poll(&out, 100));
+    try server.sink.wake_failure.check();
+}
+
+test "inproc completion: a failed drain reports the first recorded cause" {
+    if (!(builtin.target.os.tag == .linux or builtin.target.os.tag.isDarwin())) return error.SkipZigTest;
+    const allocator = std.testing.allocator;
+    var exchange = Exchange.init(allocator);
+    defer exchange.deinit();
+    var out: [4]completion.Completion = undefined;
+
+    // One wake byte is buffered ahead of the end of stream, so the receive
+    // succeeds and the drain meets EOF. Nothing was recorded before it.
+    var fresh = try Backend.init(allocator, .{ .exchange = &exchange }, 32, 4, 64);
+    defer fresh.deinit();
+    _ = try fresh.openListener(.{ .inproc = "drain-fresh" });
+    _ = try fresh.peek(&out);
+    _ = try fresh.sink.wake.nudge();
+    try shutdownWake(fresh.sink);
+    try std.testing.expectError(error.WakeDrainFailed, fresh.poll(&out, 100));
+
+    // A dial while the owner looks leaves it owing itself a nudge, which the
+    // park then fails and records. The buffered byte reaches the same failed
+    // drain, which reports the first recorded cause.
+    var refused = try Backend.init(allocator, .{ .exchange = &exchange }, 32, 4, 64);
+    defer refused.deinit();
+    var peer = try Backend.init(allocator, .{ .exchange = &exchange }, 32, 4, 64);
+    defer peer.deinit();
+    _ = try refused.openListener(.{ .inproc = "drain-refused" });
+    _ = try refused.peek(&out);
+    _ = try peer.startDial(1, .{ .inproc = "drain-refused" });
+    _ = try refused.sink.wake.nudge();
+    try shutdownWake(refused.sink);
+    try refused.sink.wake_failure.check();
+    try std.testing.expectError(error.WakeNudgeFailed, refused.poll(&out, 100));
+    try std.testing.expectError(error.WakeNudgeFailed, refused.sink.wake_failure.check());
 }
 
 test "inproc completion: a writer nudges only a parked reader" {

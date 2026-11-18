@@ -160,8 +160,20 @@ pub fn CompletionBackend(comptime Platform: type) type {
         /// that wait, then hand the platform its queue. With nothing open
         /// there is no writer, so the sink's lock is left alone.
         pub fn flush(self: *Self) !void {
-            if (!self.idle()) self.sink.park();
+            if (!self.idle()) {
+                // The wake receive must be outstanding before the sink is
+                // parked: a later writer's nudge then completes it, and the
+                // platform descriptor reports that to an external waiter.
+                try self.armWake();
+                self.sink.park();
+            }
             return self.platform.flush();
+        }
+
+        fn armWake(self: *Self) !void {
+            if (self.wake_armed) return;
+            try self.platform.submitRecv(wake_user_data, self.sink.wake.read);
+            self.wake_armed = true;
         }
 
         pub fn submitPoll(self: *Self, user_data: u64, fd: Fd, interest: completion.Interest) !void {
@@ -331,10 +343,7 @@ pub fn CompletionBackend(comptime Platform: type) type {
         fn collect(self: *Self, out: []completion.Completion, wait_ms: ?i32) !usize {
             if (self.idle()) return completion.passThrough(&self.platform, out, wait_ms);
             try self.sink.wake_failure.check();
-            if (!self.wake_armed) {
-                try self.platform.submitRecv(wake_user_data, self.sink.wake.read);
-                self.wake_armed = true;
-            }
+            try self.armWake();
             const owed = self.ready.drain(out);
             const room = out[owed..];
             const count = if (wait_ms) |timeout_ms| blk: {
@@ -365,14 +374,18 @@ pub fn CompletionBackend(comptime Platform: type) type {
         }
 
         /// The wake read completed: the signal is consumed here and the next
-        /// pass arms it again.
+        /// pass arms it again. An end of stream or failed receive reports the
+        /// cause the sink latched first (a writer retires the channel only
+        /// after recording its fault), else the independent receive failure.
         pub fn dispatchOwned(self: *Self, comp: completion.Completion) !void {
             if (comp.borrowed.active()) self.platform.recycleBorrowed(comp);
             self.wake_armed = false;
-            if (!comp.receiveMemoryPressure() and comp.result <= 0) return error.SignalReadFailed;
+            if (!comp.receiveMemoryPressure() and comp.result <= 0)
+                return self.sink.wake_failure.failure() orelse error.SignalReadFailed;
             self.sink.wake.drain() catch |err| {
                 self.sink.wake_failure.record(err);
-                return err;
+                // The latch keeps the first cause, which may be an earlier nudge fault.
+                return self.sink.wake_failure.failure().?;
             };
         }
 
