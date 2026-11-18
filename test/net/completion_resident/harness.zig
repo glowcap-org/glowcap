@@ -139,6 +139,45 @@ pub fn Harness(comptime Backend: type) type {
             return try std.posix.poll(&fds, timeout_ms) > 0;
         }
 
+        /// A real listener on loopback, armed with its seat reserved.
+        pub fn listenRow(server: *Resident, route: usize) !*Resident.Listener {
+            const ops = server.resident().vtable.listen.?;
+            const listener = switch (ops.listen(server, route, model.transport.tcp, .{ .designator = "127.0.0.1:0" })) {
+                .admitted => |admitted| admitted.ready,
+                .failed => |failure| return failure.cause,
+            };
+            return @ptrCast(@alignCast(listener));
+        }
+
+        pub fn expectCapacityLaw(server: *const Resident) !void {
+            try std.testing.expect(server.records.capacity >= server.records.items.len + server.accept_seats);
+        }
+
+        /// Refuse the first allocation, and refuse a resize too, since an
+        /// in-place growth would otherwise bypass the refusal.
+        pub const refuse_first: std.testing.FailingAllocator.Config = .{ .fail_index = 0, .resize_fail_index = 0 };
+
+        pub fn localLocator(server: *Resident, row: *Resident.Listener) !model.PeerLocator {
+            return switch (server.resident().vtable.listen.?.local_locator(server, row, model.transport.tcp, server.allocator)) {
+                .locator => |locator| locator,
+                .failed => |failure| return failure.cause,
+            };
+        }
+
+        /// One real client dials `locator` and the kernel's accept completes
+        /// for it, leaving one more descriptor in `row.accepted`.
+        pub fn arrival(server: *Resident, client: *Resident, row: *Resident.Listener, locator: model.PeerLocator, request: usize) !void {
+            const before = row.accepted.items.len;
+            try std.testing.expect(client.resident().vtable.dial.?.start_connect(client, request, locator, .{}, .application) == .admitted);
+            const deadline = net.clock.nowMonotonicMs() + wait_budget_ms;
+            while (row.accepted.items.len == before) {
+                if (net.clock.nowMonotonicMs() >= deadline) return error.ArrivalNeverCompleted;
+                client.resident().beforeWait(.park);
+                server.resident().beforeWait(.park);
+                _ = try park(server.resident(), 10);
+            }
+        }
+
         /// Whether `fd` reports readable without waiting.
         pub fn readableNow(fd: std.posix.fd_t) !bool {
             var fds = [_]std.posix.pollfd{.{ .fd = fd, .events = std.posix.POLL.IN, .revents = 0 }};

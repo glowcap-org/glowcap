@@ -7,6 +7,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const glowcap = @import("glowcap");
 const harness = @import("completion_resident/harness.zig");
+const FailingOnce = @import("../support/failing_once.zig").FailingOnce;
 
 const net = glowcap.net;
 const model = glowcap.ocapn.model;
@@ -26,89 +27,13 @@ fn Tests(comptime Backend: type) type {
         const open = H.open;
         const retire = H.retire;
         const connectPair = H.connectPair;
+        const fill = H.fill;
         const park = H.park;
-
-        test "an accept refused for descriptor quota reaches the claim as a failure and does not re-arm" {
-            // A loopback socket cannot make the kernel refuse an accept, so the
-            // verdict is handed to the completion machine directly. The listener
-            // must not re-arm against the same quota, and the runtime learns the
-            // refusal through the claim verb, after any arrival accepted before it.
-            var server = try open();
-            defer retire(&server);
-            var server_events: Events = .{ .resident = server.resident() };
-            defer server_events.deinit();
-            const server_ops = server.resident().vtable;
-
-            const route = 11;
-            const listener = switch (server_ops.listen.?.listen(&server, route, model.transport.tcp, .{ .designator = "127.0.0.1:0" })) {
-                .admitted => |admitted| admitted.ready,
-                .failed => |failure| return failure.cause,
-            };
-            const row: *Resident.Listener = @ptrCast(@alignCast(listener));
-            try std.testing.expect(row.accept_armed);
-
-            Resident.Completions.dispatch(&server, .{
-                .user_data = net.completion_resident.userData(.accept, row.token),
-                .result = -1,
-                .failure = error.ProcessFdQuotaExceeded,
-            });
-            try std.testing.expect(!row.accept_armed);
-            try std.testing.expect(try server_events.take(route, er.ev_accept));
-            switch (server_ops.listen.?.finish_accept(&server, listener)) {
-                .failed => |failure| {
-                    try std.testing.expectEqual(error.AcceptRefused, failure.classification);
-                    try std.testing.expectEqual(error.ProcessFdQuotaExceeded, failure.chain.cause);
-                },
-                .connection => return error.ClaimedAnAcceptTheKernelRefused,
-            }
-            // Handed over once: the next claim finds nothing.
-            switch (server_ops.listen.?.finish_accept(&server, listener)) {
-                .connection => |id| try std.testing.expectEqual(@as(?usize, null), id),
-                .failed => return error.RefusalReportedTwice,
-            }
-            switch (server_ops.listen.?.stop_listen(&server, listener)) {
-                .complete, .pending => {},
-                .failed => |failure| return failure.cause,
-            }
-        }
-
-        test "accept queue allocation refusal reaches the claim without rearming" {
-            var server = try open();
-            defer retire(&server);
-            const ops = server.resident().vtable.listen.?;
-            // Build the row after the backend's accept has completed, so a
-            // mistaken re-arm is observable without duplicating a kernel seat.
-            const row = try server.allocator.create(Resident.Listener);
-            row.* = .{ .token = 1, .route = 12, .fd = try server.backend.openListener(0), .identity = null, .accept_armed = true };
-            try server.listeners.put(server.allocator, row.token, row);
-            const listener: *anyopaque = row;
-            // Inject a successful accept carrying an owned descriptor. Only
-            // the queue allocation fails; the ready record already has room.
-            try server.records.ensureUnusedCapacity(server.allocator, 1);
-            const fd = try server.backend.openListener(0);
-            var failing = std.testing.FailingAllocator.init(server.allocator, .{ .fail_index = 0 });
-            const allocator = server.allocator;
-            server.allocator = failing.allocator();
-            Resident.Completions.dispatch(&server, .{
-                .user_data = net.completion_resident.userData(.accept, row.token),
-                .result = 0,
-                .accepted_fd = fd,
-            });
-            server.allocator = allocator;
-            try std.testing.expect(failing.has_induced_failure);
-            try std.testing.expect(!row.accept_armed);
-            switch (ops.finish_accept(&server, listener)) {
-                .failed => |failure| {
-                    try std.testing.expectEqual(error.AcceptRefused, failure.classification);
-                    try std.testing.expectEqual(error.OutOfMemory, failure.chain.cause);
-                },
-                .connection => return error.LostAcceptRefusal,
-            }
-            switch (ops.finish_accept(&server, listener)) {
-                .connection => |id| try std.testing.expectEqual(@as(?usize, null), id),
-                .failed => return error.RefusalReportedTwice,
-            }
-        }
+        const listenRow = H.listenRow;
+        const localLocator = H.localLocator;
+        const arrival = H.arrival;
+        const expectCapacityLaw = H.expectCapacityLaw;
+        const refuse_first = H.refuse_first;
 
         test "an accept refusal persists unless the arrival itself failed" {
             const persists = net.completion_resident.acceptRefusalPersists;
@@ -125,30 +50,48 @@ fn Tests(comptime Backend: type) type {
             try std.testing.expect(persists(error.AcceptFailed));
         }
 
-        test "claiming an earlier accept does not rearm a refused listener" {
+        test "an initial listen refused at any allocation leaves no seat, debt, or leak" {
+            var fail_index: usize = 0;
+            while (true) : (fail_index += 1) {
+                var server = try open();
+                defer retire(&server);
+                const allocator = server.allocator;
+                var failing = std.testing.FailingAllocator.init(allocator, .{ .fail_index = fail_index });
+                server.allocator = failing.allocator();
+                const outcome = server.resident().vtable.listen.?.listen(&server, 19, model.transport.tcp, .{ .designator = "127.0.0.1:0" });
+                server.allocator = allocator;
+                switch (outcome) {
+                    .failed => |failure| {
+                        try std.testing.expect(failing.has_induced_failure);
+                        try std.testing.expectEqual(error.OutOfMemory, failure.cause);
+                        try std.testing.expectEqual(@as(usize, 0), server.listeners.count());
+                        try std.testing.expectEqual(@as(usize, 0), server.accept_seats);
+                        try std.testing.expectEqual(@as(usize, 0), server.rearm_owed_count);
+                    },
+                    .admitted => |admitted| {
+                        try std.testing.expect(!failing.has_induced_failure);
+                        const row: *Resident.Listener = @ptrCast(@alignCast(admitted.ready));
+                        try std.testing.expect(row.accept_armed);
+                        try std.testing.expectEqual(@as(usize, 1), server.accept_seats);
+                        try expectCapacityLaw(&server);
+                        break;
+                    },
+                }
+            }
+        }
+
+        test "a submit refusal after the reservations leaves no seat or listener" {
+            if (comptime !@hasDecl(net.epoll_white_box, "TestBackend") or Backend != net.epoll_white_box.TestBackend) return;
             var server = try open();
             defer retire(&server);
-            const row = try server.allocator.create(Resident.Listener);
-            row.* = .{ .token = 1, .route = 12, .fd = try server.backend.openListener(0), .identity = null, .accept_armed = true };
-            try server.listeners.put(server.allocator, row.token, row);
-            // The completion machine owns these descriptors. A claim can
-            // adopt the queued one before surfacing the terminal refusal.
-            try row.accepted.append(server.allocator, try server.backend.openListener(0));
-            Resident.Completions.dispatch(&server, .{
-                .user_data = net.completion_resident.userData(.accept, row.token),
-                .result = -1,
-                .failure = error.ProcessFdQuotaExceeded,
-            });
-            const ops = server.resident().vtable.listen.?;
-            switch (ops.finish_accept(&server, row)) {
-                .connection => |id| try std.testing.expect(id != null),
-                .failed => return error.LostEarlierAccept,
+            net.epoll_white_box.failNextControl(&server.backend);
+            switch (server.resident().vtable.listen.?.listen(&server, 20, model.transport.tcp, .{ .designator = "127.0.0.1:0" })) {
+                .failed => |failure| try std.testing.expectEqual(error.EpollControlFailed, failure.cause),
+                .admitted => return error.SubmitRefusalLost,
             }
-            try std.testing.expect(!row.accept_armed);
-            switch (ops.finish_accept(&server, row)) {
-                .failed => |failure| try std.testing.expectEqual(error.ProcessFdQuotaExceeded, failure.chain.cause),
-                .connection => return error.LostAcceptRefusal,
-            }
+            try std.testing.expectEqual(@as(usize, 0), server.listeners.count());
+            try std.testing.expectEqual(@as(usize, 0), server.accept_seats);
+            try std.testing.expectEqual(@as(?anyerror, null), server.failure);
         }
 
         test "a listener stops accepting at the unclaimed bound and resumes on a claim" {

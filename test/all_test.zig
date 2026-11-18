@@ -261,6 +261,8 @@ comptime {
         _ = @import("driver/host_runtime_step/close_pressure_test.zig");
         _ = @import("driver/host_runtime_step/feed_pressure_test.zig");
         _ = @import("driver/host_runtime_step/core_retry_test.zig");
+        _ = @import("driver/host_runtime_step/resident_retry_test.zig");
+        _ = @import("driver/host_runtime_multiplexed/completion_rearm_test.zig");
         _ = @import("driver/host_runtime_step/core_retry_callers_test.zig");
         _ = @import("driver/host_runtime_step/core_retry_open_test.zig");
         _ = @import("driver/host_runtime_step/redeem_report_test.zig");
@@ -375,6 +377,7 @@ comptime {
         _ = @import("net/tcp_completion_policy_test.zig");
         _ = @import("net/completion_resident_test.zig");
         _ = @import("net/completion_resident_listener_test.zig");
+        _ = @import("net/completion_resident_rearm_test.zig");
         _ = @import("net/fuzz_test.zig");
         _ = @import("net/connection_test.zig");
         _ = @import("net/completion_contract_test.zig");

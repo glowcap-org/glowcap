@@ -498,6 +498,9 @@ pub fn waitAnySource(self: *HostRuntime, requested_ms: i32, empty_ok: bool) !?us
         // now, and what that flush completes is taken before the park.
         Internal.flushResidents(self, .park);
         if (Internal.readyResident(self, start)) |index| return index;
+        // That flush may have armed resident debt. Bound what remains of the
+        // wait by it, never the requested time again.
+        wait_ms = Internal.clampTimeoutToPendingWork(self, wait_ms);
     }
     var timed_resident: ?usize = null;
     for (self.residents.items, 0..) |registered, index| {

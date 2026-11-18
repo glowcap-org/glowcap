@@ -12,7 +12,8 @@ const foundation = @import("foundation");
 const model = @import("model");
 const netlayer = @import("../netlayer.zig");
 const resident_mod = @import("../multiplexed_resident.zig");
-const userData = @import("completions.zig").userData;
+const completions = @import("completions.zig");
+const userData = completions.userData;
 
 const MultiplexedResident = resident_mod.MultiplexedResident;
 
@@ -20,6 +21,7 @@ pub fn Machine(comptime Self: type, comptime Policy: type) type {
     const Backend = @FieldType(Self, "backend");
     return struct {
         const Listener = Self.Listener;
+        const Completions = completions.Machine(Self);
 
         pub const can_pend = @hasDecl(Backend, "submitListenReady");
 
@@ -59,6 +61,8 @@ pub fn Machine(comptime Self: type, comptime Policy: type) type {
             };
             self.armAccept(listener) catch |err| {
                 self.backend.closeFd(fd);
+                // The arm may have reserved the accepted slot before it failed.
+                listener.accepted.deinit(self.allocator);
                 self.allocator.destroy(listener);
                 return .{ .failed = .init(err) };
             };
@@ -159,7 +163,7 @@ pub fn Machine(comptime Self: type, comptime Policy: type) type {
             // A listener that stopped at the unclaimed bound accepts again
             // once a claim makes room.
             if (!listener.accept_armed and listener.accept_failure == null and listener.setup == .ready)
-                self.armAccept(listener) catch |err| self.latch(err);
+                Completions.rearmOrOwe(self, listener);
             const id = self.adopt(fd) catch |err| {
                 self.backend.closeFd(fd);
                 return .{ .failed = .init(err) };
@@ -173,6 +177,10 @@ pub fn Machine(comptime Self: type, comptime Policy: type) type {
             defer self.pump();
             for (listener.accepted.items) |fd| self.backend.closeFd(fd);
             listener.accepted.deinit(self.allocator);
+            // The armed accept's seat returns. Its late completion finds no
+            // listener and takes none.
+            if (listener.accept_armed) self.accept_seats -= 1;
+            if (listener.rearm_owed) self.rearm_owed_count -= 1;
             std.debug.assert(self.listeners.remove(listener.token));
             // The close cancels the armed accept or setup wait. Their
             // completions arrive later and find no listener under this token.

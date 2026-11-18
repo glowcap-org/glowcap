@@ -163,6 +163,9 @@ pub const MultiplexedResident = struct {
         dial: ?DialVTable = null,
         external_claim: ?ExternalClaimVTable = null,
         listen: ?ListenVTable = null,
+        /// Paced retry of work the resident's allocator refused. Absent means
+        /// the resident owes none.
+        memory_retry: ?MemoryRetryVTable = null,
         /// Read into `buf`: bytes read, 0 on clean end of stream, -1 on a
         /// dead connection, `would_block` when nothing is pending.
         try_read: *const fn (ctx: *anyopaque, conn: usize, buf: []u8) isize,
@@ -197,6 +200,23 @@ pub const MultiplexedResident = struct {
         /// proves one (iroh's remote node id). Null on a transport whose
         /// channel proves nothing. The realizer seam then stays silent.
         conn_remote_key: *const fn (ctx: *anyopaque, conn: usize) ContractError!?crypto.PeerKey,
+    };
+
+    /// A complete group: both callbacks are callable or the group is absent.
+    /// The runtime paces the retry (`HostRuntime.resident_retry_due_ms`) and
+    /// never reads the resident's own failure state.
+    const MemoryRetryVTable = struct {
+        /// Whether the resident owes a retry. Synchronous and side-effect
+        /// free: it does not allocate, mutate, or call the runtime.
+        owes: *const fn (ctx: *anyopaque) bool,
+        /// Retry every owed operation once. It may submit backend work, update
+        /// the resident's own state, and latch the resident's own failure,
+        /// which reaches the runtime through `ready_pending` and
+        /// `drain_ready` (a latch makes `ready_pending` true). It calls no
+        /// runtime verb, may run inside a driver turn while a received chunk
+        /// is loaned, never touches lent buffers or other residents, and does
+        /// not block.
+        retry: *const fn (ctx: *anyopaque) void,
     };
 
     pub const DialVTable = struct {
@@ -450,6 +470,24 @@ pub const MultiplexedResident = struct {
 
     pub fn dialer(self: MultiplexedResident) ?Dialer {
         const ops = if (self.vtable.dial) |*value| value else return null;
+        return .{ .resident = self, .ops = ops };
+    }
+
+    const MemoryRetry = struct {
+        resident: MultiplexedResident,
+        ops: *const MemoryRetryVTable,
+
+        pub fn owes(self: MemoryRetry) bool {
+            return self.ops.owes(self.resident.ctx);
+        }
+
+        pub fn retry(self: MemoryRetry) void {
+            self.ops.retry(self.resident.ctx);
+        }
+    };
+
+    pub fn memoryRetry(self: MultiplexedResident) ?MemoryRetry {
+        const ops = if (self.vtable.memory_retry) |*value| value else return null;
         return .{ .resident = self, .ops = ops };
     }
 

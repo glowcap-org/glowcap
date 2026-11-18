@@ -165,6 +165,10 @@ pub fn Resident(comptime Backend: type, comptime Policy: type) type {
             /// which owns the verdict. Re-arming here would spin against the
             /// same refusal while the backlog holds an arrival.
             accept_failure: ?anyerror = null,
+            /// The allocator refused the re-arm of an admitted listener. The
+            /// runtime's paced retry (`memory_retry`) owns the next attempt,
+            /// and an ordinary claim or completion skips this listener.
+            rearm_owed: bool = false,
             /// A backend listener still finishing its setup reports here.
             setup: union(enum) { ready, pending, failed: anyerror } = .ready,
         };
@@ -196,6 +200,12 @@ pub fn Resident(comptime Backend: type, comptime Policy: type) type {
         /// Listen-ready waits the backend still owes.
         listen_waits: usize = 0,
         failure: ?anyerror = null,
+        /// Armed accepts. Each holds one `records` seat and one `accepted`
+        /// slot reserved before the submit, so its completion cannot fail to
+        /// record: `records.capacity >= records.items.len + accept_seats`.
+        accept_seats: usize = 0,
+        /// Listeners with `rearm_owed` set.
+        rearm_owed_count: usize = 0,
         /// Structured failures a backend lent with a failed completion, kept
         /// until the runtime claims them. Only failed rows have an entry.
         conn_failures: foundation.identity_hash.Map(usize, foundation.FailureChain) = .empty,
@@ -260,6 +270,7 @@ pub fn Resident(comptime Backend: type, comptime Policy: type) type {
             .wait_bound_ms = waitBoundMs,
             .park = parkVerb,
             .watch = watchVerb,
+            .memory_retry = .{ .owes = Completions.owesRearm, .retry = Completions.retryRearms },
             .drain_ready = drainReady,
             .try_read = tryRead,
             .borrowed_read = .{ .lend = lend, .release = release },
