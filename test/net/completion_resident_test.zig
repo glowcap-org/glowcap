@@ -45,7 +45,7 @@ fn Tests(comptime Backend: type) type {
             while (true) {
                 const remaining = deadline - net.clock.nowMonotonicMs();
                 if (remaining <= 0) return false;
-                if (ops.park(@intCast(remaining))) return true;
+                if (ops.park(@intCast(remaining)) == .woke) return true;
             }
         }
 
@@ -225,7 +225,7 @@ fn Tests(comptime Backend: type) type {
             while (true) {
                 const remaining = park_deadline - net.clock.nowMonotonicMs();
                 if (remaining <= 0) break;
-                try std.testing.expect(!ops.park(@intCast(remaining)));
+                try std.testing.expectEqual(er.MultiplexedResident.Park.timeout, ops.park(@intCast(remaining)));
             }
 
             // A nudge from another thread ends the park. The nudger holds

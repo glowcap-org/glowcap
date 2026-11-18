@@ -162,14 +162,14 @@ test "a staged dial against a silent partner fails HandshakeTimedOut on the step
             return .{ .nanoseconds = @as(i96, now_ms) * std.time.ns_per_ms };
         }
 
-        fn park(_: *anyopaque, timeout_ms: i32) bool {
+        fn park(_: *anyopaque, timeout_ms: i32) net.MultiplexedResident.Park {
             if (early_wake) {
                 early_wake = false;
-                return false;
+                return .timeout;
             }
             waited_ms = timeout_ms;
             now_ms += timeout_ms;
-            return false;
+            return .timeout;
         }
     };
     DeadlinePark.now_ms = net.clock.nowMs(io);

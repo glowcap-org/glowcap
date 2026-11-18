@@ -75,6 +75,11 @@
 //!     hung up, consuming nothing. It is one-shot and occupies that direction of
 //!     `fd` like a recv or send. `submitCancel` retires it, and it never closes
 //!     `fd`.
+//!     If memory runs out before registration, return `error.OutOfMemory`.
+//!     Epoll reports its per-user watch limit as `error.EpollWatchLimit`.
+//!     Either error lets the completion resident decline an optional park.
+//!     An adapter that needs the poll receives the error. Other poll failures
+//!     remain failures for both callers.
 //!
 //! A `submit*` refusal must mint no completion for that `user_data`. The loop
 //! counts an operation only after successful submission. Violating this rule

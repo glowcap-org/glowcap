@@ -84,7 +84,7 @@ fn Tests(comptime Backend: type) type {
             if (comptime !@hasDecl(net.epoll_white_box, "TestBackend") or Backend != net.epoll_white_box.TestBackend) return;
             var server = try open();
             defer retire(&server);
-            net.epoll_white_box.failNextControl(&server.backend);
+            net.epoll_white_box.failNextControl(&server.backend, .INVAL);
             switch (server.resident().vtable.listen.?.listen(&server, 20, model.transport.tcp, .{ .designator = "127.0.0.1:0" })) {
                 .failed => |failure| try std.testing.expectEqual(error.EpollControlFailed, failure.cause),
                 .admitted => return error.SubmitRefusalLost,

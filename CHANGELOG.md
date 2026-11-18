@@ -13,6 +13,20 @@ Releases before 0.1.7 are in the
 
 ### Breaking
 
+- A custom `net.MultiplexedResident.park` callback now returns
+  `net.MultiplexedResident.Park`. Replace `true` with `.woke` and `false`
+  with `.timeout`. Return `.unavailable` before waiting if the resident
+  lacks capacity to arm an optional wake watch. The driver then polls its
+  readiness descriptors. Returning `error.OutOfMemory` from `watch` before
+  installing a watch selects the same fallback.
+
+- On epoll, `submitPoll` now returns `error.EpollWatchLimit` for kernel
+  `ENOSPC` and `error.OutOfMemory` for kernel `ENOMEM`. On kqueue it
+  returns `error.OutOfMemory` for kernel `ENOMEM`. These refusals previously
+  returned `error.EpollControlFailed` on epoll and `error.KeventFailed`
+  on kqueue. The completion resident can skip an optional park on either
+  capacity refusal. A transport that needs the poll still receives an error.
+
 - A custom backend for `net.completion_resident.Resident` declares
   `readyPending(*const Backend) bool`. It answers true while the backend holds
   work the next `peek` can advance or surface: a completion held in user
@@ -291,6 +305,13 @@ Releases before 0.1.7 are in the
   They were copied into the turn arena first.
 
 ### Fixed
+
+- A runtime whose first resident parks in its own kernel queue no longer fails
+  a wait because that queue could not take an optional wake watch (an
+  allocation refusal, or epoll `ENOSPC` or `ENOMEM`, or kqueue `ENOMEM`). It
+  waits once on every readiness descriptor instead, keeps the watches already
+  armed, and offers the refused one again at the next wait. A park also ends,
+  without waiting, on a fault latched earlier or met while arming.
 
 - A stepped Zig `HostRuntime` no longer stalls behind a short stream write.
   The completion that held the count of bytes already transferred sat in

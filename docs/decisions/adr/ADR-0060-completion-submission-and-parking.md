@@ -22,6 +22,8 @@ Blocking receive re-arms wait for the next park. Reaping between verbs does not 
 
 When the registered residents support it, the runtime parks inside a resident's own kernel queue and watches the other wake descriptors there. Readiness-only residents retain the descriptor fallback. Watches are armed at the actual park boundary so earlier reaping cannot consume the only wake.
 
+The watches are optional. A resident's `park` answers woke, timeout, or unavailable. It answers unavailable, before it waits, when a watch cannot be installed for lack of memory or kernel watch capacity, and a `watch` that refuses has the same effect. Either way the runtime waits once on every readiness descriptor for that call, at the remaining bound and with the timed resident chosen as before. Watches already armed stay armed until they complete, and the next park offers only the refused rest. A fault met while arming, or one already latched, ends the park before any wait. A watch that completes failed is a fault.
+
 Questioner answer releases wait at the peer's queue tail until the next message can carry them first in one GC frame. An embedding about to park flushes held releases through the Host, so an idle caller does not retain its partner's answers indefinitely.
 
 A caller that explicitly owns a core can request a bounded busy-poll window. It is zero by default, reaps all residents without submitting on every pass, and respects the caller's remaining wait budget.

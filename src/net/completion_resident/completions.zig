@@ -197,23 +197,33 @@ pub fn Machine(comptime Self: type) type {
 
         /// Park in the backend's own queue until a completion lands, a
         /// watched descriptor reads ready, or `timeout_ms` passes, and turn
-        /// what arrived into records. True when something arrived, or when
-        /// the wait failed and `ready_pending` now reports the failure.
-        /// `beforeWait` ran first, so the turn's queue is in the kernel.
+        /// what arrived into records. `.woke` also answers a failure, which
+        /// `ready_pending` now reports. `beforeWait` ran first, so the turn's
+        /// queue is in the kernel.
         /// The watches are armed here, as the park begins: a descriptor
         /// that reads ready now ends the park at once, where a watch armed
         /// earlier would have been reaped by a verb and left the park
-        /// asleep beside the wake it announced.
-        pub fn park(self: *Self, timeout_ms: i32) bool {
-            armWatches(self);
+        /// asleep beside the wake it announced. A failure already latched, or
+        /// one met while arming, ends the park before any wait. A watch the
+        /// backend refused before it registered anything (`error.OutOfMemory`
+        /// or `error.EpollWatchLimit`) answers `.unavailable` without waiting,
+        /// since a park missing a watch could sleep through its wake. The
+        /// watches armed before it stay armed until they complete.
+        pub fn park(self: *Self, timeout_ms: i32) resident_mod.MultiplexedResident.Park {
+            if (self.failure != null) return .woke;
+            armWatches(self) catch |err| {
+                if (err == error.OutOfMemory or err == error.EpollWatchLimit) return .unavailable;
+                latch(self, err);
+                return .woke;
+            };
             var out: [64]completion.Completion = undefined;
             const n = self.backend.poll(&out, timeout_ms) catch |err| {
                 latch(self, err);
-                return true;
+                return .woke;
             };
             for (out[0..n]) |comp| dispatch(self, comp);
             if (n == out.len) pump(self);
-            return n != 0;
+            return if (n != 0) .woke else .timeout;
         }
 
         /// Wake the next park when `fd` reads ready, consuming nothing from
@@ -225,13 +235,12 @@ pub fn Machine(comptime Self: type) type {
             try self.watches.append(self.allocator, .{ .fd = fd, .armed = false });
         }
 
-        fn armWatches(self: *Self) void {
+        /// Arm each watch not yet armed, in order. A refusal leaves the rows
+        /// after the refused one for the next park.
+        fn armWatches(self: *Self) !void {
             for (self.watches.items, 0..) |*row, index| {
                 if (row.armed) continue;
-                self.backend.submitPoll(userData(.watch, index), row.fd, .readable) catch |err| {
-                    latch(self, err);
-                    return;
-                };
+                try self.backend.submitPoll(userData(.watch, index), row.fd, .readable);
                 row.armed = true;
             }
         }

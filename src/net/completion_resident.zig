@@ -340,7 +340,7 @@ pub fn Resident(comptime Backend: type, comptime Policy: type) type {
             of(ctx).pump();
         }
 
-        fn parkVerb(ctx: *anyopaque, timeout_ms: i32) bool {
+        fn parkVerb(ctx: *anyopaque, timeout_ms: i32) MultiplexedResident.Park {
             return Completions.park(of(ctx), timeout_ms);
         }
 

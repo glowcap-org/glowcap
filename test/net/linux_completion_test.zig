@@ -107,7 +107,7 @@ test "epoll preserves its row when post-completion control fails" {
     defer wake.deinit();
 
     try backend.submitRecv(1, wake.read);
-    white_box.failNextControl(&backend);
+    white_box.failNextControl(&backend, .INVAL);
     _ = try wake.nudge();
 
     var completions: [1]completion.Completion = undefined;
@@ -135,7 +135,7 @@ test "epoll leaves kernel interests unchanged when readiness does not complete" 
     try backend.submitRecv(1, wake.read);
     _ = try wake.nudge();
     white_box.deferNextRecv(&backend);
-    white_box.failNextControl(&backend);
+    white_box.failNextControl(&backend, .INVAL);
 
     var completions: [1]completion.Completion = undefined;
     try std.testing.expectEqual(@as(usize, 0), try backend.poll(&completions, 1_000));
