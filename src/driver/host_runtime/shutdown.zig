@@ -372,7 +372,6 @@ fn deinitImpl(self: *HostRuntime, cancel_core: bool) void {
     self.provider_packages.deinit(self.allocator);
     self.poll_scratch.deinit(self.allocator);
     self.extra_fd_scratch.deinit(self.allocator);
-    self.watched_fds.deinit(self.allocator);
     self.listener_fds.deinit(self.allocator);
     if (self.mailbox) |mailbox| mailbox.deinit();
     self.drive.deinit();

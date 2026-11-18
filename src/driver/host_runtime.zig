@@ -185,12 +185,18 @@ pub const HostRuntime = struct {
     /// readiness wakes. Construction and each resident admission reserve their
     /// capacity (`providers.reserveWaitScratch` owns the derivation), so
     /// building those rows allocates nothing. The parking branch of the wait
-    /// watches its sources through `watched_fds` and the parker instead.
+    /// watches its sources through the parker and the marks below instead.
     poll_scratch: std.ArrayList(std.posix.pollfd) = .empty,
     extra_fd_scratch: std.ArrayList(std.posix.fd_t) = .empty,
-    /// Wake descriptors already handed to the parking resident
-    /// (`watchWakeSources`).
-    watched_fds: std.ArrayList(i32) = .empty,
+    /// What the parking resident already watches (`pump.watchWakeSources`):
+    /// how many of the residents after the first, and whether the settle
+    /// mailbox's wake and a stepped ready set's wake. Residents only append
+    /// and each descriptor is distinct, so a count and two flags name every
+    /// handed-over descriptor without a list. Each mark advances after its
+    /// `watch` callback returns.
+    watched_siblings: usize = 0,
+    watched_mailbox: bool = false,
+    watched_ready_wake: bool = false,
     /// Descriptors watched through `watchFd`. Kept on both faces, so
     /// descriptor-conflict detection and `unwatchFd` have one lifecycle path
     /// whether or not a ready set mirrors them.
@@ -539,7 +545,6 @@ pub const HostRuntime = struct {
     const publishResidentRecords = runtime_step.publishResidentRecords;
     const flushResidents = runtime_step.flushResidents;
     const parkingResident = runtime_pump.parkingResident;
-    const watchWakeSources = runtime_pump.watchWakeSources;
     const spinForRecords = runtime_step.spinForRecords;
     const readyResident = runtime_step.readyResident;
 };
@@ -605,7 +610,6 @@ pub const Internal = struct {
     pub const publishResidentRecords = HostRuntime.publishResidentRecords;
     pub const flushResidents = HostRuntime.flushResidents;
     pub const parkingResident = HostRuntime.parkingResident;
-    pub const watchWakeSources = HostRuntime.watchWakeSources;
     pub const spinForRecords = HostRuntime.spinForRecords;
     pub const readyResident = HostRuntime.readyResident;
     pub const releaseWireOwned = HostRuntime.releaseWireOwned;

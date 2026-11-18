@@ -477,7 +477,7 @@ pub fn waitAnySource(self: *HostRuntime, requested_ms: i32, empty_ok: bool) !?us
     const start = if (residents > 0) self.wait_cursor % residents else 0;
     self.wait_cursor +%= 1;
     const parking = Internal.parkingResident(self);
-    if (parking) try Internal.watchWakeSources(self);
+    if (parking) try watchWakeSources(self);
     Internal.flushResidents(self, .park);
     if (Internal.readyResident(self, start)) |index| return index;
     // The nearest pending deadline bounds the spin as it bounds the park, so
@@ -549,22 +549,30 @@ pub fn parkingResident(self: *const HostRuntime) bool {
 }
 
 /// Hand the parking resident every wake descriptor it does not watch yet:
-/// the mailbox, the stepped ready set's wake, and its siblings' readiness
-/// descriptors. A source minted after the last park is handed over at the
-/// next one, so `watched_fds` only grows.
-pub fn watchWakeSources(self: *HostRuntime) !void {
+/// its siblings' readiness descriptors, the mailbox, and the stepped ready
+/// set's wake, in that order. A source minted after the last park is handed
+/// over at the next one. Each mark (`HostRuntime.watched_siblings`,
+/// `watched_mailbox`, `watched_ready_wake`) advances after its callback
+/// returns, so a refusal ends the call and the next one offers that descriptor
+/// again. The runtime allocates nothing here, and the callback keeps its own
+/// failure.
+fn watchWakeSources(self: *HostRuntime) !void {
     const parker = self.residents.items[0].resident;
-    for (self.residents.items[1..]) |registered| try watchWakeSource(self, parker, registered.readiness_fd);
-    if (self.mailbox) |mb| try watchWakeSource(self, parker, mb.wakeFd());
+    const siblings = self.residents.items[1..];
+    std.debug.assert(self.watched_siblings <= siblings.len);
+    for (siblings[self.watched_siblings..]) |registered| {
+        try parker.watch(registered.readiness_fd);
+        self.watched_siblings += 1;
+    }
+    if (!self.watched_mailbox) if (self.mailbox) |mb| {
+        try parker.watch(mb.wakeFd());
+        self.watched_mailbox = true;
+    };
     switch (self.drive) {
         .blocking => {},
-        .stepped => |*stepped| try watchWakeSource(self, parker, stepped.ready_set.wakeFd()),
+        .stepped => |*stepped| if (!self.watched_ready_wake) {
+            try parker.watch(stepped.ready_set.wakeFd());
+            self.watched_ready_wake = true;
+        },
     }
-}
-
-fn watchWakeSource(self: *HostRuntime, parker: net.MultiplexedResident, fd: i32) !void {
-    for (self.watched_fds.items) |known| if (known == fd) return;
-    try self.watched_fds.ensureUnusedCapacity(self.allocator, 1);
-    try parker.watch(fd);
-    self.watched_fds.appendAssumeCapacity(fd);
 }
