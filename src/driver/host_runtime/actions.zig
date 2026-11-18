@@ -121,9 +121,11 @@ pub fn clearMemoryDebt(self: *HostRuntime) void {
 /// retry deadline. The deadline belongs to this function, to a close whose
 /// tail ran out of memory (`closeTailFailed`), and to the terminal setters.
 ///
-/// - Operational: no deadline runs. Not yet due returns `.retained` without
-///   allocating. Due renews the deadline to one policy interval from now and
-///   runs, so each owner gets one attempt per interval.
+/// - Operational: no core deadline runs. Not yet due returns `.retained`
+///   before any core work, so the core allocates nothing. A due resident
+///   pass (`resident_retry_due_ms`) runs first and may reserve and submit.
+///   Due renews the core deadline to one policy interval from now and runs,
+///   so each owner gets one attempt per interval.
 /// - A memory refusal in the flush is remembered while the core's actions
 ///   still drain. Any other flush error stops. On every exit a remembered
 ///   refusal arms the deadline before a later error returns, and a clean
@@ -146,6 +148,40 @@ const CoreFlush = struct {
     }
 };
 
+/// Retry every resident debt once: the due pass of `resident_retry_due_ms`.
+/// A group's `retry` runs no runtime verb, so it can neither latch terminal
+/// nor change the resident list this pass walks.
+fn retryDueResidents(self: *HostRuntime) void {
+    for (self.residents.items) |registered| {
+        const group = registered.resident.memoryRetry() orelse continue;
+        if (group.owes()) group.retry();
+    }
+}
+
+/// Bring `resident_retry_due_ms` in line with the residents' live debt: arm one
+/// policy interval when some resident owes and none is armed, keep an armed
+/// deadline, clear it when nothing is owed. After a terminal failure it clears
+/// without asking any resident.
+pub fn reconcileResidentDebt(self: *HostRuntime) void {
+    if (self.terminal_failure != null) {
+        self.resident_retry_due_ms = null;
+        return;
+    }
+    var owed = false;
+    for (self.residents.items) |registered| {
+        const group = registered.resident.memoryRetry() orelse continue;
+        if (group.owes()) {
+            owed = true;
+            break;
+        }
+    }
+    if (!owed) {
+        self.resident_retry_due_ms = null;
+    } else if (self.resident_retry_due_ms == null) {
+        self.resident_retry_due_ms = self.nowMs() +| memory_retry_ms;
+    }
+}
+
 pub fn attemptWith(
     self: *HostRuntime,
     effect_mode: ExternalEffectMode,
@@ -154,7 +190,19 @@ pub fn attemptWith(
 ) !Drain {
     self.enterDriver();
     defer self.leaveDriver();
+    // Declared after `leaveDriver`, so it runs first on every exit.
+    defer if (effect_mode == .operational) reconcileResidentDebt(self);
     const gated = effect_mode == .operational and self.terminal_failure == null;
+    // Resident debt has its own deadline and runs before the core gate, so a
+    // not-due or failed core drain cannot starve it. A callback skips it
+    // without renewing, and the next top-level attempt runs it.
+    if (gated and !self.withinCallback()) if (self.resident_retry_due_ms) |deadline| {
+        const now_ms = self.nowMs();
+        if (now_ms >= deadline) {
+            self.resident_retry_due_ms = now_ms +| memory_retry_ms;
+            retryDueResidents(self);
+        }
+    };
     var due = false;
     if (gated) if (self.core.memory_retry_due_ms) |deadline| {
         const now_ms = self.nowMs();

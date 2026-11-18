@@ -11,6 +11,7 @@ const std = @import("std");
 const c = @import("c_abi");
 const cd = @import("c_abi_host");
 const cdrv = @import("c_abi_driver");
+const ctcp = @import("c_abi_net_transport_tcp");
 const glowcap = @import("glowcap");
 const CountingHost = @import("../../support/c_abi_counting_alloc.zig").CountingHost;
 
@@ -24,6 +25,27 @@ const expectOk = harness.expectOk;
 const expectStep = harness.expectStep;
 
 const max_indexes = 64;
+
+/// How the loop reaches TCP: the packaged provider, or its stream table
+/// registered by hand through `addStreamProvider`, as an embedder's own
+/// stream provider is.
+const Install = enum { packaged, stream_table };
+
+/// The stream table's context is the netlayer, which the loop does not
+/// retain: the caller releases `tcp` after the loop.
+fn installStreamTable(loop: ?*cdrv.GlowcapDriverLoop, tcp: *?*ctcp.GlowcapTcpNetlayer) !void {
+    try expectOk(ctcp.glowcap_tcp_netlayer_new(&harness.default_tcp_config, tcp));
+    var provider: cdrv.GlowcapTransportProvider = undefined;
+    try expectOk(ctcp.glowcap_tcp_transport_provider(tcp.*, &provider));
+    for (provider.entries.?[0..provider.entry_count]) |entry| {
+        if (entry.execution_model != cdrv.GLOWCAP_TRANSPORT_EXEC_STREAM) continue;
+        if (!std.mem.eql(u8, entry.profile.?.transport_name.?[0..entry.profile.?.transport_name_len], "tcp")) continue;
+        const table: *const cdrv.GlowcapStreamTransport = @ptrCast(@alignCast(entry.implementation.?));
+        try expectOk(harness.addStreamProvider(loop, table, "tcp"));
+        return;
+    }
+    return error.NoTcpStreamEntry;
+}
 
 /// Fetch again over the established pair and wait for the answer.
 fn expectFetch(pair: *harness.FetchedPair) !void {
@@ -47,16 +69,18 @@ const Outcome = enum { retired, admitted_under_pressure, admitted };
 
 /// One run: refuse the Host's allocations from `offset` on while a silent
 /// connection arrives, then check what survived.
-fn run(offset: usize) !Outcome {
+fn run(offset: usize, install: Install) !Outcome {
     var counting = CountingHost{};
-    const outcome = try runOn(&counting, offset);
+    const outcome = try runOn(&counting, offset, install);
     // Every byte the Host's allocator served came back, retired arrival included.
     try std.testing.expect(counting.balanced());
     return outcome;
 }
 
-fn runOn(counting: *CountingHost, offset: usize) !Outcome {
+fn runOn(counting: *CountingHost, offset: usize, install: Install) !Outcome {
     const spec = counting.spec();
+    var stream_netlayer: ?*ctcp.GlowcapTcpNetlayer = null;
+    defer ctcp.glowcap_tcp_netlayer_release(stream_netlayer);
     var ctx: ?*c.GlowcapContext = null;
     try expectOk(c.glowcap_context_new_with_allocator(&spec, &ctx));
     defer c.glowcap_context_release(ctx);
@@ -79,7 +103,10 @@ fn runOn(counting: *CountingHost, offset: usize) !Outcome {
     try expectOk(cd.glowcap_host_publish(host, "widget", 6, typed_resident.widgetBehavior, null, null));
     var raw: ?*cdrv.GlowcapDriverLoop = null;
     try expectOk(cdrv.glowcap_driver_take_host(host, &harness.driver_options_10s, &raw));
-    try harness.installTcp(raw);
+    switch (install) {
+        .packaged => try harness.installTcp(raw),
+        .stream_table => try installStreamTable(raw, &stream_netlayer),
+    }
     const server: TestLoop = .{ .raw = raw, .host = host };
 
     // An established session on the listener, answering a fetch.
@@ -136,11 +163,11 @@ fn runOn(counting: *CountingHost, offset: usize) !Outcome {
     return if (counting.refused != 0) .admitted_under_pressure else .admitted;
 }
 
-test "admission pressure on one arrival leaves the C step OK and the listener serving" {
+fn sweep(install: Install) !void {
     var retired: usize = 0;
     var reached_admitted = false;
     for (0..max_indexes) |offset| {
-        switch (try run(offset)) {
+        switch (try run(offset, install)) {
             .retired => retired += 1,
             .admitted_under_pressure => {},
             .admitted => {
@@ -151,4 +178,12 @@ test "admission pressure on one arrival leaves the C step OK and the listener se
     }
     try std.testing.expect(reached_admitted);
     try std.testing.expect(retired >= 1);
+}
+
+test "admission pressure on one arrival leaves the C step OK and the listener serving" {
+    try sweep(.packaged);
+}
+
+test "admission pressure through an embedder's stream provider leaves the same listener serving" {
+    try sweep(.stream_table);
 }

@@ -21,11 +21,12 @@ pub fn noteTerminalFailureChain(self: *HostRuntime, chain: net.netlayer.Listener
 }
 
 /// The one latch under every terminal setter: keep the first cause, then
-/// retire the memory retry deadline. After fail-stop no operational drain
-/// clears it, and `noteMemoryDebt` arms nothing.
+/// retire both retry deadlines. After fail-stop no operational drain clears
+/// them, `noteMemoryDebt` arms nothing, and no resident is queried again.
 fn latchTerminal(self: *HostRuntime, failure: OperationFailure) void {
     foundation.latchFailure(&self.terminal_failure, failure);
     Internal.clearMemoryDebt(self);
+    self.resident_retry_due_ms = null;
 }
 
 /// Retire one Runtime-owned core shell without turning a violated core

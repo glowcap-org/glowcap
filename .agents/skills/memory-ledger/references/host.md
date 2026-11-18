@@ -203,6 +203,22 @@ custody costs.
   sturdyref peer check needs the actual session transport and a signed locator
   cannot supply it. Replaces a block the dial already required, so it adds
   nothing.
+- **Resident retry deadline**: `HostRuntime.resident_retry_due_ms`. One
+  optional `i64` deadline (`HostRuntime` 1552 to 1568 bytes, debug aarch64
+  native), separate from the core's `memory_retry_due_ms`, armed while
+  any resident's `memory_retry` group reports `owes`. It reuses the shared
+  `memory_retry_ms` interval with its own epoch, so a core retry never advances
+  it and a joining debt never postpones it.
+  - The due pass queries and retries residents in place, with no list copy and
+    no per-listener clock, before the core's gate. A terminal failure clears
+    the deadline without querying.
+  - The common case, no debt, still pays a live `owes` scan.
+    `reconcileResidentDebt` runs at every operational attempt exit and at the
+    `flushResidents` tail: one optional group check per registered resident,
+    and one indirect `owes` call only for a resident that declares the group.
+  - A completion resident answers from its debt count and reads its failure
+    state only when the count is nonzero. The scan stops at the first that owes
+    and allocates nothing.
 - **Advertised locator custody**: `retainCanonical` in `engine/node/locators.zig`
   makes the sole Node-owned snapshot before replacement. Host preparation borrows
   input and `HelloHints` scratch through that copy. `Host.prepareAdvertisedLocator`

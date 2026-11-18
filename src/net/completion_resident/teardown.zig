@@ -97,6 +97,8 @@ pub fn Machine(comptime Self: type) type {
             retireQuiet(self);
             // Every dial is settled with its descriptor closed.
             self.dials.clearRetainingCapacity();
+            // `closeOpen` stopped every listener, so no accept holds a seat.
+            std.debug.assert(self.accept_seats == 0 and self.rearm_owed_count == 0);
             self.records.clearRetainingCapacity();
             std.debug.assert(self.drained());
         }

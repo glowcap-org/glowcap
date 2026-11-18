@@ -120,6 +120,26 @@ and stream costs.
     the backend's life: `appendAssumeCapacity` is what makes fan-out infallible
     mid-turn, and a shrinking queue would give that back. Stacked adapters each
     hold their own.
+- **Completion-listener accept reservation**: `completion_resident/completions.zig`
+  `armAccept`. Before it submits an accept, the resident reserves one
+  accepted-connection slot (`Listener.accepted.ensureUnusedCapacity(1)`) and
+  one readiness-record seat (`records.ensureTotalCapacity(len + accept_seats + 1)`).
+  A success or persistent refusal consumes the seat with
+  `appendAssumeCapacity`, a transient refusal or `stopListen` releases it, so
+  the accept's completion writes those two records without allocating. The
+  re-arm after it and the claim's `adopt` still allocate. An armed listener
+  holds one seat of record capacity until its accept completes, and each arm
+  carries one `ReadyEvent` of the shared queue.
+  - A refused re-arm reservation leaves the listener owed (`rearm_owed`), and
+    only the runtime's due pass retries it (see the runtime's resident retry in
+    [host.md](host.md)). The initial arm has no debt and returns `.failed`.
+  - The state is two `usize` (`accept_seats`, `rearm_owed_count`) on the
+    resident and one `bool` per listener. Debug, aarch64 native: `Resident`
+    712 to 728 bytes, `Listener` 96 unchanged (the `bool` fits padding).
+    Other targets and backends are not measured.
+  - Each listener holds up to `max_unclaimed_accepts` accepted descriptors
+    until claimed. That bound is logical: the `ArrayList` capacity may grow
+    past it.
 - **Onion listener publish setup**: `onion/completion/listener.zig`. While
   the publish conversation runs, the one listener row holds about 2 KiB of
   setup state (two <!-- value ../../../../src/net/transport/onion/control.zig max_line_bytes bytes -->1 KiB<!-- /value --> line buffers for the outbound control line and the reply-line assembly, plus

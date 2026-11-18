@@ -288,6 +288,16 @@ Releases before 0.1.7 are in the
 - In Rooms, **Issue moderator link** stays usable while the room reconnects, when
   the room manager is held and no other authority change is running. It no
   longer waits for the room to be joined.
+- A completion listener that runs out of memory while re-arming its accept
+  keeps that debt and retries it on the runtime's retry interval, with no new
+  connection or socket event needed. The accepted-connection slot and the
+  readiness-record seat are reserved before the accept is submitted, so the
+  accept's completion writes them without allocating. The retry
+  has its own deadline beside the core's, so debt that only a resident holds
+  stalls no core or report work. C stream-provider listeners gain the same
+  behavior with no ABI change. A Zig `MultiplexedResident.VTable` gains
+  the optional `memory_retry` group (`owes` and `retry`), which a resident that
+  owes such debt declares.
 - A Zig `HostRuntime` that runs out of memory while draining queued work no
   longer fails the loop. A step, a settle, a session release, a deferred
   release, a close, and a mailbox turn keep the queued work and retry it after

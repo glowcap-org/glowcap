@@ -76,6 +76,22 @@ pub const AcceptOwnershipResident = struct {
     /// close deadline then completes the close with no descriptor I/O.
     abortable: bool = false,
     abort_calls: usize = 0,
+    /// Memory-retry debt, as a resident whose allocator refused work would
+    /// owe. `retry` pays it when `retry_pays` is set and otherwise keeps it.
+    /// `latch_on_retry` fails the resident instead, which then reports
+    /// ready and refuses its next drain.
+    owes_debt: bool = false,
+    retry_pays: bool = true,
+    latch_on_retry: bool = false,
+    latched: bool = false,
+    owes_calls: usize = 0,
+    retry_calls: usize = 0,
+    /// The reap on which `owes_debt` turns on, as a completion the spin took.
+    reap_debt_at: ?usize = null,
+    /// A resident that parks in its own queue, recording each wait.
+    parking: bool = false,
+    park_calls: usize = 0,
+    park_timeout_ms: ?i32 = null,
 
     pub const transport = "x-accept-ownership";
     pub const alternate_transport = "x-accept-ownership-alt";
@@ -117,7 +133,38 @@ pub const AcceptOwnershipResident = struct {
     }
 
     pub fn multiplexedResident(self: *AcceptOwnershipResident) net.MultiplexedResident {
-        return .{ .ctx = self, .vtable = if (self.abortable) &abortable_vtable else &vtable };
+        return .{ .ctx = self, .vtable = if (self.parking) &parking_vtable else if (self.abortable) &abortable_vtable else &vtable };
+    }
+
+    const parking_vtable = parking: {
+        var table = vtable;
+        table.park = park;
+        table.watch = watch;
+        break :parking table;
+    };
+
+    fn park(ctx: *anyopaque, timeout_ms: i32) bool {
+        const self = of(ctx);
+        self.park_calls += 1;
+        self.park_timeout_ms = timeout_ms;
+        return false;
+    }
+
+    fn watch(_: *anyopaque, _: i32) error{OutOfMemory}!void {}
+
+    fn owesDebt(ctx: *anyopaque) bool {
+        const self = of(ctx);
+        self.owes_calls += 1;
+        return self.owes_debt and !self.latched;
+    }
+
+    fn retryDebt(ctx: *anyopaque) void {
+        const self = of(ctx);
+        self.retry_calls += 1;
+        if (self.latch_on_retry) {
+            self.latched = true;
+            self.owes_debt = false;
+        } else if (self.retry_pays) self.owes_debt = false;
     }
 
     const abortable_vtable = abortable: {
@@ -139,6 +186,7 @@ pub const AcceptOwnershipResident = struct {
         .before_wait = beforeWait,
         .reap = reap,
         .drain_ready = drainReady,
+        .memory_retry = .{ .owes = owesDebt, .retry = retryDebt },
         .dial = .{
             .start_connect = startConnect,
             .finish_connect = finishConnect,
@@ -170,7 +218,8 @@ pub const AcceptOwnershipResident = struct {
     }
 
     fn readyPending(ctx: *anyopaque) bool {
-        return of(ctx).held_record != null;
+        const self = of(ctx);
+        return self.held_record != null or self.latched;
     }
 
     fn beforeWait(ctx: *anyopaque, _: net.multiplexed_resident.AfterTurn) void {
@@ -182,6 +231,9 @@ pub const AcceptOwnershipResident = struct {
     fn reap(ctx: *anyopaque) void {
         const self = of(ctx);
         self.reap_calls += 1;
+        if (self.reap_debt_at) |at| if (self.reap_calls == at) {
+            self.owes_debt = true;
+        };
         if (self.reap_record_at) |at| if (self.reap_calls == at) {
             self.held_record = .{ .subject = 404, .events = net.multiplexed_resident.ev_writable };
         };
@@ -192,6 +244,7 @@ pub const AcceptOwnershipResident = struct {
         self.drain_calls += 1;
         if (!self.keep_ready) self.wake.drain() catch unreachable;
         if (self.fail_drain) return error.ProviderContract;
+        if (self.latched) return error.ProviderContract;
         if (self.overreport_drain) return out.len + 1;
         if (out.len == 0) return 0;
         if (self.held_record) |record| {

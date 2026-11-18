@@ -247,6 +247,8 @@ pub fn nudgeReadyReports(self: *HostRuntime) void {
 /// too. A stepped turn ends before the embedder's park.
 pub fn flushResidents(self: *HostRuntime, after: net.multiplexed_resident.AfterTurn) void {
     for (self.residents.items) |registered| registered.resident.beforeWait(after);
+    // The effects just flushed may have left resident debt behind, or paid it.
+    if (self.terminal_failure == null) Internal.reconcileResidentDebt(self);
 }
 
 /// The first resident at or after `start` holding a record, or null.
@@ -365,6 +367,7 @@ pub fn clampTimeoutToPendingWork(self: *const HostRuntime, timeout_ms: i32) i32 
     }
     if (self.nearest_carrier_close_ms) |deadline| noteDeadline(&nearest_wait, deadline, now_ms);
     if (self.core.memory_retry_due_ms) |deadline| noteDeadline(&nearest_wait, deadline, now_ms);
+    if (self.resident_retry_due_ms) |deadline| noteDeadline(&nearest_wait, deadline, now_ms);
     for (self.pending_listeners.items) |row| noteDeadline(&nearest_wait, row.deadline_ms orelse continue, now_ms);
     const wait = nearest_wait orelse return timeout_ms;
     const remaining = std.math.cast(i32, wait) orelse std.math.maxInt(i32);

@@ -82,10 +82,55 @@ pub fn Machine(comptime Self: type) type {
             conn.inflight += 1;
         }
 
+        /// Arm the listener's accept. The accepted slot and the record seat the
+        /// completion will use are reserved first, so a completion never needs
+        /// an allocation. A refusal changes no admission state, though a
+        /// reservation may have grown capacity.
         pub fn armAccept(self: *Self, listener: *Listener) !void {
             if (listener.accept_armed) return;
+            try listener.accepted.ensureUnusedCapacity(self.allocator, 1);
+            try self.records.ensureTotalCapacity(self.allocator, self.records.items.len + self.accept_seats + 1);
             try self.backend.submitAccept(userData(.accept, listener.token), listener.fd);
+            self.accept_seats += 1;
             listener.accept_armed = true;
+        }
+
+        /// Re-arm an admitted listener. A memory refusal is paced debt the
+        /// runtime retries (`retryRearms`), and any other refusal fails the
+        /// resident as before.
+        pub fn rearmOrOwe(self: *Self, listener: *Listener) void {
+            if (listener.rearm_owed) return;
+            armAccept(self, listener) catch |err| {
+                if (err != error.OutOfMemory) return latch(self, err);
+                listener.rearm_owed = true;
+                self.rearm_owed_count += 1;
+            };
+        }
+
+        /// Whether any listener awaits a paced re-arm. A latched failure ends
+        /// the debt: the runtime takes it at `drain_ready`.
+        pub fn owesRearm(ctx: *anyopaque) bool {
+            const self: *Self = @ptrCast(@alignCast(ctx));
+            return self.rearm_owed_count != 0 and self.failure == null;
+        }
+
+        /// Try each owed re-arm once. Success clears the debt, a memory refusal
+        /// keeps it, and any other error latches and clears it. It stops at the
+        /// first latched failure and never touches connections.
+        pub fn retryRearms(ctx: *anyopaque) void {
+            const self: *Self = @ptrCast(@alignCast(ctx));
+            var listeners = self.listeners.valueIterator();
+            while (listeners.next()) |entry| {
+                if (self.failure != null) return;
+                const listener = entry.*;
+                if (!listener.rearm_owed) continue;
+                armAccept(self, listener) catch |err| {
+                    if (err == error.OutOfMemory) continue;
+                    latch(self, err);
+                };
+                listener.rearm_owed = false;
+                self.rearm_owed_count -= 1;
+            }
         }
 
         /// Turn every completion the backend already holds into held bytes,
@@ -348,18 +393,13 @@ pub fn Machine(comptime Self: type) type {
                         if (comp.result >= 0) self.backend.closeFd(acceptedFd(comp));
                         return;
                     };
+                    // The arm reserved this completion's seat and slot.
+                    std.debug.assert(listener.accept_armed);
                     listener.accept_armed = false;
+                    self.accept_seats -= 1;
                     if (comp.result >= 0) {
-                        listener.accepted.append(self.allocator, acceptedFd(comp)) catch |err| {
-                            self.backend.closeFd(acceptedFd(comp));
-                            // Queue pressure has the same claimable refusal
-                            // as backend pressure. Do not silently drop the
-                            // arrival and keep accepting against that limit.
-                            if (listener.accept_failure == null) listener.accept_failure = err;
-                            record(self, listener.route, resident_mod.ev_accept);
-                            return;
-                        };
-                        record(self, listener.route, resident_mod.ev_accept);
+                        listener.accepted.appendAssumeCapacity(acceptedFd(comp));
+                        self.records.appendAssumeCapacity(.{ .subject = listener.route, .events = resident_mod.ev_accept });
                     } else {
                         const err = failure_projection.primary(comp, error.AcceptFailed);
                         if (acceptRefusalPersists(err)) {
@@ -367,16 +407,14 @@ pub fn Machine(comptime Self: type) type {
                             // for as long as the arrival waits, so hand it to
                             // the runtime through the claim verb.
                             if (listener.accept_failure == null) listener.accept_failure = err;
-                            record(self, listener.route, resident_mod.ev_accept);
+                            self.records.appendAssumeCapacity(.{ .subject = listener.route, .events = resident_mod.ev_accept });
                             return;
                         }
                     }
                     // Past the unclaimed bound the listener waits for a
                     // claim, which re-arms it (`finishAccept`).
                     if (listener.accepted.items.len < Self.max_unclaimed_accepts)
-                        armAccept(self, listener) catch |err| {
-                            latch(self, err);
-                        };
+                        rearmOrOwe(self, listener);
                 },
             }
         }
@@ -443,10 +481,12 @@ pub fn Machine(comptime Self: type) type {
             };
         }
 
+        /// Keeps the capacity law: armed accepts hold their seats.
         fn record(self: *Self, subject: usize, events: u32) void {
-            self.records.append(self.allocator, .{ .subject = subject, .events = events }) catch {
-                latch(self, error.OutOfMemory);
+            self.records.ensureTotalCapacity(self.allocator, self.records.items.len + self.accept_seats + 1) catch {
+                return latch(self, error.OutOfMemory);
             };
+            self.records.appendAssumeCapacity(.{ .subject = subject, .events = events });
         }
     };
 }

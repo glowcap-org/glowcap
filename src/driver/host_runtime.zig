@@ -79,6 +79,7 @@ pub const HostRuntime = struct {
         pub const pendingOpenFor = runtime_opens.pendingOpenFor;
         pub const waitAnySource = runtime_pump.waitAnySource;
         pub const waitForTerminalSignal = runtime_step.waitForTerminalSignal;
+        pub const flushResidents = runtime_step.flushResidents;
     } else struct {};
 
     allocator: std.mem.Allocator,
@@ -151,6 +152,11 @@ pub const HostRuntime = struct {
     /// Runtime cleanup, but terminality is Runtime policy and every later
     /// application operation observes this one sticky concrete cause.
     terminal_failure: ?OperationFailure = null,
+    /// When the next paced retry of resident-owned memory debt is due, armed
+    /// while a resident's `memory_retry` group owes one. It is separate from
+    /// the core's deadline, which core, report and Loam predicates read, so
+    /// resident-only debt gates no core work. Both use `memory_retry_ms`.
+    resident_retry_due_ms: ?i64 = null,
     /// The multiplexed runtimes this host dials and accepts through (ADR-0024).
     /// Each runtime handle is borrowed and
     /// its `ctx` and vtable must outlive registration.
@@ -503,6 +509,7 @@ pub const HostRuntime = struct {
     const attempt = runtime_actions.attempt;
     const noteMemoryDebt = runtime_actions.noteMemoryDebt;
     const clearMemoryDebt = runtime_actions.clearMemoryDebt;
+    const reconcileResidentDebt = runtime_actions.reconcileResidentDebt;
 
     const pumpHandshake = runtime_pump.pumpHandshake;
     pub const markSessionUnattended = runtime_pump.markSessionUnattended;
@@ -609,6 +616,7 @@ pub const Internal = struct {
     pub const attempt = HostRuntime.attempt;
     pub const noteMemoryDebt = HostRuntime.noteMemoryDebt;
     pub const clearMemoryDebt = HostRuntime.clearMemoryDebt;
+    pub const reconcileResidentDebt = HostRuntime.reconcileResidentDebt;
     pub const reportObservedOperationFailure = HostRuntime.reportObservedOperationFailure;
     pub const reportObservedFailure = HostRuntime.reportObservedFailure;
     pub const reportObservedFailureChain = HostRuntime.reportObservedFailureChain;
