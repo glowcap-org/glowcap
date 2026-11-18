@@ -571,16 +571,20 @@ export class ReopenCapture {
 
 	/** Print one snapshot for a failing proof. Contained end to end: a failed
 	 * snapshot or a failed write is counted and never thrown, so the original
-	 * failure is the one that propagates. */
-	async report(error: unknown, timeline: string): Promise<void> {
+	 * failure is the one that propagates. Return only a successfully written snapshot. */
+	async report(error: unknown, timeline: string): Promise<FailureReport | undefined> {
+		let snapshot: FailureReport | undefined;
 		let line: string;
 		try {
-			line = JSON.stringify(await this.snapshot(error, timeline));
+			snapshot = await this.snapshot(error, timeline);
+			line = JSON.stringify(snapshot);
 		} catch (failure) {
+			snapshot = undefined;
 			line = JSON.stringify({ unavailable: clipError(failure) });
 		}
 		try {
 			console.error(`  [reopen capture] ${line}`);
+			return snapshot;
 		} catch {
 			this.#faults++; // tolerant: the one write failed, and a second write could fail the same way.
 		}

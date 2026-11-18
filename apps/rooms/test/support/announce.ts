@@ -57,7 +57,7 @@ export async function exitedBeforeAnnouncing(proc: Deno.ChildProcess, who: strin
 
 /** Every flush-left `ROOMS-*` line a child prints on stdout, read by one reader
  * for the child's whole life. The first line per token is kept, so a token asked
- * for after it printed still answers, and every chunk is passed through to this
+ * for after it printed still answers, and by default every chunk is passed through to this
  * process's stdout so the run stays observable. A supervisor such as `rooms-web`
  * prints its own block and the lines of the directory it runs this way. */
 export class Announcements {
@@ -65,8 +65,8 @@ export class Announcements {
 	readonly #waiting = new Map<string, { resolve: (value: string) => void; reject: (error: Error) => void }[]>();
 	#ended = false;
 
-	constructor(stdout: ReadableStream<Uint8Array>) {
-		this.#read(stdout).catch(() => {
+	constructor(stdout: ReadableStream<Uint8Array>, echo = true) {
+		this.#read(stdout, echo).catch(() => {
 			// tolerant: a child killed mid-write errors the pipe, and the waiters hear that it ended
 		}).finally(() => this.#end());
 	}
@@ -90,13 +90,15 @@ export class Announcements {
 		return within(waited, `${who} to announce ${token}`, withinMs);
 	}
 
-	async #read(stdout: ReadableStream<Uint8Array>): Promise<void> {
+	async #read(stdout: ReadableStream<Uint8Array>, echo: boolean): Promise<void> {
 		const decoder = new TextDecoder();
 		let tail = "";
 		for await (const chunk of stdout) {
-			await writeAll(Deno.stdout, chunk).catch(() => {
-				// tolerant: a closed stdout of this process loses the pass-through, not the reading
-			});
+			if (echo) {
+				await writeAll(Deno.stdout, chunk).catch(() => {
+					// tolerant: a closed stdout of this process loses the pass-through, not the reading
+				});
+			}
 			tail += decoder.decode(chunk, { stream: true });
 			let newline: number;
 			while ((newline = tail.indexOf("\n")) !== -1) {
