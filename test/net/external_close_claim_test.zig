@@ -17,8 +17,10 @@ const net = glowcap.net;
 const external = net.external_completion;
 const mux = net.multiplexed_resident;
 
-const Backend = external.CompletionBackend(net.Backend);
-const Resident = net.completion_resident.Resident(Backend, external.ResidentPolicy(Backend, external.PlatformRefused(net.Backend)));
+const HeldPlatform = @import("../support/held_platform.zig").HeldPlatform;
+
+const Backend = external.CompletionBackend(HeldPlatform);
+const Resident = net.completion_resident.Resident(Backend, external.ResidentPolicy(Backend, external.PlatformRefused(HeldPlatform)));
 
 const transport = "fake-stream";
 const max_conns = 16;
@@ -108,7 +110,7 @@ const Script = struct {
 };
 
 fn newResident(allocator: std.mem.Allocator, providers: []const external.Provider) !Resident {
-    return Resident.init(allocator, try Backend.initWithPlatform(allocator, .{ .providers = providers }, try net.Backend.init(allocator, 64, 16, 256), 16, 256), .{});
+    return Resident.init(allocator, try Backend.initWithPlatform(allocator, .{ .providers = providers }, try HeldPlatform.init(allocator), 16, 256), .{});
 }
 
 /// Dial through the provider and adopt the connection.
@@ -226,6 +228,29 @@ test "a no-wait close hands the provider failure to its sink and publishes no re
     try std.testing.expectEqual(@as(usize, 0), resident.close_seats);
 }
 
+test "a close with no poll armed is claimable inside the call on every platform" {
+    try skipUnlessPosix();
+    var script: Script = .{};
+    defer script.deinit();
+    const providers = [_]external.Provider{script.provider()};
+    var resident = try newResident(std.testing.allocator, &providers);
+    defer {
+        resident.backend.platform.held = false;
+        resident.closeAndDrain(2_000) catch |err| std.debug.panic("drain failed: {t}", .{err});
+        resident.deinit();
+    }
+    const conn = try adoptOne(&resident);
+    const ops = resident.resident();
+    // The receive was never started, so nothing borrows the handle: the
+    // close is quiet at once and the gate has nothing to hold.
+    resident.backend.platform.held = true;
+    try std.testing.expect(ops.connCloseOutcome(conn, .awaited) == .pending);
+    try std.testing.expect(resident.conns.getPtr(conn).?.close_wait == .claimable);
+    try std.testing.expectEqual(@as(usize, 1), try closedRecords(&resident, conn, true));
+    try expectClaimedFailure(ops.connCloseOutcome(conn, .awaited));
+    try std.testing.expectEqual(@as(usize, 1), script.report_closes);
+}
+
 test "an abort before the handle is quiet gives up the wait and returns complete" {
     try skipUnlessPosix();
     var script: Script = .{};
@@ -233,17 +258,24 @@ test "an abort before the handle is quiet gives up the wait and returns complete
     const providers = [_]external.Provider{script.provider()};
     var resident = try newResident(std.testing.allocator, &providers);
     defer {
+        resident.backend.platform.held = false;
         resident.closeAndDrain(2_000) catch |err| std.debug.panic("drain failed: {t}", .{err});
         resident.deinit();
     }
     const conn = try adoptOne(&resident);
     const ops = resident.resident();
-    // Arm the receive poll: the close must cancel it before the handle is quiet.
+    // Arm the receive poll: the close must cancel it before the handle is
+    // quiet. Epoll and kqueue queue that cancel's completions inside the call
+    // and io_uring may finish it later, so the platform holds them here and
+    // the row is waiting on every platform.
     ops.beforeWait(.park);
+    resident.backend.platform.held = true;
     try std.testing.expect(ops.connCloseOutcome(conn, .awaited) == .pending);
-    // No completion has been processed, so the close is still waiting.
     try std.testing.expect(resident.conns.getPtr(conn).?.close_wait == .awaited);
     try std.testing.expect(ops.connAbortOutcome(conn, .awaited).? == .complete);
+    // The poll is still borrowed, so the provider has not been closed.
+    try std.testing.expectEqual(@as(usize, 0), script.sink_closes);
+    resident.backend.platform.held = false;
     try std.testing.expectEqual(@as(usize, 0), try retiredClosedRecords(&resident, conn));
     try std.testing.expectEqual(@as(usize, 1), script.sink_closes);
     try std.testing.expectEqual(@as(usize, 0), script.report_closes);
@@ -299,15 +331,19 @@ test "a no-wait abort before the handle is quiet hands the close to the sink onc
     const providers = [_]external.Provider{script.provider()};
     var resident = try newResident(std.testing.allocator, &providers);
     defer {
+        resident.backend.platform.held = false;
         resident.closeAndDrain(2_000) catch |err| std.debug.panic("drain failed: {t}", .{err});
         resident.deinit();
     }
     const conn = try adoptOne(&resident);
     const ops = resident.resident();
     ops.beforeWait(.park);
+    resident.backend.platform.held = true;
     try std.testing.expect(ops.connCloseOutcome(conn, .awaited) == .pending);
     try std.testing.expect(resident.conns.getPtr(conn).?.close_wait == .awaited);
     try std.testing.expect(ops.connAbortOutcome(conn, .no_wait).? == .complete);
+    try std.testing.expectEqual(@as(usize, 0), script.sink_closes);
+    resident.backend.platform.held = false;
     try std.testing.expectEqual(@as(usize, 0), try retiredClosedRecords(&resident, conn));
     try std.testing.expectEqual(@as(usize, 1), script.sink_closes);
     try std.testing.expectEqual(@as(usize, 0), script.report_closes);
@@ -340,14 +376,24 @@ test "a drain finalizes an unclaimed close exactly once" {
     defer script.deinit();
     const providers = [_]external.Provider{script.provider()};
     var resident = try newResident(std.testing.allocator, &providers);
-    defer resident.deinit();
+    defer {
+        // A failed assertion while the gate is held still releases and drains
+        // the resident, so deinit does not mask it.
+        resident.backend.platform.held = false;
+        resident.closeAndDrain(2_000) catch |err| std.debug.panic("drain failed: {t}", .{err});
+        resident.deinit();
+    }
     const claimable = try adoptOne(&resident);
     const waiting = try adoptOne(&resident);
     const ops = resident.resident();
     try std.testing.expect(ops.connCloseOutcome(claimable, .awaited) == .pending);
     try std.testing.expectEqual(@as(usize, 1), try closedRecords(&resident, claimable, true));
+    // `waiting` has its receive poll armed (the loop above parked) and the
+    // platform holds the cancel, so its seat stays held on every platform.
+    resident.backend.platform.held = true;
     try std.testing.expect(ops.connCloseOutcome(waiting, .awaited) == .pending);
     try std.testing.expectEqual(@as(usize, 1), resident.close_seats);
+    resident.backend.platform.held = false;
     try resident.closeAndDrain(2_000);
     try std.testing.expectEqual(@as(usize, 2), script.sink_closes);
     try std.testing.expectEqual(@as(usize, 0), script.report_closes);
