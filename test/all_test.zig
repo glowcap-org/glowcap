@@ -244,6 +244,7 @@ comptime {
             _ = @import("driver/host_runtime_multiplexed/completion_resident_test.zig");
             _ = @import("driver/host_runtime_multiplexed/provider_test.zig");
             _ = @import("driver/host_runtime_multiplexed/wait_scratch_test.zig");
+            _ = @import("driver/host_runtime_multiplexed/descriptor_pressure_test.zig");
             _ = @import("driver/session_wire_fault_test.zig");
             _ = @import("driver/host_runtime_step/dial_retry_test.zig");
             _ = @import("driver/host_runtime_step/accept_refusal_test.zig");
@@ -436,8 +437,10 @@ comptime {
             _ = @import("net/completion/wake_test.zig");
             _ = @import("net/completion/close_slot_test.zig");
         }
-        if (@import("builtin").target.os.tag == .linux or @import("builtin").target.os.tag.isDarwin())
+        if (@import("builtin").target.os.tag == .linux or @import("builtin").target.os.tag.isDarwin()) {
             _ = @import("net/readiness_test.zig");
+            _ = @import("net/poll_test.zig");
+        }
         if (@import("builtin").target.os.tag == .linux)
             _ = @import("net/uring_test.zig");
         if (@import("builtin").target.os.tag == .linux)

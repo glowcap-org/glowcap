@@ -6,6 +6,7 @@ const net = @import("net");
 const driver_core = @import("driver_core");
 
 const carrier = @import("carrier.zig");
+const descriptor_wait = @import("descriptor_wait.zig");
 const lifecycle = @import("lifecycle.zig");
 const runtime = @import("../host_runtime.zig");
 
@@ -189,10 +190,9 @@ pub fn waitForTerminalSignal(self: *HostRuntime, timeout_ms: i32) !void {
         try std.Io.sleep(self.io, std.Io.Duration.fromMilliseconds(sleep_ms), .awake);
         return;
     }
-    // Admission reserved these rows (`providers.reserveWaitScratch`).
-    std.debug.assert(self.extra_fd_scratch.items.len <= self.poll_scratch.capacity);
-    self.poll_scratch.items.len = self.extra_fd_scratch.items.len;
-    _ = try net.waitAnyDescriptor(self.poll_scratch.items, timeout, self.extra_fd_scratch.items);
+    // The wait's hard failure latched behind the primary, which is the cause
+    // this cleanup step reports.
+    _ = descriptor_wait.wait(self, .terminal, timeout) catch return self.terminal_failure.?.chain.cause;
 }
 
 pub fn terminalCleanupPending(self: *HostRuntime) bool {

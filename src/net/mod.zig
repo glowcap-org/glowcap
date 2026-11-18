@@ -46,6 +46,7 @@ pub const waitAnyReadable = connection.waitAnyReadable;
 pub const waitAny = connection.waitAny;
 pub const waitAnyDescriptor = connection.waitAnyDescriptor;
 pub const WaitAnyError = connection.WaitAnyError;
+pub const WaitError = connection.WaitError;
 pub const classifyApplyError = connection.classifyApplyError;
 
 pub const FrameStream = frame_stream.FrameStream;
@@ -78,7 +79,7 @@ pub const frameShape = codec.dispatch.frameShape;
 /// `clock.zig`.
 pub const clock = @import("clock.zig");
 
-/// Shared `poll(2)` wrappers for blocking residents and readiness backends.
+/// The shared `poll(2)` wait for residents, readiness backends, and the driver.
 pub const poll = @import("poll.zig");
 
 /// Transport-neutral TLS engine state and buffer-ownership contract. Concrete

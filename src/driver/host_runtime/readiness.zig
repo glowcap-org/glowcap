@@ -4,6 +4,7 @@ const std = @import("std");
 
 const net = @import("net");
 
+const descriptor_wait = @import("descriptor_wait.zig");
 const runtime = @import("../host_runtime.zig");
 
 const HostRuntime = runtime.HostRuntime;
@@ -24,6 +25,7 @@ pub fn watchFd(self: *HostRuntime, fd: i32) !void {
     if (fd < 0) return error.ReadinessUnavailable;
     if (descriptorInUse(self, fd)) return error.ReadinessDescriptorConflict;
     try self.listener_fds.ensureUnusedCapacity(self.allocator, 1);
+    try descriptor_wait.reserveQuery(self, self.residents.items.len, self.listener_fds.items.len + 1);
     switch (self.drive) {
         .blocking => {},
         .stepped => |*stepped| try stepped.ready_set.add(fd),

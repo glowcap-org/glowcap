@@ -36,6 +36,7 @@ const runtime_actions = @import("host_runtime/actions.zig");
 const runtime_capabilities = @import("host_runtime/capabilities.zig");
 const runtime_carrier = @import("host_runtime/carrier.zig");
 const runtime_connections = @import("host_runtime/connections.zig");
+const runtime_descriptor_wait = @import("host_runtime/descriptor_wait.zig");
 const runtime_contract = @import("host_runtime/contract.zig");
 const runtime_failures = @import("host_runtime/failures.zig");
 const runtime_listener_setup = @import("host_runtime/listener_setup.zig");
@@ -79,6 +80,8 @@ pub const HostRuntime = struct {
         pub const pendingOpenFor = runtime_opens.pendingOpenFor;
         pub const waitAnySource = runtime_pump.waitAnySource;
         pub const waitForTerminalSignal = runtime_step.waitForTerminalSignal;
+        pub const descriptor_wait = runtime_descriptor_wait;
+        pub const wait_signal_rows = runtime_providers.wait_signal_rows;
         pub const flushResidents = runtime_step.flushResidents;
     } else struct {};
 
@@ -157,6 +160,12 @@ pub const HostRuntime = struct {
     /// the core's deadline, which core, report and Loam predicates read, so
     /// resident-only debt gates no core work. Both use `memory_retry_ms`.
     resident_retry_due_ms: ?i64 = null,
+    /// When the next descriptor poll may follow a refusal for lack of kernel
+    /// memory, armed by the refused wait and cleared by a poll that succeeds
+    /// or by the first transition to terminal (`descriptor_wait.zig` owns the
+    /// pacing). Absolute and host-wide, so a zero-timeout step neither renews
+    /// nor erases it. Distinct from the core's and the residents' debt.
+    descriptor_refusal_due_ms: ?i64 = null,
     /// The multiplexed runtimes this host dials and accepts through (ADR-0024).
     /// Each runtime handle is borrowed and
     /// its `ctx` and vtable must outlive registration.
@@ -322,6 +331,10 @@ pub const HostRuntime = struct {
     /// event would name a stranger.
     pub const Stepped = struct {
         ready_set: net.ReadySet,
+        /// Rows for asking `ready_set` what is ready while the kernel refuses
+        /// the descriptor poll, grown only when the set's members outnumber
+        /// the query's stack buffer (`descriptor_wait.reserveQuery`).
+        ready_query: net.readiness.ReadyQuery = .{},
         completion_sink: CompletionSink,
         close_observer: CloseObserver,
     };

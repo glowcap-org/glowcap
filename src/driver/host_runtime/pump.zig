@@ -13,6 +13,7 @@ const builtin = @import("builtin");
 const net = @import("net");
 const driver_core = @import("driver_core");
 
+const descriptor_wait = @import("descriptor_wait.zig");
 const lifecycle = @import("lifecycle.zig");
 const resident_pump = @import("resident_pump.zig");
 const host_runtime = @import("../host_runtime.zig");
@@ -531,13 +532,13 @@ pub fn waitAnySource(self: *HostRuntime, requested_ms: i32, empty_ok: bool) !?us
         .blocking => {},
         .stepped => |*stepped| self.extra_fd_scratch.appendAssumeCapacity(stepped.ready_set.wakeFd()),
     }
-    // Admission reserved these rows (`providers.reserveWaitScratch`).
-    std.debug.assert(self.extra_fd_scratch.items.len <= self.poll_scratch.capacity);
-    self.poll_scratch.items.len = self.extra_fd_scratch.items.len;
-    const idx = try net.waitAnyDescriptor(self.poll_scratch.items, wait_ms, self.extra_fd_scratch.items) orelse
-        return timed_resident;
-    if (idx < residents) return (start + idx) % residents;
-    return null;
+    return switch (try descriptor_wait.wait(self, .operational, wait_ms)) {
+        .ready => |idx| if (idx < residents) (start + idx) % residents else null,
+        // A rest that ran the whole bound reached the timed resident's
+        // deadline, and one the refusal's due ended says nothing about it.
+        .timeout => timed_resident,
+        .paced => null,
+    };
 }
 
 /// Whether the first resident is the park: every resident offers one, and
