@@ -81,9 +81,7 @@ GROUPS = (
                 gate("zig build infrastructure-check"),
             ],
             "bend-proofs": [
-                gate(
-                    "bash .devcontainer/bin/tools.sh exec bend -- zig build loam-policy-proof --test-timeout 30s"
-                ),
+                gate("bash .devcontainer/bin/tools.sh exec bend -- zig build loam-policy-proof --test-timeout 30s"),
                 bend_proof("test/engine/negotiation_laws/PROOF.bend"),
             ],
         },
