@@ -421,7 +421,7 @@ pub fn Projection(
                 .failed => |failure| c.transport_provider.failProviderChain(
                     out_failure,
                     GLOWCAP_ERR_IO,
-                    failure,
+                    failure.chain,
                     failure_projection.release,
                 ),
             };

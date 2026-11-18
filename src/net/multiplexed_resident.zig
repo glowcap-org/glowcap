@@ -22,6 +22,7 @@ const std = @import("std");
 
 const foundation = @import("foundation");
 const netlayer = @import("netlayer.zig");
+const carrier_failure = @import("carrier_failure.zig");
 const model = @import("model");
 const crypto = foundation.crypto;
 const readiness = @import("multiplexed_resident/readiness.zig");
@@ -193,9 +194,10 @@ pub const MultiplexedResident = struct {
         /// batch of the turn leaves in one send. One without either sends as
         /// each write arrives.
         flush_writes: ?*const fn (ctx: *anyopaque, conn: usize) void = null,
-        /// Claim one exact connection-local read/write failure. Null is clean
-        /// EOF or no retained failure. A claimed value cannot reappear.
-        take_failure: ?*const fn (ctx: *anyopaque, conn: usize) ?foundation.FailureChain = null,
+        /// Claim one exact connection-local read/write failure, with the
+        /// carrier phase the resident named. Null is clean EOF or no retained
+        /// failure. A claimed value cannot reappear.
+        take_failure: ?*const fn (ctx: *anyopaque, conn: usize) ?carrier_failure.Report = null,
         /// Close and release one connection. Later records naming the id
         /// drain to nothing.
         conn_close: *const fn (ctx: *anyopaque, conn: usize) TeardownOutcome,
@@ -592,7 +594,7 @@ pub const MultiplexedResident = struct {
         return abort(self.ctx, conn);
     }
 
-    pub fn takeFailure(self: MultiplexedResident, conn: usize) ?foundation.FailureChain {
+    pub fn takeFailure(self: MultiplexedResident, conn: usize) ?carrier_failure.Report {
         const take = self.vtable.take_failure orelse return null;
         return take(self.ctx, conn);
     }

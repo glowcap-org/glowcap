@@ -99,7 +99,7 @@ pub fn Machine(comptime Self: type, comptime Policy: type) type {
             };
             switch (stopListen(self, listener)) {
                 .complete => {},
-                .failed => |cleanup| failure.noteChain(cleanup),
+                .failed => |cleanup| failure.noteChain(cleanup.chain),
                 .pending => unreachable,
             }
             return .{ .failed = failure };
@@ -112,7 +112,7 @@ pub fn Machine(comptime Self: type, comptime Policy: type) type {
             const listener = forRoute(self, route_id) orelse return null;
             return switch (stopListen(self, listener)) {
                 .complete => null,
-                .failed => |cleanup| cleanup,
+                .failed => |cleanup| cleanup.chain,
                 .pending => unreachable,
             };
         }

@@ -38,6 +38,9 @@ pub fn injectedStreamConnectionFailure(_: ?*anyopaque, _: ?*anyopaque, out: ?*cd
     slot.secondary_count = 2;
 }
 
+/// The engine code the multiplexed injection reports with its receive phase.
+pub const injected_receive_engine_code: i32 = -0x1111;
+
 pub fn injectedMultiplexedConnectionFailure(_: ?*anyopaque, _: u64, out: ?*cdrv.GlowcapProviderFailure) callconv(.c) void {
     const slot = out orelse return;
     const primary = "InjectedMultiplexedReadFailure";
@@ -46,6 +49,9 @@ pub fn injectedMultiplexedConnectionFailure(_: ?*anyopaque, _: u64, out: ?*cdrv.
     slot.result = c.GLOWCAP_ERR_IO;
     slot.primary_name = primary.ptr;
     slot.primary_name_len = primary.len;
+    slot.carrier_phase = cdrv.GLOWCAP_CARRIER_PHASE_RECEIVE;
+    slot.carrier_detail_flags = cdrv.GLOWCAP_CARRIER_DETAIL_ENGINE_CODE;
+    slot.carrier_engine_code = injected_receive_engine_code;
     slot.secondary_result = c.GLOWCAP_ERR_INTERNAL;
     slot.secondary_name = secondary.ptr;
     slot.secondary_name_len = secondary.len;

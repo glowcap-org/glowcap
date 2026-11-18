@@ -37,6 +37,7 @@ const foundation = @import("foundation");
 const model = @import("model");
 const completion = @import("completion/loop.zig");
 const netlayer = @import("netlayer.zig");
+const carrier_failure = @import("carrier_failure.zig");
 const resident_mod = @import("multiplexed_resident.zig");
 const completions = @import("completion_resident/completions.zig");
 const teardown = @import("completion_resident/teardown.zig");
@@ -469,7 +470,7 @@ pub fn Resident(comptime Backend: type, comptime Policy: type) type {
             self.queueSend(id, conn);
         }
 
-        fn takeFailure(ctx: *anyopaque, id: usize) ?foundation.FailureChain {
+        fn takeFailure(ctx: *anyopaque, id: usize) ?carrier_failure.Report {
             const self = of(ctx);
             const conn = self.conns.getPtr(id) orelse return null;
             if (conn.failure_claimed) return null;
@@ -480,7 +481,7 @@ pub fn Resident(comptime Backend: type, comptime Policy: type) type {
                     conn.failure_claimed = true;
                     // idempotent: the borrowed copy, if any, is superseded.
                     _ = self.conn_failures.remove(id);
-                    return exact;
+                    return .{ .chain = exact };
                 }
             }
             const cause = conn.write_failure orelse switch (conn.recv) {
@@ -488,7 +489,7 @@ pub fn Resident(comptime Backend: type, comptime Policy: type) type {
                 else => return null,
             };
             conn.failure_claimed = true;
-            if (self.conn_failures.fetchRemove(id)) |kept| return kept.value;
+            if (self.conn_failures.fetchRemove(id)) |kept| return .{ .chain = kept.value };
             return .init(cause);
         }
 

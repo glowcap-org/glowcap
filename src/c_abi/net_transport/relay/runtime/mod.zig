@@ -446,7 +446,7 @@ const MultiplexedRuntime = struct {
                     self.mutex.unlock();
                     model.freePeerLocator(self.allocator, listener.locator);
                     self.allocator.destroy(listener);
-                    return if (failure) |reported| .{ .failed = reported } else .complete;
+                    return if (failure) |reported| .{ .failed = .{ .chain = reported } } else .complete;
                 }
                 _ = listener.stopped.swap(true, .acq_rel);
                 self.mutex.unlock();

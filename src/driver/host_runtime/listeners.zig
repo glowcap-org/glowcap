@@ -225,12 +225,7 @@ pub fn closeActiveListener(self: *HostRuntime, tag: u64, async_completion: bool)
     switch (active.transport.listener.stopListenOutcome()) {
         .pending => return .{ .found = true, .pending = true },
         .complete => {},
-        .failed => |reported| {
-            if (failure) |*primary|
-                primary.noteChain(reported)
-            else
-                failure = OperationFailure.fromChain(reported);
-        },
+        .failed => |reported| foundation.latchFailure(&failure, .fromReport(reported)),
     }
     const removed = self.active_listeners.fetchRemove(tag) orelse unreachable;
     var listener = removed.value;

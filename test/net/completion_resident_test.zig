@@ -455,7 +455,7 @@ fn Tests(comptime Backend: type) type {
                 try std.testing.expectEqual(@as(isize, 0), end);
                 break;
             }
-            try std.testing.expectEqual(@as(?glowcap.foundation.FailureChain, null), server_ops.take_failure.?(&server, server_conn));
+            try std.testing.expectEqual(@as(?glowcap.net.carrier_failure.Report, null), server_ops.take_failure.?(&server, server_conn));
 
             // The server's connection and listener stay open for `retire`, whose
             // drain closes them and waits for every owed operation.
@@ -549,7 +549,7 @@ fn Tests(comptime Backend: type) type {
             try std.testing.expectEqual(@as(isize, -1), client_ops.try_write(&client, pair.client_conn, &chunk));
             failing.fail_index = std.math.maxInt(usize);
             const failure = client_ops.take_failure.?(&client, pair.client_conn) orelse return error.TestExpectedFailure;
-            try std.testing.expectEqual(error.OutOfMemory, failure.cause);
+            try std.testing.expectEqual(error.OutOfMemory, failure.chain.cause);
             try std.testing.expectEqual(@as(isize, -1), client_ops.try_write(&client, pair.client_conn, &chunk));
         }
     };

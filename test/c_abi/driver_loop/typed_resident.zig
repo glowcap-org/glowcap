@@ -323,6 +323,7 @@ pub const TypedResident = struct {
         if (active.resident.stop_listen_failure) {
             const code = providerFailure(out_failure, c.GLOWCAP_ERR_IO, "StopListenFailed");
             const report = out_failure orelse return code;
+            report.carrier_phase = cdrv.GLOWCAP_CARRIER_PHASE_SHUTDOWN;
             report.secondary_result = c.GLOWCAP_ERR_INTERNAL;
             report.secondary_name = "StopListenCleanupFailed".ptr;
             report.secondary_name_len = "StopListenCleanupFailed".len;

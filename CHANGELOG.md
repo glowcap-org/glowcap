@@ -183,6 +183,15 @@ Releases before 0.1.7 are in the
   negative timeout as an infinite wait, and no longer restarts an interrupted
   wait with its whole timeout: an interruption continues to the original
   deadline.
+- A custom `net.MultiplexedResident` reports a connection's carrier phase and
+  detail through teardown. `VTable.take_failure` returns
+  `?net.carrier_failure.Report`, and `TeardownOutcome.failed` holds a
+  `net.carrier_failure.Report`. Return `.{ .chain = chain }` where you
+  returned a `foundation.FailureChain`, or `.init(cause)` for a bare cause,
+  and read `.chain` where you matched one. `MultiplexedResident.takeFailure`
+  returns the report. `MultiplexedResident.connClose` and `Listener.stopListen`
+  still return the bare chain, and `connCloseOutcome` and `stopListenOutcome`
+  carry the report.
 
 ### Added
 
@@ -305,6 +314,17 @@ Releases before 0.1.7 are in the
   They were copied into the turn arena first.
 
 ### Fixed
+
+- A multiplexed connection's close reports the carrier phase, detail flags,
+  verification flags, peer alert, and engine code of its primary failure to
+  the C driver's `SESSION_CLOSED` event. They read zero before whenever the
+  provider named them through `conn_take_failure` or a failed `conn_close`.
+  When the connection had an earlier failure, it stays the primary with its
+  own metadata and the close failure is a consequence.
+
+- A failed `stop_listen` reports its carrier phase and details through the
+  synchronous `glowcap_driver_listener_close` failure and the
+  `LISTENER_FAILED` event. Both read zero before.
 
 - A runtime whose first resident parks in its own kernel queue no longer fails
   a wait because that queue could not take an optional wake watch (an

@@ -51,3 +51,18 @@ test "a provider status outside the vocabulary is refused, primary or secondary"
     const chain = try provider_failure.chain(c.GLOWCAP_ERR_IO, secondary);
     try std.testing.expectEqual(.timeout, chain.secondary_classification.?);
 }
+
+test "a provider report keeps the carrier phase it names and invents none" {
+    const bare = try provider_failure.carrierReport(c.GLOWCAP_ERR_IO, report(c.GLOWCAP_ERR_IO));
+    try std.testing.expect(bare.phase == null);
+    try std.testing.expectEqual(@as(?i32, null), bare.detail.engine_code);
+
+    var named = report(c.GLOWCAP_ERR_IO);
+    named.carrier_phase = c.transport_provider.GLOWCAP_CARRIER_PHASE_SHUTDOWN;
+    named.carrier_detail_flags = c.transport_provider.GLOWCAP_CARRIER_DETAIL_ENGINE_CODE;
+    named.carrier_engine_code = -5;
+    const kept = try provider_failure.carrierReport(c.GLOWCAP_ERR_IO, named);
+    try std.testing.expectEqual(.shutdown, kept.phase.?);
+    try std.testing.expectEqual(@as(?i32, -5), kept.detail.engine_code);
+    try std.testing.expectEqualStrings("ConnectionRefused", kept.chain.cause_name.?);
+}

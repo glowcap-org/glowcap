@@ -492,7 +492,7 @@ pub const Adapter = struct {
     fn stopListenRollback(self: *Adapter, listener_ctx: *anyopaque) ?foundation.FailureChain {
         return switch (self.callStopListen(listener_ctx)) {
             .complete => null,
-            .failed => |failure| failure,
+            .failed => |failure| failure.chain,
             .pending => blk: {
                 self.failContract("stop_listen returned pending without an installed readiness owner");
                 break :blk foundation.FailureChain.init(error.ProviderContract);
@@ -521,10 +521,11 @@ pub const Adapter = struct {
         report: shared.GlowcapProviderFailure,
         operation: []const u8,
     ) ?foundation.FailureChain {
-        return teardown.failure(code, report) catch {
+        const reported = teardown.failure(code, report) catch {
             self.failContract(operation);
             return foundation.FailureChain.init(error.ProviderContract);
         };
+        return (reported orelse return null).chain;
     }
 
     pub fn teardownOutcome(
@@ -535,7 +536,7 @@ pub const Adapter = struct {
     ) net.multiplexed_resident.TeardownOutcome {
         return teardown.outcome(code, report) catch {
             self.failContract(operation);
-            return .{ .failed = foundation.FailureChain.init(error.ProviderContract) };
+            return .{ .failed = .init(error.ProviderContract) };
         };
     }
 };

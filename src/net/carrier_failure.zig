@@ -30,3 +30,16 @@ pub const Failure = struct {
         return .{ .phase = phase, .chain = .init(cause) };
     }
 };
+
+/// A carrier's cause chain with the phase and detail its reporter named, when
+/// it named them. A bare chain has no phase, so none is guessed. `Failure`
+/// keeps its mandatory phase at the boundaries that always have one.
+pub const Report = struct {
+    chain: foundation.FailureChain,
+    phase: ?Phase = null,
+    detail: Detail = .{},
+
+    pub fn init(cause: anyerror) Report {
+        return .{ .chain = .init(cause) };
+    }
+};

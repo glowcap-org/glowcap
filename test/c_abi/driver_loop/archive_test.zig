@@ -45,7 +45,6 @@ const advertiseParts = harness.advertiseParts;
 const hostSeed = harness.hostSeed;
 const TestLoop = harness.TestLoop;
 const installTcp = harness.installTcp;
-const installRelay = harness.installRelay;
 const newEmptyLoop = harness.newEmptyLoop;
 const newLoop = harness.newLoop;
 const newByteFedHost = harness.newByteFedHost;
@@ -322,9 +321,62 @@ test "noise-tcp is available at loop construction with a dialable locator and au
     try expectOk(cdrv.glowcap_driver_session_release(server, server_seen.accepted_session));
 }
 
+const Table = cdrv.GlowcapMultiplexedTransport;
+var relay_close: @FieldType(Table, "conn_close") = null;
+
+/// What an armed `failingClose` reports from the completing close.
+const CloseReport = enum { healthy, bare, detailed };
+var armed_close: CloseReport = .healthy;
+
+/// The relay's own `conn_close`, then, while armed, a failed completing
+/// return: a primary alone, or one with carrier detail and a consequence.
+fn failingClose(ctx: ?*anyopaque, conn: u64, out: ?*cdrv.GlowcapProviderFailure) callconv(.c) i32 {
+    const code = relay_close.?(ctx, conn, out);
+    if (armed_close == .healthy or code != c.GLOWCAP_OK) return code;
+    const failure = out.?;
+    const secondary = "CloseSecondary";
+    _ = providerFailure(failure, c.GLOWCAP_ERR_IO, "CloseCleanupFailed");
+    if (armed_close == .bare) return c.GLOWCAP_ERR_IO;
+    failure.carrier_phase = close_carrier.phase;
+    failure.carrier_detail_flags = close_carrier.detail_flags;
+    failure.carrier_verification_flags = close_carrier.verification_flags;
+    failure.carrier_peer_alert = close_carrier.peer_alert;
+    failure.carrier_engine_code = close_carrier.engine_code;
+    failure.secondary_result = c.GLOWCAP_ERR_INTERNAL;
+    failure.secondary_name = secondary.ptr;
+    failure.secondary_name_len = secondary.len;
+    failure.secondary_count = 1;
+    return c.GLOWCAP_ERR_IO;
+}
+
+const close_carrier: harness.Carrier = .{
+    .phase = cdrv.GLOWCAP_CARRIER_PHASE_SHUTDOWN,
+    .detail_flags = cdrv.GLOWCAP_CARRIER_DETAIL_PEER_ALERT | cdrv.GLOWCAP_CARRIER_DETAIL_ENGINE_CODE,
+    .verification_flags = 0x08,
+    .peer_alert = 80,
+    .engine_code = -0x2701,
+};
+
+/// Point every profile of the relay package at `table`, a copy of the
+/// package's one connection table. The profiles share one resident, so the
+/// copy keeps that single identity while the caller replaces callbacks.
+fn copyRelayTable(provider: *cdrv.GlowcapTransportProvider, table: *Table, entries: *[4]cdrv.GlowcapTransportProviderEntry) !void {
+    try std.testing.expect(provider.entry_count <= entries.len);
+    const original: *const Table = @ptrCast(@alignCast(provider.entries.?[0].implementation.?));
+    table.* = original.*;
+    relay_close = original.conn_close;
+    for (provider.entries.?[0..provider.entry_count], 0..) |entry, i| {
+        try std.testing.expectEqual(cdrv.GLOWCAP_TRANSPORT_EXEC_MULTIPLEXED, entry.execution_model);
+        try std.testing.expectEqual(original, @as(*const Table, @ptrCast(@alignCast(entry.implementation.?))));
+        entries[i] = entry;
+        entries[i].implementation = table;
+    }
+    provider.entries = entries;
+}
+
 // Report only a slow phase. Keep this alive through deferred runtime cleanup,
 // where a blocked join would otherwise erase the last useful observation.
-const RelayPhase = enum(u8) { registration, dial, client_step, client_events, server_step, server_events, serve, fetch, client_release, remote_close, server_release, runtime_cleanup, bridge_join };
+const RelayPhase = enum(u8) { registration, dial, client_step, client_events, server_step, server_events, serve, fetch, client_release, client_close, remote_close, server_release, runtime_cleanup, bridge_join };
 
 fn reportRelayStall(io: std.Io, phase: *const std.atomic.Value(RelayPhase), rounds: *const std.atomic.Value(usize)) std.Io.Cancelable!void {
     while (true) {
@@ -333,7 +385,13 @@ fn reportRelayStall(io: std.Io, phase: *const std.atomic.Value(RelayPhase), roun
     }
 }
 
-test "the relay provider registers and dials an authenticated noise-relay session through the C driver" {
+const CloseHow = union(enum) { release, close: CloseReport };
+
+/// Dial an authenticated noise-relay session, serve a fetch, then end it from
+/// the client by releasing its handle or closing the session. The close
+/// verb's connection close, on both ends, reports its `CloseReport`.
+fn relayDialAndClose(how: CloseHow) !void {
+    defer armed_close = .healthy;
     if (!(@import("builtin").target.os.tag == .linux or @import("builtin").target.os.tag.isDarwin()))
         return error.SkipZigTest;
 
@@ -372,23 +430,11 @@ test "the relay provider registers and dials an authenticated noise-relay sessio
         defer expectOk(crelay.glowcap_relay_runtime_release(server_relay_runtime, null, 0, null)) catch unreachable;
         var server_provider: cdrv.GlowcapTransportProvider = undefined;
         try expectOk(crelay.glowcap_relay_transport_provider(server_relay_runtime, &server_provider));
-        try std.testing.expect(server_provider.entry_count <= 4);
         var server_entries: [4]cdrv.GlowcapTransportProviderEntry = undefined;
-        const original_table: *const cdrv.GlowcapMultiplexedTransport = @ptrCast(@alignCast(server_provider.entries.?[0].implementation.?));
-        var server_table = original_table.*;
+        var server_table: Table = undefined;
+        try copyRelayTable(&server_provider, &server_table, &server_entries);
         server_table.conn_take_failure = injectedMultiplexedConnectionFailure;
-        for (server_provider.entries.?[0..server_provider.entry_count], 0..) |entry, i| {
-            server_entries[i] = entry;
-            try std.testing.expectEqual(cdrv.GLOWCAP_TRANSPORT_EXEC_MULTIPLEXED, entry.execution_model);
-            const original: *const cdrv.GlowcapMultiplexedTransport = @ptrCast(@alignCast(entry.implementation.?));
-            try std.testing.expectEqual(original_table, original);
-            // All profiles in this package share one resident.
-            // Preserve that identity while replacing the one callback under
-            // test; distinct copied table addresses would falsely describe
-            // distinct resident owners to the registry.
-            server_entries[i].implementation = &server_table;
-        }
-        server_provider.entries = &server_entries;
+        server_table.conn_close = failingClose;
         try expectOk(harness.addProvider(owned_server.raw, &server_provider));
         const listener_id = try listenReady(owned_server.raw, "noise-relay", "");
         try expectOk(cdrv.glowcap_driver_listener_select(owned_server.raw, listener_id));
@@ -405,7 +451,20 @@ test "the relay provider registers and dials an authenticated noise-relay sessio
         // multiplexed provider; reconstructing only transport + designator would
         // fail this dial.
         const unavailable_default = "ws://127.0.0.1:1/relay";
-        try installRelay(owned_client.raw, unavailable_default, "");
+        const client_relay_config: crelay.GlowcapRelayConfig = .{
+            .relay_url = unavailable_default.ptr,
+            .relay_url_len = unavailable_default.len,
+        };
+        var client_relay_runtime: ?*crelay.GlowcapRelayRuntime = null;
+        try expectOk(crelay.glowcap_relay_runtime_new(&client_relay_config, &client_relay_runtime));
+        defer expectOk(crelay.glowcap_relay_runtime_release(client_relay_runtime, null, 0, null)) catch unreachable;
+        var client_provider: cdrv.GlowcapTransportProvider = undefined;
+        try expectOk(crelay.glowcap_relay_transport_provider(client_relay_runtime, &client_provider));
+        var client_entries: [4]cdrv.GlowcapTransportProviderEntry = undefined;
+        var client_table: Table = undefined;
+        try copyRelayTable(&client_provider, &client_table, &client_entries);
+        client_table.conn_close = failingClose;
+        try expectOk(harness.addProvider(owned_client.raw, &client_provider));
         var ticket: u64 = 0;
         phase.store(.dial, .release);
         try expectOk(try dialLocator(owned_client.raw, locator, &ticket));
@@ -452,13 +511,61 @@ test "the relay provider registers and dials an authenticated noise-relay sessio
         try std.testing.expect(server_seen.accepted_session != null);
         try std.testing.expect(fetch_vow != 0);
         try std.testing.expectEqual(fetch_vow, client_seen.settle_ticket);
-        phase.store(.client_release, .release);
-        try expectOk(cdrv.glowcap_driver_session_release(owned_client.raw, client_seen.dialed_session));
+        // The client has no earlier failure, so a failed close report is its
+        // primary. The server's receive failure is earlier, so it stays the
+        // primary and a failed close report is a consequence.
+        switch (how) {
+            .release => {
+                phase.store(.client_release, .release);
+                try expectOk(cdrv.glowcap_driver_session_release(owned_client.raw, client_seen.dialed_session));
+            },
+            .close => |report| {
+                phase.store(.client_close, .release);
+                armed_close = report;
+                try expectOk(cdrv.glowcap_driver_session_close(owned_client.raw, client_seen.dialed_session, &close_cancel));
+            },
+        }
         phase.store(.remote_close, .release);
         rounds = 0;
-        while (!server_seen.closed and rounds < 2_000) : (rounds += 1) {
+        while ((!server_seen.closed or (how == .close and !client_seen.closed)) and rounds < 2_000) : (rounds += 1) {
+            if (how == .close) {
+                try expectStep(cdrv.glowcap_driver_step(owned_client.raw, 5));
+                try drainEvents(owned_client.raw, &client_seen);
+            }
             try expectStep(cdrv.glowcap_driver_step(owned_server.raw, 5));
             try drainEvents(owned_server.raw, &server_seen);
+        }
+        if (how == .close) {
+            try std.testing.expect(client_seen.closed);
+            switch (how.close) {
+                .healthy => {
+                    try std.testing.expectEqual(c.GLOWCAP_OK, client_seen.closed_result);
+                    try std.testing.expectEqual(@as(usize, 0), client_seen.closed_message_len);
+                    try std.testing.expectEqual(@as(u32, 0), client_seen.closed_secondary_count);
+                    try std.testing.expectEqual(harness.Carrier{}, client_seen.closed_carrier);
+                },
+                // A failure that named no phase reports none.
+                .bare => {
+                    try std.testing.expectEqual(c.GLOWCAP_ERR_IO, client_seen.closed_result);
+                    try std.testing.expectEqualStrings(
+                        "CloseCleanupFailed",
+                        client_seen.closed_message[0..client_seen.closed_message_len],
+                    );
+                    try std.testing.expectEqual(@as(u32, 0), client_seen.closed_secondary_count);
+                    try std.testing.expectEqual(harness.Carrier{}, client_seen.closed_carrier);
+                },
+                .detailed => {
+                    try std.testing.expectEqual(c.GLOWCAP_ERR_IO, client_seen.closed_result);
+                    try std.testing.expectEqualStrings(
+                        "CloseCleanupFailed",
+                        client_seen.closed_message[0..client_seen.closed_message_len],
+                    );
+                    try std.testing.expectEqual(c.GLOWCAP_ERR_INTERNAL, client_seen.closed_secondary_result);
+                    try std.testing.expectEqual(@as(u32, 1), client_seen.closed_secondary_count);
+                    try std.testing.expectEqual(close_carrier, client_seen.closed_carrier);
+                },
+            }
+            try expectOk(cdrv.glowcap_driver_session_release(owned_client.raw, client_seen.dialed_session));
         }
         try std.testing.expect(server_seen.closed);
         try std.testing.expectEqual(c.GLOWCAP_ERR_IO, server_seen.closed_result);
@@ -467,11 +574,25 @@ test "the relay provider registers and dials an authenticated noise-relay sessio
             server_seen.closed_message[0..server_seen.closed_message_len],
         );
         try std.testing.expectEqual(c.GLOWCAP_ERR_INTERNAL, server_seen.closed_secondary_result);
-        try std.testing.expectEqual(@as(u32, 2), server_seen.closed_secondary_count);
+        // The injected failure's two consequences, then a failed close adds
+        // its primary and any consequence of its own.
+        try std.testing.expectEqual(@as(u32, switch (how) {
+            .release => 2,
+            .close => |report| switch (report) {
+                .healthy => 2,
+                .bare => 3,
+                .detailed => 4,
+            },
+        }), server_seen.closed_secondary_count);
         try std.testing.expectEqualStrings(
             "InjectedMultiplexedCleanupFailure",
             server_seen.closed_secondary_message[0..server_seen.closed_secondary_message_len],
         );
+        try std.testing.expectEqual(harness.Carrier{
+            .phase = cdrv.GLOWCAP_CARRIER_PHASE_RECEIVE,
+            .detail_flags = cdrv.GLOWCAP_CARRIER_DETAIL_ENGINE_CODE,
+            .engine_code = residents.injected_receive_engine_code,
+        }, server_seen.closed_carrier);
         try expectStep(cdrv.glowcap_driver_step(owned_server.raw, 0));
         try drainEvents(owned_server.raw, &server_seen);
         try std.testing.expectEqual(@as(usize, 1), server_seen.closed_count);
@@ -486,4 +607,20 @@ test "the relay provider registers and dials an authenticated noise-relay sessio
     // The reporter loops until cancelled, so cancelling ends it with `Canceled`.
     progress_stopped = true;
     try std.testing.expectError(error.Canceled, progress.cancel(io));
+}
+
+test "the relay provider registers and dials an authenticated noise-relay session through the C driver" {
+    try relayDialAndClose(.release);
+}
+
+test "closing a noise-relay session from the client reports a clean close" {
+    try relayDialAndClose(.{ .close = .healthy });
+}
+
+test "a failed noise-relay close that names no carrier phase reports none" {
+    try relayDialAndClose(.{ .close = .bare });
+}
+
+test "a failed noise-relay close reports its carrier detail through the C driver" {
+    try relayDialAndClose(.{ .close = .detailed });
 }

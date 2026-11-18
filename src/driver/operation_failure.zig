@@ -31,6 +31,12 @@ pub const OperationFailure = struct {
         return .{ .chain = classified(failure) };
     }
 
+    /// A carrier's report: its chain classified, with the phase and detail
+    /// the carrier named. A report that named no phase keeps none.
+    pub fn fromReport(report: net.carrier_failure.Report) OperationFailure {
+        return .{ .chain = classified(report.chain), .carrier_phase = report.phase, .carrier_detail = report.detail };
+    }
+
     pub fn fromDialFailure(failure: net.netlayer.DialFailure) OperationFailure {
         return fromTransportFailure(failure);
     }

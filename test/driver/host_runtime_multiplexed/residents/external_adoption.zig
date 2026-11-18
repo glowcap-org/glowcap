@@ -200,7 +200,7 @@ pub const ExternalAdoptionResident = struct {
         if (!self.close_ready) return .pending;
         var failure = glowcap.foundation.FailureChain.init(error.ResidentCloseFailed);
         failure.note(error.ResidentCloseCleanupFailed);
-        return .{ .failed = failure };
+        return .{ .failed = .{ .chain = failure } };
     }
 
     fn connRemoteKey(ctx: *anyopaque, conn: usize) net.multiplexed_resident.ContractError!?glowcap.foundation.crypto.PeerKey {
