@@ -549,6 +549,7 @@ comptime {
         _ = @import("c_abi/driver_loop/listener_test.zig");
         _ = @import("c_abi/driver_loop/accept_pressure_test.zig");
         _ = @import("c_abi/driver_loop/stream_listen_failure_test.zig");
+        _ = @import("c_abi/driver_loop/stream_release_failure_test.zig");
         _ = @import("c_abi/driver_loop/archive_test.zig");
         _ = @import("c_abi/driver_loop/loopback_test.zig");
         _ = @import("c_abi/driver_loop/session_release_test.zig");

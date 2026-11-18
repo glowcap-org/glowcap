@@ -54,17 +54,31 @@ const PreparedPackage = struct {
         const self: *PreparedPackage = @ptrCast(@alignCast(raw));
         const owner = self.owner;
         var failure: ?driver.OperationFailure = null;
-        for (self.adapters) |adapter| if (adapter.deinit(owner)) |cleanup| {
-            if (failure) |*first| first.noteFailure(cleanup) else failure = cleanup;
-        };
+        // Each failure is claimed by the consuming C release the moment it
+        // returns, so the next adapter's cleanup lands after it. Outside that
+        // release the installer takes the aggregate instead.
+        for (self.adapters) |adapter| if (adapter.deinit(owner)) |cleanup|
+            keepUnlessClaimed(owner, &failure, cleanup);
         owner.allocator.free(self.adapters);
         var report = shared.transport_provider.emptyProviderFailure();
         const code = self.release(self.lease_ctx, &report);
-        if (owner.providerCallbackFailure(code, report, "provider package release")) |released| {
-            if (failure) |*first| first.noteFailure(released) else failure = released;
+        switch (owner.providerCallbackReport(code, report, "provider package release")) {
+            .none => {},
+            .fresh => |released| keepUnlessClaimed(owner, &failure, released),
+            // Already latched on the runtime, which a consuming release
+            // returns. A rollback still hands the installer its projection.
+            .retained => |released| if (!owner.releasing.load(.monotonic)) appendFailure(&failure, released),
         }
         owner.allocator.destroy(self);
         return failure;
+    }
+
+    fn keepUnlessClaimed(owner: *Owner, failure: *?driver.OperationFailure, fresh: driver.OperationFailure) void {
+        if (!owner.claimReleaseFailure(fresh)) appendFailure(failure, fresh);
+    }
+
+    fn appendFailure(failure: *?driver.OperationFailure, later: driver.OperationFailure) void {
+        if (failure.*) |*first| first.noteFailure(later) else failure.* = later;
     }
 };
 
@@ -84,8 +98,13 @@ const PreparedEntry = struct {
 pub const Registry = struct {
     owner: Owner,
 
-    pub fn init(allocator: std.mem.Allocator, io: std.Io, runtime: *driver.HostRuntime) Registry {
-        return .{ .owner = Owner.init(allocator, io, runtime) };
+    pub fn init(
+        allocator: std.mem.Allocator,
+        io: std.Io,
+        runtime: *driver.HostRuntime,
+        releasing: *const std.atomic.Value(bool),
+    ) Registry {
+        return .{ .owner = Owner.init(allocator, io, runtime, releasing) };
     }
 
     pub fn deinit(self: *Registry) void {

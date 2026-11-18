@@ -177,7 +177,11 @@ int32_t glowcap_driver_step_wait_ms(GlowcapDriverLoop *loop, int32_t *out_wait_m
    out_failure must identify the current version/layout before the call. NULL loop is
    a no-op. Invalid output, reentry, or live storage attachments refuse before
    consumption. Once teardown begins, the result consumes the handle and
-   out_failure carries the exact teardown chain.
+   out_failure carries the causes teardown observed, in order. The primary is the
+   earliest, including one latched before release, and keeps its carrier phase and
+   detail. secondary_result and secondary_name name the next cause, which may come
+   from the same provider report. secondary_count totals every later cause and
+   saturates. Later causes carry no carrier fields.
    Release result: negative retains ownership, zero consumes successfully, and
    positive consumes with a failure. Use glowcap_release_result_consumed and
    glowcap_release_result_code before retrying or reporting the failure. */

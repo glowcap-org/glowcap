@@ -43,7 +43,7 @@ const Recorder = struct {
         self.violations += 1;
     }
 
-    fn teardown(ctx: *anyopaque, _: glowcap.foundation.FailureChain) void {
+    fn teardown(ctx: *anyopaque, _: driver.OperationFailure) void {
         const self: *Recorder = @ptrCast(@alignCast(ctx));
         self.teardowns += 1;
     }

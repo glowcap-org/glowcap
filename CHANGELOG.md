@@ -274,6 +274,14 @@ Releases before 0.1.7 are in the
 
 ### Fixed
 
+- `glowcap_driver_release` returns the valid failures a stream provider's
+  cancel or close callback reports while the release runs it. The primary is
+  the earliest cause, including one latched before release, and keeps its
+  carrier phase and detail. `secondary_result` names the next cause, which may
+  come from the same provider report, and `secondary_count` totals every later
+  cause and saturates. Later causes carry no carrier fields. A malformed
+  release report adds its contract failure once, and a contradictory report may
+  add further causes.
 - `glowcap_driver_release` refuses reentry into the loop from provider and
   hosted callbacks during teardown, including the `has_transport`,
   `listener_locator`, and `wake` queries. A nested release returns the

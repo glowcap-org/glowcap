@@ -24,9 +24,26 @@ pub const Owner = struct {
     allocator: std.mem.Allocator,
     io: std.Io,
     runtime: *driver.HostRuntime,
+    /// The loop's consuming-release flag (`Instance.releasing`), borrowed so
+    /// a teardown callback learns whether the C release is running it.
+    releasing: *const std.atomic.Value(bool),
 
-    pub fn init(allocator: std.mem.Allocator, io: std.Io, runtime: *driver.HostRuntime) Owner {
-        return .{ .allocator = allocator, .io = io, .runtime = runtime };
+    pub fn init(
+        allocator: std.mem.Allocator,
+        io: std.Io,
+        runtime: *driver.HostRuntime,
+        releasing: *const std.atomic.Value(bool),
+    ) Owner {
+        return .{ .allocator = allocator, .io = io, .runtime = runtime, .releasing = releasing };
+    }
+
+    /// Append a fresh teardown failure to the runtime result the consuming C
+    /// release returns, and report whether it did. Outside that release the
+    /// failure stays with its caller, which projects it.
+    pub fn claimReleaseFailure(self: *Owner, failure: driver.OperationFailure) bool {
+        if (!self.releasing.load(.monotonic)) return false;
+        self.runtime.noteTerminalOperationFailure(failure);
+        return true;
     }
 
     pub fn failContract(self: *Owner, message: []const u8) void {
@@ -50,22 +67,46 @@ pub const Owner = struct {
         self.runtime.noteTerminalOperationFailure(.fromChain(reported));
     }
 
+    /// What a provider callback reported and who holds it. A `fresh` failure
+    /// is a valid report no one has retained. A `retained` projection stands
+    /// for a contract failure already latched on the runtime, so adding it to
+    /// the runtime result again would repeat it.
+    const CallbackReport = union(enum) {
+        none,
+        fresh: driver.OperationFailure,
+        retained: driver.OperationFailure,
+    };
+
+    pub fn providerCallbackReport(
+        self: *Owner,
+        code: i32,
+        report: shared.GlowcapProviderFailure,
+        operation: []const u8,
+    ) CallbackReport {
+        if (code == GLOWCAP_OK) {
+            if (providerFailureIsEmpty(report)) return .none;
+            self.failContract("provider callback reported failure data on success");
+            self.retainContradictoryReport(report, null);
+            return .{ .retained = driver.OperationFailure.fromError(error.ProviderContract) };
+        }
+        return .{ .fresh = operationFailureFromProvider(code, report) catch {
+            self.failContract("provider callback returned an invalid structured failure");
+            shared.setLastError("driver: invalid structured failure from {s}", .{operation});
+            return .{ .retained = driver.OperationFailure.fromError(error.ProviderContract) };
+        } };
+    }
+
+    /// The live projection of a callback report for a caller that refuses its
+    /// own operation with it, whoever holds the retained copy.
     pub fn providerCallbackFailure(
         self: *Owner,
         code: i32,
         report: shared.GlowcapProviderFailure,
         operation: []const u8,
     ) ?driver.OperationFailure {
-        if (code == GLOWCAP_OK) {
-            if (providerFailureIsEmpty(report)) return null;
-            self.failContract("provider callback reported failure data on success");
-            self.retainContradictoryReport(report, null);
-            return driver.OperationFailure.fromError(error.ProviderContract);
-        }
-        return operationFailureFromProvider(code, report) catch {
-            self.failContract("provider callback returned an invalid structured failure");
-            shared.setLastError("driver: invalid structured failure from {s}", .{operation});
-            return driver.OperationFailure.fromError(error.ProviderContract);
+        return switch (self.providerCallbackReport(code, report, operation)) {
+            .none => null,
+            .fresh, .retained => |failure| failure,
         };
     }
 };

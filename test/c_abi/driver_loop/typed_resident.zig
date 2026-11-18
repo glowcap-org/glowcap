@@ -33,6 +33,8 @@ pub const TypedResident = struct {
     retains: usize = 0,
     releases: usize = 0,
     retain_reports_failure: bool = false,
+    /// Reports failure data beside an OK release status.
+    release_reports_failure: bool = false,
     release_code: i32 = c.GLOWCAP_OK,
     /// Runs inside the provider package release, before it reports.
     release_hook: ?*const fn (?*anyopaque) void = null,
@@ -80,6 +82,15 @@ pub const TypedResident = struct {
         const resident = self(ctx);
         resident.releases += 1;
         if (resident.release_hook) |hook| hook(resident.release_hook_ctx);
+        if (resident.release_reports_failure) {
+            const name = "ContradictoryReleaseFailure";
+            const report = out_failure.?;
+            report.* = cshared.transport_provider.emptyProviderFailure();
+            report.result = c.GLOWCAP_ERR_IO;
+            report.primary_name = name.ptr;
+            report.primary_name_len = name.len;
+            return c.GLOWCAP_OK;
+        }
         if (resident.release_code != c.GLOWCAP_OK) {
             const name = "TestPackageReleaseFailed";
             const report = out_failure orelse return resident.release_code;

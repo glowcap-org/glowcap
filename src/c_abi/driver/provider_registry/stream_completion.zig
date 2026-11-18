@@ -4,12 +4,16 @@
 //! Each verb calls the table once and checks its outputs against the stream
 //! contract in `c_abi/shared/transport_provider.zig`. A provider that breaks
 //! the contract is reported to `Sink.violation` and the verb fails with
-//! `ProviderContract`. A teardown failure goes to `Sink.teardown`, because
-//! nothing in the loop waits on a release. A completion carries one error, so
-//! a failure reaches the loop as its chain's primary cause.
+//! `ProviderContract`. A valid teardown failure goes to `Sink.teardown` with
+//! its carrier phase, detail, and named chain. Cleanup that runs inside the
+//! consuming C release is delivered there synchronously, and the release
+//! returns it. Cleanup at any other time has no waiter, so the sink's recipient
+//! decides where it lands. A completion carries one error, so a failure reaches
+//! the loop as its chain's primary cause.
 
 const std = @import("std");
 const foundation = @import("foundation");
+const driver = @import("driver");
 const model = @import("model");
 const net = @import("net");
 const shared = @import("c_abi_shared");
@@ -26,7 +30,7 @@ const GLOWCAP_OK = shared.GLOWCAP_OK;
 pub const Sink = struct {
     ctx: *anyopaque,
     violation: *const fn (ctx: *anyopaque, message: []const u8) void,
-    teardown: *const fn (ctx: *anyopaque, failure: foundation.FailureChain) void,
+    teardown: *const fn (ctx: *anyopaque, failure: driver.OperationFailure) void,
 };
 
 pub const StreamProvider = struct {
@@ -377,10 +381,10 @@ pub const StreamProvider = struct {
                 self.sink.violation(self.sink.ctx, what ++ " reported failure data on success");
             return;
         }
-        const chain = owner_mod.failureChainFromProvider(code, report) catch {
+        const failure = owner_mod.operationFailureFromProvider(code, report) catch {
             self.sink.violation(self.sink.ctx, what ++ " returned an invalid structured failure");
             return;
         };
-        self.sink.teardown(self.sink.ctx, chain);
+        self.sink.teardown(self.sink.ctx, failure);
     }
 };

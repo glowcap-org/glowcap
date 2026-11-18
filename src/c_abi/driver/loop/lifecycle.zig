@@ -114,7 +114,7 @@ fn buildInstance(
     } };
     inst.runtime = try driver.HostRuntime.initWithCore(alloc, inst.io(), claim.core(), .{}, adoption);
     errdefer inst.runtime.deinitAfterFailedAdoption();
-    inst.providers = provider_registry.Registry.init(alloc, inst.io(), &inst.runtime);
+    inst.providers = provider_registry.Registry.init(alloc, inst.io(), &inst.runtime, &inst.releasing);
     // Mint the settle mailbox now, so its wake descriptor joins the readiness
     // set before the embedder's first park.
     _ = try inst.runtime.settleMailbox();
