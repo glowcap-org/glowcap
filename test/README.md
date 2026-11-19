@@ -49,6 +49,13 @@ count as subtracting the sum.
 The Zig tests cover shared queue capacity and CapTP’s releasable references.
 [Accounting laws](support/bounded_arithmetic/LAWS.bend)
 
+### Stream framing
+
+Once the body length is known, Bend proves that splitting the input into
+chunks consumes the same number of body bytes. The Zig test checks split
+prefixes, the body, where the next frame begins, and which buffer lends
+the result. [Body boundary law](foundation/stream_framing_laws/LAWS.bend)
+
 ## Fuzz regression inputs
 
 Each layer's `fuzz_regressions/` holds one file per fuzzer finding: a byte
