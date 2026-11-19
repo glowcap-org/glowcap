@@ -15,7 +15,7 @@ fn credential(config: &web_sys::RtcConfiguration) -> String {
 }
 
 #[wasm_bindgen]
-pub async fn rooms_browser_ice_contract(elsewhere: String) {
+pub async fn rooms_browser_ice_contract(elsewhere: String) -> js_sys::Array {
 	super::install_panic_hook();
 	tokio::task::LocalSet::new()
 		.run_until(async {
@@ -45,15 +45,31 @@ pub async fn rooms_browser_ice_contract(elsewhere: String) {
 					.unwrap()
 					.unchecked_into();
 			assert!(urls.get(0).as_string().unwrap().starts_with("stun:"));
-			fixed.close().await.unwrap();
+			// Fixed ICE is synchronous. This poll reaches the pending browser
+			// certificate generation before the source closes.
+			let pending = fixed.configuration();
+			tokio::pin!(pending);
+			tokio::select! { biased;
+				_ = &mut pending => panic!("certificate generation completed synchronously"),
+				() = std::future::ready(()) => {},
+			}
+			let close = fixed.close();
+			tokio::pin!(close);
+			tokio::select! { biased;
+				_ = &mut close => panic!("close returned before the native certificate promise settled"),
+				() = std::future::ready(()) => {},
+			}
+			assert_eq!(pending.await.unwrap_err(), Error::Closed);
+			close.await.unwrap();
 			assert_eq!(fixed.configuration().await.unwrap_err(), Error::Closed);
 			for url in ["/ice/invalid", "/ice/oversize", "/ice/oversize-stream"] {
 				let source = Source::new(url);
 				assert!(matches!(source.configuration().await, Err(Error::Invalid(_))));
 				source.close().await.unwrap();
 			}
+			js_sys::Array::of2(&first, &concurrent)
 		})
-		.await;
+		.await
 }
 
 #[wasm_bindgen]
@@ -71,4 +87,31 @@ pub async fn rooms_browser_ice_cancel_contract(read_pending: js_sys::Promise) {
 			assert_eq!(result.unwrap_err(), Error::Closed);
 		})
 		.await;
+}
+
+/// The JS fixture holds certificate promises without starting native work.
+#[wasm_bindgen]
+pub async fn rooms_browser_certificate_capacity(settle: js_sys::Function) {
+	super::install_panic_hook();
+	let source = Source::stun_default().unwrap();
+	for _ in 1..rooms_application::signaling::MAX_EXCHANGES {
+		tokio::select! { biased;
+			_ = source.configuration() => panic!("held certificate generation completed"),
+			() = std::future::ready(()) => {},
+		}
+	}
+	let observed = source.configuration();
+	tokio::pin!(observed);
+	tokio::select! { biased;
+		_ = &mut observed => panic!("held certificate generation completed"),
+		() = std::future::ready(()) => {},
+	}
+	tokio::select! { biased;
+		result = source.configuration() => assert_eq!(result.unwrap_err(), Error::Busy),
+		() = std::future::ready(()) => panic!("cancelled observers released unsettled certificate capacity"),
+	}
+	settle.call0(&JsValue::UNDEFINED).unwrap();
+	assert!(matches!(observed.await, Err(Error::Certificate(reason)) if reason.contains("fixture certificate refusal")));
+	source.configuration().await.unwrap();
+	source.close().await.unwrap();
 }

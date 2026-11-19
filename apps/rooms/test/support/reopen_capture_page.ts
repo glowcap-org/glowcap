@@ -37,6 +37,7 @@
 /** The slice of a page's global scope the observer reads. */
 export interface PageScope {
 	RTCPeerConnection: PeerConstructor;
+	RTCCertificate?: typeof RTCCertificate;
 	RTCDataChannel: { prototype: ChannelLike };
 	performance: { now(): number; timeOrigin: number };
 	location?: { origin: string };
@@ -111,6 +112,7 @@ export interface PageSnapshot {
 	evicted: number;
 	faults: number;
 	peers: number;
+	peersWithCertificate: number;
 	channels: number;
 	oldest: { n: number; t: number } | null;
 	newest: { n: number; t: number } | null;
@@ -141,6 +143,7 @@ export function installPageCapture(scope: PageScope, key: string, binding: strin
 	let evicted = 0;
 	let faults = 0;
 	let nextPeer = 1;
+	let peersWithCertificate = 0;
 	let nextChannel = 1;
 	const peers = new WeakMap<object, number>();
 	const channels = new WeakMap<object, number>();
@@ -278,6 +281,18 @@ export function installPageCapture(scope: PageScope, key: string, binding: strin
 					});
 				}
 			});
+			guard(() => {
+				// Rooms supplies a plain configuration. Reading its own data
+				// fields avoids invoking a caller's configuration getters again.
+				const config = args[0];
+				const certificates = config && O.getOwnPropertyDescriptor(config, "certificates")?.value;
+				if (
+					Array.isArray(certificates) && certificates.length === 1 && scope.RTCCertificate &&
+					O.getOwnPropertyDescriptor(certificates, "0")?.value instanceof scope.RTCCertificate
+				) {
+					peersWithCertificate++;
+				}
+			});
 			return peer;
 		},
 	});
@@ -328,6 +343,7 @@ export function installPageCapture(scope: PageScope, key: string, binding: strin
 				evicted,
 				faults,
 				peers: nextPeer - 1,
+				peersWithCertificate,
 				channels: nextChannel - 1,
 				oldest: events.length > 0 ? { n: events[0].n, t: events[0].t } : null,
 				newest: events.length > 0 ? { n: events[events.length - 1].n, t: events[events.length - 1].t } : null,
