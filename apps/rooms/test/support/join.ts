@@ -30,6 +30,10 @@ interface JoinOptions {
 	 * directory. Left out, the card is expected to offer the room directly. */
 	directory?: string | null;
 	viewport?: { width: number; height: number };
+	/** The device scale the tab renders at. A tab that is filmed takes the
+	 * scale its browser was launched to film at, the site video's
+	 * `filmArgs`. */
+	scale?: number;
 }
 
 /** Open a fresh tab on the page served at `port`, join a room as `nick`, and
@@ -37,7 +41,10 @@ interface JoinOptions {
  * tab can register for direct messages. `tab.context()` is the context to
  * close when that member leaves for good. */
 export async function joinAs(browser: Browser, port: number, nick: string, options: JoinOptions = {}): Promise<Page> {
-	const context = await browser.newContext(options.viewport === undefined ? {} : { viewport: options.viewport });
+	const context = await browser.newContext({
+		...(options.viewport != null && { viewport: options.viewport }),
+		...(options.scale != null && { deviceScaleFactor: options.scale }),
+	});
 	const tab = await context.newPage();
 	tab.on("pageerror", (error) => console.error(`  [${nick} page error]`, error.message));
 	tab.on("console", (message) => {

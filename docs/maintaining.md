@@ -60,6 +60,7 @@ Registry identities live in
 | Installer | `https://glowcap.org/install.sh`, a static asset of the website | The pages workflow, from `site/assets/install.sh` | With the website |
 | Rooms page | `https://glowcap.org/rooms/app/`, static files beside the website | The pages workflow, exported into the site's assets by `zig build site-rooms-page` | With the website |
 | ocapnviz | `https://glowcap.org/ocapnviz/`, static files beside the website | The pages workflow, built into the site's assets by `zig build site-ocapnviz-page` | With the website |
+| Home page video | A release of [glowcap-site-media](https://github.com/glowcap-org/glowcap-site-media), copied into the website | The maintainer, with `zig build site-video-publish` after approving a local `zig build site-video` render, then the pages workflow, which fetches the render `site/video/published.json` pins | When a change that updates the pin reaches `main` |
 | Archives, C SDK, checksums, and provenance | [GitHub Releases](https://github.com/glowcap-org/glowcap/releases) | The [release workflow](../.github/workflows/release.yml) | At each signed `v*` tag |
 | Rooms container image | `ghcr.io/glowcap-org/glowcap-rooms` | The release workflow, by digest | At each signed `v*` tag |
 | Rust crate, Python wheel, and JSR packages | crates.io, PyPI, and JSR | The [publish workflow](../.github/workflows/publish.yml), after the maintainer approves each registry | When the release becomes public |

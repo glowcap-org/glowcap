@@ -21,10 +21,14 @@
  * then opens a direct line from the roster, an IRC client enters the same
  * room through the IRC server, the person takes the operator capabilities into
  * Holdings and opens the directory pane, and finally shares the session so a
- * second browser can attach to it. No product state or screenshot markup is
- * mocked. Only the lines are scripted. Every capture is written twice, as
- * `<name>-dark.webp` and `<name>-light.webp` as lossless WebP, so a page can
- * show the face that matches its own theme without banding the UI gradients.
+ * second browser can attach to it. Given `--reels=<dir>`, the person's window
+ * is also filmed from their redirect to the lead's direct reply, typing
+ * included, as the `rooms` reel for the site's video (see `reel.ts`) in that
+ * directory. Without it, the capture films nothing. No product state
+ * or screenshot markup is mocked. Only the lines are scripted. Every capture
+ * is written twice, as `<name>-dark.webp` and `<name>-light.webp` as lossless
+ * WebP, so a page can show the face that matches its own theme without
+ * banding the UI gradients.
  * The images land under `--out`, `site/assets/` by default:
  *
  *   rooms-session-*.webp           the first-run choice of where session state lives
@@ -40,10 +44,12 @@ import { type BrowserContext, chromium, type Page } from "playwright";
 import { startIrcServer } from "../../apps/rooms/test/irc/server_process.ts";
 import { reapOwned } from "../../apps/rooms/test/support/children.ts";
 import { nonEphemeralPort } from "../../bindings/ts/test/ports.ts";
+import { directOpened } from "../../apps/rooms/test/page/harness.ts";
 import { roomPortOf } from "../../apps/rooms/test/support/rooms_server.ts";
 import { spawnWeb } from "../../apps/rooms/test/support/web_front.ts";
-import { directOpened } from "../../apps/rooms/test/page/harness.ts";
 import { awaitLocator, outDirArg, pinToLatest, plainRun, shot as capture, still } from "./capture.ts";
+import { filmArgs, filmDirArg, glideClick, placePointer, startReel, typeOnFilm, unfilmed } from "./reel.ts";
+import { ROOMS_LAYOUT, smoothLayout } from "./film-smooth.ts";
 
 const outDir = outDirArg();
 const shot = (page: Page, name: string, within?: string) => capture(page, outDir, name, within);
@@ -89,6 +95,13 @@ async function say(page: Page, text: string, phone = false): Promise<void> {
 	await page.fill("#line", text);
 	if (phone) await page.click("#sendBtn");
 	else await page.press("#line", "Enter");
+	await page.locator(".bubble", { hasText: plainRun(text) }).last().waitFor({ timeout: 30_000 });
+}
+
+/** Type a line key by key, as the film shows it, and send it with Enter. */
+async function typeLine(page: Page, text: string): Promise<void> {
+	await typeOnFilm(page.locator("#line"), text);
+	await page.press("#line", "Enter");
 	await page.locator(".bubble", { hasText: plainRun(text) }).last().waitFor({ timeout: 30_000 });
 }
 
@@ -177,14 +190,20 @@ const roomPort = await roomPortOf(http);
 const irc = await startIrcServer(`127.0.0.1:${roomPort}`);
 const ircPort = irc.port;
 
-const browser = await chromium.launch({ headless: true, args: ["--no-sandbox"] });
+// A run that films draws the person's window at its scale.
+const FILM_SCALE = 1.5;
+const reelsDir = filmDirArg();
+const browser = await chromium.launch({
+	headless: true,
+	args: ["--no-sandbox", ...(reelsDir == null ? [] : filmArgs(FILM_SCALE))],
+});
 const contexts: BrowserContext[] = [];
 try {
 	await Deno.mkdir(outDir, { recursive: true });
 	// Tall enough for the whole scene from the human's first line to the
 	// lead's replan, with the rail and roster beside it.
 	const viewport = { width: 1280, height: 940 };
-	const person = await browser.newContext({ ...still, viewport, deviceScaleFactor: 1.5, colorScheme: "dark" });
+	const person = await browser.newContext({ ...still, viewport, deviceScaleFactor: FILM_SCALE, colorScheme: "dark" });
 	contexts.push(person);
 	const mira = await person.newPage();
 	await open(mira, { session: "rooms-session", join: "rooms-join" });
@@ -231,26 +250,40 @@ try {
 		mira,
 		"@mira two findings so far: the squeezed host column and one abstract sentence in the intro. Merging once wren reports.",
 	);
-	await post(mira, mira, "Take the table out. Two lists side by side.");
-	await post(
-		leadPage,
-		mira,
-		"Thanks. @pike rewrites the list, @juno fixes the intro sentence, @wren keep going.",
-	);
 
-	// A direct line: mira presses the roster's direct control for the lead,
-	// the lead answers in the conversation that appears, and both rails list it.
-	// The rail lists the line before the page moves onto it, and the room's
-	// composer stays enabled meanwhile, so only the open conversation says
-	// where the next line goes.
-	await mira.click(`#members li:has(.name:text-is("${lead}")) .dm-btn`);
+	// The film joins the conversation here, framed at 16:9, the shape of the
+	// video, and every line it shows stays long enough to read.
+	await mira.setViewportSize({ width: viewport.width, height: 720 });
+	await pinToLatest(mira);
+	await placePointer(mira, 1000, 480);
+	// Only a film eases the layout. A picture takes it as it stands.
+	if (reelsDir != null) await smoothLayout(mira, ROOMS_LAYOUT);
+	const reel = reelsDir == null ? unfilmed : await startReel(mira, `${reelsDir}/rooms`);
+	// The page lays itself out again at the new size. The video starts at
+	// this mark, once it has.
+	await mira.waitForTimeout(600);
+	// The shots: the whole room, where everyone is a peer, then the roster
+	// as the pointer goes to the lead's direct control, then the direct
+	// conversation as mira writes and the lead answers.
+	const whole = { x: 0, y: 0, width: viewport.width, height: 720 };
+	await reel.mark("room", whole);
+	// The whole room holds long enough to take in before the pointer moves.
+	await reel.hold(1800);
+	const leadRow = mira.locator(`#members li:has(.name:text-is("${lead}"))`);
+	await reel.mark("direct");
+	await glideClick(mira, leadRow.locator(".dm-btn"));
 	await directOpened(mira, lead);
-	await say(mira, "Keep the roster at four. I want the phone read fixed today, before anything else.");
+	await reel.mark("opened");
+	// The direct conversation shows before mira writes in it.
+	await reel.hold(700);
+	await typeLine(mira, "Phone fixes first.");
 	const leadDm = leadPage.locator("#dmList li .rname", { hasText: new RegExp(`^${human}$`) });
 	await leadDm.waitFor({ timeout: 30_000 });
 	await leadDm.click();
-	await leadPage.locator(".bubble", { hasText: "Keep the roster" }).last().waitFor({ timeout: 30_000 });
-	await post(leadPage, mira, "Noted. This stays between us. The room gets a plain @pike assignment.");
+	await leadPage.locator(".bubble", { hasText: "Phone fixes first." }).last().waitFor({ timeout: 30_000 });
+	await post(leadPage, mira, "Noted. This stays between us.");
+	await mira.waitForTimeout(1200);
+	await reel.stop();
 	// The direct timeline is short, so a shorter window keeps the capture on
 	// its two lines and the conversation's own header instead of empty sky.
 	await mira.setViewportSize({ width: viewport.width, height: 600 });
@@ -262,7 +295,7 @@ try {
 	// exchange, the rail shows the direct line beside it.
 	const roomRow = mira.locator("#roomList li .rname-text", { hasText: new RegExp(`^${room}$`) });
 	await roomRow.click();
-	await mira.locator(".bubble", { hasText: "keep going" }).last().waitFor({ timeout: 30_000 });
+	await mira.locator(".bubble", { hasText: "Merging once wren reports" }).last().waitFor({ timeout: 30_000 });
 	await shot(mira, "rooms-conversation");
 
 	// An IRC client enters the same room through the IRC server: the registration

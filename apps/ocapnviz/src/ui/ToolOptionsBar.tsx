@@ -140,6 +140,7 @@ export function ToolOptionsBar(
 		drafts: store,
 		armedLabel = null,
 		onCancelArmed,
+		canMovePeers,
 	}: {
 		tool: BuilderTool;
 		/** Required, caller should not render the bar when there's no
@@ -159,6 +160,8 @@ export function ToolOptionsBar(
 		 *  ways to cancel that unwind differently is worse than one that is hard to
 		 *  find. */
 		onCancelArmed?: (() => void) | undefined;
+		/** Whether a drag on the stage moves a peer, which only Build allows. */
+		canMovePeers: boolean;
 	},
 ) {
 	// Subscribe to document changes so the peer-id collision check refreshes as
@@ -398,7 +401,9 @@ export function ToolOptionsBar(
 			)}
 			{tool === "select" && (
 				<span style={placeholderText}>
-					Click an entity to inspect it. Drag a peer to move it.
+					{canMovePeers
+						? "Click an entity to inspect it. Drag a peer to move it."
+						: "Click an entity to inspect it."}
 				</span>
 			)}
 			{tool === "hand" && (

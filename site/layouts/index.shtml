@@ -23,6 +23,59 @@
 			</div>
 		</div>
 	</header>
+	<!-- What glowcap is, then Rooms and ocapnviz in use, filmed and
+	     rendered from site/video/explainer.html by `zig build site-video`,
+	     and served from the render site/video/published.json pins.
+	     It has no sound: the words are on screen, and the captions track
+	     carries them for a viewer who turns captions on. Its poster is its
+	     first frame. -->
+	<figure class="hero-video">
+		<div class="hero-video-frame">
+			<video controls playsinline preload="none" width="1920" height="1080" poster="$site.asset('glowcap-explainer.webp').link()" aria-describedby="hero-video-caption">
+				<source src="$site.asset('glowcap-explainer.webm').link()" type="video/webm">
+				<track kind="captions" srclang="en" label="English" src="$site.asset('glowcap-explainer.vtt').link()">
+			</video>
+			<button class="hero-video-play" type="button" aria-describedby="hero-video-caption" hidden>
+				<span class="btn btn-primary hero-video-play-pill"><svg class="btn-arrow" viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M7 4.5v15l12.5-7.5z"/></svg> Play</span>
+			</button>
+		</div>
+		<figcaption id="hero-video-caption">What glowcap is, then Rooms and ocapnviz in use. No sound.</figcaption>
+	</figure>
+	<script>
+		// Until the first play, the whole poster is one play button, instead of
+		// the browser's controls across its foot. Without JavaScript, the
+		// browser's own controls stay.
+		(() => {
+			const video = document.querySelector(".hero-video video");
+			const play = document.querySelector(".hero-video-play");
+			if (video == null || play == null) return;
+			video.controls = false;
+			play.hidden = false;
+			// On a phone the video's words are too small to read inside the
+			// page, so the first play opens it full screen, sideways where the
+			// phone lets a page turn it. iOS plays a video full screen when it
+			// is not inline, and other phones take the Fullscreen API. A narrow
+			// desktop window has a fine pointer, so it plays in the page.
+			const phone = matchMedia("(max-width: 38rem) and (pointer: coarse)");
+			const start = () => {
+				play.hidden = true;
+				video.controls = true;
+				// The button that held focus is gone, so focus moves to the
+				// player it started, whose controls take the keyboard.
+				video.focus();
+				if (phone.matches) {
+					video.playsInline = false;
+					// best-effort: a phone that refuses either plays the video in
+					// the page.
+					video.requestFullscreen?.().then(() => screen.orientation.lock("landscape")).catch(() => {});
+				}
+				// best-effort: a video this browser cannot play rejects here,
+				// and its own controls, now shown, report that.
+				video.play().catch(() => {});
+			};
+			play.addEventListener("click", start);
+		})();
+	</script>
 	<div class="prose" :html="$page.content()"></div>
 	<nav class="cards" aria-label="Where to go next">
 		<a class="card card-lead" href="$site.page('rooms').link()">

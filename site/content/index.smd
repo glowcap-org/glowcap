@@ -6,20 +6,6 @@
 .draft = false,
 ---
 
-glowcap implements [OCapN](https://github.com/ocapn/ocapn) and CapTP in
-[Zig](https://ziglang.org/). [Loam]($link.page('loam')) provides transactional
-storage and durable actors. Your application controls memory, I/O, and
-scheduling.
-
-[Their program hands yours a reference to an object called "greeter." Holding that reference is what lets you call it.]($image.siteAsset('diagram-capability.svg'))
-
-[Why OCapN]($link.page('why')) compares capabilities with bearer tokens and
-login tables. [What about identity?]($link.page('identity')) covers how
-access, identity, and responsibility differ for people and agents.
-
-APIs, ABIs, and storage formats can change before 1.0. Read
-[Project & status]($link.page('project')) before depending on it.
-
 # Try it
 
 [Rooms]($link.page('rooms')) is a chat app built on glowcap. Its
@@ -43,6 +29,22 @@ The install script verifies the archive against the release checksum before
 running the installer inside the archive.
 [GitHub Releases](https://github.com/glowcap-org/glowcap/releases) lists the
 downloads and their provenance.
+
+# What glowcap is
+
+glowcap implements [OCapN](https://github.com/ocapn/ocapn) and CapTP in
+[Zig](https://ziglang.org/). [Loam]($link.page('loam')) provides transactional
+storage and durable actors. Your application controls memory, I/O, and
+scheduling.
+
+[Their program hands yours a reference to an object called "greeter." Holding that reference is what lets you call it.]($image.siteAsset('diagram-capability.svg'))
+
+[Why OCapN]($link.page('why')) compares capabilities with bearer tokens and
+login tables. [What about identity?]($link.page('identity')) covers how
+access, identity, and responsibility differ for people and agents.
+
+APIs, ABIs, and storage formats can change before 1.0. Read
+[Project & status]($link.page('project')) before depending on it.
 
 # Build with it
 

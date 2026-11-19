@@ -90,6 +90,11 @@ const site_captures = [_]WebProof{
     .{ .step_name = "site-captures-directories", .description = "Capture the three-directory session and its phone pictures (needs cargo + deno + a Playwright Chromium)", .source = "site/scripts/capture-rooms-directories.ts", .wrapper_deadline_seconds = 600 },
 };
 
+/// Rooms and ocapnviz filmed together as two reels for the site's explainer
+/// video, with a capture's wiring, after the filmed captures. The root makes
+/// it wait for the ocapnviz bundle it opens.
+const film_traced: WebProof = .{ .step_name = "film-rooms-traced", .description = "Film two Rooms members talking while ocapnviz draws Rooms' own trace, as reels for the site's video (needs cargo + deno + a Playwright Chromium and the ocapnviz bundle)", .source = "site/scripts/film-rooms-traced.ts", .wrapper_deadline_seconds = 300 };
+
 /// One host direct-message demo: a Deno scenario over the installed
 /// archives, TCP only, no browser.
 const DmDemo = struct {
@@ -111,6 +116,8 @@ pub const Registered = struct {
     /// The Rooms page exported under the site's assets by `site-rooms-page`.
     /// The site render depends on it the way it depends on the pictures.
     site_page: *std.Build.Step,
+    /// The reels of Rooms traced in ocapnviz that the site's video shows.
+    film_traced: *std.Build.Step,
     /// The generated browser module and its type declarations, which the
     /// repository's TypeScript check imports.
     browser_application: *std.Build.Step,
@@ -484,12 +491,28 @@ pub fn register(ctx: Context) Registered {
         b.step(proof.step_name, proof.description).dependOn(&run.step);
         site_captures_step.dependOn(&run.step);
     }
+    // The site's video films the same scenes as reels. Only the video asks
+    // for them, so a site build films nothing. These runs keep their
+    // pictures apart from the site's, and a reel filmed beside another
+    // browser runs long, so they wait for the site's captures, run one at a
+    // time, and the traced film follows them.
+    var previous_film: *std.Build.Step = site_captures_step;
+    for (site_captures) |proof| {
+        const run = webProofRun(ctx, proof, archive_install, peers.web_build, browser_assets);
+        run.addArgs(&.{ "--out=zig-out/site-video/stills", "--reels=zig-out/site-video/reels" });
+        run.step.dependOn(previous_film);
+        previous_film = &run.step;
+    }
+    const film_traced_run = webProofRun(ctx, film_traced, archive_install, peers.web_build, browser_assets);
+    film_traced_run.step.dependOn(previous_film);
+    b.step(film_traced.step_name, film_traced.description).dependOn(&film_traced_run.step);
 
     return .{
         .services_install = archive_install,
         .web_proofs = web_proofs_step,
         .site_captures = site_captures_step,
         .site_page = front.site_page,
+        .film_traced = &film_traced_run.step,
         .browser_application = browser_application,
         .rust_lint = rust.lint,
     };

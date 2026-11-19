@@ -52,18 +52,23 @@ if [ "${has_port}" = false ]; then
     echo "site-serve: port ${port} is already in use; pass -Dport=N or stop the process holding it" >&2
     exit 1
   fi
-  echo "site-serve: preview will use http://127.0.0.1:${port}/glowcap/ after preparation" >&2
+  echo "site-serve: preview will use http://127.0.0.1:${port}/ after preparation" >&2
   set -- "$@" "-Dport=${port}"
 fi
 
 # Keep the build graph identical on clean and warm checkouts. The preview
 # owns this runtime cache decision, while a site build always captures and
-# exports afresh. Zine refuses a listed static directory that is missing, so
-# the Rooms page and ocapnviz must exist before the server starts.
+# exports afresh. Zine refuses a listed static directory or a referenced asset
+# that is missing, so the Rooms page, ocapnviz, and the explainer video must
+# exist before the server starts. The video is the published render, fetched
+# without a GPU. A local render from site-video takes its place until deleted.
 needed=""
 compgen -G 'site/assets/rooms-*.webp' >/dev/null || needed="${needed} site-captures"
 [ -f site/assets/rooms/app/index.html ] || needed="${needed} site-rooms-page"
 [ -f site/assets/ocapnviz/index.html ] || needed="${needed} site-ocapnviz-page"
+for file in webm webp vtt; do
+  [ -f "site/assets/glowcap-explainer.${file}" ] || { needed="${needed} site-video-fetch"; break; }
+done
 if [ -n "${needed}" ]; then
   echo "site-serve: missing from site/assets, preparing before serving:${needed}. A cold Rooms build can take several minutes." >&2
   started=$SECONDS

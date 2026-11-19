@@ -1,0 +1,20 @@
+{
+	"release": "https://github.com/glowcap-org/glowcap-site-media/releases/tag/explainer-9c23aefd9c64",
+	"files": {
+		"glowcap-explainer.webm": {
+			"url": "https://github.com/glowcap-org/glowcap-site-media/releases/download/explainer-9c23aefd9c64/glowcap-explainer.webm",
+			"bytes": 7913069,
+			"sha256": "3266b127d941775ffd0b8af9fa5232d89aaa6845540f885fa626110c82f09557"
+		},
+		"glowcap-explainer.webp": {
+			"url": "https://github.com/glowcap-org/glowcap-site-media/releases/download/explainer-9c23aefd9c64/glowcap-explainer.webp",
+			"bytes": 148966,
+			"sha256": "2e786d9802765bd123a13622a73778a8e32ed295f25b7f35bce48228dc889f1d"
+		},
+		"glowcap-explainer.vtt": {
+			"url": "https://github.com/glowcap-org/glowcap-site-media/releases/download/explainer-9c23aefd9c64/glowcap-explainer.vtt",
+			"bytes": 1163,
+			"sha256": "37add4b9a4b05fcec149e636116eb087e30a9b2c622e47a3ab8bfaf3b53dc793"
+		}
+	}
+}

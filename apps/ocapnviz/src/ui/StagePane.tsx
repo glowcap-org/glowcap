@@ -91,6 +91,7 @@ export function StagePane({
 						drafts={toolDrafts}
 						armedLabel={armedNodeLabel(engine, firstPickNodeId)}
 						onCancelArmed={onDeselect}
+						canMovePeers={mode === "build"}
 					/>
 				</div>
 			)}
