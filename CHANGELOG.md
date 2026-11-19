@@ -348,6 +348,8 @@ Releases before 0.1.7 are in the
 
 ### Fixed
 
+- Browser and proof setup read the full devcontainer tool registry before
+  deciding whether a tool is registered.
 - When a Rooms member declines a direct connection offer, the offering member
   now hears the refusal at once and can use the relay, instead of waiting
   out the signaling timeout.
