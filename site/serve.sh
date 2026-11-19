@@ -66,8 +66,8 @@ needed=""
 compgen -G 'site/assets/rooms-*.webp' >/dev/null || needed="${needed} site-captures"
 [ -f site/assets/rooms/app/index.html ] || needed="${needed} site-rooms-page"
 [ -f site/assets/ocapnviz/index.html ] || needed="${needed} site-ocapnviz-page"
-for file in webm webp vtt; do
-  [ -f "site/assets/glowcap-explainer.${file}" ] || { needed="${needed} site-video-fetch"; break; }
+for file in -dark.webm -dark.webp -light.webm -light.webp .vtt; do
+  [ -f "site/assets/glowcap-explainer${file}" ] || { needed="${needed} site-video-fetch"; break; }
 done
 if [ -n "${needed}" ]; then
   echo "site-serve: missing from site/assets, preparing before serving:${needed}. A cold Rooms build can take several minutes." >&2

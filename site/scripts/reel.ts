@@ -20,12 +20,13 @@
  * direct line. A mark also names its subject, the box of what the viewer
  * should look at then, and the scene's camera frames it.
  *
- * A reel is a directory under `--reels` (default `zig-out/site-video/reels`):
+ * A reel is a directory under `--reels` (default
+ * `zig-out/site-video/reels/<theme>`):
  * `reel.json` lists each frame's file and time in milliseconds, the marks and
  * their boxes, the pointer's track, and the reel's length, and the JPEG
  * frames sit beside it.
  */
-import type { Locator, Page } from "playwright";
+import type { Browser, BrowserContext, BrowserContextOptions, Locator, Page } from "playwright";
 
 /** What `reel.json` holds. */
 export type ReelIndex = {
@@ -62,9 +63,35 @@ export type Look = Locator | { x: number; y: number; width: number; height: numb
 export const filmDirArg = (): string | null =>
 	Deno.args.find((arg) => arg.startsWith("--reels="))?.slice("--reels=".length) ?? null;
 
-/** Where reels go: `--reels=<dir>`, or `zig-out/site-video/reels`, where
- * `render-video.ts` reads them. */
-export const reelsDirArg = (): string => filmDirArg() ?? "zig-out/site-video/reels";
+/** The site's two faces. The video is filmed and rendered once in each. */
+export type Theme = "dark" | "light";
+
+/** The face a run films or renders in: `--theme=light`, or dark. */
+export function themeArg(): Theme {
+	const theme = Deno.args.find((arg) => arg.startsWith("--theme="))?.slice("--theme=".length) ?? "dark";
+	if (theme !== "dark" && theme !== "light") throw new Error(`--theme takes dark or light, not ${theme}`);
+	return theme;
+}
+
+/** Where reels go: `--reels=<dir>`, or `zig-out/site-video/reels/<theme>`,
+ * where `render-video.ts` reads them. */
+export const reelsDirArg = (): string => filmDirArg() ?? `zig-out/site-video/reels/${themeArg()}`;
+
+/** A new browser context whose every page opens in `theme`: the browser's
+ * own preference, and the face Rooms and ocapnviz each remember and stamp
+ * before they draw. */
+export async function themedContext(
+	browser: Browser,
+	theme: Theme,
+	options: BrowserContextOptions = {},
+): Promise<BrowserContext> {
+	const context = await browser.newContext({ ...options, colorScheme: theme });
+	await context.addInitScript((face) => {
+		localStorage.setItem("glowcap-theme", face);
+		localStorage.setItem("ocapnviz:theme", face);
+	}, theme);
+	return context;
+}
 
 /** A recording `startReel` started. */
 export type Reel = {

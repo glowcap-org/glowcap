@@ -9,6 +9,7 @@ import {
 	parsePin,
 	type Pin,
 	publish,
+	readPin,
 	renderTag,
 	REPOSITORY,
 	sha256,
@@ -70,20 +71,31 @@ Deno.test("fetch downloads every missing file and keeps one already there", () =
 		await Deno.writeFile(`${dir}/${FILES[1]}`, render[FILES[1]]);
 		const asked: string[] = [];
 		const outcomes = await fetchPinned(pin, dir, { record, get: serve((url) => (asked.push(url), byName(url))) });
-		assertEquals(outcomes, { [FILES[0]]: "fetched", [FILES[1]]: "present", [FILES[2]]: "fetched" });
-		assertEquals(asked, [pin.files[FILES[0]].url, pin.files[FILES[2]].url]);
+		const missing = FILES.filter((name) => name !== FILES[1]);
+		assertEquals(
+			outcomes,
+			Object.fromEntries(FILES.map((name) => [name, name === FILES[1] ? "present" : "fetched"])),
+		);
+		assertEquals(asked, missing.map((name) => pin.files[name].url));
 		assertEquals(await Deno.readFile(`${dir}/${FILES[0]}`), render[FILES[0]]);
 	}));
 
 Deno.test("fetch keeps a complete local render and downloads nothing", () =>
 	inDirs(async (dir, record) => {
 		const pin = await pinFor("explainer-a");
-		await Deno.writeFile(`${dir}/${FILES[0]}`, render[FILES[0]]);
-		await Deno.writeFile(`${dir}/${FILES[1]}`, render[FILES[1]]);
-		await Deno.writeFile(`${dir}/${FILES[2]}`, new TextEncoder().encode("a local render"));
+		const rendered = FILES[FILES.length - 1];
+		for (const name of FILES) {
+			await Deno.writeFile(
+				`${dir}/${name}`,
+				name === rendered ? new TextEncoder().encode("a local render") : render[name],
+			);
+		}
 		const outcomes = await fetchPinned(pin, dir, { record, get: none });
-		assertEquals(outcomes, { [FILES[0]]: "present", [FILES[1]]: "present", [FILES[2]]: "local" });
-		assertEquals(await Deno.readTextFile(`${dir}/${FILES[2]}`), "a local render");
+		assertEquals(
+			outcomes,
+			Object.fromEntries(FILES.map((name) => [name, name === rendered ? "local" : "present"])),
+		);
+		assertEquals(await Deno.readTextFile(`${dir}/${rendered}`), "a local render");
 	}));
 
 Deno.test("fetch replaces a file an earlier fetch wrote once the pin moves", () =>
@@ -151,13 +163,40 @@ Deno.test("fetch refuses to complete a local render with published files", () =>
 Deno.test("with no pin, fetch uses a complete local render and refuses a partial one", () =>
 	inDirs(async (dir, record) => {
 		await Deno.writeFile(`${dir}/${FILES[0]}`, render[FILES[0]]);
-		await rejects(() => fetchPinned(null, dir, { record, get: none }), { message: /is missing too/ });
+		await rejects(() => fetchPinned(null, dir, { record, get: none }), {
+			message: /names no render of these files/,
+		});
 		for (const name of FILES) await Deno.writeFile(`${dir}/${name}`, render[name]);
 		assertEquals(
 			await fetchPinned(null, dir, { record, get: none }),
 			Object.fromEntries(FILES.map((name) => [name, "local"])),
 		);
 	}));
+
+Deno.test("a pin for a render of other files reads as no pin, and any other flaw is refused", async () => {
+	const dir = await Deno.makeTempDir();
+	try {
+		const path = `${dir}/published.json`;
+		const warned: string[] = [];
+		const warn = (message: string) => warned.push(message);
+		assertEquals(await readPin(path, warn), null);
+		const pin = await pinFor("explainer-a");
+		await Deno.writeTextFile(path, JSON.stringify(pin));
+		assertEquals(await readPin(path, warn), pin);
+		const older = structuredClone(pin);
+		delete older.files[FILES[1]];
+		await Deno.writeTextFile(path, JSON.stringify(older));
+		assertEquals(await readPin(path, warn), null);
+		assertEquals(warned.length, 1);
+		assertEquals(warned[0].includes("where a render is"), true);
+		const unhashed = structuredClone(pin);
+		unhashed.files[FILES[0]].sha256 = "beef";
+		await Deno.writeTextFile(path, JSON.stringify(unhashed));
+		await rejects(() => readPin(path, warn), { message: /has no SHA-256/ });
+	} finally {
+		await Deno.remove(dir, { recursive: true });
+	}
+});
 
 Deno.test("fetch writes nothing for a download that fails or does not match its pin", async () => {
 	const pin = await pinFor("explainer-a");
@@ -194,7 +233,7 @@ function fakeGh(
 		}
 		if (args[0] === "release" && (args[1] === "create" || args[1] === "upload")) {
 			const assets: Record<string, string> = args[1] === "upload" ? releases.get(args[2]) ?? {} : {};
-			for (const path of args.filter((arg) => arg.includes("/glowcap-explainer."))) {
+			for (const path of args.filter((arg) => FILES.some((name) => arg.endsWith(`/${name}`)))) {
 				const digest = upload(path);
 				if (digest != null) assets[path.slice(path.lastIndexOf("/") + 1)] = digest;
 			}
@@ -237,7 +276,9 @@ Deno.test("publish names a release by every file and finishes one an interrupted
 		const tag = await renderTag(Object.fromEntries(FILES.map((name) => [name, { sha256: digests[name] }])));
 		// New captions on the same video are a new release.
 		const recaptioned = await renderTag(
-			Object.fromEntries(FILES.map((name, i) => [name, { sha256: i === 2 ? "0".repeat(64) : digests[name] }])),
+			Object.fromEntries(
+				FILES.map((name) => [name, { sha256: name.endsWith(".vtt") ? "0".repeat(64) : digests[name] }]),
+			),
 		);
 		assertEquals(tag === recaptioned, false);
 		const releases = new Map([[tag, { [FILES[0]]: digests[FILES[0]] }]]);
@@ -245,7 +286,7 @@ Deno.test("publish names a release by every file and finishes one an interrupted
 		const pin = await publish(dir, "source", resumed.run);
 		assertEquals(parsePin(JSON.stringify(pin)).files, (await pinFor(tag)).files);
 		assertEquals(resumed.calls.filter((args) => args[0] === "release"), [
-			["release", "upload", tag, "--repo", REPOSITORY, `${dir}/${FILES[1]}`, `${dir}/${FILES[2]}`],
+			["release", "upload", tag, "--repo", REPOSITORY, ...FILES.slice(1).map((name) => `${dir}/${name}`)],
 		]);
 	} finally {
 		await Deno.remove(dir, { recursive: true });

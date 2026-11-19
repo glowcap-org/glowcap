@@ -11,19 +11,21 @@
 // than completed with published files. Before any render is pinned, a
 // complete local render is used the same way. A download that fails, takes
 // longer than two minutes, or does not match its pin writes nothing for that
-// file and exits 1.
+// file and exits 1. A pin for a render made of other files is treated as no
+// pin, since nothing it names fits the page.
 //
 // `zig build site-video-publish` runs `publish` after a maintainer approves a
-// render from `zig build site-video`. It uploads the three files from `--out`
-// as one release of the media repository with `gh`, reads back the digests
-// GitHub recorded, and only then rewrites the pin. The release is named by
-// the hashes of all three files, so publishing the same render again finds
+// render from `zig build site-video`. It uploads the render's files from
+// `--out` as one release of the media repository with `gh`, reads back the
+// digests GitHub recorded, and only then rewrites the pin. The release is
+// named by the hashes of all its files, so publishing the same render again finds
 // it, uploads whatever an interrupted publish left out, and rewrites the pin
 // from it. A release under that name holding any other file is refused.
 //
 // Usage: deno run --allow-all site/scripts/published-video.ts fetch|publish [--out=<dir>]
 // Runs from the repository root. Reasons for a refusal go to stderr.
 
+import captureAssets from "./capture-assets.json" with { type: "json" };
 import { outDirArg, replaceFile } from "./capture.ts";
 
 /** The pin: which render the site serves. Committed, and the only record of it. */
@@ -34,11 +36,17 @@ export const REPOSITORY = "glowcap-org/glowcap-site-media";
 export const DOWNLOADS = `https://github.com/${REPOSITORY}/releases/download/`;
 /** How long one download may take before the build gives up on it. */
 export const DOWNLOAD_MS = 120_000;
-/** The three files that make up one render. */
-export const FILES = ["glowcap-explainer.webm", "glowcap-explainer.webp", "glowcap-explainer.vtt"];
+/** The files that make up one render: the video and its poster in each of
+ * the site's faces, and the captions they share. `render-video.ts` refuses to
+ * write a file this list does not declare. */
+export const FILES = captureAssets.filter((name) => name.startsWith("glowcap-explainer"));
 
 export type Pinned = { url: string; bytes: number; sha256: string };
 export type Pin = { release: string; files: Record<string, Pinned> };
+
+/** A pin `publish` wrote for a render made of other files than `FILES`, so
+ * nothing it names fits the page. Fetch treats it as no pin. */
+export class PinForOtherFiles extends Error {}
 
 /** Read a pin, refusing any shape but the one `publish` writes. */
 export function parsePin(text: string, downloads = DOWNLOADS): Pin {
@@ -50,7 +58,7 @@ export function parsePin(text: string, downloads = DOWNLOADS): Pin {
 	if (typeof files !== "object" || files == null) throw new Error(`${PIN} lists no files`);
 	const names = Object.keys(files).sort();
 	if (names.join() !== [...FILES].sort().join()) {
-		throw new Error(`${PIN} lists ${names.join(", ")}, where a render is ${FILES.join(", ")}`);
+		throw new PinForOtherFiles(`${PIN} lists ${names.join(", ")}, where a render is ${FILES.join(", ")}`);
 	}
 	const pinned: Record<string, Pinned> = {};
 	for (const name of FILES) {
@@ -71,6 +79,22 @@ export function parsePin(text: string, downloads = DOWNLOADS): Pin {
 		pinned[name] = { url, bytes, sha256 };
 	}
 	return { release, files: pinned };
+}
+
+/** The pin at `path` that fetch serves from, or null when there is none or
+ * it names a render of other files, which `warn` hears about. Any other
+ * flaw in the pin is refused. */
+export async function readPin(path: string, warn: (message: string) => void): Promise<Pin | null> {
+	try {
+		return parsePin(await Deno.readTextFile(path));
+	} catch (err) {
+		if (err instanceof Deno.errors.NotFound) return null;
+		if (err instanceof PinForOtherFiles) {
+			warn(err.message);
+			return null;
+		}
+		throw err;
+	}
 }
 
 export async function sha256(bytes: Uint8Array<ArrayBuffer>): Promise<string> {
@@ -115,7 +139,7 @@ export async function fetchPinned(
 		for (const name of FILES) {
 			if (await readIfThere(`${outDir}/${name}`) == null) {
 				throw new Error(
-					`${PIN} is missing, so no render is published, and ${outDir}/${name} is missing too. Render one with zig build site-video, then publish it with zig build site-video-publish`,
+					`${PIN} names no render of these files, and ${outDir}/${name} is missing. Render one with zig build site-video, then publish it with zig build site-video-publish`,
 				);
 			}
 			outcomes[name] = "local";
@@ -211,7 +235,7 @@ async function releaseDigests(tag: string, run: Gh): Promise<Record<string, stri
 	return digests;
 }
 
-/** The release name for a render: a hash of its three files' hashes, so one
+/** The release name for a render: a hash of its files' hashes, so one
  * render is one release, and a change to any of its files is another. */
 export async function renderTag(files: Record<string, { sha256: string }>): Promise<string> {
 	const listing = FILES.map((name) => `${files[name].sha256}  ${name}\n`).join("");
@@ -288,16 +312,11 @@ if (import.meta.main) {
 	const outDir = outDirArg();
 	try {
 		if (verb === "fetch") {
-			let pin: Pin | null = null;
-			try {
-				pin = parsePin(await Deno.readTextFile(PIN));
-			} catch (err) {
-				if (!(err instanceof Deno.errors.NotFound)) throw err;
-			}
+			const pin = await readPin(PIN, (message) => console.error(`site-video-fetch: ${message}`));
 			const outcomes = await fetchPinned(pin, outDir);
 			if (pin == null) {
 				console.error(
-					`site-video-fetch: no render is published yet, so the site build uses the local render in ${outDir}`,
+					`site-video-fetch: no render of these files is published, so the site build uses the local render in ${outDir}`,
 				);
 			}
 			for (const [name, outcome] of Object.entries(outcomes)) {

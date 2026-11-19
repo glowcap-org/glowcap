@@ -1,5 +1,5 @@
-/* The video's stage: a 1280×720 frame in the site's dark face, with its
-   screens stacked in it, one showing at a time. The site's own
+/* The video's stage: a 1280×720 frame in either of the site's faces, with
+   its screens stacked in it, one showing at a time. The site's own
    stylesheets set every heading, paragraph, and listing, so the video's text
    is the home page's text. Only the stage's layout lives here. */
 
@@ -148,6 +148,12 @@ body {
 	border-radius: 18.67px;
 	background: #120d07;
 	box-shadow: 0 10px 28px #0007;
+}
+
+/* By day the window stands on paper, and its shadow is a warm one. */
+[data-theme="light"] .window {
+	background: var(--paper-raised);
+	box-shadow: 0 10px 28px #3b2a1430;
 }
 
 /* What the camera moves: the reel's frame and the pointer drawn over it. */

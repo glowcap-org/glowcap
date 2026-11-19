@@ -18,7 +18,7 @@
  * Rooms films and before the render.
  */
 import { chromium } from "playwright";
-import { filmArgs, glide, glideClick, placePointer, press, reelsDirArg, startReel } from "./reel.ts";
+import { filmArgs, glide, glideClick, placePointer, press, reelsDirArg, startReel, themeArg } from "./reel.ts";
 import { type OcvPage, openLiveRecording, peersBox, serveOcapnviz, stageBox } from "./ocapnviz-live.ts";
 import { spawnOwned, stopOwned } from "../../apps/rooms/test/support/children.ts";
 
@@ -227,6 +227,7 @@ const page = await openLiveRecording(
 	trace.sturdyref,
 	VIEWPORT,
 	SCALE,
+	themeArg(),
 	errors,
 	PANES,
 );

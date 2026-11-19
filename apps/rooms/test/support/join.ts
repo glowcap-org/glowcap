@@ -6,7 +6,7 @@
 // reports only the selector it never saw while the page has been saying what
 // went wrong the whole time.
 
-import type { Browser, Page } from "playwright";
+import type { Browser, BrowserContext, Page } from "playwright";
 
 import { fail } from "./fail.ts";
 import { reachDirectoryOnCard } from "../page/harness.ts";
@@ -34,6 +34,10 @@ interface JoinOptions {
 	 * scale its browser was launched to film at, the site video's
 	 * `filmArgs`. */
 	scale?: number;
+	/** A context the caller made, for a tab that needs more than a viewport
+	 * and a scale, such as a filmed tab in the face its film is in. The tab
+	 * takes the context's own viewport and scale, so this excludes those two. */
+	context?: BrowserContext;
 }
 
 /** Open a fresh tab on the page served at `port`, join a room as `nick`, and
@@ -41,7 +45,10 @@ interface JoinOptions {
  * tab can register for direct messages. `tab.context()` is the context to
  * close when that member leaves for good. */
 export async function joinAs(browser: Browser, port: number, nick: string, options: JoinOptions = {}): Promise<Page> {
-	const context = await browser.newContext({
+	if (options.context != null && (options.viewport != null || options.scale != null)) {
+		throw new Error("joinAs takes a viewport and scale or a context, not both");
+	}
+	const context = options.context ?? await browser.newContext({
 		...(options.viewport != null && { viewport: options.viewport }),
 		...(options.scale != null && { deviceScaleFactor: options.scale }),
 	});

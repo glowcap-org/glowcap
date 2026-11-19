@@ -15,8 +15,9 @@ These are the changes after November 11. Read the
   blocks a WebSocket without TLS from an https page unless it goes to the
   computer's own address.
   `zig build site-ocapnviz-page` builds the page into the site's assets.
-- The home page shows a short captioned video of Rooms and ocapnviz in use.
-  `zig build site-video` renders it, and `site-video-publish` publishes it.
+- The home page shows a short captioned video of Rooms and ocapnviz in use,
+  in the page's light or dark theme, and it switches with the theme.
+  `zig build site-video` renders both, and `site-video-publish` publishes them.
 - The Rust binding exports `BINDING_WEBSOCKET_MESSAGE_CAP_BYTES`, the largest
   WebSocket message a binding's adapter admits.
 - Every binding exports `VERSION_MAJOR`, `VERSION_MINOR`, and `VERSION_PATCH`,

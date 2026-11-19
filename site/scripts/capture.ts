@@ -85,7 +85,8 @@ export async function settle(page: Page, theme: "dark" | "light" = "dark"): Prom
  * Write the viewport, or a clip around the union of the elements `within`
  * selects, with a margin of surrounding page so the crop still reads as a
  * window rather than a cut-out. Every capture is written twice under
- * `outDir`, as `<name>-dark.webp` and `<name>-light.webp`.
+ * `outDir`, as `<name>-dark.webp` and `<name>-light.webp`, and the page is
+ * left in the face it was in, so a film taking pictures keeps its own.
  */
 export async function shot(page: Page, outDir: string, name: string, within?: string): Promise<void> {
 	for (const theme of ["dark", "light"]) {
@@ -111,6 +112,8 @@ export async function shot(page: Page, outDir: string, name: string, within?: st
 	await page.waitForFunction(() => document.querySelector(".divider.unread") === null, undefined, {
 		timeout: 10_000,
 	});
+	// A page nobody has stamped light wears the apps' dark face.
+	const face = await page.evaluate(() => document.documentElement.dataset.theme === "light" ? "light" : "dark");
 	// One capture per face. The site shows whichever matches its own theme.
 	for (const theme of ["dark", "light"] as const) {
 		await settle(page, theme);
@@ -124,7 +127,7 @@ export async function shot(page: Page, outDir: string, name: string, within?: st
 			clip,
 		});
 	}
-	await settle(page, "dark");
+	await settle(page, face);
 }
 
 /**

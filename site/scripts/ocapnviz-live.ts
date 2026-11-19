@@ -5,14 +5,14 @@
  * (`film-ocapnviz.ts` and `film-rooms-traced.ts`) both start here.
  */
 import type { Browser, Page } from "playwright";
-import { isLoopback, serveDirectory } from "./reel.ts";
+import { isLoopback, serveDirectory, type Theme, themedContext } from "./reel.ts";
 
 /** The site's own ocapnviz, built before the films by `site-ocapnviz-page`,
  * so the video shows the bytes the site serves. */
 export const serveOcapnviz = (): Deno.HttpServer<Deno.NetAddr> => serveDirectory("site/assets/ocapnviz");
 
 /** Open ocapnviz from `dist` on the trace endpoint `sturdyref`, in a context
- * of its own at `viewport` and `scale`, and start recording. Recording starts
+ * of its own at `viewport` and `scale` in `theme`, and start recording. Recording starts
  * off camera: a loaded document asks before a recording replaces it, and a
  * reel opens on the recording itself, not that question. `errors` collects
  * the page's own errors for the film to report. `sizes`, when given, are the
@@ -25,10 +25,11 @@ export async function openLiveRecording(
 	sturdyref: string,
 	viewport: { width: number; height: number },
 	scale: number,
+	theme: Theme,
 	errors: string[],
 	sizes?: { leftPaneWidth: number; rightPaneWidth: number; bottomPaneHeight?: number },
 ): Promise<Page> {
-	const context = await browser.newContext({ viewport, deviceScaleFactor: scale, colorScheme: "dark" });
+	const context = await themedContext(browser, theme, { viewport, deviceScaleFactor: scale });
 	// The bundle asks Google Fonts for its typeface. Every outside request is
 	// refused, so the film needs no network and the app uses its local font.
 	// The trace endpoint is on loopback, so the page reaches it.

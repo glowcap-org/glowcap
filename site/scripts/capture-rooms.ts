@@ -48,7 +48,17 @@ import { directOpened } from "../../apps/rooms/test/page/harness.ts";
 import { roomPortOf } from "../../apps/rooms/test/support/rooms_server.ts";
 import { spawnWeb } from "../../apps/rooms/test/support/web_front.ts";
 import { awaitLocator, outDirArg, pinToLatest, plainRun, shot as capture, still } from "./capture.ts";
-import { filmArgs, filmDirArg, glideClick, placePointer, startReel, typeOnFilm, unfilmed } from "./reel.ts";
+import {
+	filmArgs,
+	filmDirArg,
+	glideClick,
+	placePointer,
+	startReel,
+	themeArg,
+	themedContext,
+	typeOnFilm,
+	unfilmed,
+} from "./reel.ts";
 import { ROOMS_LAYOUT, smoothLayout } from "./film-smooth.ts";
 
 const outDir = outDirArg();
@@ -193,6 +203,7 @@ const ircPort = irc.port;
 // A run that films draws the person's window at its scale.
 const FILM_SCALE = 1.5;
 const reelsDir = filmDirArg();
+const theme = themeArg();
 const browser = await chromium.launch({
 	headless: true,
 	args: ["--no-sandbox", ...(reelsDir == null ? [] : filmArgs(FILM_SCALE))],
@@ -203,7 +214,7 @@ try {
 	// Tall enough for the whole scene from the human's first line to the
 	// lead's replan, with the rail and roster beside it.
 	const viewport = { width: 1280, height: 940 };
-	const person = await browser.newContext({ ...still, viewport, deviceScaleFactor: FILM_SCALE, colorScheme: "dark" });
+	const person = await themedContext(browser, theme, { ...still, viewport, deviceScaleFactor: FILM_SCALE });
 	contexts.push(person);
 	const mira = await person.newPage();
 	await open(mira, { session: "rooms-session", join: "rooms-join" });
@@ -211,7 +222,7 @@ try {
 
 	const bots = new Map<string, Page>();
 	for (const nick of [lead, ...members]) {
-		const context = await browser.newContext({ ...still, viewport, colorScheme: "dark" });
+		const context = await themedContext(browser, theme, { ...still, viewport });
 		contexts.push(context);
 		const page = await context.newPage();
 		await open(page);
@@ -372,11 +383,10 @@ try {
 
 	// A phone-sized window, so the picture says "wherever you go" rather
 	// than repeating the desktop capture above it.
-	const second = await browser.newContext({
+	const second = await themedContext(browser, theme, {
 		...still,
 		viewport: { width: 430, height: 900 },
 		deviceScaleFactor: 2,
-		colorScheme: "dark",
 		isMobile: true,
 		hasTouch: true,
 	});

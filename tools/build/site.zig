@@ -209,8 +209,9 @@ pub fn register(ctx: Context) Registered {
 
     // The home page's video, rendered frame by frame from the scene page
     // site/video/explainer.html into site/assets, which `.gitignore` keeps out
-    // of the tree like the Rooms pictures. It shows reels of the apps in use
-    // under zig-out/site-video/reels: Rooms, filmed by the Rooms captures,
+    // of the tree like the Rooms pictures, once in each of the site's faces.
+    // It shows reels of the apps in use, filmed in that face under
+    // zig-out/site-video/reels/<theme>: Rooms, filmed by the Rooms captures,
     // ocapnviz, filmed here, and the two together, filmed by the Rooms steps
     // as `film-rooms-traced`. Filming needs a GPU so ocapnviz draws enough
     // frames for the scene's pace. A maintainer renders on one, approves the
@@ -220,7 +221,7 @@ pub fn register(ctx: Context) Registered {
         "deno", "run", "--allow-all", "site/scripts/published-video.ts", "fetch", "--out=site/assets",
     });
     fetch_video.has_side_effects = true;
-    const fetch_video_step = b.step("site-video-fetch", "Fetch the published home page video, poster, and captions into site/assets by the pin in site/video/published.json, verifying each file's size and SHA-256 and keeping a complete local render already there (needs deno + network)");
+    const fetch_video_step = b.step("site-video-fetch", "Fetch the published home page video and poster in both faces, and its captions, into site/assets by the pin in site/video/published.json, verifying each file's size and SHA-256 and keeping a complete local render already there (needs deno + network)");
     fetch_video_step.dependOn(&fetch_video.step);
     render_site.step.dependOn(&fetch_video.step);
     const publish_video = commands.addRootedSystemCommand(b, .real_internet, &.{
@@ -235,19 +236,32 @@ pub fn register(ctx: Context) Registered {
     });
     b.step("site-video-test", "Test the published video's pin, fetch, and publish against a fake download and a fake gh").dependOn(&published_video_test.step);
     check_step.dependOn(&published_video_test.step);
-    const film_ocapnviz = commands.addRootedSystemCommand(b, .{ .browser_proof = 120 }, &.{
-        "deno", "run", "--allow-all", "site/scripts/film-ocapnviz.ts",
-    });
-    film_ocapnviz.has_side_effects = true;
-    film_ocapnviz.step.dependOn(ctx.browser_preflight);
-    const site_video = commands.addRootedSystemCommand(b, .{ .browser_proof = 900 }, &.{
-        "deno", "run", "--allow-all", "site/scripts/render-video.ts", "--out=site/assets",
-    });
-    site_video.has_side_effects = true;
-    site_video.step.dependOn(ctx.browser_preflight);
-    site_video.step.dependOn(&film_ocapnviz.step);
-    const site_video_step = b.step("site-video", "Film Rooms and ocapnviz in use, and render the home page's video, its poster, and its captions into site/assets from site/video/explainer.html, for review before site-video-publish (needs cargo + deno + a Playwright Chromium and its ffmpeg + a GPU, without which ocapnviz draws too few frames for the scene's pace)");
-    site_video_step.dependOn(&site_video.step);
+    // One film and one render per face, one at a time: the dark ocapnviz film
+    // is the one the root wires to what it needs, and each later run waits
+    // on the one before.
+    var film_ocapnviz: ?*std.Build.Step = null;
+    var previous_video: ?*std.Build.Step = null;
+    for ([_][]const u8{ "dark", "light" }) |theme| {
+        const film = commands.addRootedSystemCommand(b, .{ .browser_proof = 120 }, &.{
+            "deno", "run", "--allow-all", "site/scripts/film-ocapnviz.ts", b.fmt("--theme={s}", .{theme}),
+        });
+        film.has_side_effects = true;
+        film.step.dependOn(ctx.browser_preflight);
+        if (previous_video) |previous| film.step.dependOn(previous);
+        if (film_ocapnviz == null) film_ocapnviz = &film.step;
+        previous_video = &film.step;
+    }
+    for ([_][]const u8{ "dark", "light" }) |theme| {
+        const render = commands.addRootedSystemCommand(b, .{ .browser_proof = 900 }, &.{
+            "deno", "run", "--allow-all", "site/scripts/render-video.ts", "--out=site/assets", b.fmt("--theme={s}", .{theme}),
+        });
+        render.has_side_effects = true;
+        render.step.dependOn(ctx.browser_preflight);
+        render.step.dependOn(previous_video.?);
+        previous_video = &render.step;
+    }
+    const site_video_step = b.step("site-video", "Film Rooms and ocapnviz in use, and render the home page's video and its poster in each of the site's faces, and its captions, into site/assets from site/video/explainer.html, for review before site-video-publish (needs cargo + deno + a Playwright Chromium and its ffmpeg + a GPU, without which ocapnviz draws too few frames for the scene's pace)");
+    site_video_step.dependOn(previous_video.?);
 
     // The reference section is the generated autodoc for the public `glowcap`
     // module, installed into the rendered site after Zine has written the pages.
@@ -388,7 +402,7 @@ pub fn register(ctx: Context) Registered {
         .rust_examples_check = site_rust_examples_check,
         .racket_examples_check = site_racket_examples_check,
         .render = &render_site.step,
-        .film_ocapnviz = &film_ocapnviz.step,
+        .film_ocapnviz = film_ocapnviz.?,
     };
 }
 
