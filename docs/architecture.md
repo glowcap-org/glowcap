@@ -215,6 +215,28 @@ supplied by the caller keep their own reports.
 [Known limitations](boundaries.md#transports-and-peer-identity) compares the
 security and reachability of the transports.
 
+### Provider close outcomes
+
+A multiplexed resident's `conn_close` callback and `connCloseOutcome` take a
+`net.multiplexed_resident.CloseMode`. Pass `.awaited` when the caller will
+claim the result, or `.no_wait` when a later result goes to the resident's sink.
+Either close mode can return `.pending` while admitted bytes drain. Keep the
+provider handle for a waiting caller only if the resident will publish
+`ev_closed` and return the result on the next `.awaited` call.
+The optional `conn_abort` callback and `connAbortOutcome` use the same mode
+for an already available result.
+
+An external stream's `.reporting` close callback takes a `CloseRecipient`.
+For `.caller`, return the failure. For `.sink`, deliver it to the provider's
+sink and return null.
+
+`MultiplexedResident.takeFailure` returns an optional `net.carrier_failure.Report`
+with the cause chain and any carrier phase and detail.
+`connCloseOutcome` and `Listener.stopListenOutcome` carry that report on failure.
+`MultiplexedResident.connClose` selects `.no_wait`. Both it and
+`Listener.stopListen` return the bare `foundation.FailureChain` on failure
+and treat `.pending` as `error.ProviderContract`.
+
 ## Resource knobs
 
 Options bound frame size, shared read memory, queued output, and local work

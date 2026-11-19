@@ -33,23 +33,14 @@ Releases before 0.1.7 are in the
   from `glowcap_host_new` returns `GLOWCAP_ERR_INVALID_ARGUMENT` and leaves
   it usable for byte-fed operation.
 
-- A live session reports the provider's primary and secondary causes when a foreign stream's
-  `conn_close` fails. Zig residents and external providers use the following close contracts.
-
-  - `net.MultiplexedResident.VTable.conn_close` and `connCloseOutcome` take a
-    `net.multiplexed_resident.CloseMode`, `.awaited` or `.no_wait`, which names
-    who receives the provider's close result. Pass `.no_wait` from a call that
-    does not wait. Either mode may still answer `.pending` while admitted
-    bytes drain. The optional `conn_abort` and `connAbortOutcome` take the same
-    mode: an abort delivers an already claimable result to that recipient.
-  - A resident keeps the provider's handle for an `.awaited` caller only when
-    it will publish `ev_closed` and return the result from the next `.awaited`
-    call.
-  - `net.external_completion.VTable.conn_close` is now a choice. Wrap an
-    existing close as `.{ .plain = close }`. A provider that wants a live
-    session to receive its close failure supplies `.{ .reporting = close }`,
-    one function that takes a `CloseRecipient` (`.caller` returns the failure,
-    `.sink` delivers it to the provider's own sink).
+- A live session reports the primary and secondary causes of a foreign stream's failed close.
+  In `net.external_completion.VTable.conn_close`, wrap an existing callback as
+  `.{ .plain = close }` or use `.{ .reporting = close }` to deliver a failure to the session.
+- Custom `net.MultiplexedResident` implementations now take a close mode on close and abort.
+  Return `?net.carrier_failure.Report` from `VTable.take_failure` and a report in `TeardownOutcome.failed`.
+  Wrap an existing chain as `.{ .chain = chain }`, use `.init(cause)` for a bare cause,
+  and read `.chain` where you previously matched the chain.
+  See [provider close outcomes](docs/architecture.md#provider-close-outcomes) for result ownership.
 
 - Rust callers of the low-level driver now pass `&Context` as the first
   argument to `DriverLoop::open`. Keep the Context to read recorded failures
@@ -215,15 +206,6 @@ Releases before 0.1.7 are in the
   uses `net.WaitError`. `net.poll.wait` reports the same errors, waits
   indefinitely for any negative timeout, and keeps the original deadline
   across interrupts.
-- A custom `net.MultiplexedResident` reports a connection's carrier phase and
-  detail through teardown. `VTable.take_failure` returns
-  `?net.carrier_failure.Report`, and `TeardownOutcome.failed` holds a
-  `net.carrier_failure.Report`. Return `.{ .chain = chain }` where you
-  returned a `foundation.FailureChain`, or `.init(cause)` for a bare cause,
-  and read `.chain` where you matched one. `MultiplexedResident.takeFailure`
-  returns the report. `MultiplexedResident.connClose` and `Listener.stopListen`
-  still return the bare chain, and `connCloseOutcome` and `stopListenOutcome`
-  carry the report.
 
 ### Added
 
