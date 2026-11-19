@@ -414,6 +414,86 @@
 
 		</script>
 		<script>
+			// A diagram fits its column at every width. Where the narrow layout
+			// draws it smaller than its labels were drawn for, an enlarge button
+			// opens it full screen at its own width, to pan and pinch. narrow.css
+			// alone decides where that button shows, and a tap on the drawing
+			// opens the viewer only where the button is showing.
+			(function diagramViewer() {
+				const drawingIn = (figure) => figure.querySelector('.diagram, img[src$=".svg"]');
+				const figures = [...document.querySelectorAll(".prose figure")].filter(drawingIn);
+				if (!figures.length) return;
+				const viewer = document.createElement("dialog");
+				viewer.className = "diagram-viewer";
+				const bar = document.createElement("div");
+				bar.className = "diagram-viewer-bar";
+				const title = document.createElement("p");
+				const close = document.createElement("button");
+				close.type = "button";
+				close.className = "diagram-viewer-close";
+				close.textContent = "Close";
+				bar.append(title, close);
+				const stage = document.createElement("div");
+				stage.className = "diagram-viewer-stage";
+				viewer.append(bar, stage);
+				document.body.append(viewer);
+
+				// Opening pushes a history entry, so a phone's back gesture closes
+				// the viewer instead of leaving the page, and every other way out
+				// goes back through that entry too.
+				const leave = () => (history.state?.diagramViewer ? history.back() : viewer.close());
+				close.addEventListener("click", leave);
+				viewer.addEventListener("cancel", (event) => {
+					event.preventDefault();
+					leave();
+				});
+				addEventListener("popstate", () => viewer.open && viewer.close());
+				viewer.addEventListener("close", () => stage.replaceChildren());
+
+				function open(figure) {
+					// The preview swaps each img for a drawing as its fetch lands, so
+					// read whichever the figure holds now.
+					const drawing = drawingIn(figure);
+					let copy = drawing.cloneNode(true);
+					let width = drawing.naturalWidth;
+					if (drawing.shadowRoot) {
+						copy = document.createElement("span");
+						copy.className = "diagram";
+						const root = copy.attachShadow({ mode: "open" });
+						root.append(...[...drawing.shadowRoot.childNodes].map((node) => node.cloneNode(true)));
+						width = root.querySelector("svg")?.viewBox.baseVal?.width;
+					}
+					// The bar shows the caption, so the drawing is named by it.
+					const caption = figure.querySelector("figcaption")?.textContent.trim() ?? "";
+					title.textContent = caption;
+					viewer.setAttribute("aria-label", caption || "Diagram");
+					copy.removeAttribute("role");
+					copy.removeAttribute("aria-label");
+					copy.setAttribute("aria-hidden", "true");
+					if (width > 0) copy.style.width = `max(${width}px, 100%)`;
+					stage.replaceChildren(copy);
+					history.pushState({ diagramViewer: true }, "");
+					viewer.showModal();
+					stage.scrollTo(0, 0);
+				}
+
+				for (const figure of figures) {
+					const button = document.createElement("button");
+					button.type = "button";
+					button.className = "diagram-open";
+					button.setAttribute("aria-label", "Enlarge diagram");
+					button.innerHTML = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 6V2h4M10 2h4v4M14 10v4h-4M6 14H2v-4"/></svg>';
+					button.addEventListener("click", () => open(figure));
+					figure.append(button);
+					figure.addEventListener("click", (event) => {
+						const onDrawing = event.target.closest?.('.diagram, img[src$=".svg"]');
+						if (onDrawing && getComputedStyle(button).display !== "none") open(figure);
+					});
+				}
+			})();
+
+		</script>
+		<script>
 			// "On this page". Some of these run to several screens, and a reader
 			// who wants one section should not have to scroll for it. The
 			// headings are the page's own structure, so the list is built from

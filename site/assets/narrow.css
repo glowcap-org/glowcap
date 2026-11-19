@@ -110,15 +110,15 @@
     min-width: 12rem;
   }
 
-  /* A hand-drawn diagram keeps the width its labels need and scrolls inside
-     its card, as a code block does. The drawing is an img before the page
-     swaps it into a .diagram. */
-  .prose figure {
-    overflow-x: auto;
+  /* A hand-drawn diagram fits the column here, smaller than its labels were
+     drawn for, so its enlarge button shows and the drawing itself opens the
+     full-screen viewer (base.shtml). The drawing is an img before the
+     preview swaps it into a .diagram. */
+  .diagram-open {
+    display: block;
   }
 
-  .prose figure img[src$=".svg"],
-  .prose figure .diagram {
-    min-width: 34rem;
+  .prose figure:has(.diagram-open) :is(.diagram, img[src$=".svg"]) {
+    cursor: zoom-in;
   }
 }
