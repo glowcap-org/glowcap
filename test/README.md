@@ -133,6 +133,13 @@ Retrying an exhausted epoch leaves that work queued. The Zig tests exercise
 both drive paths and observe the turns that actually commit.
 [Turn budget laws](driver/turn_budget_laws/LAWS.bend)
 
+### Loam receipt windows
+
+Only the next sequence can start a new operation before exhaustion.
+Eviction moves the floor and shifts the surviving receipt indices. Bend
+checks those rules. Zig checks the exact receipt for each retained sequence.
+[Retry laws](loam/access/retry_laws/LAWS.bend)
+
 ## Fuzz regression inputs
 
 Each layer's `fuzz_regressions/` holds one file per fuzzer finding: a byte

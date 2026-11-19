@@ -63,6 +63,7 @@ comptime {
         _ = @import("loam/access/sharing_test.zig");
         _ = @import("loam/access/tree_hosted_test.zig");
         _ = @import("loam/access/mutation_test.zig");
+        _ = @import("loam/access/retry_window_test.zig");
         _ = @import("loam/access/mutation_depth_test.zig");
         _ = @import("loam/access/management_test.zig");
         _ = @import("loam/access/value_record_test.zig");
