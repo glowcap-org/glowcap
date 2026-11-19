@@ -201,9 +201,10 @@ fn shadeBody(p: vec3f, n: vec3f, rd: vec3f, fr: Frame) -> vec3f {
 	let under = smoothstep(-0.05, -0.5, n.y) * isCap;
 	body = body + fr.lamp * under * 2.4 * fr.glow;
 
-	// The strike tints the whole cap. A line is one pixel wide here and
-	// cannot hold the loudest beat in the animation.
-	body = mix(body, fr.flash * 1.15, fr.flareMix * 0.3);
+	// By night the strike tints the whole cap. A line is one pixel wide here
+	// and cannot hold the loudest beat in the animation. By day the strike is
+	// the windows flaring, so the cap keeps its colour.
+	body = mix(body, fr.flash * 1.15, fr.flareMix * 0.3 * (1.0 - fr.lightPage));
 
 	// The inner half of the outline. Inside the silhouette the band is
 	// angular: on a rounded body the normal turns away from the eye over
@@ -339,7 +340,7 @@ fn fs(@builtin(position) coord: vec4f) -> @location(0) vec4f {
 	// light is the page's own. By day nothing on the page is darker than
 	// cream behind it, so the light cannot reach out as beams, which would
 	// be ink and read as shadow: it stays at the mushroom, in windows that
-	// glow white and a teal glow that hugs the cap. Teal at partial coverage over cream loses its
+	// glow white and spill a little teal round them. Teal at partial coverage over cream loses its
 	// colour before its darkness, so by day the teal is pushed past the
 	// token's own chroma, with some white in it, to arrive at the token's
 	// teal once it is on the page; and the lamps take a little of it.
@@ -405,7 +406,7 @@ fn fs(@builtin(position) coord: vec4f) -> @location(0) vec4f {
 	fr.lamp = lamp;
 	fr.ink = ink;
 	fr.flash = flash;
-	fr.edge = mix(mix(u.rim.rgb * 1.08, u.accent.rgb * 1.05, 1.0 - detail), flash, fr.flareMix);
+	fr.edge = mix(mix(u.rim.rgb * 1.08, u.accent.rgb * 1.05, 1.0 - detail), flash, fr.flareMix * (1.0 - lightPage));
 	fr.strokeW = max(BOX * 0.07, 1.5 * px * over) * weight;
 
 	// A little above the brim, looking slightly down, so the ground the light
@@ -526,9 +527,9 @@ fn fs(@builtin(position) coord: vec4f) -> @location(0) vec4f {
 	// By day the light is held at the mushroom instead. Over cream a glow
 	// reads by its colour and by following the thing it comes off, not by
 	// brightness: each window is white at its heart and teal at its fringe,
-	// spilling over the cap's edge, and a teal glow hugs the outline, the
-	// cap's most. Over the body it is screened on, so it lightens what it
-	// falls on and never darkens the rest.
+	// spilling over the cap's edge. The strike is the windows flaring. Over
+	// the body it is screened on, so it lightens what it falls on and never
+	// darkens the rest.
 	if (lightPage > 0.0 && fr.glow > 0.0) {
 		var heart = 0.0;
 		var fringe = 0.0;
@@ -539,18 +540,13 @@ fn fs(@builtin(position) coord: vec4f) -> @location(0) vec4f {
 			heart = heart + exp(-d * d * 1.6);
 			fringe = fringe + exp(-d * d * 0.45);
 		}
-		let capward = mix(0.3, 1.0, smoothstep(-0.32, -0.12, uv.y));
-		// Measured only by rays that enter the body's sphere, so it fades out
-		// before that sphere's edge and never shows it.
-		let inSphere = smoothstep(2.5, 1.9, length(cross(bodyC - ro, rd)));
-		let hug = exp(-max(closest, 0.0) / 0.55) * capward * inSphere;
 		let strength = lightPage * fr.glow * (1.0 + fr.flareMix * 1.5);
 		if (id >= 0.5) {
 			let wash = mix(ink, vec3f(1.0), 0.45);
 			col = mix(min(col, vec3f(1.0)), wash, clamp(fringe * 0.6 * strength, 0.0, 0.6));
 			col = mix(col, vec3f(1.0), clamp(heart * 1.4 * strength, 0.0, 1.0));
 		} else {
-			col = col + (vec3f(1.0) * heart * 0.9 + ink * (fringe * 0.4 + hug * 1.1)) * strength;
+			col = col + (vec3f(1.0) * heart * 0.9 + ink * fringe * 0.4) * strength;
 		}
 	}
 
