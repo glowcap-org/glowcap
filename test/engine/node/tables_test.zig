@@ -523,47 +523,36 @@ test "handoff changes wake only receivers dependent on the changed gifter" {
     node.removePeer(receiver_b);
 }
 
-test "every registration gets its own export range, owned and adopted alike" {
+test "owned and adopted registrations get adjacent, nonempty export ranges" {
     const allocator = std.testing.allocator;
-    // Two sessions counting exports from the same place name different objects
-    // with the same number, so a capability offered to the wrong one resolves
-    // silently instead of being refused. The node is what holds many sessions,
-    // so it is what hands out the ranges. There is no register verb that
-    // enrols a session without numbering it, and no posture that can carry or
-    // overwrite a range.
+    var adopted = engine.Peer.initNegotiating(allocator);
+    defer adopted.deinit();
+    var reused = engine.Peer.initNegotiating(allocator);
+    defer reused.deinit();
     var node = engine.Node.init(allocator, @as([32]u8, @splat(0x71)));
     defer node.deinit();
 
     const a = try node.registerPeer(.{});
     const b = try node.registerPeer(.{});
-    const base_a = node.peer(a).?.session_state.exports.base;
-    const base_b = node.peer(b).?.session_state.exports.base;
-    try std.testing.expect(base_a != base_b);
-    try std.testing.expect(base_a >= node.peer(a).?.session_state.exports.end() or
-        base_b >= node.peer(b).?.session_state.exports.end() or
-        base_a + (node.peer(a).?.session_state.exports.end() - base_a) <= base_b or
-        base_b + (node.peer(b).?.session_state.exports.end() - base_b) <= base_a);
-
-    // The adopted path is the one a completion loop uses, and it goes through
-    // the same door: a peer the embedder built and pinned is numbered too.
-    var adopted = engine.Peer.initNegotiating(allocator);
-    defer adopted.deinit();
     const c = try node.registerPeerOver(&adopted);
-    try std.testing.expect(adopted.session_state.exports.base != base_a);
-    try std.testing.expect(adopted.session_state.exports.base != base_b);
 
-    // Export ranges remain disjoint from one another; capability routes are a
-    // separate type and impose no numeric ceiling on them.
-    try std.testing.expect(node.peer(a).?.session_state.exports.end() <= node.export_base_end);
-    try std.testing.expect(adopted.session_state.exports.end() <= node.export_base_end);
+    const ranges = .{
+        &node.peer(a).?.session_state.exports,
+        &node.peer(b).?.session_state.exports,
+        &adopted.session_state.exports,
+    };
+    var next = ranges[0].base;
+    inline for (ranges) |range| {
+        try std.testing.expectEqual(next, range.base);
+        next = range.end();
+        try std.testing.expect(range.base < next);
+    }
+    try std.testing.expect(next <= node.export_base_end);
 
-    // A removed session gives its range back, so the slot bounds live sessions
-    // rather than every session the node has ever registered.
+    const freed_base = adopted.session_state.exports.base;
     node.removePeer(c);
-    var reused = engine.Peer.initNegotiating(allocator);
-    defer reused.deinit();
     _ = try node.registerPeerOver(&reused);
-    try std.testing.expectEqual(adopted.session_state.exports.base, reused.session_state.exports.base);
+    try std.testing.expectEqual(freed_base, reused.session_state.exports.base);
 }
 
 test "registerPeer yields stable, non-reused ids and node-owned peers" {
