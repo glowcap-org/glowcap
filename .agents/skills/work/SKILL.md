@@ -40,6 +40,7 @@ to the next layer. A passing check establishes only the behavior it exercises.
 | Layer ownership, protocol authority, module placement | [`docs/architecture.md`](../../../docs/architecture.md) + [architecture rule](../../rules/architecture.md) |
 | Frames, allocators, wire-path copies                  | [memory rule](../../rules/memory.md)                                                                       |
 | Semantic claims, fixtures, conformance                | [tests rule](../../rules/tests.md) + `test/oracle/`                                                        |
+| Bend laws or coverage of a deterministic property | [bend-laws](../bend-laws/SKILL.md) |
 | Docs, README, agent scaffolding                       | [doc-drift](../../rules/doc-drift.md) + [doc-voice](../../rules/doc-voice.md)                              |
 | Dependency or toolchain updates                       | [`docs/dependencies.md`](../../../docs/dependencies.md) + [cli](../../rules/cli.md#devcontainer) + [prerelease](../../rules/prerelease.md) |
 | Live CapTP from the shell (argv, REPL, listen, `--json`) | [glowcap-cli skill](../glowcap-cli/SKILL.md)                                                               |

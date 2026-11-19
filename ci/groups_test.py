@@ -18,6 +18,7 @@ import fnmatch
 import re
 import shlex
 import unittest
+from pathlib import Path
 
 import groups as GROUPS
 from workflows import ROOT, workflow
@@ -219,6 +220,52 @@ def audit(steps, roots, local):
         if not any(fnmatch.fnmatchcase(name, row) for name in missing):
             problems.append(f"{row}: names no step CI leaves unrun; remove the row")
     return problems
+
+
+class BendProofs(unittest.TestCase):
+    def bend_sources(self, roots: list[Path]) -> set[Path]:
+        reached: set[Path] = set()
+        while roots:
+            path = roots.pop().resolve()
+            if path in reached:
+                continue
+            self.assertTrue(path.is_relative_to(ROOT), path)
+            self.assertTrue(path.is_file(), path)
+            reached.add(path)
+            for line in path.read_text().splitlines():
+                words = line.split()
+                if len(words) >= 2 and words[0] == "import" and words[1].startswith(".") and words[1].endswith(".bend"):
+                    roots.append(path.parent / words[1])
+        return reached
+
+    def test_every_proof_book_reaches_ci_and_its_change_trigger(self):
+        phase = "bend-proofs"
+        proofs: list[Path] = []
+        comparisons: list[Path] = []
+        for kind, command in GROUPS.PHASES[phase]:
+            argv = shlex.split(command)
+            if len(argv) >= 3 and argv[-3] == "bend" and argv[-1] == "--verdict":
+                book = argv[-2]
+                self.assertEqual((kind, command), GROUPS.bend_proof(book))
+                proofs.append(ROOT / book)
+            if any("loam-policy-proof" in steps for steps in commands(command)):
+                # The build step checks the book and separately runs its table for Zig.
+                policy = ROOT / "test/loam/access/policy_laws"
+                proofs.append(policy / "PROOF.bend")
+                comparisons.append(policy / "bounds/table.bend")
+        self.assertEqual(len(set(proofs)), len(proofs), "duplicate Bend proof entry point")
+
+        verified = self.bend_sources(proofs)
+        books = set(ROOT.glob("test/**/PROOF.bend")) | set(ROOT.glob("test/**/LAWS.bend"))
+        self.assertTrue(books, "no Bend proof books found")
+        orphans = sorted(path.relative_to(ROOT).as_posix() for path in books - verified)
+        self.assertEqual(orphans, [], "register each proof book or import its files from a registered book")
+
+        owners = GROUPS.NIGHTLY[phase]
+        reached = verified | self.bend_sources(comparisons)
+        sources = (path.relative_to(ROOT).as_posix() for path in reached)
+        unwatched = sorted(path for path in sources if not path.startswith(owners))
+        self.assertEqual(unwatched, [], "add the Bend sources to the phase's changed-path triggers")
 
 
 class LocalSteps(unittest.TestCase):
