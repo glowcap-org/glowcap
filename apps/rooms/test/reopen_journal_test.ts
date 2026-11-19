@@ -52,6 +52,30 @@ Deno.test("the reopen journal projects only local-answer envelopes on Managed si
 	});
 });
 
+Deno.test("the reopen journal splits the known local-answer transport messages without returning their text", () => {
+	const jsep = "browser channel: JsValue(OperationError: Failed to execute 'setLocalDescription' on " +
+		"'RTCPeerConnection': Failed to set local answer sdp: Failed to apply the description for m= section with mid='0': ";
+	const cases: Array<[string, string]> = [
+		["Failed to setup RTCP mux.", "answer-rtcp-mux"],
+		["Fingerprint provided but no identity available.", "answer-local-certificate-missing"],
+		[
+			"Local fingerprint does not match identity. Expected: sha-256 AA:BB Got: sha-256 CC:DD",
+			"answer-local-fingerprint-mismatch",
+		],
+		["Applying an answer transport description without applying any offer.", "answer-transport-offer-missing"],
+		["Local fingerprint supplied when caller didn't offer DTLS.", "answer-dtls-not-offered"],
+		["Failed to set SSL role for the transport.", "answer-ssl-role"],
+		["Failed to apply remote fingerprint.", "answer-remote-fingerprint"],
+		["Failed to setup RTCP mux. extra", "answer-transport-application"],
+		// The local-answer path calls VerifyCertificateFingerprint only when it has a fingerprint.
+		["No fingerprint", "answer-transport-application"],
+		["constructor", "answer-transport-application"],
+	];
+	const projected = projectJournal(panel(cases.map(([inner]) => row(jsep + inner + ")"))));
+	assertEquals(projected.managed.map((observation) => observation.reason), cases.map(([, reason]) => reason));
+	assertEquals(JSON.stringify(projected).includes("AA:BB"), false);
+});
+
 Deno.test("local answers can be installed after a remote offer or a local provisional answer", () => {
 	const rows = ["have-remote-offer", "have-local-pranswer", "unknown"].map((state) =>
 		row(`browser channel: JsValue(InvalidStateError: Failed to set local answer sdp: Called in wrong state: ${state})`)
