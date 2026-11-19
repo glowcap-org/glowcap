@@ -52,6 +52,7 @@ import { waitForHttp } from "../support/rooms_server.ts";
 import { until } from "../support/wait.ts";
 import { fail } from "../support/fail.ts";
 import { fromPlaywright, ReopenCapture } from "../support/reopen_capture.ts";
+import { PAGE_CAPTURE_KEY, type PageSnapshot } from "../support/reopen_capture_page.ts";
 import { reportReopenJournals } from "../support/reopen_journal.ts";
 import { confirmTitleLeave, openDmTo } from "../page/harness.ts";
 
@@ -338,6 +339,20 @@ try {
 			);
 			await say(receiver, `${message}: reply`);
 			await sees(sender, `${message}: reply`, nick);
+		}
+
+		if (mode.name === "webrtc") {
+			for (const tab of [opener, other]) {
+				const [peers, certified] = await tab.evaluate((key) => {
+					const capture = Reflect.get(globalThis, key) as { snapshot(): PageSnapshot };
+					const { peers, peersWithCertificate } = capture.snapshot();
+					return [peers, peersWithCertificate];
+				}, PAGE_CAPTURE_KEY);
+				if (peers < 4 || certified !== peers) {
+					const who = capture.who(tab);
+					fail(`${who} supplied a DTLS certificate to ${certified} of ${peers} peers across the reopens`);
+				}
+			}
 		}
 
 		// A fresh page Host cannot restore a previous live DM route. Its saved

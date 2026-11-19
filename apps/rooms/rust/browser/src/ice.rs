@@ -11,8 +11,12 @@ use rooms_application::{
 use std::{
 	cell::{Cell, RefCell},
 	rc::Rc,
+	sync::Arc,
 };
-use web_sys::{RtcConfiguration, RtcIceServer};
+use tokio::sync::{Semaphore, watch};
+use wasm_bindgen::{JsCast, JsValue};
+use wasm_bindgen_futures::{JsFuture, future_to_promise};
+use web_sys::{EcKeyGenParams, RtcConfiguration, RtcIceServer, RtcPeerConnection};
 
 const LIMITS: Limits = Limits {
 	servers: glowcap::WEBRTC_MAX_ICE_SERVERS,
@@ -35,14 +39,16 @@ pub enum Error {
 	Http(u16),
 	Invalid(&'static str),
 	Platform(&'static str),
+	Certificate(String),
 }
 impl std::fmt::Display for Error {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		match self {
 			Self::Closed => f.write_str("Rooms ICE source is closed"),
-			Self::Busy => f.write_str("too many pending Rooms ICE observers"),
+			Self::Busy => f.write_str("too many pending Rooms WebRTC configurations"),
 			Self::Timeout => f.write_str("Rooms ICE request timed out"),
 			Self::Http(status) => write!(f, "Rooms ICE request failed ({status})"),
+			Self::Certificate(reason) => write!(f, "generating the WebRTC certificate failed: {reason}"),
 			Self::Invalid(reason) | Self::Platform(reason) => f.write_str(reason),
 		}
 	}
@@ -57,7 +63,10 @@ enum Policy {
 }
 struct Inner {
 	policy: Policy,
-	closed: Cell<bool>,
+	closed: watch::Sender<bool>,
+	// Bound native key generation to one directory's allowance of exchanges,
+	// including operations whose signaling observers have already gone.
+	certificates: Arc<Semaphore>,
 	current: RefCell<Option<Rc<request::Attempt>>>,
 }
 impl Drop for Inner {
@@ -85,20 +94,34 @@ impl Source {
 	fn with(policy: Policy) -> Self {
 		Self(Rc::new(Inner {
 			policy,
-			closed: Cell::new(false),
+			closed: watch::Sender::new(false),
+			certificates: Arc::new(Semaphore::new(policy::MAX_EXCHANGES)),
 			current: RefCell::new(None),
 		}))
 	}
-	/// Cancellation drops only this observation. A concurrent caller shares
-	/// the same admitted request. The source owns it through fetch retirement.
+	/// Each configuration carries a fresh DTLS certificate. Dropping the caller
+	/// drops its observation. The source owns a shared ICE fetch through retirement.
+	/// Signaling callers include this preparation in their exchange budget.
 	pub async fn configuration(&self) -> Result<RtcConfiguration, Error> {
-		if self.0.closed.get() {
+		let mut closed = self.0.closed.subscribe();
+		if *closed.borrow() {
 			return Err(Error::Closed);
 		}
-		let url = match &self.0.policy {
-			Policy::Fetched(url) => url,
-			Policy::Fixed(servers) => return Ok(configuration(servers)),
+		let config = match &self.0.policy {
+			Policy::Fixed(servers) => configuration(servers),
+			Policy::Fetched(url) => configuration(self.servers(url).await?.as_ref()),
 		};
+		// Native key generation has no abort API. Closing the source or dropping
+		// the attempt releases its observer. Only a live caller can use the result.
+		let certificate = tokio::select! {
+			biased;
+			_ = closed.changed() => return Err(Error::Closed),
+			certificate = certificate(&self.0.certificates) => certificate?,
+		};
+		config.set_certificates(&js_sys::Array::of1(&certificate));
+		Ok(config)
+	}
+	async fn servers(&self, url: &str) -> Result<Rc<Servers>, Error> {
 		let attempt = {
 			let mut current = self.0.current.borrow_mut();
 			match current.as_ref() {
@@ -110,19 +133,23 @@ impl Source {
 				}
 			}
 		};
-		let servers = attempt.observe().await?;
-		if self.0.closed.get() {
-			return Err(Error::Closed);
-		}
-		Ok(configuration(&servers))
+		attempt.observe().await
 	}
-	/// Abort and observe the current request, including a pending body read.
-	/// Dropping this close observation cannot cancel the retirement worker.
+	/// Abort the current fetch and observe both the body read and all admitted
+	/// browser certificate operations, including ones whose callers have gone.
 	pub async fn close(&self) -> Result<(), Error> {
-		self.0.closed.set(true);
+		self.0.closed.send_replace(true);
 		let attempt = self.0.current.borrow().clone();
-		if let Some(attempt) = attempt {
+		if let Some(attempt) = &attempt {
 			attempt.abort(Error::Closed);
+		}
+		let _certificates = self
+			.0
+			.certificates
+			.acquire_many(policy::MAX_EXCHANGES as u32)
+			.await
+			.map_err(|_| Error::Platform("WebRTC certificate admission ended"))?;
+		if let Some(attempt) = attempt {
 			attempt.retired().await?;
 		}
 		// A closed source has no future readers. Release any completed response
@@ -130,6 +157,29 @@ impl Source {
 		self.0.current.borrow_mut().take();
 		Ok(())
 	}
+}
+
+async fn certificate(capacity: &Arc<Semaphore>) -> Result<JsValue, Error> {
+	let permit = capacity.clone().try_acquire_owned().map_err(|_| Error::Busy)?;
+	let refused = |cause: JsValue| {
+		let detail = cause
+			.dyn_ref::<js_sys::Error>()
+			.map(|error| error.to_string())
+			.or_else(|| cause.dyn_ref::<js_sys::JsString>().cloned())
+			.map(|text| String::from(text.slice(0, rooms_application::failure::MAX_REASON_BYTES as u32)))
+			.unwrap_or_else(|| "unknown browser error".into());
+		Error::Certificate(rooms_application::failure::reason_prefix(&detail).into())
+	};
+	let algorithm = EcKeyGenParams::new("ECDSA", "P-256");
+	let promise = RtcPeerConnection::generate_certificate_with_object(&algorithm).map_err(refused)?;
+	// Native generation outlives a cancelled signaling attempt. The browser
+	// promise owns its slot until settlement, independently of the observer.
+	let settled = future_to_promise(async move {
+		let result = JsFuture::from(promise).await;
+		drop(permit);
+		result
+	});
+	JsFuture::from(settled).await.map_err(refused)
 }
 
 fn configuration(servers: &Servers) -> RtcConfiguration {

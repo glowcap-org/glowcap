@@ -25,7 +25,7 @@ serde_json.workspace = true
 sha2.workspace = true
 glowcap = { workspace = true, features = ["browser"] }
 tokio.workspace = true
-web-sys = { workspace = true, features = ["console", "WebSocket", "CloseEvent", "MessageEvent", "Url", "UrlSearchParams", "Performance", "Crypto", "RtcConfiguration", "RtcIceServer", "AbortController", "AbortSignal", "RequestInit", "RequestMode", "RequestCache", "RequestCredentials", "RequestRedirect", "Response", "Headers", "ReadableStream", "ReadableStreamDefaultReader", "Event", "EventTarget", "DomException", "DomStringList", "IdbFactory", "IdbOpenDbRequest", "IdbRequest", "IdbDatabase", "IdbTransaction", "IdbTransactionMode", "IdbObjectStore", "IdbObjectStoreParameters", "IdbIndex", "IdbIndexParameters", "IdbCursor", "IdbCursorWithValue", "IdbKeyRange", "Blob", "BlobPropertyBag"] }
+web-sys = { workspace = true, features = ["console", "WebSocket", "CloseEvent", "MessageEvent", "Url", "UrlSearchParams", "Performance", "Crypto", "EcKeyGenParams", "RtcConfiguration", "RtcIceServer", "RtcPeerConnection", "AbortController", "AbortSignal", "RequestInit", "RequestMode", "RequestCache", "RequestCredentials", "RequestRedirect", "Response", "Headers", "ReadableStream", "ReadableStreamDefaultReader", "Event", "EventTarget", "DomException", "DomStringList", "IdbFactory", "IdbOpenDbRequest", "IdbRequest", "IdbDatabase", "IdbTransaction", "IdbTransactionMode", "IdbObjectStore", "IdbObjectStoreParameters", "IdbIndex", "IdbIndexParameters", "IdbCursor", "IdbCursorWithValue", "IdbKeyRange", "Blob", "BlobPropertyBag"] }
 wasm-bindgen.workspace = true
 js-sys.workspace = true
 gloo-timers = { workspace = true, features = ["futures"] }

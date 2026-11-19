@@ -73,7 +73,32 @@ export function iceFixtures() {
 					(async () => {
 						await page.evaluate(async (across) => {
 							const binding = await import("/rooms_contract_proofs.js");
-							await binding.rooms_browser_ice_contract(across);
+							const generate = RTCPeerConnection.generateCertificate;
+							const { promise, reject } = Promise.withResolvers();
+							RTCPeerConnection.generateCertificate = () => promise;
+							try {
+								await binding.rooms_browser_certificate_capacity(() => {
+									RTCPeerConnection.generateCertificate = generate;
+									reject(new DOMException("fixture certificate refusal", "OperationError"));
+								});
+							} finally {
+								RTCPeerConnection.generateCertificate = generate;
+							}
+							const configurations = await binding.rooms_browser_ice_contract(across);
+							const fingerprints = (certificates) => {
+								if (certificates?.length !== 1 || !(certificates[0] instanceof RTCCertificate)) {
+									throw new Error("Rooms must supply one browser certificate per peer");
+								}
+								const ids = certificates[0].getFingerprints().map(({ algorithm, value }) =>
+									algorithm + " " + value
+								);
+								if (!ids.length) throw new Error("the supplied certificate has no fingerprints");
+								return ids.sort().join(",");
+							};
+							const identities = configurations.map((config) => fingerprints(config.certificates));
+							if (identities.length !== 2 || identities[0] === identities[1]) {
+								throw new Error("concurrent peers must receive two distinct certificates");
+							}
 							const prototype = ReadableStreamDefaultReader.prototype;
 							const read = prototype.read;
 							let reads = 0, active = 0, notify;
