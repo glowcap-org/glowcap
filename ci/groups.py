@@ -81,6 +81,7 @@ GROUPS = (
                 gate("zig build infrastructure-check"),
             ],
             "bend-proofs": [
+                bend_proof("test/engine/held_resolution_laws/PROOF.bend"),
                 gate("bash .devcontainer/bin/tools.sh exec bend -- zig build loam-policy-proof --test-timeout 30s"),
                 bend_proof("test/engine/negotiation_laws/PROOF.bend"),
             ],
@@ -324,6 +325,10 @@ NIGHTLY = {
         ".devcontainer/",
         "ci/groups.py",
         ".github/workflows/check-group.yml",
+        "src/ocapn/session/import_table.zig",
+        "src/ocapn/session/import_release_outbox.zig",
+        "test/engine/held_resolution_laws/",
+        "test/engine/held_resolution_test.zig",
     ),
     "goblins-matrix": (
         "interop/goblins_rooms_matrix/",

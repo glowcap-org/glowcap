@@ -1,25 +1,19 @@
-//! Stored-resolution ownership against ADR-0070, with a live-session endpoint.
-//! Agreement alone permits both peers to retain an object forever. This
-//! program releases every owner and requires the import and its wire holds
-//! to disappear before either session closes. It varies repeated mentions,
-//! independent answer owners, and where the application's release occurs.
-//! Omitting the whole resolution-hold release makes the deterministic run
-//! fail its remaining-owner count and the fuzz corpus fail its zero-import
-//! endpoint, even though local counters and peer wire counts still agree.
-//! This target keeps both peers open and does not inject allocation failures.
+//! Release stored resolution holds while both peers remain open. Assert
+//! agreement at each step and keep checking until every retain is gone.
+
 const std = @import("std");
 const glowcap = @import("glowcap");
 const model = glowcap.ocapn.model;
 const engine = glowcap.ocapn.engine;
 const agreement = @import("scenarios").agreement;
-const program = @import("../../support/fuzz_program.zig");
+const program = @import("../support/fuzz_program.zig");
 
 fn settle(pair: *engine.pairing.Pair) !void {
     try program.settle(&pair.p1, &pair.p2);
     try std.testing.expect(pair.p1.sessionIsOpen() and pair.p2.sessionIsOpen());
     try agreement.check(&pair.p1, &pair.p2);
 }
-fn run(profile: model.CaptpVersion, codec: model.CodecId, owners: u8, mentions: u8, release_after: u8) !void {
+fn run(profile: model.CaptpVersion, codec: model.CodecId, owners: usize, mentions: usize, release_after: usize) !void {
     var pair = try engine.pairing.pairedNegotiated(std.testing.allocator, .{
         .captp_version = profile,
         .codec = codec,
@@ -50,10 +44,14 @@ fn run(profile: model.CaptpVersion, codec: model.CodecId, owners: u8, mentions: 
     const imports = &pair.p2.session_state.imports;
     try std.testing.expectEqual(@as(u64, owners) * mentions, imports.rows.get(position).?.resolution_holds);
 
-    for (0..@as(usize, owners) + 1) |i| {
+    for (0..owners + 1) |i| {
         if (i == release_after) {
             try pair.p2.sendBorrowed(.{ .gc_export = .{ .positions = &.{position}, .deltas = &.{1} } });
             try settle(&pair);
+            if (i < owners) {
+                try std.testing.expectEqual(@as(u64, 1), imports.rows.get(position).?.held_back);
+                try std.testing.expectEqual(@as(u64, 1), pair.p1.session_state.exports.wireHeld(.from(position)));
+            }
         }
         if (i == owners) break;
         try pair.p1.sendBorrowed(.{ .gc_answer = .{ .positions = &.{i + 1} } });
@@ -61,6 +59,8 @@ fn run(profile: model.CaptpVersion, codec: model.CodecId, owners: u8, mentions: 
         if (i + 1 < owners) {
             const row = imports.rows.get(position) orelse return error.ImportReleasedBeforeLastOwner;
             try std.testing.expectEqual(@as(u64, owners - i - 1) * mentions, row.resolution_holds);
+        } else if (release_after < owners) {
+            try std.testing.expectEqual(@as(u64, 0), pair.p1.session_state.exports.wireHeld(.from(position)));
         }
     }
     try std.testing.expectEqual(@as(u64, 0), imports.count(.from(position)));
@@ -70,18 +70,16 @@ fn run(profile: model.CaptpVersion, codec: model.CodecId, owners: u8, mentions: 
     try std.testing.expectEqual(@as(usize, 0), pair.p2.session_state.import_release_outbox.?.active_batches);
 }
 
-pub fn everyOrder() !void {
-    inline for (.{ model.CaptpVersion.v1_0, model.CaptpVersion.next }) |profile| {
-        inline for (.{ model.CodecId.syrup, model.CodecId.capnp }) |codec| {
-            for (0..3) |release_after| try run(profile, codec, 2, 2, @intCast(release_after));
+test "stored resolutions pay back the last wire retain for every bounded schedule" {
+    for ([_]model.CaptpVersion{ .v1_0, .next }) |profile| {
+        for ([_]model.CodecId{ .syrup, .capnp }) |codec| {
+            for (1..5) |owners| {
+                for (1..5) |mentions| {
+                    for (0..owners + 1) |release_after| {
+                        try run(profile, codec, owners, mentions, release_after);
+                    }
+                }
+            }
         }
     }
-}
-
-pub fn one(_: void, smith: *std.testing.Smith) !void {
-    const profile: model.CaptpVersion = if (smith.valueRangeAtMost(u8, 0, 1) == 0) .v1_0 else .next;
-    const codec: model.CodecId = if (smith.valueRangeAtMost(u8, 0, 1) == 0) .syrup else .capnp;
-    const owners = smith.valueRangeAtMost(u8, 1, 4);
-    const mentions = smith.valueRangeAtMost(u8, 1, 4);
-    try run(profile, codec, owners, mentions, smith.valueRangeAtMost(u8, 0, owners));
 }

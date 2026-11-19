@@ -105,11 +105,11 @@ running the session, engine, and driver suites:
 | The whole stored-resolution hold release is omitted, keeping local counts consistent | The complete-release scenario retains more holds than its remaining owners |
 
 Agreement alone cannot detect both peers keeping an unneeded reference.
-`test/engine/fuzz/held_resolution.zig` drives stored far-import resolutions
+`test/engine/held_resolution_test.zig` drives stored far-import resolutions
 through every owner release and requires zero import and wire retains while
-both sessions remain open. Its generated cases vary repeated mentions,
-answer owners, release order, profile, and codec. The engine operation
-fuzzer also generates resolutions naming existing far imports.
+both sessions remain open. The test enumerates a bounded matrix of repeated
+mentions, answer owners, release timing, profiles, and codecs. The engine
+operation fuzzer also generates resolutions naming existing far imports.
 
 `test/driver/promise_argument_test.zig` checks both release orders after a
 Host lifts a stored import whose original retain was parked. The import
