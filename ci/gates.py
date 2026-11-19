@@ -15,7 +15,7 @@ gate is reported and the phase goes on, so one run names every failure, and
 the first failure's status is the exit status. A prerequisite runs unchanged
 in both compile and test jobs. A failed prerequisite stops the phase. A build
 that runs out of time also stops the phase, because every later gate needs it.
-Exit 124 or 137 from a gate means the deadline killed it (`wedged`).
+Exit 124 reports a deadline and 137 reports SIGKILL. CI treats both as wedged.
 
 A run writes an evidence record (ci/evidence.py): under
 zig-out/evidence/<phase> for one phase, or attached to HEAD as a git note for
@@ -53,7 +53,7 @@ def say(message):
 
 
 def wedged(status):
-    """True when the deadline wrapper killed the gate."""
+    """True when a deadline or SIGKILL stopped the gate."""
     return status in (124, 137)
 
 
@@ -109,10 +109,7 @@ class Run:
             return None
         say(f"gate failed (exit {status}): {command}")
         if wedged(status):
-            say(
-                f"  It exceeded {timeout} and was killed. Inspect the gate's last output"
-                " and any process still holding its port before retrying."
-            )
+            say("  A deadline or kill signal stopped this gate. See the output above.")
             if kind == "build":
                 say("  Every later gate in this phase needs this build, so the phase stops here.")
                 return status
