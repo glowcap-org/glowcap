@@ -35,69 +35,62 @@ test "a rendered prefix is the canonical decimal and colon at every width" {
 const Spill = glowcap.foundation.Spill;
 const frame = "11:hello world";
 
-test "a frame cut at every offset completes from the chunk that carries its rest" {
+fn expectPartition(comptime prefix: []const u8, comptime body: []const u8, cuts: usize) !void {
     const allocator = std.testing.allocator;
-    const behind = frame ++ "3:abc";
-    for (1..frame.len) |cut| {
-        var spill: Spill = .{};
-        defer spill.deinit(allocator);
-        try spill.absorbBytes(allocator, frame[0..cut]);
-        const done = try stream_framing.completeFirstFrame(&spill, allocator, behind[cut..], 64);
-        // Exactly the frame's missing bytes are taken, never the frame behind.
-        const prefix_len = 3;
-        try std.testing.expectEqualStrings("hello world", done.frame.body);
-        try std.testing.expectEqual(frame.len - cut, done.frame.used);
-        if (cut <= prefix_len) {
-            // The spill ends at the prefix: its missing digits are absorbed and
-            // the body is lent from the chunk.
-            try std.testing.expect(done.frame.body.ptr == behind[prefix_len..].ptr);
-            try std.testing.expectEqualStrings("11:", spill.bytes());
+    const input = prefix ++ body ++ "3:abc";
+    const boundary = prefix.len + body.len;
+    if (cuts == 0) {
+        const result = stream_framing.parsePrefix(input, body.len);
+        try std.testing.expectEqual(.decoded, std.meta.activeTag(result));
+        try std.testing.expectEqualStrings(body, result.decoded.body);
+        try std.testing.expectEqual(boundary, result.decoded.consumed);
+        try std.testing.expect(result.decoded.body.ptr == input[prefix.len..].ptr);
+        return;
+    }
+    var spill: Spill = .{};
+    defer spill.deinit(allocator);
+
+    var start: usize = 0;
+    var pending_cuts = cuts;
+    for (1..boundary + 1) |end| {
+        const cut = pending_cuts & 1 != 0;
+        pending_cuts >>= 1;
+        if (!cut and end != boundary) continue;
+        if (end != boundary) {
+            const chunk = input[start..end];
+            if (start == 0) {
+                try std.testing.expectEqual(.incomplete, std.meta.activeTag(stream_framing.parsePrefix(chunk, body.len)));
+                try spill.absorbBytes(allocator, chunk);
+            } else {
+                try std.testing.expectEqual(.waiting, try stream_framing.completeFirstFrame(&spill, allocator, chunk, body.len));
+            }
+            try std.testing.expectEqual(.waiting, try stream_framing.completeFirstFrame(&spill, allocator, "", body.len));
+            try std.testing.expectEqualStrings(input[0..end], spill.bytes());
+            start = end;
+            continue;
+        }
+
+        const result = try stream_framing.completeFirstFrame(&spill, allocator, input[start..], body.len);
+        try std.testing.expectEqual(.frame, std.meta.activeTag(result));
+        try std.testing.expectEqualStrings(body, result.frame.body);
+        try std.testing.expectEqual(boundary - start, result.frame.used);
+        if (start <= prefix.len) {
+            try std.testing.expect(result.frame.body.ptr == input[prefix.len..].ptr);
+            try std.testing.expectEqualStrings(prefix, spill.bytes());
         } else {
-            try std.testing.expect(done.frame.body.ptr == spill.bytes()[prefix_len..].ptr);
-            try std.testing.expectEqualStrings(frame, spill.bytes());
+            try std.testing.expect(result.frame.body.ptr == spill.bytes()[prefix.len..].ptr);
+            try std.testing.expectEqualStrings(input[0..boundary], spill.bytes());
         }
     }
 }
 
-test "a prefix split across chunks completes one byte at a time" {
-    const allocator = std.testing.allocator;
-    const wide = "123:".* ++ @as([123]u8, @splat('x'));
-    var spill: Spill = .{};
-    defer spill.deinit(allocator);
-    try spill.absorbBytes(allocator, "1");
-    // "2" arrives alone, then the colon and the body.
-    try std.testing.expectEqual(stream_framing.Completed.waiting, try stream_framing.completeFirstFrame(&spill, allocator, "2", 4096));
-    try std.testing.expectEqualStrings("12", spill.bytes());
-    const done = try stream_framing.completeFirstFrame(&spill, allocator, wide[2..], 4096);
-    // The digit and the colon absorbed, then the 123 body bytes lent.
-    try std.testing.expectEqual(@as(usize, 2 + 123), done.frame.used);
-    try std.testing.expectEqual(@as(usize, 123), done.frame.body.len);
-    try std.testing.expectEqualStrings("123:", spill.bytes());
-}
-
-test "an empty frame whose colon arrives late completes with the bytes it took counted" {
-    const allocator = std.testing.allocator;
-    var spill: Spill = .{};
-    defer spill.deinit(allocator);
-    try spill.absorbBytes(allocator, "0");
-    const done = try stream_framing.completeFirstFrame(&spill, allocator, ":3:abc", 64);
-    try std.testing.expectEqual(@as(usize, 0), done.frame.body.len);
-    try std.testing.expectEqual(@as(usize, 1), done.frame.used);
-}
-
-test "a chunk that ends before the frame does is absorbed whole" {
-    const allocator = std.testing.allocator;
-    var spill: Spill = .{};
-    defer spill.deinit(allocator);
-    try spill.absorbBytes(allocator, "11:he");
-    try std.testing.expectEqual(stream_framing.Completed.waiting, try stream_framing.completeFirstFrame(&spill, allocator, "llo", 64));
-    try std.testing.expectEqualStrings("11:hello", spill.bytes());
-    // A prefix-only spill with a short chunk absorbs the chunk too.
-    var bare: Spill = .{};
-    defer bare.deinit(allocator);
-    try bare.absorbBytes(allocator, "11:");
-    try std.testing.expectEqual(stream_framing.Completed.waiting, try stream_framing.completeFirstFrame(&bare, allocator, "hel", 64));
-    try std.testing.expectEqualStrings("11:hel", bare.bytes());
+test "stream partitions preserve the body boundary and borrowing" {
+    inline for (.{ .{ "0:", "" }, .{ "3:", "abc" }, .{ "11:", "hello world" } }) |sample| {
+        const gaps = sample[0].len + sample[1].len - 1;
+        for (0..1 << gaps) |cuts| try expectPartition(sample[0], sample[1], cuts);
+    }
+    const wide: [123]u8 = @splat('x');
+    try expectPartition("123:", &wide, 0b11);
 }
 
 test "a malformed, oversize, or whole waiting frame is left to the caller's parse" {
