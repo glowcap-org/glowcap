@@ -10,9 +10,10 @@
 export const SCENE = `
 // How much of the night's teal the light keeps by day. A light by day is
 // white where it is brightest and cyan only where it falls off: the hearts
-// of the windows, the middle of the band under the brim, and the middle of
-// the pool on the ground are white, and their edges and spill are the lamps'
-// colour, white with this much of the ink's hue in it.
+// of the windows and of the chamber under the brim, the middle of the band
+// under the brim, and the middle of the pool on the ground are white, and
+// their edges and spill are the lamps' colour, white with this much of the
+// ink's hue in it.
 const DAY_TEAL = 0.6;
 
 // False in the pipeline for a dark page, which compiles out every line only a
@@ -214,23 +215,14 @@ fn shadeBody(p: vec3f, n: vec3f, rd: vec3f, fr: Frame) -> vec3f {
 
 	// The brim's own glow under it: the one piece of shading the mark keeps,
 	// because it is light rather than surface. By night it adds to the
-	// flesh. By day it covers it as soon as the light is up, and reaches
-	// further up the underside, where the night's air would have lit it:
-	// white along the lip and cyan as it rises into the cap, because the
-	// lamps' teal added to the cap's orange would sum to a flat white. The
-	// stalk under it is lit the same way, white just under the brim and cyan
-	// toward the foot, its own shading kept as a deeper cyan.
+	// flesh. By day it covers it as soon as the light is up, white along the
+	// middle of the band and cyan at its edges: the lamps' teal added to the
+	// cap's orange would sum to a flat white.
 	let under = smoothstep(-0.05, -0.5, n.y) * isCap;
 	let underNight = body + fr.lamp * under * 2.4 * fr.glow;
 	if (LIGHT_PAGE) {
-		let cover = smoothstep(0.0, 0.3, fr.glow);
-		let underWide = smoothstep(0.35, -0.25, n.y) * isCap;
-		let underCore = mix(fr.lamp, vec3f(1.0), smoothstep(0.55, 1.0, underWide));
-		var underDay = mix(body, underCore * 1.15, underWide * cover);
-		let stalkTop = smoothstep(0.0, 1.25, p.y);
-		let shade = mix(0.8, 1.0, smoothstep(0.08, 0.35, dot(body, vec3f(0.2126, 0.7152, 0.0722))));
-		let stalkLight = mix(fr.lamp, vec3f(1.0), smoothstep(0.75, 1.0, stalkTop)) * shade;
-		underDay = mix(underDay, stalkLight * 1.15, mix(0.8, 1.0, stalkTop) * (1.0 - isCap) * cover);
+		let underCore = mix(fr.lamp, vec3f(1.0), smoothstep(0.55, 1.0, under));
+		let underDay = mix(body, underCore * 1.15, under * smoothstep(0.0, 0.3, fr.glow));
 		body = mix(underNight, underDay, fr.lightPage);
 	} else {
 		body = underNight;
@@ -569,10 +561,10 @@ fn fs(@builtin(position) coord: vec4f) -> @location(0) vec4f {
 
 	// By day the light is held at the mushroom instead. Over cream a glow
 	// reads by its colour and by following the thing it comes off, not by
-	// brightness: each window is white at its heart and the lamps' cyan at
-	// its rim and in its spill over the cap's edge. The strike is the windows
-	// flaring. Over the body it is screened on, so it lightens what it falls
-	// on and never darkens the rest.
+	// brightness: each window, and the chamber under the brim, is white at
+	// its heart and the lamps' cyan at its rim and in its spill. The strike
+	// is the windows flaring. Over the body it is screened on, so it
+	// lightens what it falls on and never darkens the rest.
 	if (LIGHT_PAGE && lightPage > 0.0 && fr.glow > 0.0) {
 		var heart = 0.0;
 		var fringe = 0.0;
@@ -584,6 +576,17 @@ fn fs(@builtin(position) coord: vec4f) -> @location(0) vec4f {
 			heart = heart + exp(-d * d * 1.6);
 			fringe = fringe + exp(-d * d * 0.45);
 		}
+		// The chamber under the brim is a lamp of the same kind, seen through
+		// the gap between brim and stalk: a wide, short light at the brim's
+		// front edge, hugging the band above it and reaching down the stalk's
+		// top below it. The windows carry the strike, so it barely flares and
+		// the outline beside it stays drawn.
+		let mouth = lamps.spill - vec3f(0.0, 0.05, 0.0) - ro;
+		let mouthOff = mouth - rd * dot(mouth, rd);
+		let md = length(vec2f(mouthOff.x / 0.75, mouthOff.y / select(0.12, 0.4, mouthOff.y > 0.0)));
+		let mouthGain = 1.3 * fr.gCap / (1.0 + fr.flareMix * 1.2);
+		heart = heart + exp(-md * md * 1.6) * mouthGain;
+		fringe = fringe + exp(-md * md * 0.45) * mouthGain;
 		let strength = lightPage * smoothstep(0.0, 0.3, fr.glow) * (1.0 + fr.flareMix * 1.5);
 		if (id >= 0.5) {
 			col = mix(min(col, vec3f(1.0)), lamp, clamp(fringe * 0.6 * strength, 0.0, 0.6));
