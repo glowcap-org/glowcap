@@ -35,3 +35,12 @@ law remainder_matches_total:
   for +deltas: List<&2, Nat>
   for +held: Nat
   {remainder(deltas, held) == Nat.sub(held, total(deltas)) : Nat}
+
+# An empty append has no effect. A positive append charges the live suffix.
+law retained_input_admission:
+  for +limit: Nat
+  for +head: Nat
+  for +live: Nat
+  for +arrival: Nat
+  {Nat.is_le(1n+arrival, Nat.sub(limit, Nat.sub(Nat.add(head, live), head))) ==
+    Nat.is_le(Nat.add(live, 1n+arrival), limit) : Bool}

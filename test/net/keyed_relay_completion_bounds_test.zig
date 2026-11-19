@@ -139,12 +139,13 @@ fn expectUpgradeCase(case: UpgradeCase) !void {
     }
 }
 
-/// One server frame carrying "a", followed by `tail_len` bytes the adapter has
-/// to retain once the frame's payload is lent out.
+const receive_frame = [_]u8{ 0x82, 0x01, 'a' };
+
+/// One server frame followed by the bytes the adapter has to retain.
 fn coalescedWire(tail_len: usize) ![]u8 {
-    const wire = try std.testing.allocator.alloc(u8, 3 + tail_len);
-    @memcpy(wire[0..3], &[_]u8{ 0x82, 0x01, 'a' });
-    @memset(wire[3..], 0x5a);
+    const wire = try std.testing.allocator.alloc(u8, receive_frame.len + tail_len);
+    @memcpy(wire[0..receive_frame.len], &receive_frame);
+    @memset(wire[receive_frame.len..], 0x5a);
     return wire;
 }
 
@@ -158,97 +159,59 @@ test "keyed-relay retained input is the read buffer plus the largest header and 
     );
 }
 
-test "keyed-relay lent platform read keeps a coalesced tail of exactly the retained-input limit" {
-    var backend = try admissionBackend(std.testing.allocator);
-    defer deinitAdmissionBackend(&backend);
-    const fd = try openAdmissionRelay(&backend);
-    const conn = backend.conns.get(1).?;
+const ReadShape = enum { lent, split, consumed_prefix };
 
-    const wire = try coalescedWire(backend.raw_in_limit);
-    defer std.testing.allocator.free(wire);
-    backend.platform.recv_payload = wire;
-    try backend.submitRecv(60, fd);
-
-    var completions: [1]net.completion.Completion = undefined;
-    try std.testing.expectEqual(@as(usize, 1), try backend.poll(&completions, 0));
-    try std.testing.expectEqual(@as(u64, 60), completions[0].user_data);
-    try std.testing.expectEqualSlices(u8, "a", completions[0].borrowed.recvBytes().?);
-    try std.testing.expectEqual(backend.raw_in_limit, conn.raw_in.items.len - conn.raw_in_head);
-    backend.recycleBorrowed(completions[0]);
-}
-
-test "keyed-relay lent platform read refuses a coalesced tail one byte past the limit" {
-    var backend = try admissionBackend(std.testing.allocator);
-    defer deinitAdmissionBackend(&backend);
-    const fd = try openAdmissionRelay(&backend);
-    const conn = backend.conns.get(1).?;
-
-    const wire = try coalescedWire(backend.raw_in_limit + 1);
-    defer std.testing.allocator.free(wire);
-    backend.platform.recv_payload = wire;
-    const recycled_before = backend.platform.recycle_calls;
-    try backend.submitRecv(60, fd);
-
-    var completions: [1]net.completion.Completion = undefined;
-    try std.testing.expectEqual(@as(usize, 1), try backend.poll(&completions, 0));
-    try expectFailed(completions[0], 60, error.RelayInputOverflow, .receive);
-    try std.testing.expectEqual(.closing, conn.state);
-    try std.testing.expectEqual(@as(?u64, null), conn.external_recv_ud);
-    // The refused platform buffer goes back to its pool exactly once.
-    try std.testing.expectEqual(recycled_before + 1, backend.platform.recycle_calls);
-}
-
-test "keyed-relay later read counts retained bytes against the limit and admits the last byte" {
-    var backend = try admissionBackend(std.testing.allocator);
+fn expectRetainedInput(shape: ReadShape, over_limit: bool) !void {
+    const allocator = std.testing.allocator;
+    var backend = try admissionBackend(allocator);
     defer deinitAdmissionBackend(&backend);
     const fd = try openAdmissionRelay(&backend);
     const conn = backend.conns.get(1).?;
     const limit = backend.raw_in_limit;
 
-    // One retained header byte leaves `limit - 1` bytes of room. The read that
-    // fills it exactly carries the rest of a one-byte frame, so the completion
-    // proves the byte at the limit was admitted and parsed.
-    try conn.raw_in.appendSlice(backend.allocator, &.{0x82});
-    try backend.submitRecv(62, fd);
-    try std.testing.expectEqual(@as(?u64, 62), conn.external_recv_ud);
-    try std.testing.expect(conn.pending.get(.recv));
+    // A lent frame leaves only its tail in the buffer. A later read appends
+    // the whole chunk and charges the live header byte already buffered.
+    const tail_len = limit - (if (shape == .lent) @as(usize, 0) else receive_frame.len) + @intFromBool(over_limit);
+    const wire = try coalescedWire(tail_len);
+    defer allocator.free(wire);
+    switch (shape) {
+        .lent => backend.platform.recv_payload = wire,
+        .split => try conn.raw_in.append(backend.allocator, wire[0]),
+        .consumed_prefix => {
+            try conn.raw_in.appendSlice(backend.allocator, &.{ 0, wire[0] });
+            conn.raw_in_head = 1;
+        },
+    }
 
-    const wire = try std.testing.allocator.alloc(u8, limit - 1);
-    defer std.testing.allocator.free(wire);
-    @memset(wire, 0x5a);
-    @memcpy(wire[0..2], &[_]u8{ 0x01, 'a' });
-    try backend.platform.completeRecv(wire);
+    const user_data = 60;
+    const recycled_before = backend.platform.recycle_calls;
+    try backend.submitRecv(user_data, fd);
+    if (shape != .lent) {
+        try std.testing.expectEqual(@as(?u64, user_data), conn.external_recv_ud);
+        try std.testing.expect(conn.pending.get(.recv));
+        try backend.platform.completeRecv(wire[1..]);
+    }
 
     var completions: [1]net.completion.Completion = undefined;
     try std.testing.expectEqual(@as(usize, 1), try backend.poll(&completions, 0));
-    try std.testing.expectEqual(@as(u64, 62), completions[0].user_data);
-    try std.testing.expectEqualSlices(u8, "a", completions[0].borrowed.recvBytes().?);
-    backend.recycleBorrowed(completions[0]);
+    if (over_limit) {
+        try expectFailed(completions[0], user_data, error.RelayInputOverflow, .receive);
+        try std.testing.expectEqual(.closing, conn.state);
+        try std.testing.expectEqual(@as(?u64, null), conn.external_recv_ud);
+        try std.testing.expectEqual(recycled_before + 1, backend.platform.recycle_calls);
+    } else {
+        try std.testing.expectEqual(@as(u64, user_data), completions[0].user_data);
+        try std.testing.expectEqual(@as(?anyerror, null), completions[0].failure);
+        try std.testing.expectEqualSlices(u8, "a", completions[0].borrowed.recvBytes().?);
+        try std.testing.expectEqual(tail_len, conn.raw_in.items.len - conn.raw_in_head);
+        try std.testing.expect(conn.raw_in.items.len <= limit);
+        backend.recycleBorrowed(completions[0]);
+    }
 }
 
-test "keyed-relay later read refuses a byte past the limit once a header byte is retained" {
-    var backend = try admissionBackend(std.testing.allocator);
-    defer deinitAdmissionBackend(&backend);
-    const fd = try openAdmissionRelay(&backend);
-    const conn = backend.conns.get(1).?;
-    const limit = backend.raw_in_limit;
-
-    try conn.raw_in.appendSlice(backend.allocator, &.{0x82});
-    try backend.submitRecv(62, fd);
-    try std.testing.expect(conn.pending.get(.recv));
-
-    // `limit` bytes alone fit an empty buffer. Behind the retained byte they
-    // are one past it.
-    const wire = try std.testing.allocator.alloc(u8, limit);
-    defer std.testing.allocator.free(wire);
-    @memset(wire, 0x5a);
-    const recycled_before = backend.platform.recycle_calls;
-    try backend.platform.completeRecv(wire);
-
-    var completions: [1]net.completion.Completion = undefined;
-    try std.testing.expectEqual(@as(usize, 1), try backend.poll(&completions, 0));
-    try expectFailed(completions[0], 62, error.RelayInputOverflow, .receive);
-    try std.testing.expectEqual(.closing, conn.state);
-    // The refused platform buffer goes back to its pool exactly once.
-    try std.testing.expectEqual(recycled_before + 1, backend.platform.recycle_calls);
+test "keyed-relay admits the retained-input limit and refuses one byte more" {
+    for ([_]ReadShape{ .lent, .split, .consumed_prefix }) |shape| {
+        try expectRetainedInput(shape, false);
+        try expectRetainedInput(shape, true);
+    }
 }
