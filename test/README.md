@@ -34,6 +34,13 @@ Bend proves that adjacent half-open ranges share no position. The Zig tests
 check node assignment and the bounds on fresh exports.
 [Export range law](engine/export_range_laws/LAWS.bend)
 
+### Handle generations
+
+Within one owner’s row, a freed generation stays stale through any number
+of reuses. Bend checks advancement and retirement. The Zig test exercises
+ordinary reuse and the final two generations.
+[Generation law](foundation/handle_generation_laws/LAWS.bend)
+
 ### Negotiation laws
 
 Swapping peers preserves candidate order at every rank. The Zig test
