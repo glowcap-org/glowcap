@@ -304,118 +304,83 @@ test "a projection op accepts every fresh wire answer and refuses reuse" {
     try std.testing.expectError(session.Error.UnexpectedMessage, s.recordRecv(reuse));
 }
 
-test "a second outbound resolve for a settled inbound answer is refused" {
-    const allocator = std.testing.allocator;
-    var s = session.Session.init(allocator);
-    defer s.deinit();
-    try s.registerExport(.from(7));
-    try s.recordRecv(.{ .deliver = .{
-        .target = .{ .near = .{ .export_position = .from(7) } },
-        .args = &.{},
-        .answer = .from(11),
-        .resolve_me_desc = .{ .far = model.FarRef.object(0) },
-    } });
-
-    try s.recordSend(.{ .resolve = .{
-        .answer = .from(11),
-        .resolution = .{ .fulfill = .{ .void = {} } },
-    } });
-    // An answer resolves exactly once on the send side too, symmetric with the
-    // inbound double-resolve rejection: a second resolve would put our own
-    // protocol violation on the wire. `recordSend` consumes a resolve's
-    // resolution (it transfers into the answer store on success, is freed on
-    // refusal), so the break reason is heap-owned here exactly as the engine
-    // hands it, the refusal frees it, no leak.
-    const again = try allocator.dupe(u8, "again");
-    try std.testing.expectError(session.Error.UnexpectedMessage, s.recordSend(.{
-        .resolve = .{
-            .answer = .from(11),
-            .resolution = .{ .@"break" = .{ .message = again } },
-        },
-    }));
-    // An unknown answer stays the reference error it always was.
-    try std.testing.expectError(session.Error.InvalidReference, s.recordSend(.{
-        .resolve = .{
-            .answer = .from(99),
-            .resolution = .{ .fulfill = .{ .void = {} } },
-        },
-    }));
+fn settleInbound(s: *session.Session, position: model.AnswerPosition, broken: bool, first: bool) !void {
+    const resolution: model.Resolution = if (broken)
+        .{ .@"break" = .{ .message = try s.allocator.dupe(u8, if (first) "first" else "later") } }
+    else
+        .{ .fulfill = .{ .integer = if (first) 1 else 2 } };
+    try s.recordSend(.{ .resolve = .{ .answer = position, .resolution = resolution } });
 }
 
-test "a partner may reuse an answer position after releasing it" {
-    const allocator = std.testing.allocator;
-    var s = session.Session.init(allocator);
-    defer s.deinit();
-    try s.registerExport(.from(7));
+test "answer lifetime keeps the first settlement until the wire position is released" {
+    const name = model.AnswerName.fromWire(.from(11));
+    for ([_]model.CaptpVersion{ .v1_0, .next }) |profile| {
+        var s = session.Session.initWith(std.testing.allocator, .{ .captp_version = profile });
+        defer s.deinit();
+        try s.registerExport(.from(7));
+        try std.testing.expectError(error.InvalidReference, settleInbound(&s, name.wire, false, true));
 
-    // First life of answer-pos 11: install, resolve, release through
-    // op:gc-answers. The row and everything hanging off it die together.
-    try s.recordRecv(.{ .deliver = .{
-        .target = .{ .near = .{ .export_position = .from(7) } },
-        .args = &.{},
-        .answer = .from(11),
-        .resolve_me_desc = .{ .far = model.FarRef.object(0) },
-    } });
-    try s.recordSend(.{ .resolve = .{
-        .answer = .from(11),
-        .resolution = .{ .fulfill = .{ .void = {} } },
-    } });
-    try s.recordRecv(.{ .gc_answer = .{ .positions = &.{11} } });
-    try std.testing.expect(s.inboundAnswer(.from(11)) == null);
+        for ([_]bool{ false, true }, 4..) |broken, resolver| {
+            try s.recordRecv(.{ .deliver = .{
+                .target = .{ .near = model.NearRef.object(7) },
+                .args = &.{},
+                .answer = name.wire,
+                .resolve_me_desc = if (profile == .next) .{ .far = model.FarRef.object(resolver) } else null,
+            } });
+            try std.testing.expectEqual(.pending, s.inboundAnswer(name.wire).?.status);
+            try std.testing.expect(s.peekResolution(name.wire) == null);
+            try settleInbound(&s, name.wire, broken, true);
+            try std.testing.expectError(error.UnexpectedMessage, settleInbound(&s, name.wire, false, false));
+            try std.testing.expectError(error.UnexpectedMessage, settleInbound(&s, name.wire, true, false));
 
-    // The spec lets the partner reuse the position once it is GC'd: the second
-    // life lands on a cleared table, indistinguishable from a fresh position.
-    try s.recordRecv(.{ .deliver = .{
-        .target = .{ .near = .{ .export_position = .from(7) } },
-        .args = &.{},
-        .answer = .from(11),
-        .resolve_me_desc = .{ .far = model.FarRef.object(0) },
-    } });
-    try std.testing.expectEqual(session.AnswerStatus.pending, s.inboundAnswer(.from(11)).?.status);
+            const kept = s.peekResolution(name.wire) orelse return error.MissingResolution;
+            if (broken) {
+                try std.testing.expectEqual(.broken, s.inboundAnswer(name.wire).?.status);
+                try std.testing.expectEqualStrings("first", kept.@"break".message);
+            } else {
+                try std.testing.expectEqual(.fulfilled, s.inboundAnswer(name.wire).?.status);
+                try std.testing.expectEqual(@as(i64, 1), kept.fulfill.integer);
+            }
+            try s.recordRecv(.{ .gc_answer = .{ .positions = &.{name.wire.int()} } });
+            try std.testing.expect(s.inboundAnswer(name.wire) == null);
+        }
+    }
 }
 
-test "a settled question's position is asked again under a new identity" {
-    var s = session.Session.initWith(std.testing.allocator, .{ .captp_version = .next });
-    defer s.deinit();
+test "answer lifetime gives reused question positions fresh identities" {
+    for ([_]model.CaptpVersion{ .v1_0, .next }) |profile| {
+        var s = session.Session.initWith(std.testing.allocator, .{ .captp_version = profile });
+        defer s.deinit();
 
-    const first = try s.allocateOutboundAnswer();
-    try std.testing.expectEqual(first, s.outboundAnswerTarget(first.position).?);
-    try s.installOutboundAnswer(first.position);
-    try std.testing.expect(s.hasLiveOutboundAnswer(first));
-
-    try s.releaseOutboundAnswer(first.position);
-    try std.testing.expect(!s.hasLiveOutboundAnswer(first));
-    try std.testing.expect(s.outboundAnswerTarget(first.position) == null);
-
-    // The partner answered and released the position, so it is the next one
-    // minted. The question it now names is a different one.
-    const second = try s.allocateOutboundAnswer();
-    try std.testing.expectEqual(first.position, second.position);
-    try std.testing.expect(second.row_id != first.row_id);
-    try s.installOutboundAnswer(second.position);
-    try std.testing.expect(s.hasLiveOutboundAnswer(second));
-    try std.testing.expect(!s.hasLiveOutboundAnswer(first));
-    try std.testing.expect(!s.outboundAnswerReleaseClaimed(first));
-    try std.testing.expectEqual(second, s.outboundAnswerTarget(first.position).?);
-}
-
-test "CapTP 1.0 reuses a released pending question with a fresh identity" {
-    var s = session.Session.initWith(std.testing.allocator, .{ .captp_version = .v1_0 });
-    defer s.deinit();
-
-    const first = try s.allocateOutboundAnswer();
-    try s.installOutboundAnswer(first.position);
-    try s.releaseOutboundAnswer(first.position);
-    try std.testing.expect(!s.hasLiveOutboundAnswer(first));
-    try std.testing.expect(s.outboundAnswerTarget(first.position) == null);
-    try std.testing.expect(!s.outbound_answers.contains(first.position));
-
-    // Resolver callbacks carry separate export authority, so the next
-    // question reuses the slot with a new identity.
-    const second = try s.allocateOutboundAnswer();
-    try std.testing.expectEqual(first.position, second.position);
-    try std.testing.expect(first.row_id != second.row_id);
-    try std.testing.expectEqual(@as(u64, 0), s.outbound_answers.count(first.position));
+        var retired: ?session.OutboundAnswerTarget = null;
+        for ([_]bool{ false, true, false }) |settled| {
+            const fresh = try s.allocateOutboundAnswer();
+            try std.testing.expectEqual(fresh, s.outboundAnswerTarget(fresh.position).?);
+            try std.testing.expectEqual(@as(u64, 0), s.outbound_answers.count(fresh.position));
+            try s.installOutboundAnswer(fresh.position);
+            try std.testing.expectEqual(fresh, s.outboundAnswerTarget(fresh.position).?);
+            try std.testing.expect(s.hasLiveOutboundAnswer(fresh));
+            if (retired) |old| {
+                try std.testing.expectEqual(old.position, fresh.position);
+                try std.testing.expect(old.row_id < fresh.row_id);
+                try std.testing.expect(!s.hasLiveOutboundAnswer(old));
+                try std.testing.expect(!s.outboundAnswerReleaseClaimed(old));
+            }
+            if (settled) {
+                const resolve: model.Message = .{ .resolve = .{
+                    .answer = fresh.position,
+                    .resolution = .{ .fulfill = .{ .void = {} } },
+                } };
+                try s.recordResolverCallbackResolve(model.view.Body.fromOwned(&resolve).resolve);
+                try std.testing.expectEqual(.fulfilled, s.outboundAnswer(fresh.position).?.status);
+            }
+            try s.releaseOutboundAnswer(fresh.position);
+            try std.testing.expect(!s.hasLiveOutboundAnswer(fresh));
+            try std.testing.expect(s.outboundAnswerTarget(fresh.position) == null);
+            try std.testing.expect(!s.outbound_answers.contains(fresh.position));
+            retired = fresh;
+        }
+    }
 }
 
 test "a desc:answer names a live question in the asker's table on every carrier" {
