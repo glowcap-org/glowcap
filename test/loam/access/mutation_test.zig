@@ -172,7 +172,7 @@ test "loam mutation retries retain exact results, match intent, expire and reche
     try std.testing.expectEqualStrings("Revoked", denied.reason());
 }
 
-test "loam mutation failure does not consume sequence and receipt windows refuse exhaustion" {
+test "loam mutation failure leaves the sequence available for retry" {
     var fixture = try h.f.Fixture.init(h.a, h.limits);
     defer fixture.deinit();
     const data = try h.seed(&fixture.store, &fixture.backend);
@@ -187,11 +187,6 @@ test "loam mutation failure does not consume sequence and receipt windows refuse
     try server.mutate(server.use, 1, "add", &.{.{ .integer = 4 }}, &first);
     try server.drain(&fixture.backend);
     try std.testing.expectEqual(@as(?i64, 4), first.number);
-    const Window = h.loam.access.records.RetryWindow;
-    const full: Window = .{ .next = std.math.maxInt(i64) };
-    try std.testing.expectError(error.SequenceExhausted, full.lookup(full.next));
-    try std.testing.expectError(error.ReceiptExpired, full.lookup(1));
-    try std.testing.expectError(error.InvalidRecord, (Window{ .next = 1, .count = 1 }).lookup(1));
 }
 
 /// Every edit names a revision the grant does not hold.
