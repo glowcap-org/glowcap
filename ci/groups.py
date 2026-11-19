@@ -82,6 +82,7 @@ GROUPS = (
             ],
             "bend-proofs": [
                 bend_proof("test/engine/held_resolution_laws/PROOF.bend"),
+                bend_proof("test/loam/core/recovery_laws/PROOF.bend"),
                 gate("bash .devcontainer/bin/tools.sh exec bend -- zig build loam-policy-proof --test-timeout 30s"),
                 bend_proof("test/engine/export_range_laws/PROOF.bend"),
                 bend_proof("test/foundation/handle_generation_laws/PROOF.bend"),
@@ -345,6 +346,9 @@ NIGHTLY = {
         "src/loam/access/core/policy.zig",
         "src/loam/access/core/identity.zig",
         "tools/build/loam.zig",
+        "src/loam/core/transaction.zig",
+        "test/loam/core/backend_test.zig",
+        "test/loam/core/recovery_laws/",
         "tools/build/execution.zig",
         "tools/run-with-timeout.py",
         "ci/gates.py",
