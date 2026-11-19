@@ -20,13 +20,11 @@ import { spawnWeb, webPort } from "../support/web_front.ts";
 // direct line is only reopened if it is reopened in both directions.
 //
 // It runs the same scenario twice against one room, once for each way a browser
-// tab can be reached directly. One pair of tabs advertises a `webrtc` locator
-// (`?dm=webrtc`), so their line is a DataChannel the room only signals; the
-// other pair advertises `noise-relay` (`?dm=relay`), so their line is a sealed
-// cold dial through the relay's rendezvous. Both are direct lines between two tabs with the room off
-// the message path, and a defect in reopening one of them is not a defect in
-// reopening the other, running both is what makes "is this specific to
-// WebRTC?" a question this file answers rather than one a reader has to ask.
+// tab can be reached directly. One pair prefers WebRTC (`?dm=webrtc`). The
+// server offers relay fallback, so the proof requires the message and reply
+// on the replacement DataChannel. The other pair uses only the sealed
+// relay (`?dm=relay`). Both lines run between tabs, outside the room's
+// conversation.
 //
 // What a green run means here is what it was measured against. Two defects were
 // injected into a healthy tree and both were caught, each by name rather than by
@@ -85,6 +83,8 @@ type Mode = typeof MODES[number];
 class Timeline {
 	/** Producer-scoped name to the wire name it opened with. */
 	readonly #wireOf = new Map<string, string>();
+	/** The sender and receiver of each `dm` frame, matched by wire and digest. */
+	readonly #dmByWire = new Map<string, Map<string, { sent?: string; received?: string }>>();
 	/** The wire name of every session still open, by transport. */
 	readonly live = new Map<string, Set<string>>();
 
@@ -102,6 +102,20 @@ class Timeline {
 			this.live.set(transport, on);
 			return;
 		}
+		if (kind === "ocapn.message-decoded" && record.op === "dm") {
+			const wire = this.#wireOf.get(local);
+			const { digest, outbound } = record;
+			if (wire == null || typeof digest !== "string" || digest === "" || typeof outbound !== "boolean") return;
+			let frames = this.#dmByWire.get(wire);
+			if (frames == null) {
+				frames = new Map();
+				this.#dmByWire.set(wire, frames);
+			}
+			const ends = frames.get(digest) ?? {};
+			ends[outbound ? "sent" : "received"] = local;
+			frames.set(digest, ends);
+			return;
+		}
 		if (kind === "ocapn.session-closed" || kind === "ocapn.session-unobserved") {
 			const wire = this.#wireOf.get(local);
 			if (wire === undefined) return;
@@ -113,6 +127,19 @@ class Timeline {
 			// end, and what is wrong is what the next dial resolves to.
 			for (const on of this.live.values()) on.delete(wire);
 		}
+	}
+
+	/** Two different frames crossed between the same producer-scoped ends. */
+	carriedDmRoundTrip(wire: string): boolean {
+		const frames = this.#dmByWire.get(wire);
+		if (frames == null) return false;
+		const deliveredTo = new Map<string, string>();
+		for (const { sent, received } of frames.values()) {
+			if (sent == null || received == null || sent.split("/", 1)[0] === received.split("/", 1)[0]) continue;
+			if (deliveredTo.get(received) === sent) return true;
+			deliveredTo.set(sent, received);
+		}
+		return false;
 	}
 
 	/** The wire names of the direct lines open on `transport`. */
@@ -309,6 +336,12 @@ try {
 		// That return proves the far tab replaced its own route.
 		await say(other, `${mode.name}: second reply`);
 		await sees(opener, `${mode.name}: second reply`, mode.first);
+		await settles(
+			timeline,
+			mode.transport,
+			`the second ${mode.name} connection did not carry the message and reply on the same wire`,
+			() => timeline.carriedDmRoundTrip(secondLine),
+		);
 
 		// Then each side reopens in turn. Closing its final local route ends
 		// the connection. The peer may retain a closed conversation for history;
