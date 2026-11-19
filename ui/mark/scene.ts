@@ -10,10 +10,9 @@
 export const SCENE = `
 // How much of the night's teal the light keeps by day. A light by day is
 // white where it is brightest and cyan only where it falls off: the hearts
-// of the windows and of the chamber under the brim, the middle of the band
-// under the brim, and the middle of the pool on the ground are white, and
-// their edges and spill are the lamps' colour, white with this much of the
-// ink's hue in it.
+// of the windows, the band under the brim at its lip, the stalk's top, and
+// the middle of the pool on the ground are white, and their edges and
+// spill are the lamps' colour, white with this much of the ink's hue in it.
 const DAY_TEAL = 0.6;
 
 // False in the pipeline for a dark page, which compiles out every line only a
@@ -215,14 +214,24 @@ fn shadeBody(p: vec3f, n: vec3f, rd: vec3f, fr: Frame) -> vec3f {
 
 	// The brim's own glow under it: the one piece of shading the mark keeps,
 	// because it is light rather than surface. By night it adds to the
-	// flesh. By day it covers it as soon as the light is up, white along the
-	// middle of the band and cyan at its edges: the lamps' teal added to the
-	// cap's orange would sum to a flat white.
+	// flesh. By day it covers it as soon as the light is up, because the
+	// lamps' teal added to the cap's orange would sum to a flat white: a
+	// wider band than the night's, white along the lip and cyan as it fades
+	// up into the cap. The stalk is the night's too, lit in the lamps' colour
+	// from top to foot with its two tones kept, white under the brim and a
+	// deeper cyan toward the foot. It fades by darkening, never by showing
+	// the brown through, because cyan half over brown is grey.
 	let under = smoothstep(-0.05, -0.5, n.y) * isCap;
 	let underNight = body + fr.lamp * under * 2.4 * fr.glow;
 	if (LIGHT_PAGE) {
-		let underCore = mix(fr.lamp, vec3f(1.0), smoothstep(0.55, 1.0, under));
-		let underDay = mix(body, underCore * 1.15, under * smoothstep(0.0, 0.3, fr.glow));
+		let cover = smoothstep(0.0, 0.3, fr.glow);
+		let band = smoothstep(0.3, -0.5, n.y) * isCap;
+		let bandCol = mix(fr.lamp, vec3f(1.0), smoothstep(0.6, 1.0, band));
+		var underDay = mix(body, bandCol * 1.1, smoothstep(0.0, 0.9, band) * cover);
+		let tone = smoothstep(0.3, 0.5, dot(body, vec3f(0.2126, 0.7152, 0.0722)));
+		let stalkCol = fr.lamp * mix(0.7, 1.0, tone) * mix(0.72, 1.0, stalkLit);
+		let stalkDay = mix(stalkCol, vec3f(1.0), smoothstep(0.4, 0.85, stalkLit));
+		underDay = mix(underDay, stalkDay, (1.0 - isCap) * cover);
 		body = mix(underNight, underDay, fr.lightPage);
 	} else {
 		body = underNight;
@@ -576,15 +585,14 @@ fn fs(@builtin(position) coord: vec4f) -> @location(0) vec4f {
 			heart = heart + exp(-d * d * 1.6);
 			fringe = fringe + exp(-d * d * 0.45);
 		}
-		// The chamber under the brim is a lamp of the same kind, seen through
-		// the gap between brim and stalk: a wide, short light at the brim's
-		// front edge, hugging the band above it and reaching down the stalk's
-		// top below it. The windows carry the strike, so it barely flares and
-		// the outline beside it stays drawn.
+		// The chamber under the brim shows as a lamp of the same kind, small
+		// and short at the brim's front edge: it lights the corners where the
+		// brim meets the stalk, as the night does. The windows carry the
+		// strike, so it barely flares and the outline beside it stays drawn.
 		let mouth = lamps.spill - vec3f(0.0, 0.05, 0.0) - ro;
 		let mouthOff = mouth - rd * dot(mouth, rd);
 		let md = length(vec2f(mouthOff.x / 0.75, mouthOff.y / select(0.12, 0.4, mouthOff.y > 0.0)));
-		let mouthGain = 1.3 * fr.gCap / (1.0 + fr.flareMix * 1.2);
+		let mouthGain = 0.6 * fr.gCap / (1.0 + fr.flareMix * 1.2);
 		heart = heart + exp(-md * md * 1.6) * mouthGain;
 		fringe = fringe + exp(-md * md * 0.45) * mouthGain;
 		let strength = lightPage * smoothstep(0.0, 0.3, fr.glow) * (1.0 + fr.flareMix * 1.5);
