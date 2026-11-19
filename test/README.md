@@ -70,6 +70,13 @@ Swapping peers preserves candidate order at every rank. The Zig test
 checks the selector on the built-in offers, and the pairing tests
 exercise the handshake. [Rank proof](engine/negotiation_laws/PROOF.bend)
 
+### Peer outbound waterline
+
+Ordinary producers need space below the waterline. A staged carrier's replacement
+can finish at the waterline if its own charge fits. Repricing accounts for the
+new carrier and preserves unrelated charges. Zig runs admission and drain
+across both profiles. [Waterline laws](engine/peer/waterline_laws/LAWS.bend)
+
 ### Queue capacity and reference releases
 
 A charge fits the remaining space exactly when the new total fits the cap.
