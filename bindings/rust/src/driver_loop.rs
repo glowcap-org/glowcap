@@ -41,7 +41,7 @@ use crate::session::Session;
 use crate::session_shared::{SessionShared, io_err};
 use crate::sys::{self, host as ffi_host};
 use crate::trampoline::DeliverGuard;
-use crate::{ContextInner, Error, Locator, PendingWork, Result};
+use crate::{Context, ContextInner, Error, Locator, PendingWork, Result};
 use ffi::ReleaseOutcome;
 
 mod close;
@@ -73,10 +73,6 @@ enum UnclaimedSession {
 /// handle here is `!Send` by construction.
 pub(crate) struct LoopShared {
 	driver: DriverLoop,
-	// A transferred Host may borrow a caller-supplied allocator. FFI driver
-	// teardown uses that allocator, so its lease must outlive the driver rather
-	// than only the wrapper Host that no longer owns FFI release.
-	_context: Option<Rc<ContextInner>>,
 	/// The identity half of the loop host's 64-byte seed, retained so the
 	/// adopted wrapper Host answers `designator()` like a byte-fed one.
 	seed: [u8; 32],
@@ -149,8 +145,8 @@ impl Drop for PendingListenerSetup {
 }
 
 impl LoopShared {
-	pub(crate) fn retained_context(&self) -> Option<Rc<ContextInner>> {
-		self._context.as_ref().map(Rc::clone)
+	pub(crate) fn retained_context(&self) -> Result<Rc<ContextInner>> {
+		self.driver.retained_context()
 	}
 
 	/// Transfer a refused terminal release together with the Host shell whose
@@ -165,8 +161,8 @@ impl LoopShared {
 				"driver release retry requires a later safe boundary".to_string(),
 			));
 		}
-		if let Some((handle, context)) = self.driver.transfer_refused() {
-			crate::finalizer::park_failed_driver(handle, context, Rc::clone(&host), failure.clone());
+		if let Some(handle) = self.driver.transfer_refused() {
+			crate::finalizer::park_failed_driver(handle, Rc::clone(&host), failure.clone());
 		}
 		self.released.set(true);
 		host.fail_close(failure);
@@ -184,6 +180,7 @@ impl LoopShared {
 			Error::with_detail(sys::ERR_IO, format!("drawing the driver Host seed failed: {error}"))
 		})?;
 		let driver = DriverLoop::open(
+			&Context::new()?,
 			&seed,
 			DriverLoopOptions {
 				handshake_ms,
@@ -191,12 +188,10 @@ impl LoopShared {
 				..DriverLoopOptions::default()
 			},
 		)?;
-		let context = driver.retained_context();
 		let mut seed32 = [0u8; 32];
 		seed32.copy_from_slice(&seed[..32]);
 		Ok(Rc::new(LoopShared {
 			driver,
-			_context: context,
 			seed: seed32,
 			released: Cell::new(false),
 			terminal_failure: RefCell::new(None),
@@ -226,6 +221,7 @@ impl LoopShared {
 	pub(crate) fn take_host(host: &Rc<HostShared>, handshake_ms: u32, settle_ms: u32) -> Result<Rc<LoopShared>> {
 		let driver = DriverLoop::take_host(
 			host.raw(),
+			host.retained_context(),
 			DriverLoopOptions {
 				handshake_ms,
 				settle_ms,
@@ -234,7 +230,6 @@ impl LoopShared {
 		)?;
 		Ok(Rc::new(LoopShared {
 			driver,
-			_context: host.retained_context(),
 			seed: host.durable_seed(),
 			released: Cell::new(false),
 			terminal_failure: RefCell::new(None),

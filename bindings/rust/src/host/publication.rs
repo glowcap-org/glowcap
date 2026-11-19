@@ -57,7 +57,7 @@ impl Host {
 		let mut behavior = make();
 		let cell = self
 			.shared
-			.actor_cell(outcome_behavior(move |verb, args| behavior(verb, args)))?;
+			.actor_cell(outcome_behavior(move |verb, args| behavior(verb, args)));
 		// SAFETY: `cell` is the fresh unregistered `ActorCell` that `self.shared.actor_cell` just boxed, so nothing
 		// else holds it; the closure makes the one `glowcap_host_publish` call, and `Host` is `!Send`, so no other
 		// thread touches the host or cell during it. The closure's `self.shared.raw.get()` is non-null (`guard_handle`
@@ -122,7 +122,7 @@ impl Host {
 		let mut behavior = make();
 		let cell = self
 			.shared
-			.actor_cell(outcome_behavior(move |verb, args| behavior(verb, args)))?;
+			.actor_cell(outcome_behavior(move |verb, args| behavior(verb, args)));
 		let mut swiss = [0u8; crate::abi_constants_gen::HOST_DURABLE_SWISS_LEN];
 		// SAFETY: `cell` is the fresh unregistered `ActorCell` that `self.shared.actor_cell` just boxed, so nothing
 		// else holds it; the closure makes the one `glowcap_host_publish_durable` call, and `Host` is `!Send`, so no

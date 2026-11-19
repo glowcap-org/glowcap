@@ -351,6 +351,19 @@ mod tests {
 	#[test]
 	fn context_claims_the_cross_language_failure_vector_once() {
 		let context = Context::new().unwrap();
+		#[cfg(all(feature = "async", not(target_arch = "wasm32")))]
+		let driver = {
+			let first = Host::new_in(&context, HostOptions::default()).unwrap();
+			let driver =
+				driver_loop::DriverLoop::open(&context, &[0x31; 64], driver_loop::DriverLoopOptions::default())
+					.unwrap();
+			let mut id = 0;
+			// SAFETY: the driver owns this live Host and the call writes only to the local ID.
+			check(unsafe { sys::host::glowcap_host_diagnostic_id(driver.host(), &mut id) }).unwrap();
+			assert_eq!(id, first.shared().diagnostic_id() + 1);
+			driver
+		};
+
 		let operation = b"listener.close";
 		let primary_name = b"CloseFailed";
 		let primary_message = b"socket refused shutdown";
@@ -381,6 +394,9 @@ mod tests {
 		// `report` is a local `GlowcapFailureReport` whose text pointers borrow the local byte strings above, all live
 		// for the call, and the callee copies bounded prefixes and retains no report pointer.
 		check(unsafe { sys::glowcap_context_report_failure(context.inner.raw, &report) }).unwrap();
+
+		#[cfg(all(feature = "async", not(target_arch = "wasm32")))]
+		drop(driver);
 
 		let failures = context.take_failures().unwrap();
 		assert_eq!(failures.len(), 1);

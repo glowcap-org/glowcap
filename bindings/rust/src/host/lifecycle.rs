@@ -469,7 +469,7 @@ impl Drop for HostShared {
 		// rather than dropping it on the floor.
 		if inside_turn() {
 			self.raw.set(core::ptr::null_mut());
-			crate::finalizer::park_host(raw, self.context.take(), false);
+			crate::finalizer::park_host(raw, self.retained_context(), false);
 		} else {
 			crate::trace::detach_host(raw);
 			// SAFETY: `raw` is the non-null handle read from `self.raw` above, from `glowcap_host_new_in`; `Drop` runs
@@ -484,7 +484,7 @@ impl Drop for HostShared {
 					crate::record_runtime_failure(crate::FailureLayer::Binding, "host-drop-release", error);
 				}
 				if !crate::sys::release_result_consumed(rc) {
-					crate::finalizer::park_host(raw, self.context.take(), true);
+					crate::finalizer::park_host(raw, self.retained_context(), true);
 				}
 			}
 		}

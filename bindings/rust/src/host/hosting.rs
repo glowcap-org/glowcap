@@ -12,7 +12,7 @@ impl Host {
 		if turn.is_none() {
 			self.shared.guard_handle()?;
 		}
-		let cell = self.shared.actor_cell(outcome_behavior(behavior))?;
+		let cell = self.shared.actor_cell(outcome_behavior(behavior));
 		let id = match turn {
 			Some(turn) => crate::trampoline::turn_spawn(turn, cell)?,
 			None => {

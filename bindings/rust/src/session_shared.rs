@@ -454,7 +454,7 @@ impl SessionShared {
 			self.guard_open()?;
 			self.drain_gc()?;
 		}
-		let cell = self.host.actor_cell(behavior)?;
+		let cell = self.host.actor_cell(behavior);
 		let id = match turn {
 			Some(turn) => turn_spawn(turn, cell)?,
 			None => {
@@ -488,7 +488,7 @@ impl SessionShared {
 	pub(crate) fn publish_actor(self: &Rc<SessionShared>, name: &str, behavior: InternalBehavior) -> Result<Ref> {
 		self.guard_open()?;
 		self.drain_gc()?;
-		let cell = self.host.actor_cell(behavior)?;
+		let cell = self.host.actor_cell(behavior);
 		let mut reference = sys::GlowcapReference { id: 0 };
 		// SAFETY: as `spawn_actor` above, with `glowcap_host_session_publish`; `name` is a `&str` borrowed for the
 		// whole call, and `reference` is the local out-parameter the callee writes.

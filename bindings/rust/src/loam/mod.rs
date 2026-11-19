@@ -196,9 +196,7 @@ impl Store {
 		self.inner.live()?;
 		let shared = host.shared();
 		shared.guard_handle()?;
-		let diagnostics = shared
-			.retained_context()
-			.ok_or_else(|| invalid("Host diagnostic context is closed"))?;
+		let diagnostics = shared.retained_context();
 		let prepared = registration::Prepared::new(registrations, diagnostics, shared.diagnostic_id());
 		let mut raw = core::ptr::null_mut();
 		check(

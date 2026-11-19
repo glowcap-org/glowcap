@@ -40,13 +40,12 @@ enum PendingRelease {
 	Session(Rc<SessionShared>),
 	Host {
 		raw: *mut ffi_host::GlowcapHost,
-		context: Option<Rc<ContextInner>>,
+		context: Rc<ContextInner>,
 		refusal_reported: bool,
 	},
 	#[cfg(not(target_arch = "wasm32"))]
 	Driver {
 		handle: LoopHandle,
-		context: Option<Rc<ContextInner>>,
 		refusal_reported: bool,
 		completion: Option<FailedDriverCompletion>,
 	},
@@ -84,12 +83,8 @@ fn reclaim_empty_queue() {
 	});
 }
 
-fn record(context: Option<&Rc<ContextInner>>, layer: FailureLayer, operation: &str, error: &Error) {
-	if let Some(context) = context {
-		context.report_failure(layer, FailureScope::Context, 0, 0, operation, error);
-	} else {
-		crate::record_runtime_failure(layer, operation, error.clone());
-	}
+fn record(context: &ContextInner, layer: FailureLayer, operation: &str, error: &Error) {
+	context.report_failure(layer, FailureScope::Context, 0, 0, operation, error);
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -104,7 +99,7 @@ pub(crate) fn park_session(shared: Rc<SessionShared>) {
 	PENDING.with(|pending| pending.borrow_mut().push_back(PendingRelease::Session(shared)));
 }
 
-pub(crate) fn park_host(raw: *mut ffi_host::GlowcapHost, context: Option<Rc<ContextInner>>, refusal_reported: bool) {
+pub(crate) fn park_host(raw: *mut ffi_host::GlowcapHost, context: Rc<ContextInner>, refusal_reported: bool) {
 	PENDING.with(|pending| {
 		pending.borrow_mut().push_back(PendingRelease::Host {
 			raw,
@@ -115,11 +110,10 @@ pub(crate) fn park_host(raw: *mut ffi_host::GlowcapHost, context: Option<Rc<Cont
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-pub(crate) fn park_driver(handle: LoopHandle, context: Option<Rc<ContextInner>>, refusal_reported: bool) {
+pub(crate) fn park_driver(handle: LoopHandle, refusal_reported: bool) {
 	PENDING.with(|pending| {
 		pending.borrow_mut().push_back(PendingRelease::Driver {
 			handle,
-			context,
 			refusal_reported,
 			completion: None,
 		})
@@ -130,16 +124,10 @@ pub(crate) fn park_driver(handle: LoopHandle, context: Option<Rc<ContextInner>>,
 /// retire only after a later consuming attempt. The first failure is already
 /// the Host close result. Retries preserve it rather than reporting duplicates.
 #[cfg(not(target_arch = "wasm32"))]
-pub(crate) fn park_failed_driver(
-	handle: LoopHandle,
-	context: Option<Rc<ContextInner>>,
-	host: Rc<HostShared>,
-	failure: Error,
-) {
+pub(crate) fn park_failed_driver(handle: LoopHandle, host: Rc<HostShared>, failure: Error) {
 	PENDING.with(|pending| {
 		pending.borrow_mut().push_back(PendingRelease::Driver {
 			handle,
-			context,
 			refusal_reported: true,
 			completion: Some(FailedDriverCompletion { host, failure }),
 		})
@@ -252,12 +240,7 @@ pub(crate) fn drain() {
 					&& let Err(error) = check_host(sys::release_result_code(rc))
 					&& (crate::sys::release_result_consumed(rc) || !refusal_reported)
 				{
-					record(
-						context.as_ref(),
-						FailureLayer::Binding,
-						"host-finalizer.release",
-						&error,
-					);
+					record(&context, FailureLayer::Binding, "host-finalizer.release", &error);
 					refusal_reported = true;
 				}
 				if !crate::sys::release_result_consumed(rc) {
@@ -273,14 +256,13 @@ pub(crate) fn drain() {
 			#[cfg(not(target_arch = "wasm32"))]
 			PendingRelease::Driver {
 				handle,
-				context,
 				refusal_reported,
 				completion,
 			} => match handle.release() {
 				Released::Refused { handle, error } => {
 					if !refusal_reported && completion.is_none() {
 						record(
-							context.as_ref(),
+							&handle.context,
 							FailureLayer::Driver,
 							"driver-loop.finalizer.release",
 							&error,
@@ -289,20 +271,14 @@ pub(crate) fn drain() {
 					PENDING.with(|pending| {
 						pending.borrow_mut().push_back(PendingRelease::Driver {
 							handle,
-							context,
 							refusal_reported: true,
 							completion,
 						})
 					});
 				}
-				Released::Consumed(outcome) => {
+				Released::Consumed { outcome, context } => {
 					if let (Err(error), None) = (outcome.as_ref(), completion.as_ref()) {
-						record(
-							context.as_ref(),
-							FailureLayer::Driver,
-							"driver-loop.finalizer.release",
-							error,
-						);
+						record(&context, FailureLayer::Driver, "driver-loop.finalizer.release", error);
 					}
 					if let Some(completion) = completion {
 						let terminal = retain_driver_release_failure(completion.failure, outcome);

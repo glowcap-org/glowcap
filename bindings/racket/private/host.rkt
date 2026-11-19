@@ -188,9 +188,7 @@
          (call-with-host/allow-released
           m
           (lambda ()
-            ;; INVALID-ARGUMENT leaves the wrapper live. Every other result is
-            ;; a consumed teardown outcome: retire wrapper/context state before
-            ;; returning its exact failure from the close barrier.
+            ;; Only a consuming release retires the wrapper's native handles.
             (let* ([ptr (host-ptr m)]
                    [lp (host-loop-of m)])
               ;; Release frees every handle still registered, along with the
@@ -208,7 +206,9 @@
                          (check/host (release-result-code code))
                          #f)))))
               (when (release-result-consumed? release-code)
-                (glowcap_context_release (host-context m))
+                ;; The wrapper still reads this journal. Once the native Host is
+                ;; gone, the Context pointer's own reachability governs release.
+                (register-finalizer (host-context m) glowcap_context_release)
                 (trace-detach-host! m)
                 ((unbox host-gc-retire-hook) m)
                 (set-host-ptr! m #f)

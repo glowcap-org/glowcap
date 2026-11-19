@@ -397,13 +397,10 @@ fn refused_publication_attaches_panicking_actor_cell_drop() {
 
 	let host = Host::new_host();
 	let guard = PanicOnDrop;
-	let cell = host
-		.shared
-		.actor_cell(outcome_behavior(move |_verb, _args| {
-			let _keep_captured = &guard;
-			Ok(Argument::Void)
-		}))
-		.unwrap();
+	let cell = host.shared.actor_cell(outcome_behavior(move |_verb, _args| {
+		let _keep_captured = &guard;
+		Ok(Argument::Void)
+	}));
 	let entropy = [0u8; Host::DURABLE_ENTROPY_BYTES - 1];
 	let mut swiss = [0u8; crate::abi_constants_gen::HOST_DURABLE_SWISS_LEN];
 	// SAFETY: `register_actor_cell` is called directly with `cell`, the fresh unregistered `ActorCell` that

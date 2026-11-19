@@ -40,6 +40,10 @@ Releases before 0.1.7 are in the
     one function that takes a `CloseRecipient` (`.caller` returns the failure,
     `.sink` delivers it to the provider's own sink).
 
+- Rust callers of the low-level driver now pass `&Context` as the first
+  argument to `DriverLoop::open`. Keep the Context to read recorded failures
+  with `next_failure` or `take_failures` after dropping the loop.
+
 - A custom `net.MultiplexedResident.park` callback now returns
   `net.MultiplexedResident.Park`. Replace `true` with `.woke` and `false`
   with `.timeout`. Return `.unavailable` before waiting if the resident
@@ -247,6 +251,9 @@ Releases before 0.1.7 are in the
   return codes `NULL_POINTER` and `MALFORMED`.
 
 ### Changed
+
+- Racket callers can drain recorded failures with `host-take-failures!` after
+  `host-close!` consumes the Host, including when close returns a failure.
 
 - The website and introductory guides shorten repeated explanations and clarify
   installation, shared-session lifetimes, history recovery limits, and Loam's
