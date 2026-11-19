@@ -5,6 +5,7 @@ aarch64 macOS through it, and reads the result's Mach-O load commands. The
 install name carries the ABI major alone.
 """
 
+import shutil
 import struct
 import subprocess
 import tempfile
@@ -12,8 +13,6 @@ import textwrap
 import unittest
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[2]
-RECIPE = ("archives.zig", "commands.zig", "execution.zig", "shard.zig")
 MACH_O_64 = 0xFEEDFACF
 LC_ID_DYLIB = 0xD
 
@@ -22,13 +21,14 @@ class SharedArchive(unittest.TestCase):
     def test_macos_shared_archive_records_its_abi_major(self):
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)
-            for name in RECIPE:
-                (directory / name).write_bytes((ROOT / "tools/build" / name).read_bytes())
+            shutil.copytree(
+                Path(__file__).resolve().parent, directory / "tools/build", ignore=shutil.ignore_patterns("__pycache__")
+            )
             (directory / "library.zig").write_text("export fn answer() u32 { return 42; }\n")
             (directory / "build.zig").write_text(
                 textwrap.dedent("""\
                 const std = @import("std");
-                const archives = @import("archives.zig");
+                const archives = @import("tools/build/archives.zig");
                 pub fn build(b: *std.Build) void {
                     const library = b.addLibrary(.{
                         .name = "probe", .linkage = .dynamic,

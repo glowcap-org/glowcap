@@ -17,16 +17,8 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def copy_build_helpers(root):
-    for relative in (
-        "tools/build/execution.zig",
-        "tools/build/shard.zig",
-        "tools/build/browser_preflight.zig",
-        "tools/build/commands.zig",
-        "tools/run-with-timeout.py",
-    ):
-        destination = root / relative
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(ROOT / relative, destination)
+    shutil.copytree(ROOT / "tools/build", root / "tools/build", ignore=shutil.ignore_patterns("__pycache__"))
+    shutil.copyfile(ROOT / "tools/run-with-timeout.py", root / "tools/run-with-timeout.py")
 
 
 class BuildEnvironment(unittest.TestCase):
