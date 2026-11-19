@@ -47,21 +47,27 @@ fn count(vat: *actors.Vat, counter: actors.Ref) !i64 {
     return (try vat.near(counter, .{ .verb = "get" })).integer;
 }
 
-test "a failed turn sends none of its local messages" {
-    const allocator = std.testing.allocator;
-    var vat = actors.Vat.init(allocator);
-    defer vat.deinit();
+test "a failed near or queued turn drops its sends and breaks their vows" {
+    for ([_]bool{ false, true }) |queued| {
+        var vat = actors.Vat.init(std.testing.allocator);
+        defer vat.deinit();
 
-    const counter = try vat.spawn(Counter, .{ .n = 0 });
-    var broke = false;
-    const sender = try vat.spawn(SendThen, .{ .target = counter, .broke = &broke });
+        const counter = try vat.spawn(Counter, .{ .n = 0 });
+        var send_broke = false;
+        const sender = try vat.spawn(SendThen, .{ .target = counter, .broke = &send_broke });
 
-    try std.testing.expectError(error.Refused, vat.near(sender, .{ .verb = "fail" }));
-    try vat.drive();
-    try std.testing.expectEqual(@as(i64, 0), try count(&vat, counter));
-    // The dropped send's vow breaks, so a listener the turn registered on it
-    // is not left waiting.
-    try std.testing.expect(broke);
+        var caller_broke = false;
+        if (queued) {
+            const vow = try vat.send(sender, .{ .verb = "fail" });
+            try vat.on(vow, .{ .ctx = &caller_broke, .func = promise_capture.captureBroken });
+        } else {
+            try std.testing.expectError(error.Refused, vat.near(sender, .{ .verb = "fail" }));
+        }
+        try vat.drive();
+        try std.testing.expectEqual(queued, caller_broke);
+        try std.testing.expect(send_broke);
+        try std.testing.expectEqual(@as(i64, 0), try count(&vat, counter));
+    }
 }
 
 test "a successful turn sends its local messages when it returns" {
@@ -107,54 +113,52 @@ test "a failed turn releases the queue admission its sends took" {
     try std.testing.expectEqual(@as(i64, 2), try count(&vat, counter));
 }
 
-test "a queued turn that fails drops its sends too" {
-    const allocator = std.testing.allocator;
-    var vat = actors.Vat.init(allocator);
-    defer vat.deinit();
-
-    const counter = try vat.spawn(Counter, .{ .n = 0 });
-    const sender = try vat.spawn(SendThen, .{ .target = counter });
-
-    var broke = false;
-    const vow = try vat.send(sender, .{ .verb = "fail" });
-    try vat.on(vow, .{ .ctx = &broke, .func = promise_capture.captureBroken });
-    try vat.drive();
-    try std.testing.expect(broke);
-    try std.testing.expectEqual(@as(i64, 0), try count(&vat, counter));
-}
-
-test "a failed turn detaches all effects before a broken send listener reenters" {
+test "turn failure notifications follow rollback and reentry commits only the new turn" {
+    const State = struct {
+        visits: std.Io.Writer,
+        vat: *actors.Vat,
+        nested: actors.Ref = undefined,
+        correct_cause: bool = true,
+    };
     const Effect = struct {
-        commits: usize = 0,
-        aborts: usize = 0,
+        state: *State,
+        name: u8,
+        observes: bool = true,
         fn commit(ctx: *anyopaque, _: *actors.Vat) void {
             const self: *@This() = @ptrCast(@alignCast(ctx));
-            self.commits += 1;
+            self.state.visits.print("+{c}", .{self.name}) catch @panic("too many turn callbacks");
         }
         fn abort(ctx: *anyopaque, _: *actors.Vat, _: glowcap.ocapn.engine.Broken) void {
             const self: *@This() = @ptrCast(@alignCast(ctx));
-            self.aborts += 1;
+            self.state.visits.writeByte(self.name) catch @panic("too many turn callbacks");
         }
-    };
-    const Reenter = struct {
-        vat: *actors.Vat,
-        target: actors.Ref,
-        failed: bool = false,
-        fn listen(ctx: ?*anyopaque, _: actors.Resolution) void {
-            const self: *@This() = @ptrCast(@alignCast(ctx.?));
-            _ = self.vat.near(self.target, .{ .verb = "ok" }) catch {
-                self.failed = true;
-            };
+        fn notify(ctx: *anyopaque, _: *actors.Vat, broken: glowcap.ocapn.engine.Broken) void {
+            const self: *@This() = @ptrCast(@alignCast(ctx));
+            self.state.correct_cause = self.state.correct_cause and
+                std.mem.eql(u8, broken.detail, "Refused") and broken.cause.isApplication();
+            self.state.visits.writeByte(std.ascii.toLower(self.name)) catch @panic("too many turn callbacks");
         }
     };
     const Enroll = struct {
-        effect: *Effect,
-        listener: ?*Reenter = null,
-        pub fn handle(self: *@This(), turn: *Turn, _: Delivery) !model.Argument {
-            try turn.vat.enrollTurn(.{ .ctx = self.effect, .commit = Effect.commit, .abort = Effect.abort });
-            if (self.listener) |listener| {
-                const vow = try turn.send(listener.target, .{ .verb = "unused" });
-                try turn.vat.on(vow, .{ .ctx = listener, .func = Reenter.listen });
+        effects: []Effect,
+        state: *State,
+
+        fn reenter(ctx: ?*anyopaque, resolution: actors.Resolution) void {
+            const state: *State = @ptrCast(@alignCast(ctx.?));
+            state.visits.writeByte(if (resolution == .broken) '>' else '?') catch @panic("too many turn callbacks");
+            _ = state.vat.near(state.nested, .{ .verb = "ok" }) catch @panic("reentrant turn failed");
+        }
+
+        pub fn handle(self: *@This(), turn: *Turn, msg: Delivery) !model.Argument {
+            for (self.effects) |*effect| try turn.vat.enrollTurn(.{
+                .ctx = effect,
+                .commit = Effect.commit,
+                .abort = Effect.abort,
+                .abort_notify = if (effect.observes) Effect.notify else null,
+            });
+            if (msg.is("fail")) {
+                const vow = try turn.send(self.state.nested, .{ .verb = "unused" });
+                try turn.vat.on(vow, .{ .ctx = self.state, .func = reenter });
                 return error.Refused;
             }
             return .{ .void = {} };
@@ -162,55 +166,24 @@ test "a failed turn detaches all effects before a broken send listener reenters"
     };
     var vat = actors.Vat.init(std.testing.allocator);
     defer vat.deinit();
-    var failed: Effect = .{};
-    var successful: Effect = .{};
-    const nested = try vat.spawn(Enroll, .{ .effect = &successful });
-    var listener: Reenter = .{ .vat = &vat, .target = nested };
-    const outer = try vat.spawn(Enroll, .{ .effect = &failed, .listener = &listener });
-    try std.testing.expectError(error.Refused, vat.near(outer, .{ .verb = "fail" }));
-    try std.testing.expect(!listener.failed);
-    try std.testing.expectEqual(@as(usize, 0), failed.commits);
-    try std.testing.expectEqual(@as(usize, 1), failed.aborts);
-    try std.testing.expectEqual(@as(usize, 1), successful.commits);
-    try std.testing.expectEqual(@as(usize, 0), successful.aborts);
-    try vat.drive();
-    try std.testing.expectEqual(@as(usize, 1), successful.commits);
-}
-
-test "turn failure notifications follow every participant's rollback" {
-    const State = struct { aborted: usize = 0, notified: usize = 0, early: bool = false, order: u32 = 0 };
-    const Effect = struct {
-        state: *State,
-        id: u8,
-        fn commit(_: *anyopaque, _: *actors.Vat) void {}
-        fn abort(ctx: *anyopaque, _: *actors.Vat, _: glowcap.ocapn.engine.Broken) void {
-            const self: *@This() = @ptrCast(@alignCast(ctx));
-            self.state.aborted += 1;
-            self.state.order = self.state.order * 10 + self.id;
-        }
-        fn notify(ctx: *anyopaque, _: *actors.Vat, broken: glowcap.ocapn.engine.Broken) void {
-            const self: *@This() = @ptrCast(@alignCast(ctx));
-            self.state.early = self.state.early or self.state.aborted != 2 or !std.mem.eql(u8, broken.detail, "Refused") or !broken.cause.isApplication();
-            self.state.notified += 1;
-            self.state.order = self.state.order * 10 + self.id;
-        }
+    var visits: [8]u8 = undefined;
+    var state: State = .{ .visits = .fixed(&visits), .vat = &vat };
+    var effects = [_]Effect{
+        .{ .state = &state, .name = 'A' },
+        .{ .state = &state, .name = 'B', .observes = false },
+        .{ .state = &state, .name = 'C' },
     };
-    const Enroll = struct {
-        effects: *[2]Effect,
-        pub fn handle(self: *@This(), turn: *Turn, _: Delivery) !model.Argument {
-            for (self.effects) |*effect| try turn.vat.enrollTurn(.{ .ctx = effect, .commit = Effect.commit, .abort = Effect.abort, .abort_notify = Effect.notify });
-            return error.Refused;
-        }
-    };
-    var vat = actors.Vat.init(std.testing.allocator);
-    defer vat.deinit();
-    var state: State = .{};
-    var effects = [_]Effect{ .{ .state = &state, .id = 1 }, .{ .state = &state, .id = 2 } };
-    const actor = try vat.spawn(Enroll, .{ .effects = &effects });
+    var nested = [_]Effect{.{ .state = &state, .name = 'D' }};
+    state.nested = try vat.spawn(Enroll, .{ .effects = &nested, .state = &state });
+    const actor = try vat.spawn(Enroll, .{ .effects = &effects, .state = &state });
     try std.testing.expectError(error.Refused, vat.near(actor, .{ .verb = "fail" }));
-    try std.testing.expect(!state.early);
-    try std.testing.expectEqual(@as(usize, 2), state.notified);
-    try std.testing.expectEqual(@as(u32, 2121), state.order);
+    try std.testing.expect(state.correct_cause);
+    // Uppercase records an abort, lowercase an observer. The broken send
+    // listener (>) starts a new turn, whose participant commits (+D).
+    const expected = "CBAca>+D";
+    try std.testing.expectEqualStrings(expected, state.visits.buffered());
+    try vat.drive();
+    try std.testing.expectEqualStrings(expected, state.visits.buffered());
 }
 
 test "reply preservation failure retracts the turn before committing sends" {
