@@ -120,6 +120,7 @@ p, li {
    hand-drawn SVGs that sit inside the prose. The card framing tells a reader
    "this is a picture of the idea," distinct from the clickable route cards. */
 .prose figure {
+  position: relative;
   margin: 1.75rem 0;
   padding: 1.1rem 1.1rem 0.5rem;
   background: var(--paper-raised);
@@ -146,6 +147,7 @@ p, li {
    needs no literal fallback; in the light theme it resolves to the core value
    and nothing shifts. */
 .prose .diagram,
+.diagram-viewer .diagram,
 .prose .capwalk {
   --accent-deep: var(--dia-accent-deep);
   --teal-deep: var(--dia-teal-deep);
@@ -384,7 +386,11 @@ pre {
   position: relative;
 }
 
-.copy-btn {
+/* The site's quiet chip: the copy button, a diagram's enlarge button, and
+   the diagram viewer's close button. */
+.copy-btn,
+.diagram-open,
+.diagram-viewer-close {
   font: inherit;
   font-size: 0.75rem;
   font-weight: 700;
@@ -396,6 +402,86 @@ pre {
   padding: 0.32rem 0.6rem;
   cursor: pointer;
   transition: opacity 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+/* A diagram's enlarge button, shown only where narrow.css shows it. */
+.diagram-open {
+  display: none;
+  position: absolute;
+  top: 0.5rem;
+  right: 0.5rem;
+  padding: 0.35rem;
+}
+
+.diagram-open svg {
+  display: block;
+  width: 1rem;
+  height: 1rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* The diagram viewer fills the screen: a bar with the caption and a close
+   button, over a stage that holds the drawing at its own width and pans both
+   ways. Pinch zoom is the browser's own. The page behind it stops scrolling. */
+.diagram-viewer[open] {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  max-width: 100%;
+  max-height: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  color: var(--ink);
+  background: var(--paper);
+}
+
+.diagram-viewer::backdrop {
+  background: var(--paper);
+}
+
+:root:has(.diagram-viewer[open]) {
+  overflow: hidden;
+}
+
+.diagram-viewer-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.6rem 1rem;
+  border-bottom: 1px solid var(--rule);
+}
+
+.diagram-viewer-bar p {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-size: 0.88rem;
+  color: var(--ink-soft);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.diagram-viewer-stage {
+  display: flex;
+  flex: 1;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 1rem;
+  background: var(--paper-raised);
+}
+
+/* Auto margins center the drawing in the stage, and give way to the start
+   edge on an axis where it overflows, so panning reaches every side. */
+.diagram-viewer-stage > * {
+  flex: none;
+  margin: auto;
 }
 
 .code-block .copy-btn {

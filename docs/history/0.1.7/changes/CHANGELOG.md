@@ -128,6 +128,8 @@ These are the changes after November 11. Read the
   page at wide widths, draws one focus ring on every control, and sizes its
   fallback fonts like IBM Plex, so less of a page moves when the web font
   arrives. The Rooms page shares the fallback fonts.
+- On a phone, the website's diagrams fit the screen instead of scrolling
+  sideways, and a tap opens one full screen to pan and zoom.
 - A reply from a behavior served through the C library, and so through
   every binding, has its text and bytes copied once, into the stored answer.
   They were copied into the turn arena first.
