@@ -25,3 +25,11 @@ def L.intersection_preserves_prerequisite(a, b, required_a, required_b, valid_a,
       %valid_a : {Bool.and(required_a, required_b) == Bool.and(_, True{}) : Bool}
       %valid_b : {Bool.and(required_a, required_b) == Bool.and(required_a, _) : Bool}
       {==}
+
+def L.effect_intersection(checks):
+  match checks:
+    case Nil{}: {==}
+    case L.Admission{False{}, any} <> rest: {==}
+    case L.Admission{True{}, False{}} <> rest:
+      Bounds.and_false(List.all(~&2, ~L.Admission, ~L.left, rest))
+    case L.Admission{True{}, True{}} <> rest: L.effect_intersection(rest)

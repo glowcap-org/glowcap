@@ -31,3 +31,25 @@ law intersection_preserves_prerequisite:
   for valid_a: {fits(a, required_a) == True{} : Bool}
   for valid_b: {fits(b, required_b) == True{} : Bool}
   {fits(Bool.and(a, b), Bool.and(required_a, required_b)) == True{} : Bool}
+
+# The scalar laws give one pair of parental decisions per permission or fact.
+type Admission is Data:
+  Admission{left: Bool, right: Bool}
+
+def left(check: Admission) -> Bool:
+  match check:
+    case Admission{allowed, other}: allowed
+
+def right(check: Admission) -> Bool:
+  match check:
+    case Admission{other, allowed}: allowed
+
+def through_intersection(check: Admission) -> Bool:
+  match check:
+    case Admission{a, b}: Bool.and(a, b)
+
+law effect_intersection:
+  for +checks: List<&2, Admission>
+  {List.all(~&2, ~Admission, ~through_intersection, checks) ==
+   Bool.and(List.all(~&2, ~Admission, ~left, checks),
+            List.all(~&2, ~Admission, ~right, checks)) : Bool}
