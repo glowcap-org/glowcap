@@ -81,6 +81,7 @@ GROUPS = (
                 gate("zig build infrastructure-check"),
             ],
             "bend-proofs": [
+                bend_proof("test/foundation/spill_laws/PROOF.bend"),
                 bend_proof("test/engine/held_resolution_laws/PROOF.bend"),
                 gate("bash .devcontainer/bin/tools.sh exec bend -- zig build loam-policy-proof --test-timeout 30s"),
                 bend_proof("test/engine/export_range_laws/PROOF.bend"),
@@ -332,6 +333,9 @@ NIGHTLY = {
         "test/foundation/stream_framing_test.zig",
         "src/ocapn/engine/negotiation.zig",
         "src/ocapn/model/negotiated.zig",
+        "src/foundation/spill.zig",
+        "test/foundation/spill_laws/",
+        "test/foundation/spill_test.zig",
         "src/ocapn/engine/export_ranges.zig",
         "src/ocapn/session/export_table.zig",
         "src/ocapn/session/references/positions.zig",
