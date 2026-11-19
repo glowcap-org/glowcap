@@ -83,6 +83,7 @@ GROUPS = (
             "bend-proofs": [
                 gate("bash .devcontainer/bin/tools.sh exec bend -- zig build loam-policy-proof --test-timeout 30s"),
                 bend_proof("test/engine/negotiation_laws/PROOF.bend"),
+                bend_proof("test/support/bounded_arithmetic/PROOF.bend"),
             ],
         },
     ),
@@ -309,6 +310,14 @@ assert len(PHASES) == sum(len(group.phases) for group in GROUPS), "a phase name 
 # proof that reproduces the pinned Goblins handoff-count rejection.
 NIGHTLY = {
     "bend-proofs": (
+        "src/actors/vat/ingress.zig",
+        "src/ocapn/session/export_table.zig",
+        "src/ocapn/session/gc.zig",
+        "src/ocapn/session/import_table.zig",
+        "test/actors/vat/delivery_enqueue_test.zig",
+        "test/actors/vat/ingress_test.zig",
+        "test/session/gc_test.zig",
+        "test/support/bounded_arithmetic/",
         "src/ocapn/engine/negotiation.zig",
         "src/ocapn/model/negotiated.zig",
         "test/engine/negotiation_test.zig",

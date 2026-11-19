@@ -30,35 +30,64 @@ test "session validates gc export positions and deltas align" {
     }));
 }
 
-test "wire-delta GC decrements export and import refcounts by direction" {
+test "bulk GC debits only the releasable references in each direction" {
     const allocator = std.testing.allocator;
-    var s = session.Session.init(allocator);
-    defer s.deinit();
-    try s.registerImport(.from(3));
-    try s.registerExport(.from(7));
-    try std.testing.expectEqual(@as(u64, 1), s.importRefcount(.from(3)));
-    const baseline = s.exportRefcount(.from(7));
+    for ([_]model.CaptpVersion{ .v1_0, .next }) |profile| {
+        for ([_][]const u64{ &.{1}, &.{2}, &.{ 1, 1 } }) |deltas| {
+            var s = session.Session.initWith(allocator, .{ .captp_version = profile });
+            defer s.deinit();
+            const imported: model.ImportPosition = .from(3);
+            const exported: model.ExportPosition = .from(7);
+            try s.registerImport(imported);
+            try s.reserveExport(exported);
+            const baseline = s.exportRefcount(exported);
+            try std.testing.expectEqual(@as(u64, 1), baseline);
+            const mentions = blk: {
+                var total: u64 = 0;
+                for (deltas) |delta| total += delta;
+                break :blk total;
+            };
+            const mention = model.Deliver{
+                .target = .{ .far = .{ .import_position = imported } },
+                .args = &.{.{ .reference = .{ .near = .{ .export_position = exported } } }},
+            };
 
-    // Put one wire reference to export 7 in the partner's hands, the reference
-    // its release below returns.
-    try s.recordSend(.{ .deliver = .{
-        .target = .{ .far = .{ .import_position = .from(3) } },
-        .args = &.{.{ .reference = .{ .near = .{ .export_position = .from(7) } } }},
-        .answer = .from(1),
-    } });
-    try std.testing.expectEqual(baseline + 1, s.exportRefcount(.from(7)));
+            try std.testing.expectError(error.GcUnderflow, s.recordRecv(.{
+                .gc_export = .{ .positions = &.{exported.int()}, .deltas = &.{1} },
+            }));
+            try std.testing.expectEqual(baseline, s.exportRefcount(exported));
+            for (0..mentions) |i| {
+                var deliver = mention;
+                deliver.answer = .from(i + 1);
+                try s.recordSend(.{ .deliver = deliver });
+            }
+            try std.testing.expectEqual(baseline + mentions, s.exportRefcount(exported));
 
-    // Outbound op:gc-exports releases our refs to the partner's exports →
-    // decrements the import table, and may remove the row (an import carries
-    // no local baseline). Inbound op:gc-exports is the partner releasing refs
-    // to our exports → decrements the export table down to, never past, the
-    // local baseline, so the row survives for re-export.
-    try s.recordSend(.{ .gc_export = .{ .positions = &.{3}, .deltas = &.{1} } });
-    try s.recordRecv(.{ .gc_export = .{ .positions = &.{7}, .deltas = &.{1} } });
+            // A batch that crosses the boundary leaves the whole count intact.
+            for ([_]model.Message{
+                .{ .gc_export = .{ .positions = &.{exported.int()}, .deltas = &.{mentions + 1} } },
+                .{ .gc_export = .{ .positions = &.{ exported.int(), exported.int() }, .deltas = &.{ mentions, 1 } } },
+            }) |over| {
+                try std.testing.expectError(error.GcUnderflow, s.recordRecv(over));
+                try std.testing.expectEqual(baseline + mentions, s.exportRefcount(exported));
+            }
+            const positions = [2]u64{ exported.int(), exported.int() };
+            try s.recordRecv(.{ .gc_export = .{ .positions = positions[0..deltas.len], .deltas = deltas } });
+            try std.testing.expectEqual(baseline, s.exportRefcount(exported));
+            try std.testing.expect(s.hasExport(exported));
 
-    try std.testing.expect(!s.hasImport(.from(3)));
-    try std.testing.expect(s.hasExport(.from(7)));
-    try std.testing.expectEqual(baseline, s.exportRefcount(.from(7)));
+            var again = mention;
+            again.answer = .from(mentions + 1);
+            try s.recordSend(.{ .deliver = again });
+            try std.testing.expectEqual(baseline + 1, s.exportRefcount(exported));
+
+            const release: model.Message = .{ .gc_export = .{ .positions = &.{imported.int()}, .deltas = &.{1} } };
+            try s.recordSend(release);
+            try std.testing.expect(!s.hasImport(imported));
+            try std.testing.expectError(error.GcUnderflow, s.recordSend(release));
+            try std.testing.expectEqual(baseline + 1, s.exportRefcount(exported));
+        }
+    }
 }
 
 test "gc-exports zero delta is rejected by structural validation" {
@@ -132,96 +161,6 @@ test "gc-exports zero delta from both codecs reaches session validation before m
             try std.testing.expectEqual(before, s.exportRefcount(.from(7)));
         }
     }
-}
-
-test "wire-delta GC underflow is a loud error and leaves refcounts intact" {
-    const allocator = std.testing.allocator;
-    var s = session.Session.init(allocator);
-    defer s.deinit();
-    try s.registerExport(.from(5));
-    const before = s.exportRefcount(.from(5));
-
-    // Delta exceeds what the wire holds → rejected, and the count is unchanged.
-    try std.testing.expectError(session.Error.GcUnderflow, s.recordRecv(.{
-        .gc_export = .{ .positions = &.{5}, .deltas = &.{2} },
-    }));
-    try std.testing.expectEqual(before, s.exportRefcount(.from(5)));
-
-    // Unknown id → rejected.
-    try std.testing.expectError(session.Error.GcUnderflow, s.recordSend(.{
-        .gc_export = .{ .positions = &.{99}, .deltas = &.{1} },
-    }));
-}
-
-test "re-sending an export retains its wire-delta so a matching gc-exports does not underflow" {
-    const allocator = std.testing.allocator;
-    var s = session.Session.init(allocator);
-    defer s.deinit();
-    try s.registerExport(.from(7));
-    const baseline = s.exportRefcount(.from(7));
-
-    // Introduce export 7 to the partner twice (two distinct outbound delivers,
-    // export 7 named as an argument each time). Each wire crossing must retain.
-    try s.recordSend(.{ .deliver = .{
-        .target = .{ .far = .{ .import_position = .from(session.bootstrap_position) } },
-        .args = &.{.{ .reference = .{ .near = .{ .export_position = .from(7) } } }},
-        .answer = .from(1),
-    } });
-    try s.recordSend(.{ .deliver = .{
-        .target = .{ .far = .{ .import_position = .from(session.bootstrap_position) } },
-        .args = &.{.{ .reference = .{ .near = .{ .export_position = .from(7) } } }},
-        .answer = .from(2),
-    } });
-    // The two wire references the partner now holds, on top of the baseline.
-    try std.testing.expectEqual(baseline + 2, s.exportRefcount(.from(7)));
-
-    // A conformant partner that received export 7 twice releases with delta 2.
-    // It must decrement cleanly, never underflow, and the export survives at
-    // its pre-mention count for re-export.
-    try s.recordRecv(.{ .gc_export = .{ .positions = &.{7}, .deltas = &.{2} } });
-    try std.testing.expectEqual(baseline, s.exportRefcount(.from(7)));
-    try std.testing.expect(s.hasExport(.from(7)));
-}
-
-test "inbound gc-exports can never release an export's local baseline" {
-    const allocator = std.testing.allocator;
-    var s = session.Session.init(allocator);
-    defer s.deinit();
-    try s.registerImport(.from(3));
-    try s.registerExport(.from(7));
-    const baseline = s.exportRefcount(.from(7));
-
-    // The partner receives export 7 twice.
-    inline for (.{ 1, 2 }) |answer| {
-        try s.recordSend(.{ .deliver = .{
-            .target = .{ .far = .{ .import_position = .from(3) } },
-            .args = &.{.{ .reference = .{ .near = .{ .export_position = .from(7) } } }},
-            .answer = .from(answer),
-        } });
-    }
-
-    // An untrusted release of one more than the wire ever granted is refused
-    // loudly. Validated against the raw refcount instead of the wire-held
-    // share, it would have driven the row to zero and deleted it, a partner
-    // killing our own live capability.
-    const over_release = [_]u64{s.exportRefcount(.from(7))};
-    try std.testing.expectError(session.Error.GcUnderflow, s.recordRecv(.{
-        .gc_export = .{ .positions = &.{7}, .deltas = &over_release },
-    }));
-    try std.testing.expectEqual(baseline + 2, s.exportRefcount(.from(7)));
-
-    // The conformant release of exactly the two wire references decrements to
-    // the pre-mention count; the row stays live and our own next marshal of
-    // the same capability is still valid.
-    try s.recordRecv(.{ .gc_export = .{ .positions = &.{7}, .deltas = &.{2} } });
-    try std.testing.expectEqual(baseline, s.exportRefcount(.from(7)));
-    try std.testing.expect(s.hasExport(.from(7)));
-    try s.recordSend(.{ .deliver = .{
-        .target = .{ .far = .{ .import_position = .from(3) } },
-        .args = &.{.{ .reference = .{ .near = .{ .export_position = .from(7) } } }},
-        .answer = .from(3),
-    } });
-    try std.testing.expectEqual(baseline + 1, s.exportRefcount(.from(7)));
 }
 
 test "sending a projection op naming a near receiver retains its wire-delta" {
