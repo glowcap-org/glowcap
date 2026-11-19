@@ -9,7 +9,7 @@ const execution = @import("execution.zig");
 
 pub const Registration = struct {
     /// The page built under the site's assets by `site-ocapnviz-page`. The
-    /// site render depends on it.
+    /// site render and the explainer video's films depend on it.
     site_page: *std.Build.Step,
 };
 

@@ -616,6 +616,15 @@ pub fn build(b: *std.Build) void {
     // The site serves the visualizer beside the Rooms page, built the same
     // way: fresh for every render, at ocapnviz/.
     site_reg.render.dependOn(ocapnviz.site_page);
+    site_reg.film_ocapnviz.dependOn(ocapnviz.site_page);
+    // The film's trace host runs the Rooms server and loads the installed C ABI
+    // archives through the TypeScript binding, as `ocapnviz-live-browser` does.
+    site_reg.film_ocapnviz.dependOn(b.getInstallStep());
+    site_reg.film_ocapnviz.dependOn(rooms_services_install);
+    rooms.film_traced.dependOn(ocapnviz.site_page);
+    // The ocapnviz film goes last, so no two films share the machine, and the
+    // video waits on it, so every film comes before the render.
+    site_reg.film_ocapnviz.dependOn(rooms.film_traced);
 
     // Finalize graph-level runtime policing after every registrar has had a
     // chance to add members to `check`.

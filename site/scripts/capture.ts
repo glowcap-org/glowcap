@@ -17,6 +17,20 @@ export const still = { reducedMotion: "reduce" } as const;
 export const outDirArg = (): string =>
 	Deno.args.find((arg) => arg.startsWith("--out="))?.slice("--out=".length) ?? "site/assets";
 
+/** Write through a temporary file and rename, so a failed write leaves the
+ * previous file whole instead of a partial one, and leaves no temporary
+ * file behind. */
+export async function replaceFile(path: string, write: (temp: string) => Promise<void>): Promise<void> {
+	const temp = `${path}.partial`;
+	try {
+		await write(temp);
+		await Deno.rename(temp, path);
+	} catch (err) {
+		await Deno.remove(temp).catch(() => {}); // best-effort: the original error is the one reported
+		throw err;
+	}
+}
+
 /** Wait until a web peer this script started answers its page's locator on
  * loopback port `http`. A peer that never answers inside a minute fails the
  * capture with `what` named. */

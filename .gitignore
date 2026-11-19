@@ -20,6 +20,10 @@ site/assets/mark.js
 # inline. Generated, never committed.
 site/assets/rooms-*.webp
 site/assets/rooms-irc-transcript.txt
+# The home page's explainer video, its poster, and its captions, rendered from
+# site/video/explainer.html by `zig build site-video` or fetched by the pin in
+# site/video/published.json. Generated, never committed.
+site/assets/glowcap-explainer*
 # The Rooms page the site serves at /rooms/app/, exported from the prepared
 # browser generation by `zig build site-rooms-page`. Generated, never committed.
 site/assets/rooms/

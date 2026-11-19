@@ -43,6 +43,9 @@ pub const Registered = struct {
     racket_examples_check: *std.Build.Step,
     /// The Zine render waits for the Rooms captures registered by the root.
     render: *std.Build.Step,
+    /// The ocapnviz film opens the site's own ocapnviz, so the root makes it
+    /// wait for that build.
+    film_ocapnviz: *std.Build.Step,
 };
 
 pub fn register(ctx: Context) Registered {
@@ -204,6 +207,48 @@ pub fn register(ctx: Context) Registered {
     render_site.setCwd(b.path("site"));
     render_site.has_side_effects = true;
 
+    // The home page's video, rendered frame by frame from the scene page
+    // site/video/explainer.html into site/assets, which `.gitignore` keeps out
+    // of the tree like the Rooms pictures. It shows reels of the apps in use
+    // under zig-out/site-video/reels: Rooms, filmed by the Rooms captures,
+    // ocapnviz, filmed here, and the two together, filmed by the Rooms steps
+    // as `film-rooms-traced`. Filming needs a GPU so ocapnviz draws enough
+    // frames for the scene's pace. A maintainer renders on one, approves the
+    // result, and publishes it to the site media repository. The site build
+    // fetches that render by the pin in site/video/published.json.
+    const fetch_video = commands.addRootedSystemCommand(b, .real_internet, &.{
+        "deno", "run", "--allow-all", "site/scripts/published-video.ts", "fetch", "--out=site/assets",
+    });
+    fetch_video.has_side_effects = true;
+    const fetch_video_step = b.step("site-video-fetch", "Fetch the published home page video, poster, and captions into site/assets by the pin in site/video/published.json, verifying each file's size and SHA-256 and keeping a complete local render already there (needs deno + network)");
+    fetch_video_step.dependOn(&fetch_video.step);
+    render_site.step.dependOn(&fetch_video.step);
+    const publish_video = commands.addRootedSystemCommand(b, .real_internet, &.{
+        "deno", "run", "--allow-all", "site/scripts/published-video.ts", "publish", "--out=site/assets",
+    });
+    publish_video.has_side_effects = true;
+    const publish_video_step = b.step("site-video-publish", "Publish the approved render in site/assets as a release of glowcap-org/glowcap-site-media and pin it in site/video/published.json, which the change then commits (needs deno + gh signed in with write access)");
+    publish_video_step.dependOn(&publish_video.step);
+    // Both verbs against a fake download and a fake `gh`, with no network.
+    const published_video_test = commands.addRootedSystemCommand(b, .{ .deterministic = 30 }, &.{
+        "deno", "test", "--allow-read", "--allow-write", "site/scripts/published-video_test.ts",
+    });
+    b.step("site-video-test", "Test the published video's pin, fetch, and publish against a fake download and a fake gh").dependOn(&published_video_test.step);
+    check_step.dependOn(&published_video_test.step);
+    const film_ocapnviz = commands.addRootedSystemCommand(b, .{ .browser_proof = 120 }, &.{
+        "deno", "run", "--allow-all", "site/scripts/film-ocapnviz.ts",
+    });
+    film_ocapnviz.has_side_effects = true;
+    film_ocapnviz.step.dependOn(ctx.browser_preflight);
+    const site_video = commands.addRootedSystemCommand(b, .{ .browser_proof = 900 }, &.{
+        "deno", "run", "--allow-all", "site/scripts/render-video.ts", "--out=site/assets",
+    });
+    site_video.has_side_effects = true;
+    site_video.step.dependOn(ctx.browser_preflight);
+    site_video.step.dependOn(&film_ocapnviz.step);
+    const site_video_step = b.step("site-video", "Film Rooms and ocapnviz in use, and render the home page's video, its poster, and its captions into site/assets from site/video/explainer.html, for review before site-video-publish (needs cargo + deno + a Playwright Chromium and its ffmpeg + a GPU, without which ocapnviz draws too few frames for the scene's pace)");
+    site_video_step.dependOn(&site_video.step);
+
     // The reference section is the generated autodoc for the public `glowcap`
     // module, installed into the rendered site after Zine has written the pages.
     // The inner build clears generated site output before Zine renders; this
@@ -334,7 +379,7 @@ pub fn register(ctx: Context) Registered {
     serve_site.has_side_effects = true;
     serve_site.step.dependOn(site_examples_write_step);
     serve_site.step.dependOn(&brand_mark_write.step);
-    const site_serve_step = b.step("site-serve", "Serve the documentation site with Zine's development server, the Rooms page at /rooms/app/ and ocapnviz at /ocapnviz/ included, and print its address (binds 0.0.0.0 in the devcontainer; regenerates site example tabs on start and while site/examples changes; prepares the Rooms pictures, the Rooms page, and ocapnviz first only when site/assets lacks them, so run site-captures, site-rooms-page, or site-ocapnviz-page to refresh one)");
+    const site_serve_step = b.step("site-serve", "Serve the documentation site with Zine's development server, the Rooms page at /rooms/app/ and ocapnviz at /ocapnviz/ included, and print its address (binds 0.0.0.0 in the devcontainer; regenerates site example tabs on start and while site/examples changes; prepares the Rooms pictures, the Rooms page, and ocapnviz first only when site/assets lacks them, so run site-captures, site-rooms-page, or site-ocapnviz-page to refresh one, and fetches the published explainer video when it is missing, which a local site-video render replaces)");
     site_serve_step.dependOn(&serve_site.step);
 
     return .{
@@ -343,6 +388,7 @@ pub fn register(ctx: Context) Registered {
         .rust_examples_check = site_rust_examples_check,
         .racket_examples_check = site_racket_examples_check,
         .render = &render_site.step,
+        .film_ocapnviz = &film_ocapnviz.step,
     };
 }
 

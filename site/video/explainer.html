@@ -1,0 +1,402 @@
+<!doctype html>
+<!-- The home page's video: glowcap and how to try it, what it is, Rooms in use
+     on one server and then across three, ocapnviz recording and replaying
+     traffic, Rooms and ocapnviz together, where ocapnviz draws Rooms' own
+     trace, and the opening lockup again. Each is a screen set in the site's
+     own stylesheets, and the apps are filmed as reels (site/scripts/reel.ts).
+
+     The screens sit one over another, and each fades out before the next
+     fades in. Under them the home page's mycelium (ground.ts, bundled with
+     what else the page needs from the site's TypeScript by scene.ts) grows
+     in as the video opens, then rests faint and still. The page sets
+     drawFrame(ms), and the renderer calls it at every frame after seeking.
+
+     The script at the end builds every other movement as a Web Animation
+     with an absolute start time, and every tween holds its last frame.
+     site/scripts/render-video.ts seeks those animations frame by frame and
+     puts each reel's frame for that moment into its [data-reel] image.
+
+     On a reel image, data-at says when the reel starts playing, in seconds,
+     data-from names the mark it starts from (its first frame when absent),
+     and data-speed how many times real time it plays at, the same from start
+     to end. data-len is how long it plays, which the renderer checks against
+     the reel. data-camera names the marks the camera moves on: as the reel
+     reaches each, the camera frames the subject the film recorded for it,
+     zoomed until it fills most of the window. Without one, it shows the part
+     of the reel the film says to rest on. The scene draws the reel's
+     pointer from the path the film recorded, at the video's own frame rate.
+
+     A .beat element enters at its data-at, and leaves after data-len, so a
+     screen's last caption is gone before the screen changes. Each [data-cue]
+     element is a caption: its data-at and data-len say when, and its data-cue value (or
+     its text when the value is empty) says what. -->
+<html lang="en">
+	<head>
+		<meta charset="utf-8">
+		<title>glowcap video</title>
+		<link rel="stylesheet" href="../assets/tokens.css">
+		<link rel="stylesheet" href="../assets/style.css">
+		<link rel="stylesheet" href="../assets/prose.css">
+		<link rel="stylesheet" href="../assets/cards.css">
+		<link rel="stylesheet" href="explainer.css">
+	</head>
+	<body>
+		<main class="stage" id="stage" aria-label="glowcap, then Rooms and ocapnviz in use">
+			<div class="ambient"></div>
+			<div class="grain"></div>
+
+			<div class="screens" id="screens">
+				<!-- The lockup the video opens and ends on: glowcap, what it does, and
+				     the home page's own "Try it" listing, read from
+				     site/content/index.smd. The script builds the closing screen from
+				     this one, so the last frame is the first. The opening holds too
+				     briefly to read whole, so its caption is short, and the closing
+				     one, which holds, reads it all. -->
+				<section class="screen page" id="lockup" data-at="0" data-len="2"
+					data-cue="glowcap: share objects between programs.">
+					<p class="hero-eyebrow">glowcap</p>
+					<h1>Share objects between programs.</h1>
+					<p>Try it with Rooms, a chat app built on glowcap.</p>
+					<pre><code class="listing"></code></pre>
+					<p class="after">Open the printed link.</p>
+				</section>
+
+				<!-- What glowcap is, before the apps that show it. -->
+				<section class="screen page" data-at="2.3" data-len="3.1"
+					data-cue="glowcap is a Zig library for capability networking and durable state. Alpha, Apache-2.0.">
+					<p class="hero-eyebrow">What glowcap is</p>
+					<h1>A Zig library for capability networking and durable state.</h1>
+					<p class="hero-kicker beat" data-at="3.4">Alpha · Apache-2.0</p>
+				</section>
+
+				<!-- Rooms on one server, and then across three: the second film's
+				     window comes in over the first's, under the same heading. -->
+				<section class="screen">
+					<div class="head">
+						<h2>Rooms</h2>
+						<div class="lines">
+							<p class="beat" data-at="5.7" data-len="2.15"
+								data-cue="In Rooms, everyone in a room is a peer.">Everyone in a room is a peer.</p>
+							<p class="beat" data-at="7.85" data-len="3.44"
+								data-cue>Direct messages skip the server, or pass through it encrypted.</p>
+							<p class="beat" data-at="12.14" data-len="2.75"
+								data-cue>Visit a room on another server by pasting its address.</p>
+							<p class="beat" data-at="14.89" data-len="5.66"
+								data-cue>Rooms on three servers share one sidebar, and members on each write to you directly.</p>
+						</div>
+					</div>
+					<figure class="window beat" data-at="5.3" data-len="6.44">
+						<img data-reel="rooms" data-at="5.3" data-from="room" data-speed="1.2" data-len="5.74"
+							data-camera="room" alt="">
+					</figure>
+					<figure class="window beat" data-at="10.99">
+						<img data-reel="rooms-directories" data-at="11.04" data-from="card" data-speed="1.35"
+							data-len="9.56" alt="">
+					</figure>
+				</section>
+
+				<section class="screen">
+					<div class="head">
+						<h2>ocapnviz</h2>
+						<div class="lines">
+							<p class="beat" data-at="21.0" data-len="5.1"
+								data-cue="ocapnviz records CapTP traffic as it happens, here a staged trace between glowcap and Goblins peers.">Records CapTP traffic as it happens, here a staged trace between <i class="swatch" data-profile="glowcap"></i>glowcap and <i class="swatch" data-profile="goblins"></i>Goblins peers.</p>
+							<p class="beat" data-at="26.1" data-len="6.42"
+								data-cue>Pause on a message in flight to read the frame it carries.</p>
+						</div>
+					</div>
+					<figure class="window">
+						<img data-reel="ocapnviz" data-at="20.6" data-from="recording" data-speed="1.35" data-len="11.92"
+							data-camera="pick, details" alt="">
+					</figure>
+				</section>
+
+				<!-- Rooms and ocapnviz filmed at once: mira's phone, and ocapnviz
+				     recording Rooms' own trace of the same conversation. -->
+				<section class="screen">
+					<div class="head">
+						<h2>Rooms in ocapnviz</h2>
+						<div class="lines">
+							<p class="beat" data-at="33.17" data-len="3.79"
+								data-cue="Rooms traces its own CapTP traffic, and ocapnviz draws it as it happens.">Rooms traces its own CapTP traffic, and ocapnviz draws it as it happens.</p>
+							<p class="beat" data-at="36.96" data-len="5.27"
+								data-cue>ren writes to mira directly. The server introduced them, and stays off the session between them.</p>
+						</div>
+					</div>
+					<figure class="window phone">
+						<img data-reel="traced-rooms" data-at="32.57" data-from="start" data-speed="1.35" data-len="9.71"
+							data-camera="start" alt="">
+					</figure>
+					<figure class="window viewer">
+						<img data-reel="traced-ocapnviz" data-at="32.57" data-from="start" data-speed="1.35"
+							data-len="9.71" alt="">
+					</figure>
+				</section>
+
+				<!-- The opening lockup again, built by the script. Its listing types
+				     out line by line. -->
+				<section class="screen page" id="lockup-end" data-at="42.88" data-len="4.32"
+					data-cue="glowcap shares objects between programs. Try it with Rooms, a chat app built on glowcap. Open the printed link."></section>
+			</div>
+		</main>
+		<script>
+		{
+			const byId = (id) => {
+				const el = document.getElementById(id);
+				if (el == null) throw new Error(`video: no element #${id}`);
+				return el;
+			};
+			/** The closing screen, whose end is the video's. */
+			const closing = byId("lockup-end");
+			const DURATION = Number(closing.dataset.at) + Number(closing.dataset.len);
+			/** When each screen starts to change to the next, in seconds. It fades
+			 * out, and then the next fades in, each over FADE seconds, so two
+			 * screens' text never shows at once. */
+			const CHANGES = [2, 5.5, 20.65, 32.57, 42.28];
+			const FADE = 0.3;
+			/** How long the mycelium takes to grow in as the video opens. */
+			const GROUND_ARRIVES = 3.6;
+			/** The closing listing types at this many characters a second. */
+			const TYPING = 80;
+			/** The closing listing types once its screen has faded in. */
+			const TYPING_AT = Number(closing.dataset.at);
+
+			const root = document.documentElement;
+			const settle = "cubic-bezier(0.5, 0, 0.3, 1)";
+			const tweens = [];
+			const tw = (t, el, keyframes, dur, easing = settle) => tweens.push({ t, el, keyframes, dur, easing });
+
+			// Each screen fades out, and then the next fades in.
+			const screens = [...byId("screens").children];
+			if (CHANGES.length !== screens.length - 1) {
+				throw new Error(`video: ${screens.length} screens need ${screens.length - 1} changes`);
+			}
+			CHANGES.forEach((at, i) => {
+				tw(at, screens[i], [{ opacity: 1 }, { opacity: 0 }], FADE, "ease-in");
+				tw(at + FADE, screens[i + 1], [{ opacity: 0 }, { opacity: 1 }], FADE, "ease-out");
+			});
+
+			// Beats rise a little as they enter, and fade as their time ends. A
+			// screen's first window arrives with its screen. A window that
+			// follows another slides up into place over it, opaque, and clipped
+			// to the place it slides into, so its top bar leads, no frame mixes
+			// the two windows' text, and the one before fades out under it.
+			const beats = () => {
+				for (const beat of document.querySelectorAll(".beat")) {
+					const start = Number(beat.dataset.at);
+					const end = beat.dataset.len == null ? null : start + Number(beat.dataset.len);
+					if (beat.classList.contains("window")) {
+						const below = `${beat.offsetHeight}px`;
+						const covers = beat.previousElementSibling?.classList.contains("window") ?? false;
+						tw(start, beat, covers
+							? [
+								{ opacity: 1, translate: `0 ${below}`, clipPath: `inset(0 0 ${below} 0)` },
+								{ opacity: 1, translate: "0 0", clipPath: "inset(0 0 0 0)" },
+							]
+							: [{ opacity: 1 }, { opacity: 1 }], covers ? 0.5 : 0);
+						if (end != null) tw(end - FADE, beat, [{ opacity: 1 }, { opacity: 0 }], FADE, "ease-in");
+						continue;
+					}
+					tw(start, beat, [{ opacity: 0, translate: "0 10px" }, { opacity: 1, translate: "0 0" }], 0.45);
+					if (end != null) tw(end - 0.35, beat, [{ opacity: 1 }, { opacity: 0 }], 0.3, "linear");
+				}
+			};
+
+			// The camera: at each named mark, scale the reel until the mark's box
+			// fills most of the window, and shift it to put the box in the middle,
+			// as near as the window allows without showing past the reel's edge.
+			// The reel scales from its top left corner, so a shift and a scale
+			// eased together carry each edge of the frame straight to its next
+			// place, never past it. `most` is the furthest it zooms, where the
+			// reel's own pixels are still at most ENLARGE times their size on the
+			// stage.
+			const ENLARGE = 1.25;
+			/** The pointer's width on the stage, in CSS pixels, before the
+			 * camera zooms. */
+			const POINTER_PX = 20;
+			const framing = (box, most, fill = 0.85) => {
+				const zoom = Math.max(1, Math.min(most, fill / Math.max(box.w, box.h)));
+				// A box that names the part of the reel it sits `within` keeps the
+				// frame inside that part too, where it is large enough to.
+				const half = 0.5 / zoom;
+				const center = (middle, from, size) =>
+					size >= 2 * half ? Math.min(from + size - half, Math.max(from + half, middle)) : from + size / 2;
+				const cx = box.within == null ? box.x + box.w / 2 : center(box.x + box.w / 2, box.within.x, box.within.w);
+				const cy = box.within == null ? box.y + box.h / 2 : center(box.y + box.h / 2, box.within.y, box.within.h);
+				const shift = (c) => zoom <= 1 ? 0 : -Math.min(zoom - 1, Math.max(0, zoom * c - 0.5)) * 100;
+				return { scale: String(zoom), translate: `${shift(cx)}% ${shift(cy)}%` };
+			};
+			const camera = async (reels, img) => {
+				const name = img.dataset.reel;
+				const response = await fetch(`${reels}/${name}/reel.json`);
+				if (!response.ok) throw new Error(`video: the ${name} reel's index answered ${response.status}`);
+				const { width, focus, marks, rest, pointer } = await response.json();
+				const shown = img.closest(".window")?.clientWidth;
+				if (shown == null) throw new Error(`video: the ${name} reel is in no window`);
+				const most = (ENLARGE * width) / (shown * devicePixelRatio);
+				const at = Number(img.dataset.at);
+				const speed = Number(img.dataset.speed);
+				const from = img.dataset.from == null ? 0 : marks[img.dataset.from];
+				const when = (ms) => at + (ms - from) / speed / 1000;
+				// The camera moves the reel and its pointer together.
+				const view = document.createElement("div");
+				view.className = "view";
+				img.replaceWith(view);
+				view.append(img);
+				const named = (img.dataset.camera ?? "").split(",").map((mark) => mark.trim()).filter((mark) => mark !== "");
+				const shots = named.map((mark) => {
+					const box = focus[mark];
+					if (marks[mark] == null || box == null) {
+						throw new Error(`video: the ${name} camera's ${mark} mark has no time or no box`);
+					}
+					// A film runs at its machine's pace, so a slow one can carry a
+					// mark past the time the scene gives its reel.
+					const late = when(marks[mark]) - (at + Number(img.dataset.len));
+					if (late > 0) {
+						throw new Error(
+							`video: the ${name} camera's ${mark} mark comes ${
+								late.toFixed(2)
+							} s after its window closes, so this film ran slower than the scene allows`,
+						);
+					}
+					return { t: Math.max(at, when(marks[mark])), frame: framing(box, most) };
+				});
+				// Between shots the camera shows the reel's rest, edge to edge.
+				let last = framing(rest, most, 1);
+				tw(0, view, [last, last], 0.001);
+				shots.forEach(({ t, frame }, i) => {
+					const next = shots[i + 1]?.t ?? at + Number(img.dataset.len);
+					// A shot at the reel's start is where the reel opens, so it is
+					// there from the first frame, before its screen shows. Every
+					// other shot eases over a second and a half at most, gently at
+					// both ends, so small type stays readable on the way and the
+					// shot rests on what it framed.
+					if (t === at) tw(0, view, [frame, frame], 0.001);
+					else tw(t, view, [last, frame], Math.min(1.5, next - t), "cubic-bezier(0.37, 0, 0.63, 1)");
+					last = frame;
+				});
+				if (pointer.moves.length > 0) drawPointer(view, pointer, when, at, speed);
+			};
+
+			// The pointer: an arrow, one size on the stage and scaled with the
+			// camera, that travels each recorded move the way a hand does, with a
+			// ring at each press.
+			const drawPointer = (view, { viewport, moves, presses }, when, at, speed) => {
+				const arrow = document.createElement("div");
+				arrow.className = "pointer";
+				// The arrow is one size on the stage in every window, whatever
+				// size its reel was filmed at.
+				arrow.style.width = `${(POINTER_PX / view.clientWidth) * 100}%`;
+				arrow.innerHTML =
+					'<svg viewBox="0 0 18 26" aria-hidden="true"><path d="M1.5 1.5v20l5-5 3.6 8 3.4-1.5-3.6-7.8h7z"/></svg><span class="ring"></span>';
+				view.append(arrow);
+				const place = ({ x, y }) => ({
+					left: `${(x / viewport.width) * 100}%`,
+					top: `${(y / viewport.height) * 100}%`,
+				});
+				let last = place(moves[0]);
+				tw(0, arrow, [last, last], 0.001);
+				for (const move of moves) {
+					const next = place(move);
+					const start = when(move.at);
+					const len = move.ms / speed / 1000;
+					// A move that ends before the reel shows is where it opens.
+					if (start + len <= at) tw(0, arrow, [next, next], 0.001);
+					else {
+						const t = Math.max(at, start);
+						tw(t, arrow, [last, next], Math.max(0.001, start + len - t), "cubic-bezier(0.45, 0, 0.25, 1)");
+					}
+					last = next;
+				}
+				const ring = arrow.querySelector(".ring");
+				for (const ms of presses) {
+					const t = when(ms);
+					if (t >= at) tw(t, ring, [{ opacity: 0.9, scale: "0.3" }, { opacity: 0, scale: "1" }], 0.45, "ease-out");
+				}
+			};
+
+			// The closing lockup is a copy of the opening one, so the video ends
+			// on its first frame.
+			const opening = byId("lockup");
+			closing.append(...[...opening.childNodes].map((node) => node.cloneNode(true)));
+			const part = (screen, selector) => {
+				const el = screen.querySelector(selector);
+				if (el == null) throw new Error(`video: the lockup has no ${selector}`);
+				return el;
+			};
+
+			// The listing is the home page's own, so the two never differ. The
+			// opening shows it whole, and the closing types each line out after
+			// the one before it.
+			const listing = async () => {
+				const response = await fetch("../content/index.smd");
+				if (!response.ok) throw new Error(`video: site/content/index.smd answered ${response.status}`);
+				const found = /^# Try it$[\s\S]*?^```sh\n([\s\S]*?)^```$/m.exec(await response.text());
+				if (found == null) throw new Error("video: site/content/index.smd has no sh listing under # Try it");
+				const whole = part(opening, ".listing");
+				const typing = part(closing, ".listing");
+				const lines = found[1].trimEnd().split("\n");
+				// Both listings are as wide as their longest line from the start,
+				// so the closing one's box holds still while it types.
+				const widest = Math.max(...lines.map((line) => line.length));
+				for (const code of [whole, typing]) code.style.minWidth = `${widest}ch`;
+				let t = TYPING_AT;
+				for (const line of lines) {
+					const [shown, typed] = [whole, typing].map((code) => {
+						const span = document.createElement("span");
+						span.className = "typed";
+						span.textContent = line;
+						code.append(span, "\n");
+						return span;
+					});
+					shown.style.width = `${line.length}ch`;
+					const len = line.length / TYPING;
+					tw(t, typed, [{ width: "0ch" }, { width: `${line.length}ch` }], len, `steps(${line.length}, end)`);
+					t += len + 0.25;
+				}
+				const after = part(closing, ".after");
+				after.classList.add("beat");
+				after.dataset.at = String(t + 0.1);
+			};
+
+			// The renderer waits for data-duration, or reports data-failed.
+			const params = new URLSearchParams(location.search);
+			const reels = params.get("reels");
+			const fromBundle = async () => {
+				const bundle = params.get("bundle");
+				if (bundle == null) throw new Error("video: the page needs ?bundle=<the scene.ts bundle>");
+				const { startGround, PROFILE_COLORS } = await import(bundle);
+				globalThis.drawFrame = startGround(byId("stage"), byId("screens"), GROUND_ARRIVES);
+				// A swatch is a peer's color in ocapnviz, so the line names what
+				// the viewer sees.
+				for (const swatch of document.querySelectorAll(".swatch")) {
+					const color = PROFILE_COLORS[swatch.dataset.profile];
+					if (color == null) throw new Error(`video: ocapnviz has no color for ${swatch.dataset.profile}`);
+					swatch.style.background = `#${color.toString(16).padStart(6, "0")}`;
+				}
+			};
+			Promise.all([
+				listing(),
+				fromBundle(),
+				...[...document.querySelectorAll("img[data-reel]")].map(async (img) => {
+					if (reels == null) throw new Error("video: the page needs ?reels=<where the reels are served>");
+					return camera(reels, img);
+				}),
+			])
+				.then(() => {
+					beats();
+					// Later starts are made later, so where two tweens set one
+					// property the one that started last shows.
+					tweens.sort((a, b) => a.t - b.t);
+					for (const { t, el, keyframes, dur, easing } of tweens) {
+						el.animate(keyframes, { delay: t * 1000, duration: dur * 1000, easing, fill: "forwards" });
+					}
+					root.dataset.duration = String(DURATION);
+				})
+				.catch((err) => {
+					root.dataset.failed = String(err);
+				});
+		}
+		</script>
+	</body>
+</html>

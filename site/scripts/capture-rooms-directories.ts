@@ -25,6 +25,12 @@
  *
  *   rooms-directories-*.webp        three rooms on three directories and a direct line from each
  *   rooms-directories-phone-*.webp  the same session shared to a phone, every directory included
+ *
+ * Given `--reels=<dir>`, it also films mira's two visits, each room's first
+ * line arriving from the member at home there, the direct lines arriving from
+ * all three directories, and mira opening the one from the farthest, as the
+ * `rooms-directories` reel for the site's video (see `reel.ts`) in that
+ * directory. Without it, the capture films nothing.
  */
 import { type BrowserContext, chromium, type Page } from "playwright";
 import { spawnWeb, webPort } from "../../apps/rooms/test/support/web_front.ts";
@@ -33,8 +39,13 @@ import { reapOwned } from "../../apps/rooms/test/support/children.ts";
 import { establishLocalSession } from "../../apps/rooms/test/support/session_setup.ts";
 import { directOpened, openDmTo, reachDirectoryOnCard } from "../../apps/rooms/test/page/harness.ts";
 import { outDirArg, pinToLatest, plainRun, shot, still } from "./capture.ts";
+import { filmArgs, filmDirArg, glide, glideClick, placePointer, startReel, typeOnFilm, unfilmed } from "./reel.ts";
+import { ROOMS_LAYOUT, settled, smoothLayout } from "./film-smooth.ts";
 
 const outDir = outDirArg();
+/** How far apart the three members start writing to mira, so their lines
+ * still land one after another in her rail. */
+const LINE_BEAT_MS = 700;
 
 /** One directory: a web front serving the page, over a room server of its own. */
 interface Directory {
@@ -87,18 +98,39 @@ async function joinHome(page: Page, room: string, nick: string): Promise<void> {
 	await page.waitForSelector("#line:not([disabled])", { timeout: 60_000 });
 }
 
-/** From inside a room, open another directory's room beside it: name the room
- * in the rail, say it is somewhere else, and give the card that directory. */
-async function joinElsewhere(page: Page, dir: Directory, nick: string): Promise<void> {
-	await page.click("#newRoomBtn");
-	await page.fill("#newRoomInput", dir.name);
-	await page.click("#newRoomElsewhere");
+/** From inside a room, open another directory's room beside it, on film:
+ * name the room in the sidebar, say it is somewhere else, and paste the
+ * directory's address into the card. The pointer presses each control, and
+ * the room's name is typed where the reel can see it. The card may already
+ * hold the nick and the room, and then they are left as they are. */
+async function visitOnFilm(
+	page: Page,
+	dir: Directory,
+	nick: string,
+	marked: (name: string) => Promise<void>,
+): Promise<void> {
+	const typeInto = async (selector: string, text: string, { paste = false } = {}) => {
+		const field = page.locator(selector);
+		if ((await field.inputValue()) === text) return;
+		await glideClick(page, field);
+		await field.fill("");
+		if (paste) await field.fill(text);
+		else await typeOnFilm(field, text);
+	};
+	await glideClick(page, page.locator("#newRoomBtn"));
+	await typeInto("#newRoomInput", dir.name);
+	await glideClick(page, page.locator("#newRoomElsewhere"));
 	await page.waitForSelector("#joinForm", { timeout: 10_000 });
-	await page.fill("#joinAddressField", dir.address);
-	await page.fill("#nick", nick);
-	await reachDirectoryOnCard(page);
-	await page.fill("#room", dir.name);
-	await page.click("#joinBtn");
+	await settled(page, "#joinForm");
+	await marked("card");
+	await typeInto("#joinAddressField", dir.address, { paste: true });
+	await typeInto("#nick", nick);
+	if (((await page.textContent("#joinBtn")) ?? "").trim() === "Connect") {
+		await glideClick(page, page.locator("#joinBtn"));
+		await page.locator("#room").waitFor({ state: "visible", timeout: 60_000 });
+	}
+	await typeInto("#room", dir.name);
+	await glideClick(page, page.locator("#joinBtn"));
 	await page.locator("#roomName", { hasText: dir.name }).waitFor({ timeout: 60_000 });
 	await page.waitForSelector("#line:not([disabled])", { timeout: 60_000 });
 }
@@ -110,7 +142,13 @@ async function open(page: Page, list: "#roomList" | "#dmList", name: string): Pr
 	await page.locator("#roomName", { hasText: name }).waitFor({ timeout: 30_000 });
 }
 
-const browser = await chromium.launch({ headless: true, args: ["--no-sandbox"] });
+// A run that films draws mira's window at its scale.
+const FILM_SCALE = 1.5;
+const reelsDir = filmDirArg();
+const browser = await chromium.launch({
+	headless: true,
+	args: ["--no-sandbox", ...(reelsDir == null ? [] : filmArgs(FILM_SCALE))],
+});
 const contexts: BrowserContext[] = [];
 async function tab(dir: Directory, scale = 1): Promise<Page> {
 	const context = await browser.newContext({
@@ -137,22 +175,40 @@ try {
 		members.set(dir, page);
 	}
 
-	// mira starts at home and then goes visiting, keeping every room she holds.
-	const mira = await tab(home, 1.5);
-	await joinHome(mira, home.name, human);
-	await joinElsewhere(mira, zines, human);
-	await joinElsewhere(mira, sky, human);
-
-	// A line in each room, so the rail shows what each one is about.
 	const ren = members.get(home)!;
 	const oskar = members.get(zines)!;
 	const lu = members.get(sky)!;
-	await open(mira, "#roomList", home.name);
-	await post(ren, "Kiln is free Saturday if anyone wants to fire the new mugs.", mira);
-	await open(mira, "#roomList", zines.name);
-	await post(oskar, "Issue nine is printed. Trading two copies for anything hand-bound.", mira);
-	await open(mira, "#roomList", sky.name);
+
+	// mira starts at home and then goes visiting, keeping every room she
+	// holds. In each room she visits, the member at home there says what the
+	// room is about, and the line reaches her across directories. The film
+	// shows one visit, at the video's 16:9, then a member on each directory
+	// writing to her. The window is small enough that the rail's addresses
+	// read in the video with the whole app in view, so no camera crops it.
+	const mira = await tab(home, FILM_SCALE);
+	await joinHome(mira, home.name, human);
+	await mira.setViewportSize({ width: 1088, height: 612 });
+	await placePointer(mira, 595, 357);
+	await visitOnFilm(mira, sky, human, async () => {});
 	await post(lu, "Clear skies after midnight. Saturn is up by one.", mira);
+	// Only a film eases the layout. A picture takes it as it stands.
+	if (reelsDir != null) await smoothLayout(mira, ROOMS_LAYOUT);
+	const reel = reelsDir == null ? unfilmed : await startReel(mira, `${reelsDir}/rooms-directories`);
+	await mira.waitForTimeout(500);
+	await reel.mark("home");
+	// The window fades in on the open dialog before the pointer moves.
+	await visitOnFilm(mira, zines, human, async (name) => {
+		await reel.mark(name);
+		await reel.hold(500);
+	});
+	// The rail now lists rooms on three servers. The pointer leaves the
+	// composer, where it joined, for the empty foot of the member list.
+	await reel.mark("joined");
+	await glide(mira, 968, 380, 500);
+	const visitLine = "Issue nine is printed. Trading two copies for anything hand-bound.";
+	await post(oskar, visitLine, mira);
+	// The rail rests on its three servers' rooms before the lines come.
+	await reel.hold(1100);
 
 	// Each member writes to mira from the member list of their own room. The
 	// directory that holds the room introduces them, and the line goes
@@ -174,19 +230,57 @@ try {
 			"Absolutely. I will bring coffee for the cold part.",
 		],
 	];
-	for (const [dir, ask] of lines) {
-		const page = members.get(dir)!;
+	// The members write at once, a beat apart, so the film waits for the
+	// slowest line to arrive rather than for each in turn. Each opens its own
+	// direct session, and how long that takes varies from run to run.
+	const rows = lines.map(([dir]) => mira.locator("#dmList li .rname", { hasText: new RegExp(`^${dir.member}$`) }));
+	const writing = Promise.all(lines.map(async ([dir, ask], i) => {
+		const page = members.get(dir);
+		if (page == null) throw new Error(`film: no page for ${dir.member}`);
+		await page.waitForTimeout(i * LINE_BEAT_MS);
 		await openDmTo(page, human);
 		await post(page, ask);
-		const row = mira.locator("#dmList li .rname", { hasText: new RegExp(`^${dir.member}$`) });
-		await row.waitFor({ timeout: 30_000 });
-	}
+	}));
+	// The first line to arrive marks the moment, and a member who fails to
+	// write fails the film then, not after the wait.
+	const firstRow = Promise.any(rows.map((row) => row.waitFor({ timeout: 30_000 })));
+	await Promise.race([firstRow, writing.then(() => firstRow)]);
+	await reel.mark("lines");
+	await writing;
+	for (const row of rows) await row.waitFor({ timeout: 30_000 });
+	await mira.waitForTimeout(700);
+	// mira opens the line from the farthest directory, and it reads like any
+	// other conversation.
+	const farthest = lines[lines.length - 1];
+	// The pointer clicks the name's upper edge, so the arrow leaves the
+	// server address under it in view.
+	const name = await mira.locator("#dmList li .rname", { hasText: new RegExp(`^${farthest[0].member}$`) })
+		.boundingBox();
+	if (name == null) throw new Error(`the rail shows no line from ${farthest[0].member}`);
+	await glideClick(mira, { x: name.x + name.width / 2, y: name.y + 3 });
+	await directOpened(mira, farthest[0].member);
+	await mira.locator(".bubble", { hasText: plainRun(farthest[1]) }).last().waitFor({ timeout: 30_000 });
+	await reel.mark("direct");
+	// The conversation holds long enough to read.
+	await reel.hold(1300);
+	await reel.stop();
+	await mira.setViewportSize({ width: 1280, height: 760 });
+
 	for (const [dir, ask, answer] of lines) {
 		await open(mira, "#dmList", dir.member);
 		await directOpened(mira, dir.member);
 		await mira.locator(".bubble", { hasText: plainRun(ask) }).last().waitFor({ timeout: 30_000 });
 		await post(mira, answer, members.get(dir)!);
 	}
+
+	// The home room's line, so the rail shows what each room is about. The
+	// other two had theirs when mira visited. Each member is still in their direct line
+	// with mira, so each goes back to their room first.
+	await open(ren, "#roomList", home.name);
+	await open(oskar, "#roomList", zines.name);
+	await open(lu, "#roomList", sky.name);
+	await open(mira, "#roomList", home.name);
+	await post(ren, "Kiln is free Saturday if anyone wants to fire the new mugs.", mira);
 
 	// The capture: the direct line with the member from the farthest directory
 	// open, and the rail holding all three rooms and all three lines.
@@ -241,6 +335,8 @@ try {
 	}
 	// A reply from the phone into the line with oskar, who is on the second
 	// directory, proves the phone is driving the session and not a copy of it.
+	// oskar watches the line with mira, where the reply lands.
+	await open(oskar, "#dmList", human);
 	const fromPhone = "Sending this from my phone. Bring nine on Saturday?";
 	const showing = (await phone.locator("#roomName").textContent().catch(() => "")) ?? "";
 	if (!showing.includes(zines.member)) {

@@ -43,6 +43,116 @@
   min-width: 0;
 }
 
+/* The explainer video under the hero, as wide as the prose column, so it
+   lines up with the figures under it. */
+.hero-video {
+  max-width: var(--content-max);
+  margin: 0 0 2.25rem;
+}
+
+/* The video is drawn in the site's dark face whatever the page's theme, so
+   its box takes the dark scheme: the paper token resolves to the dark page
+   color, and the controls draw dark. The poster holds the space before
+   anything plays. */
+.hero-video video {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 16 / 9;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-card);
+  color-scheme: dark;
+  background: var(--paper);
+}
+
+/* Until the first play hands over to the browser's controls, the whole
+   poster is the play button. The poster is the video's first frame, its
+   title card, and the control stands on that card's text column under its
+   last line. The poster is the video's dark face in either page theme, so
+   the control takes the dark scheme: the site's primary button as the dark
+   face draws it.
+
+   The poster scales with the frame, not the page, so the control is sized
+   and placed against the frame's width. Its column and foot follow the
+   title card's layout in site/video/explainer.css, whose text column starts
+   135 of its 1280 pixels in. */
+.hero-video-frame {
+  position: relative;
+  container: hero-video / inline-size;
+}
+
+.hero-video-play {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: end start;
+  padding: 0 0 6.5% calc(135 / 1280 * 100%);
+  border: 0;
+  border-radius: var(--radius-card);
+  background: none;
+  color-scheme: dark;
+  font: inherit;
+  cursor: pointer;
+}
+
+.hero-video-play[hidden] {
+  display: none;
+}
+
+/* The site's primary button, scaled with the poster down to a size that
+   still reads. The poster qualifies the selectors so they outrank .btn,
+   which comes later in this file. A pointer or focus anywhere on the poster
+   lights the button as a pointer on the button itself would. */
+.hero-video-play .hero-video-play-pill {
+  gap: 0.5em;
+  padding: 0.67em 1.33em 0.67em 1.15em;
+  font-size: clamp(0.75rem, 1.85cqi, 1.05rem);
+}
+
+.hero-video-play-pill svg {
+  width: 0.9em;
+  height: 0.9em;
+}
+
+.hero-video-play:is(:hover, :focus-visible) .hero-video-play-pill {
+  filter: brightness(1.05);
+}
+
+.hero-video-play:is(:hover, :focus-visible) .btn-arrow {
+  transform: translateX(3px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hero-video-play:is(:hover, :focus-visible) .btn-arrow {
+    transform: none;
+  }
+}
+
+/* Focus rings the pill, the thing that acts, instead of the whole poster. */
+.hero-video-play:focus-visible {
+  outline: none;
+}
+
+.hero-video-play:focus-visible .hero-video-play-pill {
+  outline: 2px solid var(--teal);
+  outline-offset: 3px;
+}
+
+/* In a small frame the label stays readable, so it is a larger share of
+   the poster, and sits lower to clear the title card's last line. */
+@container hero-video (max-width: 40rem) {
+  .hero-video-play {
+    padding-bottom: 3%;
+  }
+}
+
+.hero-video figcaption {
+  margin-top: 0.6rem;
+  text-wrap: pretty;
+  color: var(--ink-soft);
+  font-size: 0.9rem;
+}
+
 .hero-eyebrow {
   margin: 0 0 0.15rem;
   font-size: 0.8rem;

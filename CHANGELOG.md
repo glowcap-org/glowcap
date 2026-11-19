@@ -228,6 +228,8 @@ Releases before 0.1.7 are in the
   blocks a WebSocket without TLS from an https page unless it goes to the
   computer's own address.
   `zig build site-ocapnviz-page` builds the page into the site's assets.
+- The home page shows a short captioned video of Rooms and ocapnviz in use.
+  `zig build site-video` renders it, and `site-video-publish` publishes it.
 - The Rust binding exports `BINDING_WEBSOCKET_MESSAGE_CAP_BYTES`, the largest
   WebSocket message a binding's adapter admits.
 - Every binding exports `VERSION_MAJOR`, `VERSION_MINOR`, and `VERSION_PATCH`,
@@ -350,6 +352,8 @@ Releases before 0.1.7 are in the
 - When a Rooms member declines a direct connection offer, the offering member
   now hears the refusal at once and can use the relay, instead of waiting
   out the signaling timeout.
+- ocapnviz's Select hint offers to drag a peer only in Build mode.
+- `zig build site-serve` prints the preview's address at the site's root.
 - The mushroom mark on the website and in Rooms no longer drops frames on a
   phone with a three-times screen, such as an iPhone Pro. It draws at the
   screen's own resolution there, skips its beams while its light is off, and
