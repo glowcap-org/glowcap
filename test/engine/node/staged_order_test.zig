@@ -67,7 +67,7 @@ test "a send queued behind a staged gift waits, and its failure releases it" {
         try std.testing.expect(recipient.takeOutbound() == null);
 
         const ticket = fixture.node.nextAction().?.need_gift_id.ticket;
-        try fixture.node.giftIdFailed(ticket);
+        _ = fixture.node.giftIdFailed(ticket);
         try std.testing.expectEqual(fixture.recipient_id, fixture.node.nextAction().?.flush);
 
         try recipient.stepToIdle();

@@ -314,7 +314,11 @@ pub const Server = struct {
     }
     fn arrivalFailed(ctx: *anyopaque, _: u64, failure: driver.OperationFailure) void {
         const self = from(ctx);
-        if (!self.admission_sealed and self.accept_failure == null) self.accept_failure = failure;
+        if (!self.admission_sealed and self.accept_failure == null) {
+            self.accept_failure = failure;
+        } else {
+            self.runtime.reportUnhandledFailure(failure);
+        }
     }
     fn failed(ctx: *anyopaque, _: u64, failure: driver.OperationFailure) void {
         const self = from(ctx);

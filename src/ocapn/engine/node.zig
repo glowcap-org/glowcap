@@ -588,6 +588,7 @@ pub const Node = struct {
     pub const interceptFulfilledRoute = gift_origination.interceptFulfilledRoute;
     pub const interceptFulfilledRouteNamed = gift_origination.interceptFulfilledRouteNamed;
     pub const provideGiftId = gift_origination.provideGiftId;
+    pub const GiftFailureDelivery = enum { delivered, unobserved, stale };
     pub const giftIdFailed = gift_origination.giftIdFailed;
 };
 

@@ -146,7 +146,7 @@ pub const Listener = struct {
     pub fn finishAccept(self: Listener) netlayer.AcceptError!?ClaimedConnection {
         return switch (self.finishAcceptOutcome()) {
             .connection => |connection| connection,
-            .failed => |failure| failure.classification,
+            .arrival_failed, .failed => |failure| failure.classification,
         };
     }
 
@@ -154,6 +154,7 @@ pub const Listener = struct {
         const result = self.acceptor.operations().finish_accept(self.acceptor.resident.ctx, self.ctx);
         return switch (result) {
             .connection => |id| .{ .connection = if (id) |value| .{ .resident = self.acceptor.resident, .id = value } else null },
+            .arrival_failed => |failure| .{ .arrival_failed = failure },
             .failed => |failure| .{ .failed = failure },
         };
     }
@@ -169,5 +170,7 @@ pub const Listener = struct {
 
 pub const FinishAcceptOutcome = union(enum) {
     connection: ?ClaimedConnection,
+    /// One already accepted connection was retired. The listener remains usable.
+    arrival_failed: netlayer.AcceptFailure,
     failed: netlayer.AcceptFailure,
 };

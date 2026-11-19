@@ -62,7 +62,7 @@ fn Tests(comptime Backend: type) type {
                     .accepted => server.records.clearRetainingCapacity(),
                     .records => switch (server.resident().vtable.listen.?.finish_accept(server, row)) {
                         .connection => |id| try std.testing.expect(id != null),
-                        .failed => |failure| return failure.chain.cause,
+                        .arrival_failed, .failed => |failure| return failure.chain.cause,
                     },
                 }
             }
@@ -76,7 +76,7 @@ fn Tests(comptime Backend: type) type {
         fn expectOwed(server: *Resident, row: *const Resident.Listener) !void {
             try std.testing.expect(row.rearm_owed);
             try std.testing.expect(!row.accept_armed);
-            try std.testing.expectEqual(@as(?anyerror, null), row.accept_failure);
+            try std.testing.expect(row.accept_failure == null);
             try std.testing.expectEqual(@as(?anyerror, null), server.failure);
             try std.testing.expectEqual(@as(usize, 1), server.rearm_owed_count);
             try std.testing.expectEqual(@as(usize, 0), server.accept_seats);
@@ -104,7 +104,7 @@ fn Tests(comptime Backend: type) type {
             try std.testing.expect(try events.take(route, er.ev_accept));
             switch (server.resident().vtable.listen.?.finish_accept(server, row)) {
                 .connection => |id| try std.testing.expect(id != null),
-                .failed => |failure| return failure.chain.cause,
+                .arrival_failed, .failed => |failure| return failure.chain.cause,
             }
             // The ordinary claim neither re-armed the owed listener nor
             // released any seat.
@@ -372,7 +372,7 @@ fn Tests(comptime Backend: type) type {
             try growRecordsBesideSeat(true);
         }
 
-        test "claim time adopt refusal still fails the claim" {
+        test "a refused connection adoption retires one arrival and leaves its listener armed" {
             var server = try open();
             defer retire(&server);
             var client = try open();
@@ -388,12 +388,17 @@ fn Tests(comptime Backend: type) type {
             server.allocator = allocator;
             try std.testing.expect(failing.has_induced_failure);
             switch (outcome) {
-                .failed => |failure| try std.testing.expectEqual(error.OutOfMemory, failure.chain.cause),
-                .connection => return error.AdoptRefusalLost,
+                .arrival_failed => |failure| try std.testing.expectEqual(error.OutOfMemory, failure.chain.cause),
+                .connection, .failed => return error.AdoptRefusalLost,
             }
             // The listener was armed and stays so.
             try std.testing.expect(row.accept_armed);
             try std.testing.expect(!row.rearm_owed);
+            try arrival(&server, &client, row, locator, 1701);
+            switch (server.resident().vtable.listen.?.finish_accept(&server, row)) {
+                .connection => |id| try std.testing.expect(id != null),
+                .arrival_failed, .failed => |failure| return failure.chain.cause,
+            }
         }
 
         test "a non-memory rearm failure stops the retries and surfaces through readiness" {

@@ -74,7 +74,10 @@ pub fn serve(server: *driver.Server, storage: *Storage, stop: ?*const std.atomic
     while (if (stop) |flag| !flag.load(.acquire) else true) {
         const wait: i32 = if (storage.attached.hasPendingWork()) 0 else 10;
         if (open == max_sessions) {
-            _ = try server.runtime.stepAny(wait);
+            _ = server.runtime.stepAny(wait) catch |err| switch (err) {
+                error.LoopTerminal => return server.runtime.terminalFailure().?.chain.cause,
+                else => return err,
+            };
         } else if (try server.waitAcceptable(wait)) {
             // A client that fails to connect costs only its own session.
             if (admit(server)) |session| {

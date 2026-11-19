@@ -438,6 +438,7 @@ pub fn applySettleMailboxWith(self: *HostRuntime, effect_mode: ExternalEffectMod
         if (first_failure == null) first_failure = err;
     };
     if (first_failure) |err| {
+        if (err == error.Canceled) return err;
         self.noteTerminalFailure(err);
         return err;
     }

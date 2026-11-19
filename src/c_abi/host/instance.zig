@@ -25,6 +25,12 @@ pub const DriveOwner = enum {
     driver,
 };
 
+/// The Context's journal and the Host identity allocated in its namespace.
+pub const Diagnostics = struct {
+    context: *shared.Context,
+    host_id: u64,
+};
+
 /// The host handle's owned state: the byte-fed core plus the C-side bridge
 /// registries. The `core` field is embedded by value so a `*Host` reached
 /// through a session (`HostSession.host`) recovers the instance with one
@@ -32,10 +38,7 @@ pub const DriveOwner = enum {
 pub const Instance = struct {
     core: driver_core.Host,
     allocator: std.mem.Allocator,
-    /// Stable identity in the owning Context's diagnostic namespace, or zero
-    /// for the context-less convenience constructor, which has no Context
-    /// diagnostic namespace to allocate from.
-    diagnostic_id: u64,
+    diagnostics: ?Diagnostics,
     drive_owner: DriveOwner = .embedder,
     /// Companion attachments borrow this Host until their successful release.
     attachment_borrows: usize = 0,

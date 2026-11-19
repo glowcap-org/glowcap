@@ -49,7 +49,7 @@ pub fn breakRecipient(self: *Node, recipient: *topology.Recipient) void {
         actions.releaseProxyReservation(self);
         return;
     };
-    recip.breakAnswerTargetGuaranteed(recipient.target, reason);
+    _ = recip.breakAnswerTargetGuaranteed(recipient.target, reason);
     actions.queueProxyFlush(self, recipient.peer);
 }
 

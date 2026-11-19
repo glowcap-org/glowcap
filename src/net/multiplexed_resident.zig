@@ -279,6 +279,8 @@ pub const MultiplexedResident = struct {
 
     pub const RawFinishAcceptOutcome = union(enum) {
         connection: ?usize,
+        /// One already accepted connection was retired. The listener remains usable.
+        arrival_failed: netlayer.AcceptFailure,
         failed: netlayer.AcceptFailure,
     };
 

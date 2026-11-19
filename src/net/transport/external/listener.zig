@@ -13,7 +13,7 @@ const completion = @import("../../completion/loop.zig");
 const netlayer = @import("../../netlayer.zig");
 const provider_mod = @import("provider.zig");
 
-pub fn Machine(comptime Backend: type) type {
+pub fn Machine(comptime Backend: type, comptime report_token: u32) type {
     return struct {
         const Fd = Backend.Fd;
         const Op = Backend.Op;
@@ -87,7 +87,7 @@ pub fn Machine(comptime Backend: type) type {
         pub fn submitAccept(backend: *Backend, user_data: u64) !void {
             const row = &(backend.listener orelse return error.ListenerClosed);
             if (row.closing) return error.ListenerClosed;
-            if (row.accept_ud != null) return error.AlreadyAccepting;
+            if (row.accept_ud != null or backend.accept_report != null) return error.AlreadyAccepting;
             if (row.phase == .failed) return error.ListenerClosed;
             try backend.ready.reserve(backend.allocator, 1);
             errdefer backend.ready.release(1);
@@ -165,7 +165,18 @@ pub fn Machine(comptime Backend: type) type {
                     row.accept_ud = null;
                     switch (row.provider.vtable.accept.?(row.provider.ctx, listener)) {
                         .ready => |handle| bindAccepted(backend, ud, row.provider, handle),
-                        .failed => |err| backend.ready.appendReserved(.{ .user_data = ud, .result = -1, .failure = err }),
+                        .would_block => row.accept_ud = ud,
+                        inline .arrival_failed, .failed => |report, tag| {
+                            std.debug.assert(backend.accept_report == null);
+                            backend.accept_report = report;
+                            backend.ready.appendReserved(.{
+                                .user_data = ud,
+                                .result = -1,
+                                .failure = report.cause,
+                                .arrival_retired = tag == .arrival_failed,
+                                .borrowed = .failure(&backend.accept_report.?, report_token),
+                            });
+                        },
                     }
                 },
             }
@@ -186,7 +197,7 @@ pub fn Machine(comptime Backend: type) type {
 
         fn refuseAccepted(backend: *Backend, ud: u64, provider: *const Provider, handle: provider_mod.Handle, err: anyerror) void {
             provider.vtable.closeToSink(provider.ctx, handle.ptr);
-            backend.ready.appendReserved(.{ .user_data = ud, .result = -1, .failure = err });
+            backend.ready.appendReserved(.{ .user_data = ud, .result = -1, .failure = err, .arrival_retired = true });
         }
 
         /// Fail every waiter: a parked accept and a setup wait.

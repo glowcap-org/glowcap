@@ -115,7 +115,7 @@ fn expectSignature(comptime Function: type, comptime Params: []const type, compt
 
 test "completion loop: accept completion preserves its typed failure" {
     FakeBackend.chunks = &.{};
-    FakeBackend.first_accept_failure = error.TestAcceptFailure;
+    FakeBackend.first_accept_failure = .{ .cause = error.TestAcceptFailure };
     defer FakeBackend.first_accept_failure = null;
 
     var loop = try completion.Loop(FakeBackend, no_dial.Unsupported).init(
@@ -508,9 +508,9 @@ test "completion loop: an accept that failed on its own arrival leaves the liste
     // socket option). The re-arm before the classification delivers the next
     // arrival, and that arrival is the only connection the script holds, so a
     // close report proves it was admitted after the failure.
-    inline for (.{ error.ConnectionAborted, error.SocketConfigurationFailed }) |arrival_failure| {
+    inline for (.{ .{ error.ConnectionAborted, false }, .{ error.SocketConfigurationFailed, true } }) |arrival| {
         FakeBackend.chunks = &.{};
-        FakeBackend.first_accept_failure = arrival_failure;
+        FakeBackend.first_accept_failure = .{ .cause = arrival[0], .retired = arrival[1] };
         defer FakeBackend.first_accept_failure = null;
         AcceptWatch.report = null;
 
@@ -539,7 +539,7 @@ test "completion loop: an accept refusal that would repeat for every arrival ret
     // re-armed for a caller that resumes, and no connection was admitted.
     inline for (.{ error.ProcessFdQuotaExceeded, error.SystemFdQuotaExceeded }) |persistent_failure| {
         FakeBackend.chunks = &.{};
-        FakeBackend.first_accept_failure = persistent_failure;
+        FakeBackend.first_accept_failure = .{ .cause = persistent_failure };
         defer FakeBackend.first_accept_failure = null;
         AcceptWatch.report = null;
 

@@ -99,6 +99,7 @@ fn buildInstance(
     // set and both event recipients, so no wire ever exists without a
     // reserved close seat and no completion without a taker.
     var adoption = opts;
+    adoption.unhandled_failure = .{ .ctx = inst, .report = events.observeUnhandled };
     adoption.drive = .{ .stepped = .{
         .completion_sink = .{
             .ctx = inst,
@@ -271,7 +272,7 @@ pub export fn glowcap_driver_release(
     alloc.destroy(inst);
     if (teardown_failure) |failure| {
         failure_output.setLastError("driver release", failure);
-        const code = driver_error.code(failure.kind());
+        const code = driver_error.terminalCode(failure.kind());
         failure_output.project(failure_slot, code, failure);
         return shared.ReleaseResult.consumed(code).raw();
     }

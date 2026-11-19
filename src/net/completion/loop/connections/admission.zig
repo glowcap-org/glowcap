@@ -114,7 +114,7 @@ pub fn Machine(
             // is its only diagnostic surface and `run` returns it.
             const fd = accepted orelse {
                 const err = failure_projection.primary(comp, error.AcceptFailed);
-                if (failure_projection.acceptRefusalPersists(err)) return err;
+                if (!comp.arrival_retired and failure_projection.acceptRefusalPersists(err)) return err;
                 return;
             };
 

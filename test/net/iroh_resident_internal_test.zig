@@ -155,6 +155,48 @@ test "direct-address C ABI reports required length on short output" {
     try std.testing.expectEqualSlices(u8, "aaaaaaaa", exact[0..len]);
 }
 
+test "packaged iroh finish_accept retains a post-claim refusal and serves the next arrival" {
+    resetSidecar();
+    const abi = @import("c_abi");
+    var owner: @import("support_c_abi_counting_alloc").CountingHost = .{};
+    defer std.testing.expect(owner.balanced()) catch @panic("iroh allocation imbalance");
+    var context: ?*abi.GlowcapContext = null;
+    try std.testing.expectEqual(c.GLOWCAP_OK, abi.glowcap_context_new_with_allocator(&owner.spec(), &context));
+    defer abi.glowcap_context_release(context);
+    var endpoint: ?*c_iroh.GlowcapIrohNetlayer = null;
+    const config: c_iroh.GlowcapIrohConfig = .{
+        .reachability = c_iroh.GLOWCAP_IROH_REACH_LOCAL_DISCOVERY,
+        .connect_timeout_ms = 0,
+        .idle_timeout_ms = 0,
+        .worker_threads = 0,
+    };
+    try std.testing.expectEqual(c.GLOWCAP_OK, c_iroh.glowcap_iroh_netlayer_new_in(context, null, 0, &config, &endpoint, null, 0, null));
+    defer std.testing.expectEqual(c.GLOWCAP_OK, c_iroh.glowcap_iroh_netlayer_release(endpoint, null, 0, null)) catch @panic("iroh release failed");
+    var provider: c.GlowcapTransportProvider = undefined;
+    try std.testing.expectEqual(c.GLOWCAP_OK, c_iroh.glowcap_iroh_transport_provider(endpoint, &provider));
+    const table: *const c.GlowcapMultiplexedTransport = @ptrCast(@alignCast(provider.entries.?[0].implementation.?));
+    var listener: c.GlowcapListenResult = undefined;
+    var failure = c.transport_provider.emptyProviderFailure();
+    try std.testing.expectEqual(c.GLOWCAP_OK, table.listen.?(table.ctx, 7, "iroh", 4, null, 0, null, 0, null, &listener, &failure));
+    defer std.testing.expectEqual(c.GLOWCAP_OK, table.stop_listen.?(listener.listener, &failure)) catch @panic("iroh listener close failed");
+
+    var conn: u64 = 37;
+    stub.next_accept = @ptrFromInt(91);
+    owner.fail_allocations = true;
+    const refused = table.finish_accept.?(listener.listener, &conn, &failure);
+    owner.fail_allocations = false;
+    try std.testing.expectEqual(c.GLOWCAP_ACCEPT_ARRIVAL_FAILED, refused);
+    try std.testing.expectEqual(@as(u64, 37), conn);
+    try std.testing.expectEqual(c.GLOWCAP_ERR_INTERNAL, failure.result);
+    try std.testing.expectEqualStrings("OutOfMemory", failure.primary_name.?[0..failure.primary_name_len]);
+    try std.testing.expectEqual(@as(usize, 1), stub.conn_free_count);
+
+    stub.next_accept = @ptrFromInt(92);
+    try std.testing.expectEqual(c.GLOWCAP_OK, table.finish_accept.?(listener.listener, &conn, &failure));
+    try std.testing.expectEqual(c.GLOWCAP_OK, table.conn_close.?(table.ctx, conn, &failure));
+    try std.testing.expectEqual(@as(usize, 2), stub.conn_free_count);
+}
+
 test "direct-address owned helper refuses oversized sidecar metadata" {
     resetSidecar();
     stub.direct_required = iroh.max_direct_address_bytes + 1;
@@ -286,6 +328,8 @@ test "accept readiness uses the endpoint reservation before later settlement" {
     var completions: [1]net.completion.Completion = undefined;
     try std.testing.expectEqual(@as(usize, 0), try backend.poll(&completions, 0));
 
+    // Reserve the result slot before testing the post-claim fd allocation.
+    try backend.ready.reserve(backend.allocator, 1);
     // Refuse every subsequent allocation while an accepted connection moves
     // from the consumed sidecar edge into the preallocated 128-seat stash.
     failing.fail_index = failing.alloc_index;
@@ -297,9 +341,16 @@ test "accept readiness uses the endpoint reservation before later settlement" {
     try std.testing.expect(stub.next_accept == null);
     try std.testing.expectEqual(@as(usize, 0), stub.conn_free_count);
 
-    // Restore ordinary allocator service. The retained accept is claimed once
+    try backend.submitAccept(76, Backend.listen_fd);
+    try std.testing.expectEqual(@as(usize, 1), try backend.poll(&completions, 0));
+    try std.testing.expect(completions[0].arrival_retired);
+    try std.testing.expectEqual(error.OutOfMemory, completions[0].failure.?);
+    try std.testing.expectEqual(@as(usize, 1), stub.conn_free_count);
+
+    // Restore ordinary allocator service. The next accept is claimed once
     // and publishes through the normal pending-accept boundary.
     failing.fail_index = std.math.maxInt(usize);
+    stub.next_accept = @ptrFromInt(92);
     try backend.submitAccept(77, Backend.listen_fd);
     try std.testing.expectEqual(@as(usize, 0), delegated_accepts);
     const settled = try backend.poll(&completions, 0);

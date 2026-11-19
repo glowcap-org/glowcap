@@ -82,7 +82,7 @@ test "an active terminal latch ends the step with its cause and leaves expired a
         try std.testing.expectEqual(@as(i32, -1), rig.f.runtime.stepWaitMs());
         const parks = rig.f.resident.before_wait_calls;
         for (0..3) |_| {
-            try std.testing.expectError(error.ProviderContract, rig.f.runtime.stepAny(20));
+            try std.testing.expectError(error.LoopTerminal, rig.f.runtime.stepAny(20));
             try expectUntouched(&rig, sibling);
         }
         try std.testing.expectEqual(parks, rig.f.resident.before_wait_calls);
@@ -130,7 +130,7 @@ test "a finishing Host parks on the terminal signal and runs no expired row or r
         const parks = rig.f.resident.before_wait_calls;
         for (0..3) |_| {
             const started = realMs(&rig);
-            _ = try rig.f.runtime.stepAny(20);
+            try std.testing.expectError(error.LoopTerminal, rig.f.runtime.stepAny(20));
             const parked = realMs(&rig) - started;
             try std.testing.expect(parked >= 15);
             try std.testing.expect(rig.f.runtime.core.lifecyclePhase() == .finishing);
@@ -148,7 +148,7 @@ test "a finishing Host parks on the terminal signal and runs no expired row or r
         var rounds: usize = 0;
         while (rig.f.runtime.closeOutcome() == .pending and rounds < 64) : (rounds += 1) {
             rig.f.clock.advanceMs(100);
-            try rig.step();
+            try std.testing.expectError(error.LoopTerminal, rig.step());
         }
         try std.testing.expectEqual(@as(usize, 0), rig.rows());
         try std.testing.expectEqual(@as(usize, 0), rig.f.runtime.wires.count());

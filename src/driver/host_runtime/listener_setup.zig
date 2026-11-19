@@ -134,7 +134,12 @@ pub fn bindListener(
         .ready = Capture.ready,
         .failed = Capture.failed,
     });
-    while (capture.listener == null and capture.failure == null) _ = try self.stepAny(-1);
+    while (capture.listener == null and capture.failure == null) {
+        _ = self.stepAny(-1) catch |err| switch (err) {
+            error.LoopTerminal => return self.terminalFailure().?.chain.cause,
+            else => return err,
+        };
+    }
     if (capture.failure) |err| return err;
     return capture.listener.?;
 }

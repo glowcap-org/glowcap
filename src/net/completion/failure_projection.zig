@@ -11,17 +11,11 @@ pub fn primary(comp: contract.Completion, fallback: anyerror) anyerror {
     return comp.failure orelse fallback;
 }
 
-/// Whether an accept refusal outlives the arrival it was reported for. The
-/// arrival itself failing (reset before accept took it, or refusing a socket
-/// option) leaves the next one unaffected, so the listener accepts again.
-/// Every other refusal (descriptor quota, memory, a dead listener) would
-/// complete again for as long as the arrival waits, so the unknown case is
-/// the persistent one.
+/// A peer can reset before the backend claims its socket. The listener then
+/// waits for another arrival. Post-claim failures carry their disposition on
+/// the completion. Other unclaimed refusals belong to the listener.
 pub fn acceptRefusalPersists(err: anyerror) bool {
-    return switch (err) {
-        error.ConnectionAborted, error.SocketConfigurationFailed => false,
-        else => true,
-    };
+    return err != error.ConnectionAborted;
 }
 
 pub fn record(peer: anytype, comp: contract.Completion, fallback: anyerror) void {

@@ -113,7 +113,7 @@ fn retireConsumedWire(self: *HostRuntime, wire: *Wire) void {
     if (self.retiring_wires) |head| head.retiring_prev = wire;
     self.retiring_wires = wire;
     // A close already waiting on the provider has no recipient left: the
-    // detached call hands its result to the resident's own sink.
+    // resident may hand its result to its sink or return the report here.
     if (wire.closed) progressWireCarrierClose(self, wire) else closeWire(self, wire, null);
 }
 
@@ -144,7 +144,8 @@ pub fn forceClosingCarriers(self: *HostRuntime, cause: OperationFailure) void {
     var retiring = self.retiring_wires;
     while (retiring) |wire| {
         const next = wire.retiring_next;
-        noteWireCloseFailure(wire, cause);
+        // The terminal latch already owns this cause. A detached wire keeps
+        // only its own failures for the diagnostic observer.
         forceWireCarrierClose(self, wire);
         retiring = next;
     }
@@ -261,10 +262,11 @@ fn finishWireCarrierClose(self: *HostRuntime, wire: *Wire) void {
     wire.carrier_closed = true;
     clearCarrierCloseDeadline(self, wire);
     if (self.open_wire_count == 0)
-        Internal.retainAndReportUnhandledFailure(self, .fromError(error.ProviderContract))
+        self.failProviderContract()
     else
         self.open_wire_count -= 1;
     if (wire.detached) {
+        if (wire.close_failure) |failure| self.reportUnhandledFailure(failure);
         unlinkRetiringWire(self, wire);
         freeWire(self, wire);
         Internal.nudgeIfWorkRemains(self);

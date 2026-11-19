@@ -392,7 +392,7 @@ const Server = struct {
     fn run(runtime: *driver.HostRuntime, done: *const std.atomic.Value(bool), out_err: *?anyerror) void {
         while (!done.load(.acquire)) {
             _ = runtime.stepAny(20) catch |err| {
-                out_err.* = err;
+                out_err.* = if (err == error.LoopTerminal) runtime.terminalFailure().?.chain.cause else err;
                 return;
             };
         }

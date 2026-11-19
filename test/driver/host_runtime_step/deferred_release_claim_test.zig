@@ -76,10 +76,7 @@ fn callDrop(allocator: std.mem.Allocator, io: std.Io, address: std.Io.net.IpAddr
 }
 
 fn stepQuietly(runtime: *driver.HostRuntime, timeout_ms: i32) !void {
-    _ = runtime.stepAny(timeout_ms) catch |err| switch (err) {
-        error.ConnectionClosed, error.ProtocolAbort => {},
-        else => |other| return other,
-    };
+    _ = try runtime.stepAny(timeout_ms);
 }
 
 test "a reference claim between steps refuses an exporter Session released inside a callback" {

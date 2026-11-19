@@ -37,10 +37,10 @@ fn Tests(comptime Backend: type) type {
 
         test "an accept refusal persists unless the arrival itself failed" {
             const persists = net.completion_resident.acceptRefusalPersists;
-            // The arrival reset or refused a socket option: the next one is
-            // unaffected, so the listener re-arms.
+            // A reset before a socket is claimed leaves the next arrival available.
             try std.testing.expect(!persists(error.ConnectionAborted));
-            try std.testing.expect(!persists(error.SocketConfigurationFailed));
+            // A name alone cannot establish that the backend retired an arrival.
+            try std.testing.expect(persists(error.SocketConfigurationFailed));
             // Pressure, a dead listener, and anything unclassified would
             // complete again for as long as the arrival waits.
             try std.testing.expect(persists(error.ProcessFdQuotaExceeded));
@@ -146,7 +146,7 @@ fn Tests(comptime Backend: type) type {
             // One claim makes room and the next arrival is accepted.
             switch (server_ops.listen.?.finish_accept(&server, listener)) {
                 .connection => |id| try std.testing.expect(id != null),
-                .failed => |failure| return failure.chain.cause,
+                .arrival_failed, .failed => |failure| return failure.chain.cause,
             }
             // A readiness backend may accept the next arrival inside finish_accept.
             try std.testing.expect(row.accept_armed or row.accepted.items.len == bound);

@@ -17,56 +17,24 @@ const ws_relay = @import("../../support/ws_relay.zig");
 const harness = @import("harness.zig");
 const residents = @import("residents.zig");
 const typed_resident = @import("typed_resident.zig");
-const frame_cap = harness.frame_cap;
 const default_tcp_config = harness.default_tcp_config;
-const driver_options_1s = harness.driver_options_1s;
-const driver_options_10s = harness.driver_options_10s;
-const driver_options_cap1 = harness.driver_options_cap1;
 const close_cancel = harness.close_cancel;
 const providerFailure = harness.providerFailure;
-const drained = harness.drained;
 const expectOk = harness.expectOk;
 const expectStep = harness.expectStep;
-const retainStaticProvider = harness.retainStaticProvider;
-const releaseStaticProvider = harness.releaseStaticProvider;
-const sameStaticProvider = harness.sameStaticProvider;
-const providerProfile = harness.providerProfile;
-const addMultiplexedProviderWithProfile = harness.addMultiplexedProviderWithProfile;
-const addMultiplexedProvider = harness.addMultiplexedProvider;
-const addStreamProvider = harness.addStreamProvider;
-const openAccepted = harness.openAccepted;
 const readListenerLocator = harness.readListenerLocator;
 const expectLoopReadable = harness.expectLoopReadable;
 const directAddresses = harness.directAddresses;
-const callWithLocator = harness.callWithLocator;
 const dialParts = harness.dialParts;
 const dialLocator = harness.dialLocator;
 const advertiseParts = harness.advertiseParts;
-const hostSeed = harness.hostSeed;
-const TestLoop = harness.TestLoop;
-const installTcp = harness.installTcp;
-const newEmptyLoop = harness.newEmptyLoop;
 const newLoop = harness.newLoop;
-const newByteFedHost = harness.newByteFedHost;
 const Drained = harness.Drained;
 const serveBoth = harness.serveBoth;
 const drainEvents = harness.drainEvents;
-const awaitListenerReady = harness.awaitListenerReady;
 const listenReady = harness.listenReady;
-const noStreamConnectionFailure = residents.noStreamConnectionFailure;
-const noMultiplexedConnectionFailure = residents.noMultiplexedConnectionFailure;
-const injectedStreamConnectionFailure = residents.injectedStreamConnectionFailure;
 const injectedMultiplexedConnectionFailure = residents.injectedMultiplexedConnectionFailure;
-const InvalidMultiplexedResident = residents.InvalidMultiplexedResident;
-const MalformedImmediateStream = residents.MalformedImmediateStream;
-const AsyncFailureResident = residents.AsyncFailureResident;
-const TypedResident = typed_resident.TypedResident;
-const typedProvider = typed_resident.typedProvider;
 const widgetBehavior = typed_resident.widgetBehavior;
-const ReentrantSessionRelease = typed_resident.ReentrantSessionRelease;
-const CallbackRetirement = typed_resident.CallbackRetirement;
-const callbackRetirementBehavior = typed_resident.callbackRetirementBehavior;
-const reentrantSessionReleaseBehavior = typed_resident.reentrantSessionReleaseBehavior;
 
 test "the TCP archive installs its complete profile package atomically" {
     const owned_loop = try newLoop(0x39);
@@ -327,12 +295,18 @@ var relay_close: @FieldType(Table, "conn_close") = null;
 /// What an armed `failingClose` reports from the completing close.
 const CloseReport = enum { healthy, bare, detailed };
 var armed_close: CloseReport = .healthy;
+var failing_client: ?*anyopaque = null;
+var client_close_failed = false;
 
 /// The relay's own `conn_close`, then, while armed, a failed completing
 /// return: a primary alone, or one with carrier detail and a consequence.
 fn failingClose(ctx: ?*anyopaque, conn: u64, out: ?*cdrv.GlowcapProviderFailure) callconv(.c) i32 {
     const code = relay_close.?(ctx, conn, out);
     if (armed_close == .healthy or code != c.GLOWCAP_OK) return code;
+    if (failing_client) |client| {
+        if (ctx != client) return code;
+        client_close_failed = true;
+    }
     const failure = out.?;
     const secondary = "CloseSecondary";
     _ = providerFailure(failure, c.GLOWCAP_ERR_IO, "CloseCleanupFailed");
@@ -385,13 +359,15 @@ fn reportRelayStall(io: std.Io, phase: *const std.atomic.Value(RelayPhase), roun
     }
 }
 
-const CloseHow = union(enum) { release, close: CloseReport };
+const CloseHow = union(enum) { release, detached_failure, close: CloseReport };
 
 /// Dial an authenticated noise-relay session, serve a fetch, then end it from
 /// the client by releasing its handle or closing the session. The close
 /// verb's connection close, on both ends, reports its `CloseReport`.
 fn relayDialAndClose(how: CloseHow) !void {
     defer armed_close = .healthy;
+    defer failing_client = null;
+    client_close_failed = false;
     if (!(@import("builtin").target.os.tag == .linux or @import("builtin").target.os.tag.isDarwin()))
         return error.SkipZigTest;
 
@@ -444,7 +420,7 @@ fn relayDialAndClose(how: CloseHow) !void {
         try std.testing.expectEqualStrings("noise-relay", locator.transport);
         try std.testing.expectEqual(@as(usize, glowcap.foundation.crypto.PeerKey.designator_len), locator.designator.len);
 
-        const owned_client = try newLoop(0x5b);
+        var owned_client = try newLoop(0x5b);
         defer owned_client.deinit();
         // The provider default is unreachable. The complete
         // listener locator must carry the actual rendezvous route into the
@@ -519,6 +495,12 @@ fn relayDialAndClose(how: CloseHow) !void {
                 phase.store(.client_release, .release);
                 try expectOk(cdrv.glowcap_driver_session_release(owned_client.raw, client_seen.dialed_session));
             },
+            .detached_failure => {
+                failing_client = client_table.ctx;
+                try expectOk(cdrv.glowcap_driver_session_close(owned_client.raw, client_seen.dialed_session, &close_cancel));
+                try expectOk(cdrv.glowcap_driver_session_release(owned_client.raw, client_seen.dialed_session));
+                armed_close = .detailed;
+            },
             .close => |report| {
                 phase.store(.client_close, .release);
                 armed_close = report;
@@ -527,8 +509,8 @@ fn relayDialAndClose(how: CloseHow) !void {
         }
         phase.store(.remote_close, .release);
         rounds = 0;
-        while ((!server_seen.closed or (how == .close and !client_seen.closed)) and rounds < 2_000) : (rounds += 1) {
-            if (how == .close) {
+        while ((!server_seen.closed or (how == .close and !client_seen.closed) or (how == .detached_failure and !client_close_failed)) and rounds < 2_000) : (rounds += 1) {
+            if (how != .release) {
                 try expectStep(cdrv.glowcap_driver_step(owned_client.raw, 5));
                 try drainEvents(owned_client.raw, &client_seen);
             }
@@ -577,7 +559,7 @@ fn relayDialAndClose(how: CloseHow) !void {
         // The injected failure's two consequences, then a failed close adds
         // its primary and any consequence of its own.
         try std.testing.expectEqual(@as(u32, switch (how) {
-            .release => 2,
+            .release, .detached_failure => 2,
             .close => |report| switch (report) {
                 .healthy => 2,
                 .bare => 3,
@@ -598,6 +580,24 @@ fn relayDialAndClose(how: CloseHow) !void {
         try std.testing.expectEqual(@as(usize, 1), server_seen.closed_count);
         phase.store(.server_release, .release);
         try expectOk(cdrv.glowcap_driver_session_release(owned_server.raw, server_seen.accepted_session));
+        var host_id: u64 = 0;
+        try expectOk(cd.glowcap_host_diagnostic_id(owned_client.host, &host_id));
+        var failure = cdrv.GlowcapDriverFailure.init();
+        try expectOk(owned_client.release(&failure));
+        if (how == .detached_failure) {
+            try std.testing.expect(client_close_failed);
+            try std.testing.expect(!client_seen.closed);
+            try @import("context_failures.zig").expectOne(owned_client.context, .{
+                .scope = c.GLOWCAP_FAILURE_SCOPE_HOST,
+                .id = host_id,
+                .operation = "driver",
+                .primary = c.GLOWCAP_ERR_IO,
+                .name = "CloseCleanupFailed",
+                .secondary = c.GLOWCAP_ERR_INTERNAL,
+                .secondary_name = "CloseSecondary",
+                .secondary_count = 1,
+            });
+        } else try @import("context_failures.zig").expectEmpty(owned_client.context);
         phase.store(.runtime_cleanup, .release);
     }
     phase.store(.bridge_join, .release);
@@ -623,4 +623,8 @@ test "a failed noise-relay close that names no carrier phase reports none" {
 
 test "a failed noise-relay close reports its carrier detail through the C driver" {
     try relayDialAndClose(.{ .close = .detailed });
+}
+
+test "a noise-relay close completing after session release reaches its original Host Context" {
+    try relayDialAndClose(.detached_failure);
 }

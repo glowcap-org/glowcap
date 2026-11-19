@@ -8,7 +8,7 @@ const instance = @import("instance.zig");
 pub fn diagnosticId(host: ?*c.GlowcapHost, out_id: ?*u64) i32 {
     const inst = instance.instanceFrom(host) orelse return shared.GLOWCAP_ERR_NULL_POINTER;
     const slot = out_id orelse return shared.GLOWCAP_ERR_NULL_POINTER;
-    slot.* = inst.diagnostic_id;
+    slot.* = if (inst.diagnostics) |scope| scope.host_id else 0;
     return shared.GLOWCAP_OK;
 }
 

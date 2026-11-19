@@ -176,7 +176,7 @@ pub fn probe(
 }
 
 /// Accept in a loop until `done`, attending every session. A refused handshake
-/// or a failed step is the case under test, so neither ends the loop. A
+/// costs one probe. A terminal runtime failure ends the server. A
 /// session is released once its wire has ended, whether the probe's mutated
 /// frame ended it or the probe hung up, so the listener runs the whole set
 /// with a bounded number of live sessions.
@@ -214,8 +214,10 @@ fn serveEchoLoop(allocator: std.mem.Allocator, server: *driver.Server, done: *st
             session.attend() catch {};
             continue;
         }
-        // best-effort: a step error belongs to one session, the loop serves the rest.
-        _ = server.runtime.stepAny(10) catch {};
+        _ = server.runtime.stepAny(10) catch |err| switch (err) {
+            error.LoopTerminal => return server.runtime.terminalFailure().?.chain.cause,
+            else => return err,
+        };
     }
 }
 

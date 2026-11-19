@@ -84,7 +84,7 @@ test "terminal cleanup forces a closing carrier without running its report" {
         rig.f.runtime.noteTerminalFailure(error.ProviderContract);
         // The cleanup wait forces the carrier closed instead of parking on a
         // close nothing will complete, and the terminal runtime runs no report.
-        _ = try rig.f.runtime.stepAny(20);
+        try std.testing.expectError(error.LoopTerminal, rig.f.runtime.stepAny(20));
         try std.testing.expectEqual(@as(usize, 1), rig.rows());
         try std.testing.expect(rig.stage() == .opened_report);
         try std.testing.expect(rig.f.runtime.pending_opens.items[0].stage.opened_report.wait == .ready);
@@ -96,7 +96,7 @@ test "terminal cleanup forces a closing carrier without running its report" {
         var rounds: usize = 0;
         while (rig.f.runtime.closeOutcome() == .pending and rounds < 64) : (rounds += 1) {
             rig.f.clock.advanceMs(100);
-            try rig.step();
+            try std.testing.expectError(error.LoopTerminal, rig.step());
         }
         try std.testing.expectEqual(@as(usize, 0), rig.rows());
         try std.testing.expectEqual(@as(usize, 0), rig.f.runtime.wires.count());

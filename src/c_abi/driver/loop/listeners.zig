@@ -70,8 +70,7 @@ pub export fn glowcap_driver_listen(
     const transport_bytes = shared.sliceFromC(transport, transport_len) catch |err| return shared.marshalErrorToCode(err);
     const designator_bytes = shared.sliceFromC(designator, designator_len) catch |err| return shared.marshalErrorToCode(err);
     const operation_options = operationOptionsCode(options) catch return GLOWCAP_ERR_INVALID_ARGUMENT;
-    const id = inst.next_listener;
-    if (id == 0 or id == std.math.maxInt(u64)) return errToCode(error.IdentifierExhausted);
+    const id = @import("c_abi_host").embedding.allocateListenerId(inst.host_handle) catch |err| return errToCode(err);
     inst.listeners.ensureUnusedCapacity(inst.allocator, 1) catch return errToCode(error.OutOfMemory);
     inst.listeners.putAssumeCapacity(@fromBackingInt(@intCast(id)), .pending);
     inst.runtime.startListener(transport_bytes, designator_bytes, operation_options, id, .{
@@ -86,7 +85,6 @@ pub export fn glowcap_driver_listen(
             inst.runtime.noteTerminalFailure(error.ProviderContract);
         return operationErrorCode(inst, err);
     };
-    inst.next_listener = id + 1;
     slot.* = id;
     return GLOWCAP_OK;
 }
@@ -150,6 +148,7 @@ fn finishListener(
         .retired = retireListener,
         .opened = acceptOpened,
         .failed = acceptFailed,
+        .arrival_failed = events.observeArrivalFailure,
     }) catch |err| {
         projection.deinit(inst.allocator);
         prepared.deinit(inst.allocator);

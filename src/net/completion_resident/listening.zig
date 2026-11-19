@@ -157,7 +157,13 @@ pub fn Machine(comptime Self: type, comptime Policy: type) type {
                 // the refusal follows them once, and the runtime decides.
                 const failure = listener.accept_failure orelse return .{ .connection = null };
                 listener.accept_failure = null;
-                return .{ .failed = .fromChain(error.AcceptRefused, .init(failure)) };
+                return switch (failure) {
+                    .listener => |chain| .{ .failed = .fromChain(error.AcceptRefused, chain) },
+                    .arrival => |chain| blk: {
+                        Completions.rearmOrOwe(self, listener);
+                        break :blk .{ .arrival_failed = .fromChain(if (chain.cause == error.OutOfMemory) error.OutOfMemory else error.ConnectionLost, chain) };
+                    },
+                };
             }
             const fd = listener.accepted.orderedRemove(0);
             // A listener that stopped at the unclaimed bound accepts again
@@ -166,7 +172,7 @@ pub fn Machine(comptime Self: type, comptime Policy: type) type {
                 Completions.rearmOrOwe(self, listener);
             const id = self.adopt(fd) catch |err| {
                 self.backend.closeFd(fd);
-                return .{ .failed = .init(err) };
+                return .{ .arrival_failed = .init(err) };
             };
             return .{ .connection = id };
         }

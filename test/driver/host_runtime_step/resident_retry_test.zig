@@ -295,7 +295,8 @@ test "a resident failure ends its debt and reaches the runtime through readiness
     rig.clock.advanceMs(retry_ms);
     // The retry latches. The same attempt's exit reconcile clears the
     // deadline, and the failure surfaces through the resident's drain.
-    try std.testing.expectError(error.ProviderContract, rig.stepQuiet());
+    try std.testing.expectError(error.LoopTerminal, rig.stepQuiet());
+    try std.testing.expectEqual(error.ProviderContract, runtime.terminalFailure().?.chain.cause);
     try std.testing.expectEqual(@as(usize, 1), debt.retry_calls);
     try std.testing.expect(debt.latched);
     try std.testing.expectEqual(@as(?i64, null), runtime.resident_retry_due_ms);

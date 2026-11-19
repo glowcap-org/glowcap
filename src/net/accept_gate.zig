@@ -17,7 +17,10 @@
 const std = @import("std");
 
 const poll = @import("poll.zig");
+const socket = @import("socket.zig");
 const wake_channel = @import("wake_channel.zig");
+
+pub const AcceptMode = enum { wait, ready };
 
 pub const WaitError = error{ ConnectionLost, WakeNudgeFailed, WakeDrainFailed };
 
@@ -30,6 +33,8 @@ pub const Gate = struct {
     /// in flight and a wait never runs against half-released storage.
     operation_gate: std.Io.Mutex = .init,
     stopping: std.atomic.Value(bool) = .init(false),
+    /// Set under the operation lease on the first event-driven accept.
+    nonblocking: bool = false,
 
     pub fn open() error{WakeChannelFailed}!Gate {
         return .{ .wake = try wake_channel.WakeChannel.open() };
@@ -79,6 +84,30 @@ pub const Gate = struct {
             return error.ConnectionLost;
         }
         return ready != 0 and fds[0].revents & readable_mask != 0;
+    }
+
+    /// Under the listener lease, take one ready socket. A peer can disappear
+    /// between readiness and accept. The caller then has no stream to claim.
+    pub fn acceptStream(self: *Gate, io: std.Io, server: *std.Io.net.Server, mode: AcceptMode) WaitError!socket.ReadyAccept {
+        const fd = server.socket.handle;
+        if (mode == .wait) {
+            if (!try self.waitReadable(fd, -1)) return .would_block;
+            if (!self.nonblocking) {
+                const stream = server.accept(io) catch |err| switch (err) {
+                    error.ConnectionAborted, error.WouldBlock => return .would_block,
+                    else => return error.ConnectionLost,
+                };
+                return .{ .stream = stream };
+            }
+        } else {
+            try self.wake_failure.check();
+            if (self.stopping.load(.acquire)) return error.ConnectionLost;
+            if (!self.nonblocking) {
+                if (!socket.setNonblocking(fd)) return error.ConnectionLost;
+                self.nonblocking = true;
+            }
+        }
+        return socket.acceptNonblocking(io, fd);
     }
 
     /// Wake a parked wait without releasing anything. Idempotent, so a foreign

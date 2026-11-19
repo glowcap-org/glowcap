@@ -10,8 +10,9 @@ const host_action = @import("host/action.zig");
 /// Why an embedder-facing drain returned. A finite Host quantum
 /// returns `.yielded` before asking the core for another slice. Explicitly
 /// blocking fronts may continue immediately. Outbound pressure instead needs
-/// transport progress, so every embedder must return to its readiness driver.
-pub const DrainResult = enum { drained, yielded, outbound_blocked };
+/// transport progress. An unobserved gift failure retired the action without
+/// an answer recipient. Report its cause and continue draining.
+pub const DrainResult = union(enum) { drained, yielded, outbound_blocked, unobserved_gift_failure: anyerror };
 
 /// Drain every queued `HostAction` through `exec`.
 ///
@@ -39,7 +40,12 @@ pub fn drainActions(host: *Host, io: anytype, exec: anytype) !DrainResult {
         // Draw it while the action is still parked; a transient source failure
         // must not consume the only ticket that can finish the handoff.
         var gift_id: [32]u8 = undefined;
-        if (next == .need_gift_id) try io.randomSecure(&gift_id);
+        if (next == .need_gift_id) io.randomSecure(&gift_id) catch |err| {
+            if (err != error.EntropyUnavailable) return err;
+            if (try host.giftIdFailed(next.need_gift_id.ticket) == .unobserved)
+                return .{ .unobserved_gift_failure = err };
+            continue;
+        };
         if (@hasDecl(@TypeOf(exec), "prepare")) try exec.prepare(next);
 
         const action = (try host.takeAction()) orelse unreachable;
@@ -48,6 +54,7 @@ pub fn drainActions(host: *Host, io: anytype, exec: anytype) !DrainResult {
             .close => |peer_handle| try exec.close(peer_handle),
             .need_gift_id => |n| {
                 host.provideGiftId(n.ticket, &gift_id) catch |err| {
+                    if (!host.node.hasPendingGift(n.ticket)) return .{ .unobserved_gift_failure = err };
                     host_action.retryEffect(host, action);
                     return err;
                 };

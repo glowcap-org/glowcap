@@ -307,8 +307,13 @@ pub fn Machine(
                 // or dead re-arm is loop-global. Every per-connection handler
                 // resolves its own failures by closing that one connection.
                 .accept => {
-                    defer if (comp.borrowed.active()) Flow.recycleBorrowedPayload(self, comp);
-                    try Admission.onAccept(self, comp);
+                    var accepted = comp;
+                    if (comp.borrowed.active()) {
+                        if (comp.borrowed.failureChain()) |chain| accepted.failure = chain.cause;
+                        Flow.recycleBorrowedPayload(self, comp);
+                        accepted.borrowed = .{};
+                    }
+                    try Admission.onAccept(self, accepted);
                 },
                 .connect => {
                     Admission.onConnect(self, slot, comp);

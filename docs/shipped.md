@@ -147,7 +147,7 @@ listening, and events through one transport-independent ABI.
   and a call that only read its reply makes no system call as it returns
   ([ADR-0060](decisions/adr/ADR-0060-completion-submission-and-parking.md)).
 - **Unreturned failures.** A failure with no caller left to receive it goes into a typed, bounded log on the
-  `GlowcapContext` ([ADR-0031](decisions/adr/ADR-0031-structured-diagnostics.md)).
+  `GlowcapContext`. The driver reports a refused arrival under its listener ID and a detached carrier failure under its Host ID ([ADR-0031](decisions/adr/ADR-0031-structured-diagnostics.md)).
 - **Close.** Every owner closes under an explicit policy: cancel now, or finish admitted work within a grace period
   ([ADR-0030](decisions/adr/ADR-0030-failure-and-close-policy.md)). This works on the Zig Host, the C ABI, the
   driver loop, and the Rust, TypeScript, Python, and Racket bindings. Close reports the first failure, a bounded list of the rest, and their count.

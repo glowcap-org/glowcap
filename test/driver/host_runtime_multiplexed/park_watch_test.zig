@@ -391,7 +391,7 @@ test "park watches: a genuine fault in a sibling still reaches the caller when t
     rig.parkers[0].refuse_all = true;
     rig.parkers[1].inner.fail_drain = true;
     _ = try rig.parkers[1].inner.wake.nudge();
-    try std.testing.expectError(error.ProviderContract, rig.runtime.stepAny(0));
+    try std.testing.expectError(error.LoopTerminal, rig.runtime.stepAny(0));
 }
 
 // The real epoll completion resident as the runtime's first parker, over a

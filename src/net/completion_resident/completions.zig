@@ -3,6 +3,7 @@
 //! readiness descriptor readable while records wait.
 
 const std = @import("std");
+const foundation = @import("foundation");
 
 const completion = @import("../completion/loop.zig");
 const failure_projection = @import("../completion/failure_projection.zig");
@@ -409,6 +410,8 @@ pub fn Machine(comptime Self: type) type {
                     record(self, listener.route, resident_mod.ev_listen);
                 },
                 .accept => {
+                    const report = if (comp.borrowed.failureChain()) |chain| chain.* else null;
+                    if (comp.borrowed.active()) self.backend.recycleBorrowed(comp);
                     const listener = self.listeners.get(id) orelse {
                         // A stopped listener's canceled accept, or one that
                         // won the race with the stop.
@@ -423,12 +426,10 @@ pub fn Machine(comptime Self: type) type {
                         listener.accepted.appendAssumeCapacity(acceptedFd(comp));
                         self.records.appendAssumeCapacity(.{ .subject = listener.route, .events = resident_mod.ev_accept });
                     } else {
-                        const err = failure_projection.primary(comp, error.AcceptFailed);
-                        if (acceptRefusalPersists(err)) {
-                            // Re-arming would complete with the same refusal
-                            // for as long as the arrival waits, so hand it to
-                            // the runtime through the claim verb.
-                            if (listener.accept_failure == null) listener.accept_failure = err;
+                        const chain = report orelse foundation.FailureChain.init(comp.failure orelse error.AcceptFailed);
+                        if (comp.arrival_retired or acceptRefusalPersists(chain.cause)) {
+                            std.debug.assert(listener.accept_failure == null);
+                            listener.accept_failure = if (comp.arrival_retired) .{ .arrival = chain } else .{ .listener = chain };
                             self.records.appendAssumeCapacity(.{ .subject = listener.route, .events = resident_mod.ev_accept });
                             return;
                         }

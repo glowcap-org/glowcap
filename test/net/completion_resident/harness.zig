@@ -101,7 +101,7 @@ pub fn Harness(comptime Backend: type) type {
             try server_events.await(route, er.ev_accept);
             const server_conn = switch (server_ops.listen.?.finish_accept(server, listener)) {
                 .connection => |id| id.?,
-                .failed => |failure| return failure.chain.cause,
+                .arrival_failed, .failed => |failure| return failure.chain.cause,
             };
             return .{ .listener = listener, .locator = locator, .server_conn = server_conn, .client_conn = client_conn };
         }

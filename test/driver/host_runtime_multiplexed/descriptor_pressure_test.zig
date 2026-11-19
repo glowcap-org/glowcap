@@ -465,7 +465,7 @@ test "descriptor pressure: the terminal wait holds the poll off inside its due a
     // At the due the poll runs once more, and its hard failure leaves the
     // primary as the retained cause.
     Fake.now_ms = rig.runtime.descriptor_refusal_due_ms.?;
-    try std.testing.expectError(error.ProviderContract, HostRuntime.testing.waitForTerminalSignal(&rig.runtime, 5_000));
+    try std.testing.expectError(error.LoopTerminal, HostRuntime.testing.waitForTerminalSignal(&rig.runtime, 5_000));
     try std.testing.expectEqual(@as(usize, 2), script.calls);
     const outcome = rig.finish().?;
     try std.testing.expectEqual(error.ProviderContract, outcome.chain.cause);
@@ -487,7 +487,7 @@ test "descriptor pressure: an invalid wait latches the exact cause and every ver
         try std.testing.expectEqual(error.InvalidWait, rig.runtime.terminal_failure.?.chain.cause);
         try std.testing.expectEqual(@as(?i64, null), rig.runtime.descriptor_refusal_due_ms);
         // The step surface reports the retained cause, never a fresh one.
-        try std.testing.expectError(error.InvalidWait, rig.runtime.stepAny(0));
+        try std.testing.expectError(error.LoopTerminal, rig.runtime.stepAny(0));
     }
 }
 
@@ -506,7 +506,7 @@ test "descriptor pressure: a hard ready-set query failure while pacing latches a
 
     // The refused descriptor poll sends the stepped step to the ready-set
     // query, whose kernel call fails. That is a hard failure, never pacing.
-    try std.testing.expectError(error.ReadinessQueryFailed, rig.runtime.stepAny(0));
+    try std.testing.expectError(error.LoopTerminal, rig.runtime.stepAny(0));
     try std.testing.expectEqual(@as(usize, 1), polls.calls);
     try std.testing.expect(queries.spent);
     try std.testing.expectEqual(@as(usize, 0), Fake.sleep_count);
@@ -517,7 +517,7 @@ test "descriptor pressure: a hard ready-set query failure while pacing latches a
 
     // A later public step reports the retained cause, never a fresh one, and
     // the consuming owner still holds it.
-    try std.testing.expectError(error.ReadinessQueryFailed, rig.runtime.stepAny(0));
+    try std.testing.expectError(error.LoopTerminal, rig.runtime.stepAny(0));
     const outcome = rig.finish().?;
     try std.testing.expectEqual(error.ReadinessQueryFailed, outcome.chain.cause);
 }
@@ -574,7 +574,7 @@ test "descriptor pressure: the terminal wait rests on its own pacing and reports
     script = .{ .errnos = &.{.INVAL} };
     const guard = poll.testing.inject(&script);
     defer guard.deinit();
-    try std.testing.expectError(error.ProviderContract, HostRuntime.testing.waitForTerminalSignal(&rig.runtime, 5_000));
+    try std.testing.expectError(error.LoopTerminal, HostRuntime.testing.waitForTerminalSignal(&rig.runtime, 5_000));
     try std.testing.expectEqual(error.ProviderContract, rig.runtime.terminal_failure.?.chain.cause);
 }
 

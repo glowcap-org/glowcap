@@ -136,6 +136,7 @@ pub fn complete(
                         _ = close(accepted);
                         comp.result = -1;
                         comp.failure = error.SocketConfigurationFailed;
+                        comp.arrival_retired = true;
                     } else {
                         comp.result = accepted;
                     }

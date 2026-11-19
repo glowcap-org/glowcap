@@ -81,7 +81,8 @@ pub const Options = struct {
     /// Deadline for blocking answer waits after a session opens.
     settle: Budget,
     /// Recipient only for failures produced after deterministic return
-    /// ownership is gone. Explicit close barriers return their failure.
+    /// ownership is gone. Without a recipient, deinitOutcome returns the
+    /// bounded failure chain. The void deinit convenience discards it.
     unhandled_failure: ?FailureObserver = null,
     /// Dial retry policy the pump executes on staged resident dials
     /// (ADR-0030 policy, ADR-0018 execution): a transient fault parks
@@ -123,6 +124,7 @@ pub const max_busy_poll_ns: u64 = 100 * std.time.ns_per_ms;
 /// Runtime-only controls for adopting an existing byte-fed Host. Core
 /// protocol/frame settings remain owned by that Host.
 pub const AdoptionOptions = struct {
+    unhandled_failure: ?FailureObserver = null,
     wire_buffer_bytes: usize = default_wire_buffer_bytes,
     max_pending_opens: usize = default_max_pending_opens,
     /// As `Options.max_pending_redeem_dials`.

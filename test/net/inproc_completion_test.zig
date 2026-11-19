@@ -48,6 +48,18 @@ test "inproc completion: dial, bounded transfer both ways, backpressure, and end
     defer client.deinit();
 
     const listen = try server.openListener(.{ .inproc = "alpha" });
+    // The exchange has delivered the first end when its descriptor map refuses it.
+    var refusing = std.testing.FailingAllocator.init(allocator, .{ .fail_index = 0 });
+    server.conns.allocator = refusing.allocator();
+    try server.submitAccept(80, listen);
+    const refused_fd = try client.startDial(81, .{ .inproc = "alpha" });
+    try std.testing.expectEqual(@as(i32, 0), (try pollOne(&client, 81)).result);
+    const refused = try pollOne(&server, 80);
+    server.conns.allocator = allocator;
+    try std.testing.expect(refused.arrival_retired);
+    try std.testing.expectEqual(error.OutOfMemory, refused.failure.?);
+    client.closeFd(refused_fd);
+
     try server.submitAccept(1, listen);
     const client_fd = try client.startDial(2, .{ .inproc = "alpha" });
     try std.testing.expectEqual(@as(i32, 0), (try pollOne(&client, 2)).result);

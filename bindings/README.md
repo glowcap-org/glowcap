@@ -275,6 +275,16 @@ The relay package exposes one Zig provider through the C ABI.
 
 ### Failures with no caller
 
+For an admitted C driver step, `GLOWCAP_OK` means drain the event queue and
+`GLOWCAP_ERR_WOULD_BLOCK` means wait for readiness. Any other result stops the
+loop. A later step returns that result even with events still queued, and
+consuming release supplies its structured cause.
+
+A failed arrival can leave its listener serving the next connection. The
+driver records that refusal under the Context-unique listener ID on the adopted Host's
+Context. A carrier failure that finishes after session release belongs to the
+Host ID. Keep the Context alive to drain these records after driver release.
+
 Failures with no caller, such as a refused finalizer or a late shutdown
 failure, become typed records in a bounded list on the Host. The application
 drains the list with:

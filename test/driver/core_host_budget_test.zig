@@ -109,11 +109,12 @@ const NoopActionIo = struct {
 
 const RetryEntropy = struct {
     fail_next: *bool,
+    failure: anyerror = error.Canceled,
 
     pub fn randomSecure(self: @This(), bytes: []u8) !void {
         if (self.fail_next.*) {
             self.fail_next.* = false;
-            return error.EntropyUnavailable;
+            return self.failure;
         }
         @memset(bytes, 0x5a);
     }
@@ -210,7 +211,7 @@ test "standard host action drain yields between finite-quantum slices" {
     try std.testing.expect(!host.node.hasAction());
 }
 
-test "standard host action drain retains a gift-id request when entropy fails" {
+test "standard host action drain retains a gift-id request on cancellation and retires it on denied entropy" {
     const allocator = std.testing.allocator;
     var host = test_host.init(allocator, @as([32]u8, @splat(0x1e)), .{
         .thread_policy = .unchecked,
@@ -226,16 +227,19 @@ test "standard host action drain retains a gift-id request when entropy fails" {
 
     var fail_next = true;
     try std.testing.expectError(
-        error.EntropyUnavailable,
+        error.Canceled,
         driver.core.drainActions(&host, RetryEntropy{ .fail_next = &fail_next }, NoopActionExec{}),
     );
     const parked = (try host.peekAction()) orelse return error.MissingGiftIdAction;
     try std.testing.expect(host.node.hasPendingGift(parked.need_gift_id.ticket));
 
+    const ticket = parked.need_gift_id.ticket;
+    fail_next = true;
     try std.testing.expectEqual(
         driver.core.DrainResult.drained,
-        try driver.core.drainActions(&host, RetryEntropy{ .fail_next = &fail_next }, NoopActionExec{}),
+        try driver.core.drainActions(&host, RetryEntropy{ .fail_next = &fail_next, .failure = error.EntropyUnavailable }, NoopActionExec{}),
     );
+    try std.testing.expect(!host.node.hasPendingGift(ticket));
     try std.testing.expect((try host.peekAction()) == null);
 }
 

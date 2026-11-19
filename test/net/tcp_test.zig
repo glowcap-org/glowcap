@@ -213,3 +213,10 @@ test "tcp listener close wakes and joins a blocked accept" {
     listener.deinit();
     try accept.await(io);
 }
+
+test "a nonblocking accept keeps an aborted arrival or an empty queue pending" {
+    const pending = @import("glowcap").net.socket_tcp.testing.pendingOnAccept;
+    try std.testing.expect(pending(.CONNABORTED));
+    try std.testing.expect(pending(.AGAIN));
+    try std.testing.expect(!pending(.MFILE));
+}

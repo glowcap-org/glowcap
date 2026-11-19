@@ -181,12 +181,10 @@ pub fn Resident(comptime Backend: type, comptime Policy: type) type {
             identity: ?crypto.PeerKey,
             accepted: std.ArrayList(Fd) = .empty,
             accept_armed: bool = false,
-            /// An accept the kernel refused for a reason that will not clear
-            /// on its own (descriptor quota, memory). The listener stays
-            /// unarmed until `finishAccept` hands the failure to the runtime,
-            /// which owns the verdict. Re-arming here would spin against the
-            /// same refusal while the backlog holds an arrival.
-            accept_failure: ?anyerror = null,
+            /// A failed accept follows earlier queued connections. Claiming
+            /// an arrival failure re-arms the listener. A listener failure
+            /// stops it so it cannot spin on the same outstanding arrival.
+            accept_failure: ?union(enum) { arrival: foundation.FailureChain, listener: foundation.FailureChain } = null,
             /// The allocator refused the re-arm of an admitted listener. The
             /// runtime's paced retry (`memory_retry`) owns the next attempt,
             /// and an ordinary claim or completion skips this listener.

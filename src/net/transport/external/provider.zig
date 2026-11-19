@@ -42,6 +42,15 @@ pub const Finished = union(enum) {
     failed: anyerror,
 };
 
+/// A retired arrival leaves the listener usable. A listener failure is
+/// reported to its own waiter. Both carry the provider's original cause.
+pub const AcceptFinished = union(enum) {
+    ready: Handle,
+    would_block,
+    arrival_failed: foundation.FailureChain,
+    failed: foundation.FailureChain,
+};
+
 /// A listen that has started. A failure carries the provider's exact chain,
 /// because the listener's caller reports its cause by name.
 pub const ListenStarted = union(enum) {
@@ -72,7 +81,7 @@ pub const VTable = struct {
     finish_listen: ?*const fn (ctx: *anyopaque, attempt: *anyopaque) ListenFinished = null,
     cancel_listen: ?*const fn (ctx: *anyopaque, attempt: *anyopaque) void = null,
     /// Called after the listener's descriptor turns readable.
-    accept: ?*const fn (ctx: *anyopaque, listener: *anyopaque) Finished = null,
+    accept: ?*const fn (ctx: *anyopaque, listener: *anyopaque) AcceptFinished = null,
     listener_close: ?*const fn (ctx: *anyopaque, listener: *anyopaque) void = null,
     /// The listener's dialable locator, owned by `allocator`.
     listener_locator: ?*const fn (ctx: *anyopaque, listener: *anyopaque, allocator: std.mem.Allocator) anyerror!model.PeerLocator = null,
@@ -117,7 +126,10 @@ pub const VTable = struct {
     pub fn closeToSink(self: *const VTable, ctx: *anyopaque, conn: *anyopaque) void {
         switch (self.conn_close) {
             .plain => |close| close(ctx, conn),
-            .reporting => |close| std.debug.assert(close(ctx, conn, .sink) == null),
+            .reporting => |close| {
+                const returned = close(ctx, conn, .sink);
+                std.debug.assert(returned == null);
+            },
         }
     }
 };

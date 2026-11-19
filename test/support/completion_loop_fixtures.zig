@@ -230,7 +230,7 @@ pub const FakeBackend = struct {
     /// pins that the Loop drains both operations independent of CQE ordering.
     pub var defer_listener_accept_cancel: bool = false;
     /// Inject one typed listener failure before the ordinary scripted accept.
-    pub var first_accept_failure: ?anyerror = null;
+    pub var first_accept_failure: ?struct { cause: anyerror, retired: bool = false } = null;
     /// Inject one typed send-submission refusal before the slow-reader script.
     pub var first_send_submission_failure: ?anyerror = null;
 
@@ -276,9 +276,9 @@ pub const FakeBackend = struct {
 
     pub fn submitAccept(self: *FakeBackend, user_data: u64, listen_fd: Fd) !void {
         _ = listen_fd;
-        if (first_accept_failure) |err| {
+        if (first_accept_failure) |failure| {
             first_accept_failure = null;
-            self.push(.{ .user_data = user_data, .result = -1, .failure = err });
+            self.push(.{ .user_data = user_data, .result = -1, .failure = failure.cause, .arrival_retired = failure.retired });
             return;
         }
         // One scripted connection; the loop's re-armed accept pends forever.

@@ -276,7 +276,7 @@ fn finishEmpty(
         if (!failed.payload_owned) {
             // Peer consumed the message before its final refusal. No
             // caller-owned value remains; use the correlated barrier.
-            batches.fail(self, batch_id, err);
+            _ = batches.fail(self, batch_id, err);
             return;
         }
         var restored = (rows.rows.fetchRemove(batch_id) orelse unreachable).value;

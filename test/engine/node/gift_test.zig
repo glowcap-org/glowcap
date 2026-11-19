@@ -296,7 +296,7 @@ test "inline gift occurrence admission is aggregate per recipient" {
     try std.testing.expectEqual(@as(usize, 2), node.pendingGiftEffects());
     const first = node.nextAction().?.need_gift_id.ticket;
     const second = node.nextAction().?.need_gift_id.ticket;
-    try node.giftIdFailed(first);
+    _ = node.giftIdFailed(first);
     // The batch ticket tombstone pass must not consume a sibling batch's row.
     try std.testing.expect(!node.hasPendingGift(first));
     try std.testing.expect(node.hasPendingGift(second));
@@ -305,7 +305,7 @@ test "inline gift occurrence admission is aggregate per recipient" {
     // live until their own outcomes are known.
     try std.testing.expect(node.nextAction() == null);
     try std.testing.expect(recipient.sessionIsOpen());
-    try node.giftIdFailed(second);
+    _ = node.giftIdFailed(second);
     try std.testing.expectEqual(@as(usize, 0), node.pendingGiftEffects());
     try std.testing.expect(node.nextAction() == null);
 }

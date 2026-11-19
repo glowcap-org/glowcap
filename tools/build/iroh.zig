@@ -378,6 +378,10 @@ pub fn registerSteps(ctx: StepsContext) StepsRegistration {
         .target = target,
         .optimize = optimize,
     });
+    const counting = b.createModule(.{ .root_source_file = b.path("test/support/c_abi_counting_alloc.zig"), .target = target, .optimize = optimize });
+    counting.addImport("c_abi", host_mods[layerIndex("c_abi")]);
+    iroh_resident_internal_mod.addImport("support_c_abi_counting_alloc", counting);
+    iroh_resident_internal_mod.addImport("c_abi", host_mods[layerIndex("c_abi")]);
     iroh_resident_internal_mod.addImport("foundation", host_mods[layerIndex("foundation")]);
     iroh_resident_internal_mod.addImport("model", host_mods[layerIndex("model")]);
     iroh_resident_internal_mod.addImport("engine", host_mods[layerIndex("engine")]);

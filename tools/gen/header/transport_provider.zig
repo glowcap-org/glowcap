@@ -28,6 +28,7 @@ const Spec = struct {
         .{ .name = "GLOWCAP_MULTIPLEXED_EV_ACCEPT", .doc = "GlowcapMultiplexedReadyEvent.events: a listener has an accepted connection to claim." },
         .{ .name = "GLOWCAP_MULTIPLEXED_EV_CONNECT", .doc = "GlowcapMultiplexedReadyEvent.events: a dial request completed." },
         .{ .name = "GLOWCAP_MULTIPLEXED_EV_LISTEN", .doc = "GlowcapMultiplexedReadyEvent.events: listener construction completed." },
+        .{ .name = "GLOWCAP_ACCEPT_ARRIVAL_FAILED", .doc = "accept or finish_accept retired one arrival and leaves the listener usable. out_failure holds the original negative result and cause. out_conn is untouched." },
         .{ .name = "GLOWCAP_MULTIPLEXED_TRANSPORT_ABI_VERSION", .doc = "GlowcapMultiplexedTransport.abi_version." },
         .{ .name = "GLOWCAP_DESIGNATOR_SCHEME_ADDRESS", .doc = "GlowcapTransportProfile.designator_scheme: designators are addresses." },
         .{ .name = "GLOWCAP_DESIGNATOR_SCHEME_KEY", .doc = "GlowcapTransportProfile.designator_scheme: designators are peer keys." },
@@ -272,7 +273,7 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
         "Cancel a pending listener attempt before finish.",                              "Wait for acceptable connection.",
         "Listener readiness descriptor.",                                                "Query canonical listener locator.",
         "Validate and canonicalize advertised locator.",                                 "Query or copy opaque listener restoration state.",
-        "Accept raw stream.",                                                            "Close listener.",
+        "On GLOWCAP_ERR_WOULD_BLOCK, leave outputs untouched and wait for readiness.",   "Close listener.",
         "Read: 1..cap bytes, 0 at EOF, -1 when dead, or GLOWCAP_TRANSPORT_WOULD_BLOCK.", "Write: 1..len bytes consumed, -1 when dead, or GLOWCAP_TRANSPORT_WOULD_BLOCK.",
         "Close connection.",                                                             "Atomically claim the connection's retained read/write failure.",
     }, &.{

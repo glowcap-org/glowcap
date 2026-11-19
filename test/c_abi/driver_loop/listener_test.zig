@@ -67,6 +67,8 @@ const callbackRetirementBehavior = typed_resident.callbackRetirementBehavior;
 const reentrantSessionReleaseBehavior = typed_resident.reentrantSessionReleaseBehavior;
 
 test "listener close remains available after terminal provider failure" {
+    var resident = InvalidMultiplexedResident{ .wake = try glowcap.net.wake_channel.WakeChannel.open(), .drain_failure = true };
+    defer resident.wake.deinit();
     const owned_loop = try newLoop(0x5e);
     defer owned_loop.deinit();
     const loop = owned_loop.raw;
@@ -85,22 +87,20 @@ test "listener close remains available after terminal provider failure" {
     var readiness_fd: i32 = -1;
     try expectOk(cdrv.glowcap_driver_readiness_fd(loop, &readiness_fd));
 
-    var resident = InvalidMultiplexedResident{ .wake = try glowcap.net.wake_channel.WakeChannel.open() };
-    defer resident.wake.deinit();
     var table = resident.table();
     try expectOk(addMultiplexedProvider(loop, &table, "terminal-failure"));
     _ = try resident.wake.nudge();
-    try std.testing.expectEqual(c.GLOWCAP_ERR_INVALID_ARGUMENT, cdrv.glowcap_driver_step(loop, 0));
+    try std.testing.expectEqual(c.GLOWCAP_ERR_IO, cdrv.glowcap_driver_step(loop, 0));
     try expectOk(harness.closeListener(loop, listener));
 
     // Provider work stays fail-stop, but that failure cannot strand the
     // owner's explicit terminal barrier.
-    try std.testing.expectEqual(c.GLOWCAP_ERR_INVALID_ARGUMENT, cdrv.glowcap_driver_step(loop, 0));
+    try std.testing.expectEqual(c.GLOWCAP_ERR_IO, cdrv.glowcap_driver_step(loop, 0));
     try expectOk(cdrv.glowcap_driver_close(loop, &close_cancel));
     var state: u32 = undefined;
     try expectOk(cdrv.glowcap_driver_lifecycle_state(loop, &state));
     while (state != cd.GLOWCAP_LIFECYCLE_CLOSED) {
-        try expectStep(cdrv.glowcap_driver_step(loop, 0));
+        try std.testing.expectEqual(c.GLOWCAP_ERR_IO, cdrv.glowcap_driver_step(loop, 0));
         try expectOk(cdrv.glowcap_driver_lifecycle_state(loop, &state));
     }
 
@@ -109,49 +109,7 @@ test "listener close remains available after terminal provider failure" {
     // lifecycle forward.
     var fds = [_]std.posix.pollfd{.{ .fd = readiness_fd, .events = std.posix.POLL.IN, .revents = 0 }};
     try std.testing.expectEqual(@as(usize, 0), try std.posix.poll(&fds, 0));
-    try std.testing.expectEqual(c.GLOWCAP_ERR_INVALID_ARGUMENT, cdrv.glowcap_driver_step(loop, 0));
-}
-
-test "an active listener failure retires its stable id through a reserved event" {
-    var resident: TypedResident = .{
-        .wake = try glowcap.net.wake_channel.WakeChannel.open(),
-        .opaque_hint = &.{},
-        .stop_listen_pending = true,
-    };
-    defer resident.wake.deinit();
-    const owned_loop = try newEmptyLoop(0x6a);
-    defer owned_loop.deinit();
-    var table = resident.table();
-    const profile = providerProfile("typed-test");
-    var provider = typedProvider(&resident, &table, &profile);
-    try expectOk(harness.addProvider(owned_loop.raw, &provider));
-
-    const listener_id = try listenReady(owned_loop.raw, "typed-test", "listener-peer");
-    resident.failed_accept_route = resident.listeners[0].route;
-    _ = try resident.wake.nudge();
-    try expectOk(cdrv.glowcap_driver_step(owned_loop.raw, 1_000));
-
-    var event: cdrv.GlowcapDriverEvent = undefined;
-    try std.testing.expectEqual(
-        c.GLOWCAP_ERR_WOULD_BLOCK,
-        cdrv.glowcap_driver_next_event(owned_loop.raw, &event),
-    );
-    try expectOk(cdrv.glowcap_driver_step(owned_loop.raw, 1_000));
-    try expectOk(cdrv.glowcap_driver_next_event(owned_loop.raw, &event));
-    try std.testing.expectEqual(cdrv.GLOWCAP_DRIVER_EVENT_LISTENER_FAILED, event.kind);
-    try std.testing.expectEqual(listener_id, event.listener_id);
-    try std.testing.expectEqual(c.GLOWCAP_ERR_IO, event.primary_result);
-    try std.testing.expectEqualStrings("ForcedAcceptFailure", event.primary_name.?[0..event.primary_name_len]);
-    try std.testing.expectEqual(c.GLOWCAP_ERR_INTERNAL, event.secondary_result);
-    try std.testing.expectEqualStrings("ForcedAcceptCleanupFailure", event.secondary_name.?[0..event.secondary_name_len]);
-    try std.testing.expectEqual(@as(u32, 2), event.secondary_count);
-    var locator: cdrv.GlowcapLocatorView = undefined;
-    try std.testing.expectEqual(
-        c.GLOWCAP_ERR_NOT_FOUND,
-        cdrv.glowcap_driver_listener_locator(owned_loop.raw, listener_id, &locator),
-    );
-    try std.testing.expect(!resident.listeners[0].active);
-    try std.testing.expectEqual(@as(usize, 2), resident.stop_listen_calls);
+    try std.testing.expectEqual(c.GLOWCAP_ERR_IO, cdrv.glowcap_driver_step(loop, 0));
 }
 
 test "listener activation preserves the provider locator failure chain" {

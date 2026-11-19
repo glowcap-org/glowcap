@@ -76,68 +76,116 @@ pub fn stepSession(self: *HostRuntime, session: *driver_core.HostSession, timeou
 /// without a counted frame. A resident feed reports through its
 /// sinks, while a wire closure surfaces through the close observer. When work
 /// remains only in userland buffers, the step posts the readiness wake so a
-/// parked embedder re-enters instead of stranding it.
-pub fn stepAny(self: *HostRuntime, timeout_ms: i32) !?net.Progress {
+/// parked embedder re-enters instead of stranding it. `LoopTerminal` means
+/// `terminalFailure()` holds the cause. `Canceled` belongs to this I/O task.
+pub fn stepAny(self: *HostRuntime, timeout_ms: i32) error{ ReenteredHost, WrongThread, LoopTerminal, Canceled }!?net.Progress {
     try self.refuseReentry();
     self.enterDriver();
     defer self.leaveDriver();
+    if (self.terminal_failure) |failure| {
+        // Core close barriers can still advance on mailbox or deadline wakes.
+        // Every admitted public step nevertheless reports the retained cause.
+        _ = stepAfterTerminalFailure(self, timeout_ms, .none, failure) catch |err| {
+            if (err == error.Canceled) return error.Canceled;
+        };
+        return error.LoopTerminal;
+    }
     return stepAnyOwned(self, timeout_ms, .none);
+}
+
+/// Drive a loop whose embedder drains published events before pumping again.
+/// The loop owns its I/O task. Cancellation therefore ends that loop, while a
+/// retained failure takes precedence over queued events and never parks.
+pub fn stepEventLoop(self: *HostRuntime, timeout_ms: i32, events_queued: bool) error{ ReenteredHost, WrongThread, LoopTerminal }!?net.Progress {
+    if (self.terminal_failure == null and events_queued) {
+        try self.refuseReentry();
+        return .idle;
+    }
+    return stepAny(self, if (self.terminal_failure == null) timeout_ms else 0) catch |err| switch (err) {
+        error.Canceled => {
+            if (self.terminal_failure == null) self.noteTerminalFailure(err);
+            return error.LoopTerminal;
+        },
+        else => |failure| return failure,
+    };
 }
 
 pub fn stepAnyToward(self: *HostRuntime, timeout_ms: i32, goal: StepGoal) !?net.Progress {
     self.enterDriver();
     defer self.leaveDriver();
-    return stepAnyOwned(self, timeout_ms, goal);
+    if (self.terminal_failure) |failure| {
+        return stepAfterTerminalFailure(self, timeout_ms, goal, failure) catch |err| {
+            if (err == error.LoopTerminal) return failure.chain.cause;
+            return err;
+        };
+    }
+    return stepAnyOwned(self, timeout_ms, goal) catch |err| switch (err) {
+        error.Canceled => error.Canceled,
+        error.LoopTerminal => self.terminal_failure.?.chain.cause,
+    };
 }
 
-pub fn stepAnyOwned(self: *HostRuntime, timeout_ms: i32, goal: StepGoal) !?net.Progress {
-    if (self.terminal_failure) |failure| {
-        return stepAfterTerminalFailure(self, timeout_ms, goal, failure);
-    }
+/// A wire failure closes that wire, a claim failure retires the arrival,
+/// and the core retains work refused for memory or outbound capacity. The
+/// remaining failures prevent the Host from completing the turn. A caller
+/// canceling its own I/O task keeps both the loop and its pending actions.
+fn stepAnyOwned(self: *HostRuntime, timeout_ms: i32, goal: StepGoal) error{ LoopTerminal, Canceled }!?net.Progress {
+    if (self.terminal_failure != null) return error.LoopTerminal;
     self.readTurnClock();
     defer self.turn_ms = null;
     const open_wires = self.open_wire_count;
-    try Internal.progressSessionCloses(self);
-    try Internal.progressClose(self, .operational);
+    Internal.progressSessionCloses(self) catch |err| return turnFailure(self, err);
+    Internal.progressClose(self, .operational) catch |err| return turnFailure(self, err);
+    if (self.terminal_failure != null) return error.LoopTerminal;
     if (self.closeOutcome() != .pending) return null;
-    try Internal.applySettleMailbox(self);
+    Internal.applySettleMailbox(self) catch |err| return turnFailure(self, err);
     // Input the sweep moved is progress no source reports, so a step that
     // services nothing else still answers `.idle` for it.
-    const unserviced: ?net.Progress = if (try Internal.resumeFeedTails(self, null)) .idle else null;
-    _ = try Internal.attempt(self, .operational, .turn);
-    try Internal.advancePendingOpens(self);
+    const unserviced: ?net.Progress = if (Internal.resumeFeedTails(self, null) catch |err| return turnFailure(self, err)) .idle else null;
+    _ = Internal.attempt(self, .operational, .turn) catch |err| return turnFailure(self, err);
+    Internal.advancePendingOpens(self) catch |err| return turnFailure(self, err);
     Internal.advancePendingListeners(self);
-    if (self.terminal_failure) |failure| return failure.chain.cause;
+    if (self.terminal_failure != null) return error.LoopTerminal;
     // Immediate lifecycle work can satisfy a blocking convenience. Check its
     // barrier at the one boundary after which this step may park. A carrier
     // the prelude retired inline (a resident close that completed within its
     // verb) leaves no descriptor to wake a park, so the caller observes the
     // closed session now.
     if (goal.reached(self) or self.open_wire_count < open_wires) {
-        nudgeIfWorkRemains(self);
-        return unserviced;
+        return finishTurn(self, unserviced);
     }
-    const index = try Internal.waitAnySource(self, Internal.parkBoundMs(self, timeout_ms, null), true) orelse {
+    const index = (Internal.waitAnySource(self, Internal.parkBoundMs(self, timeout_ms, null), true) catch |err| return turnFailure(self, err)) orelse {
         // The park may have ended on a staged operation's clamped deadline;
         // settle it now rather than a step later.
         self.readTurnClock();
-        try Internal.advancePendingOpens(self);
+        Internal.advancePendingOpens(self) catch |err| return turnFailure(self, err);
         Internal.advancePendingListeners(self);
-        try Internal.progressSessionCloses(self);
-        try Internal.progressClose(self, .operational);
-        nudgeIfWorkRemains(self);
-        return unserviced;
+        Internal.progressSessionCloses(self) catch |err| return turnFailure(self, err);
+        Internal.progressClose(self, .operational) catch |err| return turnFailure(self, err);
+        return finishTurn(self, unserviced);
     };
     self.readTurnClock();
-    _ = try Internal.serviceResident(self, index, null);
-    _ = try Internal.attempt(self, .operational, .turn);
-    try Internal.advancePendingOpens(self);
+    _ = Internal.serviceResident(self, index, null) catch |err| return turnFailure(self, err);
+    _ = Internal.attempt(self, .operational, .turn) catch |err| return turnFailure(self, err);
+    Internal.advancePendingOpens(self) catch |err| return turnFailure(self, err);
     Internal.advancePendingListeners(self);
-    try Internal.progressSessionCloses(self);
-    try Internal.progressClose(self, .operational);
-    if (self.terminal_failure) |failure| return failure.chain.cause;
-    nudgeIfWorkRemains(self);
-    return .idle;
+    Internal.progressSessionCloses(self) catch |err| return turnFailure(self, err);
+    Internal.progressClose(self, .operational) catch |err| return turnFailure(self, err);
+    return finishTurn(self, .idle);
+}
+
+fn finishTurn(self: *HostRuntime, progress: ?net.Progress) error{LoopTerminal}!?net.Progress {
+    if (self.terminal_failure == null) nudgeIfWorkRemains(self);
+    if (self.terminal_failure != null) return error.LoopTerminal;
+    return progress;
+}
+
+fn turnFailure(self: *HostRuntime, err: anyerror) error{ LoopTerminal, Canceled } {
+    if (self.terminal_failure == null) {
+        if (err == error.Canceled) return error.Canceled;
+        self.noteTerminalFailure(err);
+    }
+    return error.LoopTerminal;
 }
 
 /// Keep core-owned close barriers executable after a provider violates its
@@ -145,8 +193,8 @@ pub fn stepAnyOwned(self: *HostRuntime, timeout_ms: i32, goal: StepGoal) !?net.P
 /// Only mailbox settles, monotonic deadlines, and release callbacks remain
 /// live. The wake posted by close initiation is consumed here explicitly.
 /// Leaving it unread would turn accidental busy-spinning into liveness.
-pub fn stepAfterTerminalFailure(self: *HostRuntime, timeout_ms: i32, goal: StepGoal, failure: OperationFailure) !?net.Progress {
-    if (!terminalCleanupPending(self)) return failure.chain.cause;
+fn stepAfterTerminalFailure(self: *HostRuntime, timeout_ms: i32, goal: StepGoal, failure: OperationFailure) !?net.Progress {
+    if (!terminalCleanupPending(self)) return error.LoopTerminal;
     drainReadinessWake(self);
     carrier.forceClosingCarriers(self, failure);
 
@@ -173,7 +221,7 @@ fn drainReadinessWake(self: *HostRuntime) void {
 
 /// Park only on sources that remain legal after provider fail-stop. Wire,
 /// resident, listener, and staged-open descriptors are deliberately absent.
-pub fn waitForTerminalSignal(self: *HostRuntime, timeout_ms: i32) !void {
+pub fn waitForTerminalSignal(self: *HostRuntime, timeout_ms: i32) error{ LoopTerminal, Canceled }!void {
     const timeout = Internal.clampTimeoutToPendingWork(self, timeout_ms);
     if (timeout == 0) return;
 
@@ -190,9 +238,9 @@ pub fn waitForTerminalSignal(self: *HostRuntime, timeout_ms: i32) !void {
         try std.Io.sleep(self.io, std.Io.Duration.fromMilliseconds(sleep_ms), .awake);
         return;
     }
-    // The wait's hard failure latched behind the primary, which is the cause
-    // this cleanup step reports.
-    _ = descriptor_wait.wait(self, .terminal, timeout) catch return self.terminal_failure.?.chain.cause;
+    // Descriptor failure latched behind the primary. Only the caller's I/O
+    // sleep above can cancel this wait.
+    _ = descriptor_wait.wait(self, .terminal, timeout) catch return error.LoopTerminal;
 }
 
 pub fn terminalCleanupPending(self: *HostRuntime) bool {

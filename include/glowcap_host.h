@@ -691,7 +691,8 @@ int32_t glowcap_host_dial_failed(GlowcapHost *host, uint64_t ticket, size_t rout
 int32_t glowcap_host_dial_cancelled(GlowcapHost *host, uint64_t ticket, size_t route_index);
 /* Answer a NEED_GIFT_ID action with 32 caller-drawn random bytes: the host
    originates the claimed handoff and this call flushes its legs, exporter
-   first. A stale ticket is a no-op success. */
+   first. A failure after taking the ticket breaks its answer, or this call
+   returns the cause for a send without an answer. A stale ticket is a no-op success. */
 int32_t glowcap_host_provide_gift_id(GlowcapHost *host, uint64_t ticket, const uint8_t *gift_id, size_t gift_id_len);
 /* Report that a NEED_GIFT_ID action could not obtain or provide entropy. The
    claimed handoff settles broken instead of retaining a ticket the embedder has

@@ -214,7 +214,7 @@ int32_t glowcap_driver_dial(GlowcapDriverLoop *loop, const GlowcapLocatorView *l
 int32_t glowcap_driver_adopt_external(GlowcapDriverLoop *loop, const uint8_t *transport, size_t transport_len, uint64_t subject, uint32_t role, uint64_t *out_operation_id);
 /* Begin listener construction through a registered provider. Null options inherit
    provider defaults; a payload is interpreted only by the selected provider.
-   LISTENER_READY or LISTENER_FAILED carries the returned stable listener id;
+   LISTENER_READY or LISTENER_FAILED carries the returned Context-unique listener id;
    ACCEPTED uses the same id. */
 int32_t glowcap_driver_listen(GlowcapDriverLoop *loop, const uint8_t *transport, size_t transport_len, const uint8_t *designator, size_t designator_len, const GlowcapTransportOperationOptions *options, uint64_t *out_listener);
 /* Borrow the active listener's complete locator view until it is advertised
@@ -242,7 +242,9 @@ int32_t glowcap_driver_readiness_fd(GlowcapDriverLoop *loop, int32_t *out_fd);
    GLOWCAP_OK means immediate work was observed or an event remains queued;
    GLOWCAP_ERR_WOULD_BLOCK means the loop is drained after the requested wait.
    Edge-triggered embedders call until WOULD_BLOCK before clearing readiness.
-   Drain events after every call that returns GLOWCAP_OK. */
+   Drain events after every call that returns GLOWCAP_OK. After admission, any
+   other result is terminal. Later steps and consuming release preserve its cause.
+   A null handle, wrong thread, or reentrant call is refused before admission. */
 int32_t glowcap_driver_step(GlowcapDriverLoop *loop, int32_t timeout_ms);
 /* End the current thread's exclusive claim at a quiescent handoff boundary. */
 int32_t glowcap_driver_detach_thread(GlowcapDriverLoop *loop);

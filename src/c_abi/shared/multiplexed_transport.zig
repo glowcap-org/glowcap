@@ -127,9 +127,9 @@ pub const GlowcapMultiplexedFinishListenFn = *const fn (
 ) callconv(.c) i32;
 
 /// Claim one accepted connection from `listener_ctx` into `out_conn`.
-/// `GLOWCAP_ERR_WOULD_BLOCK`
-/// means the coalesced accept queue has drained. Other failures use the normal
-/// `GLOWCAP_ERR_*` vocabulary.
+/// GLOWCAP_ERR_WOULD_BLOCK means the queue has drained. GLOWCAP_ACCEPT_ARRIVAL_FAILED
+/// leaves the listener usable and reports a retired arrival through out_failure.
+/// A negative error result other than WOULD_BLOCK belongs to the listener.
 pub const GlowcapMultiplexedFinishAcceptFn = *const fn (
     listener_ctx: ?*anyopaque,
     out_conn: ?*u64,

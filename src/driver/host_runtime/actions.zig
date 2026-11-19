@@ -11,7 +11,6 @@ const runtime = @import("../host_runtime.zig");
 
 const HostRuntime = runtime.HostRuntime;
 const Internal = runtime.Internal;
-const Error = driver_core.Error;
 const ExternalEffectMode = lifecycle.ExternalEffectMode;
 const Wire = HostRuntime.Wire;
 
@@ -255,20 +254,14 @@ fn drainLoop(self: *HostRuntime, effect_mode: ExternalEffectMode) !void {
     // resident window can move only after this call returns to readiness.
     while (true) switch (try driver_core.drainActions(
         self.core,
-        EntropySource{ .io = self.io },
+        self.io,
         Exec{ .runtime = self, .effect_mode = effect_mode },
     )) {
         .drained, .outbound_blocked => return,
         .yielded => {},
+        .unobserved_gift_failure => |err| self.reportUnhandledFailure(.fromError(err)),
     };
 }
-
-const EntropySource = struct {
-    io: std.Io,
-    pub fn randomSecure(self: EntropySource, buf: []u8) !void {
-        self.io.randomSecure(buf) catch return Error.HandshakeEntropyFailed;
-    }
-};
 
 const Exec = struct {
     runtime: *HostRuntime,

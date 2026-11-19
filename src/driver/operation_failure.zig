@@ -42,7 +42,9 @@ pub const OperationFailure = struct {
     }
 
     pub fn fromAcceptFailure(failure: net.netlayer.AcceptFailure) OperationFailure {
-        return fromTransportFailure(failure);
+        var result = fromTransportFailure(failure);
+        if (failure.chain.classification) |reported_class| result.chain.classification = reported_class;
+        return result;
     }
 
     /// A transport failure's chain, classified by the transport's own

@@ -105,7 +105,7 @@ pub fn initWithCore(
         .handshake = adoption.handshake,
         .listener_setup = adoption.listener_setup,
         .settle = adoption.settle,
-        .unhandled_failure = null,
+        .unhandled_failure = adoption.unhandled_failure,
         .busy_poll_ns = adoption.busy_poll_ns,
     };
     if (opts.frame_cap == 0 or opts.wire_buffer_bytes == 0 or opts.max_pending_opens == 0)

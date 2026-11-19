@@ -301,10 +301,7 @@ test "a close observer may drop its owning Session without freeing the pump's bo
     try client.await(io);
     var rounds: usize = 0;
     while (!observer.dropped and rounds < 1_000) : (rounds += 1)
-        _ = server.runtime.stepAny(10) catch |err| switch (err) {
-            error.ConnectionClosed => {},
-            else => |other| return other,
-        };
+        _ = try server.runtime.stepAny(10);
 
     try std.testing.expect(observer.dropped);
     try std.testing.expect(observer.blocking_reentry_refused);

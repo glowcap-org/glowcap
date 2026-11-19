@@ -35,7 +35,7 @@ const Script = struct {
     /// resident re-arms at once.
     accept_error: ?anyerror = null,
     /// One quiet wake channel per accepted handle the provider has issued.
-    accept_wakes: [max_dials]net.wake_channel.WakeChannel = undefined,
+    accept_wakes: [Resident.max_unclaimed_accepts + 1]net.wake_channel.WakeChannel = undefined,
     accepts_issued: usize = 0,
     conn_closes: usize = 0,
     /// One wake channel per dial the provider has started.
@@ -69,13 +69,13 @@ const Script = struct {
     /// Each nudge of the listener's wake channel is one arrival: it is
     /// consumed here, and answered with the scripted refusal or with a new
     /// connection handle that has its own quiet readiness descriptor.
-    fn acceptNext(ctx: *anyopaque, _: *anyopaque) external.Finished {
+    fn acceptNext(ctx: *anyopaque, _: *anyopaque) external.AcceptFinished {
         const self = of(ctx);
         self.accept_calls += 1;
-        self.wake.drain() catch return .{ .failed = error.ProviderIo };
-        if (self.accept_error) |err| return .{ .failed = err };
-        if (self.accepts_issued == max_dials) return .{ .failed = error.ProviderIo };
-        const wake = net.wake_channel.WakeChannel.open() catch return .{ .failed = error.ProviderIo };
+        self.wake.drain() catch return .{ .failed = .init(error.ProviderIo) };
+        if (self.accept_error) |err| return .{ .failed = .init(err) };
+        if (self.accepts_issued == self.accept_wakes.len) return .{ .failed = .init(error.ProviderIo) };
+        const wake = net.wake_channel.WakeChannel.open() catch return .{ .failed = .init(error.ProviderIo) };
         self.accept_wakes[self.accepts_issued] = wake;
         self.accepts_issued += 1;
         return .{ .ready = .{ .ptr = &self.accept_wakes[self.accepts_issued - 1], .fd = wake.read } };
@@ -443,6 +443,24 @@ test "an established external listener at the unclaimed bound owes its re-arm wh
     // The refused arrival left no readiness record behind it.
     try std.testing.expectEqual(@as(usize, 0), try drainAcceptRecords(&resident, 7));
 
+    // The provider has returned a live handle when the adapter's map refuses it.
+    var map_failure = std.testing.FailingAllocator.init(allocator, .{ .fail_index = 0 });
+    resident.backend.conns.allocator = map_failure.allocator();
+    _ = try script.wake.nudge();
+    while (row.accept_failure == null) {
+        if (net.clock.nowMonotonicMs() >= deadline) return error.ArrivalNeverCompleted;
+        try parkOnce(&resident);
+    }
+    resident.backend.conns.allocator = allocator;
+    try std.testing.expect(map_failure.has_induced_failure);
+    try std.testing.expectEqual(@as(usize, 1), script.conn_closes);
+    try std.testing.expectEqual(@as(usize, 1), try drainAcceptRecords(&resident, 7));
+    switch (ops.listen.?.finish_accept(&resident, row)) {
+        .arrival_failed => |failure| try std.testing.expectEqual(error.OutOfMemory, failure.chain.cause),
+        else => return error.ExpectedRetiredArrival,
+    }
+    try std.testing.expect(row.accept_armed);
+
     // Real accepted handles, one per nudge, until the listener waits for a claim.
     for (0..bound) |i| {
         _ = try script.wake.nudge();
@@ -453,7 +471,7 @@ test "an established external listener at the unclaimed bound owes its re-arm wh
     }
     try std.testing.expect(!row.accept_armed);
     try std.testing.expectEqual(@as(usize, 0), resident.accept_seats);
-    try std.testing.expectEqual(bound, script.accepts_issued);
+    try std.testing.expectEqual(bound + 1, script.accepts_issued);
 
     // Each pending dial holds its result and close. Size the queue for exactly
     // two more dials so the listener's next re-arm needs fresh capacity.
@@ -475,7 +493,7 @@ test "an established external listener at the unclaimed bound owes its re-arm wh
     try std.testing.expect(failing.has_induced_failure);
     switch (outcome) {
         .connection => |id| try std.testing.expect(id != null),
-        .failed => |failure| return failure.chain.cause,
+        .arrival_failed, .failed => |failure| return failure.chain.cause,
     }
     try std.testing.expect(row.rearm_owed);
     try std.testing.expect(!row.accept_armed);
@@ -558,19 +576,19 @@ fn expectPersistentRefusal(refusal: anyerror) !void {
 
     switch (ops.finish_accept(&resident, listener)) {
         .connection => |id| try std.testing.expect(id != null),
-        .failed => return error.LostEarlierAccept,
+        .arrival_failed, .failed => return error.LostEarlierAccept,
     }
     switch (ops.finish_accept(&resident, listener)) {
         .failed => |failure| {
             try std.testing.expectEqual(error.AcceptRefused, failure.classification);
             try std.testing.expectEqual(refusal, failure.chain.cause);
         },
-        .connection => return error.LostAcceptRefusal,
+        .arrival_failed, .connection => return error.LostAcceptRefusal,
     }
     // Handed over once, and the listener never re-armed against it.
     switch (ops.finish_accept(&resident, listener)) {
         .connection => |id| try std.testing.expectEqual(@as(?usize, null), id),
-        .failed => return error.RefusalReportedTwice,
+        .arrival_failed, .failed => return error.RefusalReportedTwice,
     }
     try std.testing.expect(!row.accept_armed);
     try std.testing.expectEqual(@as(usize, 2), script.accept_calls);

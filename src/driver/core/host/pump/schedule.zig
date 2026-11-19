@@ -132,13 +132,24 @@ pub fn holdReleases(self: *Host, session: *HostSession) void {
 pub fn flushHeldReleases(self: *Host) !bool {
     try self.refuseReentry();
     var flushed = false;
-    while (self.held_releases.pop(self.allocator)) |peer_handle| {
+    // A pressured session keeps its queue position for another turn. Visit
+    // each original entry at most once, even when its window remains full.
+    const count = self.held_releases.unpopped().len;
+    for (0..count) |_| {
+        const peer_handle = self.held_releases.pop(self.allocator) orelse break;
         const session = self.sessions.get(peer_handle) orelse continue;
         session.releases_held = false;
         if (session.isTerminating()) continue;
         _ = session.served.port.peer.flushAnswerReleases() catch |err| {
-            holdReleases(self, session);
-            return err;
+            switch (err) {
+                error.OutOfMemory => {
+                    holdReleases(self, session);
+                    return err;
+                },
+                error.OutboundBackpressure => holdReleases(self, session),
+                // The peer projected this deferred failure and owns its abort.
+                else => markDirty(self, peer_handle),
+            }
         };
         if (!session.served.hasOutbound()) continue;
         queueUniqueSessionAction(self, .flush, peer_handle);

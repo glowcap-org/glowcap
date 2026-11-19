@@ -163,6 +163,62 @@ pub fn setNonblocking(fd: i32) bool {
     return c.fcntl(fd, c.F.SETFL, flags | nonblock) >= 0;
 }
 
+/// One attempt on a nonblocking listener. An accepted descriptor whose
+/// publication flags could not be installed has already been closed.
+pub const ReadyAccept = union(enum) {
+    stream: std.Io.net.Stream,
+    would_block,
+    arrival_failed: error{SocketConfigurationFailed},
+
+    pub fn unwrap(self: ReadyAccept) error{ ConnectionLost, SocketConfigurationFailed }!std.Io.net.Stream {
+        return switch (self) {
+            .stream => |stream| stream,
+            .would_block => error.ConnectionLost,
+            .arrival_failed => |err| err,
+        };
+    }
+};
+
+/// A pre-claim abort and a queue drained since the readiness notification
+/// both leave the listener waiting for the next connection.
+fn acceptPending(errno: std.posix.E) bool {
+    return errno == .AGAIN or errno == .CONNABORTED;
+}
+
+pub const testing = if (builtin.is_test) struct {
+    pub const pendingOnAccept = acceptPending;
+} else struct {};
+
+pub fn acceptNonblocking(io: std.Io, listener: std.posix.fd_t) error{ConnectionLost}!ReadyAccept {
+    const posix = std.posix;
+    const linux_target = builtin.target.os.tag == .linux;
+    while (true) {
+        io.checkCancel() catch return error.ConnectionLost;
+        var address: std.Io.Threaded.PosixAddress = undefined;
+        var len: posix.socklen_t = @sizeOf(@TypeOf(address));
+        const rc = if (linux_target)
+            posix.system.accept4(listener, &address.any, &len, posix.SOCK.CLOEXEC)
+        else
+            posix.system.accept(listener, &address.any, &len);
+        const errno = posix.errno(rc);
+        if (errno == .INTR) continue;
+        if (acceptPending(errno)) return .would_block;
+        if (errno != .SUCCESS) return error.ConnectionLost;
+        const fd: posix.fd_t = @intCast(rc);
+        // Linux accept4 creates a blocking, close-on-exec stream. BSD's
+        // accept inherits O_NONBLOCK from the listener and needs both flags.
+        if (!linux_target) {
+            const flags = std.c.fcntl(fd, std.c.F.GETFL, @as(c_int, 0));
+            const nonblock: c_int = @bitCast(std.c.O{ .NONBLOCK = true });
+            if (flags < 0 or std.c.fcntl(fd, std.c.F.SETFL, flags & ~nonblock) < 0 or !setCloseOnExec(fd)) {
+                _ = std.c.close(fd);
+                return .{ .arrival_failed = error.SocketConfigurationFailed };
+            }
+        }
+        return .{ .stream = .{ .socket = .{ .handle = fd, .address = std.Io.Threaded.addressFromPosix(&address) } } };
+    }
+}
+
 /// Suppress SIGPIPE for Darwin sockets the kqueue backend writes. `SO.NOSIGPIPE`
 /// is a BSD socket option that no other platform declares, so the setsockopt is
 /// comptime-scoped to Darwin. Linux suppresses SIGPIPE at send time with

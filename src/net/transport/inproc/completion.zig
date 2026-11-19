@@ -422,7 +422,7 @@ pub fn CompletionBackend(comptime Platform: type) type {
             self.accept_ud = null;
             const fd = self.bindAccepted(end) catch |err| {
                 end.release(self.allocator);
-                self.ready.appendReserved(.{ .user_data = ud, .result = -1, .failure = err });
+                self.ready.appendReserved(.{ .user_data = ud, .result = -1, .failure = err, .arrival_retired = true });
                 return;
             };
             self.ready.appendReserved(.{ .user_data = ud, .result = 0, .accepted_fd = fd });

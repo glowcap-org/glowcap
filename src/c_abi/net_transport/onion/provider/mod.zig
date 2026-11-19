@@ -471,13 +471,22 @@ fn providerAccept(_: ?*anyopaque, listener_raw: ?*anyopaque, out_conn: ?*?*anyop
     defer listener.operations.release(listener.owner.io());
     const slot = out_conn orelse return c.transport_provider.failProvider(out_failure, GLOWCAP_ERR_NULL_POINTER, error.NullPointer);
     const fd_slot = out_readiness_fd orelse return c.transport_provider.failProvider(out_failure, GLOWCAP_ERR_NULL_POINTER, error.NullPointer);
-    const stream = listener.listener.acceptRawStream() catch |err| return c.transport_provider.failProvider(out_failure, GLOWCAP_ERR_IO, err);
+    const accepted = listener.listener.acceptReadyStream() catch |err| return c.transport_provider.failProvider(out_failure, GLOWCAP_ERR_IO, err);
+    const stream = switch (accepted) {
+        .stream => |stream| stream,
+        .would_block => return GLOWCAP_ERR_WOULD_BLOCK,
+        .arrival_failed => |err| {
+            c.transport_provider.setProviderFailure(out_failure, GLOWCAP_ERR_IO, err);
+            return c.GLOWCAP_ACCEPT_ARRIVAL_FAILED;
+        },
+    };
     if (!listener.owner.retain()) {
         stream.close(listener.owner.io());
         return c.transport_provider.failProvider(out_failure, GLOWCAP_ERR_CLOSED, error.Closed);
     }
     const adopted = connection.adoptStream(listener.owner, stream) catch |err| {
-        return c.transport_provider.failProvider(out_failure, GLOWCAP_ERR_INTERNAL, err);
+        c.transport_provider.setProviderFailure(out_failure, GLOWCAP_ERR_INTERNAL, err);
+        return c.GLOWCAP_ACCEPT_ARRIVAL_FAILED;
     };
     slot.* = adopted.handle;
     fd_slot.* = adopted.readiness_fd;

@@ -220,17 +220,50 @@ test "a dial resident cannot smuggle unsupported readiness events" {
     try std.testing.expectEqual(c.GLOWCAP_ERR_INVALID_ARGUMENT, cdrv.glowcap_driver_step(loop, 0));
 }
 
+test "consuming driver release owns a multiplexed close refusal during handshake" {
+    var resident = InvalidMultiplexedResident{
+        .wake = try glowcap.net.wake_channel.WakeChannel.open(),
+        .connect_io = true,
+        .conn_close_failure = true,
+    };
+    defer resident.wake.deinit();
+    var loop = try newLoop(0x71);
+    defer loop.deinit();
+    var table = resident.table();
+    try expectOk(addMultiplexedProvider(loop.raw, &table, "release-close"));
+    var operation: u64 = 0;
+    try expectOk(try dialParts(loop.raw, "release-close", "endpoint", "", &operation));
+    try expectStep(cdrv.glowcap_driver_step(loop.raw, 0));
+    try std.testing.expect(resident.pending_request == null);
+    try std.testing.expectEqual(@as(usize, 0), resident.conn_close_calls);
+    var failure = cdrv.GlowcapDriverFailure.init();
+    const released = c.ReleaseResult.fromRaw(loop.release(&failure));
+    try std.testing.expectEqual(.consumed, released.ownership);
+    try std.testing.expectEqual(c.GLOWCAP_ERR_IO, released.failure);
+    try std.testing.expectEqualStrings("ConnectRollbackCloseFailed", failure.primary_name.?[0..failure.primary_name_len]);
+    try std.testing.expectEqual(@as(u32, 0), failure.secondary_count);
+    try std.testing.expectEqual(@as(usize, 1), resident.conn_close_calls);
+    try @import("context_failures.zig").expectEmpty(loop.context);
+}
+
 test "multiplexed readiness failure preserves its exact chain" {
     var resident = InvalidMultiplexedResident{
         .wake = try glowcap.net.wake_channel.WakeChannel.open(),
         .drain_failure = true,
+        .pending_listen = true,
     };
     defer resident.wake.deinit();
-    const owned_loop = try newLoop(0x69);
+    var options = driver_options_1s;
+    options.listener_setup_ms = 1;
+    var owned_loop = try harness.newEmptyLoopWithOptions(0x69, &options);
     defer owned_loop.deinit();
     var table = resident.table();
     try expectOk(addMultiplexedProvider(owned_loop.raw, &table, "failed-drain"));
-    _ = try resident.wake.nudge();
+    // The staged listener expires during the same turn that loses its ready
+    // source. Its own event stays queued across the repeated terminal step.
+    var listener: u64 = 0;
+    try expectOk(cdrv.glowcap_driver_listen(owned_loop.raw, "failed-drain", 12, "", 0, null, &listener));
+    try std.Io.sleep(std.testing.io, .fromMilliseconds(5), .awake);
 
     try std.testing.expectEqual(c.GLOWCAP_ERR_IO, cdrv.glowcap_driver_step(owned_loop.raw, 0));
     var message: [256]u8 = undefined;
@@ -238,6 +271,21 @@ test "multiplexed readiness failure preserves its exact chain" {
     try std.testing.expect(std.mem.find(u8, message[0..len], "InjectedReadinessFailure") != null);
     try std.testing.expect(std.mem.find(u8, message[0..len], "InjectedDrainCleanupFailure") != null);
     try std.testing.expect(std.mem.find(u8, message[0..len], "2 secondary failures") != null);
+    try std.testing.expectEqual(c.GLOWCAP_ERR_IO, cdrv.glowcap_driver_step(owned_loop.raw, 0));
+    var event: cdrv.GlowcapDriverEvent = undefined;
+    try expectOk(cdrv.glowcap_driver_next_event(owned_loop.raw, &event));
+    try std.testing.expectEqual(cdrv.GLOWCAP_DRIVER_EVENT_LISTENER_FAILED, event.kind);
+    try std.testing.expectEqual(listener, event.listener_id);
+    try std.testing.expectEqualStrings("ListenerSetupTimedOut", event.primary_name.?[0..event.primary_name_len]);
+    var failure = cdrv.GlowcapDriverFailure.init();
+    const released = c.ReleaseResult.fromRaw(owned_loop.release(&failure));
+    try std.testing.expectEqual(.consumed, released.ownership);
+    try std.testing.expectEqual(c.GLOWCAP_ERR_IO, released.failure);
+    try std.testing.expectEqual(c.GLOWCAP_ERR_IO, failure.primary_result);
+    try std.testing.expectEqualStrings("InjectedReadinessFailure", failure.primary_name.?[0..failure.primary_name_len]);
+    try std.testing.expectEqualStrings("InjectedDrainCleanupFailure", failure.secondary_name.?[0..failure.secondary_name_len]);
+    try std.testing.expectEqual(@as(u32, 2), failure.secondary_count);
+    try @import("context_failures.zig").expectEmpty(owned_loop.context);
 }
 
 test "multiplexed readiness drain rejects contradictory failure reports" {

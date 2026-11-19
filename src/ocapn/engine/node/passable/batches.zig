@@ -79,7 +79,7 @@ pub const Batch = struct {
         }
         // A retired batch spends its escrow: the recipient's projection
         // breaks instead of hanging (ADR-0039).
-        if (self.failure_escrow != null) breakEscrowed(node, self);
+        if (self.failure_escrow != null) _ = breakEscrowed(node, self);
         owner.session_state.collectLocalPromiseProjections();
         for (self.gifts) |gift| if (gift.handoff) |handoff| {
             model.freeHandoff(self.allocator, handoff.*);
@@ -127,7 +127,7 @@ pub fn provisionalClosed(self: *Node, peer_handle: PeerHandle, outcome: node_ser
 pub fn stagedWithdrawn(self: *Node, peer_handle: PeerHandle, batch: passable.BatchId) void {
     const row = self.inline_passable_batches.rows.get(batch) orelse return;
     std.debug.assert(row.recipient_peer == peer_handle);
-    fail(self, batch, error.TurnAborted);
+    _ = fail(self, batch, error.TurnAborted);
 }
 
 /// Retire batches charged to a recipient while that exact Peer is alive.
@@ -160,7 +160,7 @@ pub fn failForHome(self: *Node, peer_handle: PeerHandle) void {
     var it = self.inline_passable_batches.rows.iterator();
     while (it.next()) |entry| {
         if (!homesPeer(entry.value_ptr, peer_handle)) continue;
-        fail(self, entry.key_ptr.*, error.RouteNotLowerable);
+        _ = fail(self, entry.key_ptr.*, error.RouteNotLowerable);
     }
 }
 
@@ -225,19 +225,24 @@ pub fn unclaimProjectionLeases(self: *Node, batch: *Batch) void {
     };
 }
 
-pub fn fail(self: *Node, batch_id: passable.BatchId, err: anyerror) void {
-    var batch = takeForTerminal(self, batch_id) orelse return;
+pub fn fail(self: *Node, batch_id: passable.BatchId, err: anyerror) Node.GiftFailureDelivery {
+    var batch = takeForTerminal(self, batch_id) orelse return .stale;
+    var delivered = false;
     if (self.peer(batch.recipient_peer)) |recipient| {
+        if (batch.failure_target) |target| switch (target) {
+            .outbound_answer => |answer| delivered = recipient.canObserveAnswer(answer),
+            .inbound_answer => |answer| delivered = session_mod.ForwardedReply.targetIsLive(&recipient.session_state, answer),
+        };
         // A row that was holding later carriers back releases them. The
         // flush spends one of the completion seats this batch does not
         // need. A retracted window removes the row before failing it.
         if (recipient.removeStagedRow(batch_id) == .unblocked)
             actions.pushReserved(self, .{ .flush = batch.recipient_peer });
         if (batch.failure_escrow != null) {
-            breakEscrowed(self, &batch);
+            delivered = breakEscrowed(self, &batch);
             actions.pushReserved(self, .{ .flush = batch.recipient_peer });
-        } else if (batch.failure_target) |target| actions.pushReserved(self, .{ .fail = .{
-            .dest = switch (target) {
+        } else if (delivered) actions.pushReserved(self, .{ .fail = .{
+            .dest = switch (batch.failure_target.?) {
                 .outbound_answer => |answer| .{ .answer = .{
                     .recipient_peer = batch.recipient_peer,
                     .answer = answer,
@@ -252,16 +257,17 @@ pub fn fail(self: *Node, batch_id: passable.BatchId, err: anyerror) void {
     }
     queueLeaseReleases(self, &batch);
     batch.deinit(self);
+    return if (delivered) .delivered else .unobserved;
 }
 
 /// Settle the batch's inbound-answer target with its escrowed break. The
 /// guaranteed settlement stores the break under any pressure, and a target
 /// already collected or settled makes the break moot.
-fn breakEscrowed(self: *Node, batch: *Batch) void {
+fn breakEscrowed(self: *Node, batch: *Batch) bool {
     const reason = batch.failure_escrow.?;
     batch.failure_escrow = null;
     const recipient = self.peer(batch.recipient_peer) orelse unreachable;
-    recipient.breakAnswerTargetGuaranteed(batch.failure_target.?.inbound_answer, reason);
+    return recipient.breakAnswerTargetGuaranteed(batch.failure_target.?.inbound_answer, reason);
 }
 
 fn takeForTerminal(self: *Node, batch_id: passable.BatchId) ?Batch {
@@ -424,20 +430,20 @@ pub fn provideGiftId(
     route_id: model.CapabilityRouteId,
     staged: gift_tickets.InlineTicket,
     gift_id: []const u8,
-) void {
+) !void {
     const batch = self.inline_passable_batches.rows.getPtr(staged.batch) orelse return;
     if (staged.gift_index >= batch.gifts.len or gift_id.len != model.handoff_gift_id_bytes)
-        return fail(self, staged.batch, error.GiftIdUnavailable);
+        return error.GiftIdUnavailable;
     const gift = &batch.gifts[staged.gift_index];
     const gift_route = peer_routes.routeById(self, route_id) orelse
-        return fail(self, staged.batch, error.RouteNotLowerable);
+        return error.RouteNotLowerable;
     if (gift_route.peer_handle != gift.home or !std.meta.eql(gift_route.far, gift.gifted))
-        return fail(self, staged.batch, error.RouteNotLowerable);
+        return error.RouteNotLowerable;
     const recipient = self.peer(recipient_peer) orelse
-        return fail(self, staged.batch, error.UnknownConnection);
+        return error.UnknownConnection;
     const exporter = self.peer(gift.home) orelse
-        return fail(self, staged.batch, error.UnknownConnection);
-    const give = gift_recipe.mint(
+        return error.UnknownConnection;
+    const give = try gift_recipe.mint(
         self,
         recipient,
         recipient_peer,
@@ -445,11 +451,10 @@ pub fn provideGiftId(
         gift.home,
         gift_id,
         gift_recipe.get(self, gift.home),
-    ) catch |err| return fail(self, staged.batch, err);
+    );
     defer self.allocator.free(give);
-    gift.handoff = engine.handoff_gifter.decodeHandoffGive(batch.allocator, give) catch |err|
-        return fail(self, staged.batch, err);
+    gift.handoff = try engine.handoff_gifter.decodeHandoffGive(batch.allocator, give);
     @memcpy(&gift.gift_id, gift_id);
     batch.ready += 1;
-    finish(self, staged.batch) catch |err| fail(self, staged.batch, err);
+    try finish(self, staged.batch);
 }
