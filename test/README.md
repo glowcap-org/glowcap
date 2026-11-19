@@ -65,6 +65,17 @@ chunks consumes the same number of body bytes. The Zig test checks split
 prefixes, the body, where the next frame begins, and which buffer lends
 the result. [Body boundary law](foundation/stream_framing_laws/LAWS.bend)
 
+### Actor proxies and turn budgets
+
+An invocation reaches its target only when every proxy allows it. A revoked
+caretaker blocks its entire path, and a verb grant leaves direct invocation
+outside its authority. [Proxy laws](actors/ocap_laws/LAWS.bend)
+
+For a fixed queue, splitting a turn budget leaves the same work pending.
+Retrying an exhausted epoch leaves that work queued. The Zig tests exercise
+both drive paths and observe the turns that actually commit.
+[Turn budget laws](driver/turn_budget_laws/LAWS.bend)
+
 ## Fuzz regression inputs
 
 Each layer's `fuzz_regressions/` holds one file per fuzzer finding: a byte
