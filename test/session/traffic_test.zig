@@ -1,7 +1,5 @@
-//! What a deliver may carry and name: descriptor roles and answer liveness,
-//! nesting depth on both directions, and references crossing every session
-//! walk. The duplicate-set and comparison-bound family lives in
-//! `set_uniqueness_test.zig`.
+//! Session delivery admission, answer uniqueness, nesting limits, and
+//! reference arguments. Target roles are in descriptor_roles_test.zig.
 
 const std = @import("std");
 const glowcap = @import("glowcap");
@@ -98,69 +96,6 @@ test "session records outbound answers from sent deliver" {
 
     try std.testing.expect(s.outboundAnswer(.from(42)) != null);
     try std.testing.expectEqual(session.AnswerStatus.pending, s.outboundAnswer(.from(42)).?.status);
-}
-
-test "outbound deliver targets require the target descriptor role and a live answer" {
-    const allocator = std.testing.allocator;
-    var s = session.Session.initWith(allocator, .{ .captp_version = .next });
-    defer s.deinit();
-    try s.registerImport(.from(7));
-    try s.registerExport(.from(8));
-
-    // A near is one of our exports and would encode as `desc:import-*`, which is
-    // never a deliver target. Refuse before apply retains it or installs the
-    // answer carried by the invalid deliver.
-    const before = s.exportRefcount(.from(8));
-    try std.testing.expectError(session.Error.InvalidReference, s.recordSend(.{ .deliver = .{
-        .target = .{ .near = model.NearRef.object(8) },
-        .args = &.{},
-        .answer = .from(40),
-    } }));
-    try std.testing.expectEqual(before, s.exportRefcount(.from(8)));
-    try std.testing.expect(s.outboundAnswer(.from(40)) == null);
-
-    // On Next an inline resolver is the sender's own near reference. A far one
-    // is refused at session validation, before the answer is installed.
-    try std.testing.expectError(session.Error.UnexpectedMessage, s.recordSend(.{ .deliver = .{
-        .target = .{ .far = model.FarRef.object(7) },
-        .args = &.{},
-        .answer = .from(41),
-        .resolve_me_desc = .{ .far = model.FarRef.object(7) },
-    } }));
-    try std.testing.expect(s.outboundAnswer(.from(41)) == null);
-
-    // `desc:answer` is a role, not an unchecked integer. An unknown answer is
-    // refused before the new answer on this deliver can alias session state.
-    try std.testing.expectError(session.Error.InvalidReference, s.recordSend(.{ .deliver = .{
-        .target = .{ .promise = .{ .answer_position = .from(99) } },
-        .args = &.{},
-        .answer = .from(41),
-    } }));
-    try std.testing.expect(s.outboundAnswer(.from(41)) == null);
-
-    // A prior call creates answer 11. It remains addressable after settlement
-    // and stops being addressable only when our op:gc-answers releases it.
-    try s.recordSend(.{ .deliver = .{
-        .target = .{ .far = model.FarRef.object(7) },
-        .args = &.{},
-        .answer = .from(11),
-    } });
-    try s.recordRecv(.{ .resolve = .{
-        .answer = .from(11),
-        .resolution = .{ .fulfill = .{ .void = {} } },
-    } });
-    try s.recordSend(.{ .deliver = .{
-        .target = .{ .promise = .{ .answer_position = .from(11) } },
-        .args = &.{},
-        .answer = .from(12),
-    } });
-    try s.recordSend(.{ .gc_answer = .{ .positions = &.{11} } });
-    try std.testing.expectError(session.Error.InvalidReference, s.recordSend(.{ .deliver = .{
-        .target = .{ .promise = .{ .answer_position = .from(11) } },
-        .args = &.{},
-        .answer = .from(42),
-    } }));
-    try std.testing.expect(s.outboundAnswer(.from(42)) == null);
 }
 
 test "outbound operations cannot reuse a live answer position" {
@@ -269,67 +204,6 @@ test "inbound deliver nested far past the ceiling fails closed" {
     });
 }
 
-test "inbound deliver targets enforce descriptor role and answer liveness atomically" {
-    const allocator = std.testing.allocator;
-    var s = session.Session.init(allocator);
-    defer s.deinit();
-    try s.registerImport(.from(7));
-
-    // Even held import 7 is the wrong role: inbound `.far` decoded from
-    // `desc:import-*`, while a deliver target must be `desc:export` (`near`) or
-    // `desc:answer` (`promise`). The message also carries an answer and a fresh
-    // import introduction; both must remain absent after either recv path
-    // refuses the target.
-    const introduced = model.Argument{ .reference = .{ .far = model.FarRef.object(9) } };
-    const wrong_role = model.Message{ .deliver = .{
-        .target = .{ .far = model.FarRef.object(7) },
-        .args = &.{introduced},
-        .answer = .from(1),
-    } };
-    try std.testing.expectError(session.Error.InvalidReference, s.recordRecvView(model.view.Body.fromOwned(&wrong_role)));
-    try std.testing.expect(s.inboundAnswer(.from(1)) == null);
-    try std.testing.expect(!s.hasImport(.from(9)));
-    try std.testing.expectError(session.Error.InvalidReference, s.recordRecv(wrong_role));
-    try std.testing.expect(s.inboundAnswer(.from(1)) == null);
-    try std.testing.expect(!s.hasImport(.from(9)));
-
-    // An answer descriptor must name a row the partner opened. As
-    // above, refusal is pre-commit on the owned and borrowed paths.
-    const dead_answer = model.Message{ .deliver = .{
-        .target = .{ .promise = .{ .answer_position = .from(77) } },
-        .args = &.{.{ .reference = .{ .far = model.FarRef.object(10) } }},
-        .answer = .from(2),
-    } };
-    try std.testing.expectError(session.Error.InvalidReference, s.recordRecvView(model.view.Body.fromOwned(&dead_answer)));
-    try std.testing.expectError(session.Error.InvalidReference, s.recordRecv(dead_answer));
-    try std.testing.expect(s.inboundAnswer(.from(2)) == null);
-    try std.testing.expect(!s.hasImport(.from(10)));
-
-    // The same answer is valid while pending and settled, then invalid after
-    // the partner releases it with op:gc-answers.
-    try s.registerExport(.from(8));
-    try s.recordRecv(.{ .deliver = .{
-        .target = .{ .near = model.NearRef.object(8) },
-        .args = &.{},
-        .answer = .from(77),
-        .resolve_me_desc = .{ .far = model.FarRef.object(0) },
-    } });
-    const live_answer = model.Message{ .deliver = .{
-        .target = .{ .promise = .{ .answer_position = .from(77) } },
-        .args = &.{},
-    } };
-    try s.recordRecv(live_answer);
-    try s.recordRecvView(model.view.Body.fromOwned(&live_answer));
-    try s.recordSend(.{ .resolve = .{
-        .answer = .from(77),
-        .resolution = .{ .fulfill = .{ .void = {} } },
-    } });
-    try s.recordRecv(live_answer);
-    try s.recordRecv(.{ .gc_answer = .{ .positions = &.{77} } });
-    try std.testing.expectError(session.Error.InvalidReference, s.recordRecvView(model.view.Body.fromOwned(&live_answer)));
-    try std.testing.expectError(session.Error.InvalidReference, s.recordRecv(live_answer));
-}
-
 test "partner introductions accept the complete u64 import space" {
     const allocator = std.testing.allocator;
     var s = session.Session.init(allocator);
@@ -423,26 +297,4 @@ test "a reference inside a Struct argument crosses every session walk" {
         try s.recordRecvView(model.view.Body.fromOwned(&message));
         try std.testing.expect(s.hasImport(.from(9)));
     }
-}
-
-test "session rejects unknown references at authority boundary" {
-    const allocator = std.testing.allocator;
-    var s = session.Session.init(allocator);
-    defer s.deinit();
-
-    try std.testing.expectError(session.Error.InvalidReference, s.recordSend(.{
-        .deliver = .{
-            .target = .{ .far = .{ .import_position = .from(7) } },
-            .args = &.{},
-            .answer = null,
-        },
-    }));
-
-    try std.testing.expectError(session.Error.InvalidReference, s.recordRecv(.{
-        .deliver = .{
-            .target = .{ .far = .{ .import_position = .from(9) } },
-            .args = &.{},
-            .answer = null,
-        },
-    }));
 }

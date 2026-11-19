@@ -64,6 +64,15 @@ of reuses. Bend checks advancement and retirement. The Zig test exercises
 ordinary reuse and the final two generations.
 [Generation law](foundation/handle_generation_laws/LAWS.bend)
 
+### CapTP descriptor roles
+
+Sender and receiver exchange near and far references while preserving their
+wire roles. Targets and listener destinations occupy disjoint roles. A
+question stays addressable through settlement until its row retires. Zig
+exercises both receive representations and verifies refusal before an
+answer is installed or an import is introduced.
+[Descriptor laws](session/descriptor_laws/LAWS.bend)
+
 ### Negotiation laws
 
 Swapping peers preserves candidate order at every rank. The Zig test

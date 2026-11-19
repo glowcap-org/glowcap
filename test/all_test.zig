@@ -459,6 +459,7 @@ comptime {
         _ = @import("session/fuzz_test.zig");
         _ = @import("session/lifecycle_test.zig");
         _ = @import("session/traffic_test.zig");
+        _ = @import("session/descriptor_roles_test.zig");
         _ = @import("session/depth_boundary_test.zig");
         _ = @import("session/set_uniqueness_test.zig");
         _ = @import("session/answer_test.zig");
