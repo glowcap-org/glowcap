@@ -457,15 +457,9 @@ fn browserBoundedCommand(
     if (seconds <= 30 or seconds > 900) {
         @panic("browser-proof process deadline must be 31..900 seconds");
     }
-    // In the devcontainer, every browser consumer runs under the managed-tool
-    // exec front: it prepares the checkout's exact pinned browsers and supplies
-    // PLAYWRIGHT_BROWSERS_PATH for this command, resolved once before the
-    // timeout wrapper launches the real command. A child preflight cannot
-    // export an environment value back into sibling build steps, so this
-    // handoff is the seam that carries it. On a host build (macOS CI, a direct
-    // host run) the existing local Playwright environment is kept and the
-    // container-only front is never invoked.
-    const in_devcontainer = b.graph.environ_map.get("GLOWCAP_DEVCONTAINER_DIR") != null;
+    // The preflight prepares the pin under its setup deadline. The timed
+    // exec front then supplies that install's environment to the proof.
+    const in_devcontainer = if (b.graph.environ_map.get("GLOWCAP_DEVCONTAINER_DIR")) |dir| dir.len != 0 else false;
     if (in_devcontainer) {
         const prefixed = b.allocator.alloc([]const u8, argv.len + 5) catch @panic("OOM");
         prefixed[0] = "bash";
@@ -476,7 +470,9 @@ fn browserBoundedCommand(
         for (argv, 0..) |arg, i| {
             prefixed[5 + i] = arg;
         }
-        return wrappedCommand(b, prefixed, seconds, .{ .quiet_success = false });
+        const run = wrappedCommand(b, prefixed, seconds, .{ .quiet_success = false });
+        run.step.dependOn(@import("browser_preflight.zig").register(b));
+        return run;
     }
     return wrappedCommand(b, argv, seconds, .{ .quiet_success = false });
 }

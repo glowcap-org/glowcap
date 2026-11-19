@@ -16,14 +16,16 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def copy_build_helpers(root):
+    shutil.copytree(ROOT / "tools/build", root / "tools/build", ignore=shutil.ignore_patterns("__pycache__"))
+    shutil.copyfile(ROOT / "tools/run-with-timeout.py", root / "tools/run-with-timeout.py")
+
+
 class BuildEnvironment(unittest.TestCase):
     def test_changed_path_and_step_output_reach_a_bounded_child(self):
         with tempfile.TemporaryDirectory(prefix="glowcap-build-env-") as temporary:
             root = Path(temporary)
-            for relative in ("tools/build/execution.zig", "tools/build/shard.zig", "tools/run-with-timeout.py"):
-                destination = root / relative
-                destination.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copyfile(ROOT / relative, destination)
+            copy_build_helpers(root)
             (root / "build.zig").write_text("""const std = @import("std");
 const execution = @import("tools/build/execution.zig");
 pub fn build(b: *std.Build) void {

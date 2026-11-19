@@ -7,14 +7,12 @@ library and framework directories, which a check of shell arguments cannot.
 """
 
 import os
+import shutil
 import subprocess
 import tempfile
 import textwrap
 import unittest
 from pathlib import Path
-
-ROOT = Path(__file__).resolve().parents[2]
-RECIPE = ("archives.zig", "cargo.zig", "commands.zig", "execution.zig", "shard.zig")
 
 
 class SidecarLink(unittest.TestCase):
@@ -24,14 +22,15 @@ class SidecarLink(unittest.TestCase):
             sdk = directory / "SDK with spaces"
             (sdk / "usr/lib").mkdir(parents=True)
             (sdk / "System/Library/Frameworks").mkdir(parents=True)
-            for name in RECIPE:
-                (directory / name).write_bytes((ROOT / "tools/build" / name).read_bytes())
+            shutil.copytree(
+                Path(__file__).resolve().parent, directory / "tools/build", ignore=shutil.ignore_patterns("__pycache__")
+            )
             (directory / "sidecar.a").write_bytes(b"!<arch>\n")
             (directory / "main.zig").write_text("pub fn main() void {}\n")
             (directory / "build.zig").write_text(
                 textwrap.dedent("""\
                 const std = @import("std");
-                const cargo = @import("cargo.zig");
+                const cargo = @import("tools/build/cargo.zig");
                 pub fn build(b: *std.Build) void {
                     const target = b.resolveTargetQuery(.{
                         .cpu_arch = .aarch64, .os_tag = .macos,
