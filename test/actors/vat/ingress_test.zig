@@ -109,61 +109,6 @@ test "ingress scheduling rotates fairly and preserves FIFO within each ingress" 
     try std.testing.expectEqualSlices(u8, &.{ 1, 10, 2, 11, 3, 12 }, order);
 }
 
-test "ingress turn and byte admission refuse atomically" {
-    const allocator = std.testing.allocator;
-    var vat = actors.Vat.initWithOptions(allocator, .{ .queue_limits = .{
-        .max_pending_turns = 2,
-        .max_pending_bytes = 256,
-        .max_chunk_bytes = 256,
-    } });
-    defer vat.deinit();
-    const ingress = try vat.openIngress();
-    defer vat.closeIngress(ingress) catch unreachable;
-    const counter = try vat.spawn(Counter, .{ .n = 0 });
-
-    try vat.tellFromIngress(ingress, counter, .{ .verb = "increment" });
-    try vat.tellFromIngress(ingress, counter, .{ .verb = "increment" });
-    try std.testing.expectError(
-        actors.Error.ResourceExhausted,
-        vat.tellFromIngress(ingress, counter, .{ .verb = "increment" }),
-    );
-    try std.testing.expectEqual(@as(usize, 2), vat.ingresses.get(ingress).?.pending_turns);
-    try vat.drive();
-    try std.testing.expectEqual(@as(i64, 2), (try vat.near(counter, .{ .verb = "get" })).integer);
-
-    // Exercise the cumulative byte cap independently of the single-chunk cap:
-    // one message fits, while a second identical message would cross only the
-    // per-ingress pending-byte total.
-    const payload = @as([64]u8, @splat(0xaa));
-    vat.queue_limits = .{
-        .max_pending_turns = 8,
-        .max_pending_bytes = 4096,
-        .max_chunk_bytes = 4096,
-    };
-    try vat.tellFromIngress(ingress, counter, .{ .verb = "increment", .args = &.{.{ .bytes = &payload }} });
-    const one_turn_bytes = vat.ingresses.get(ingress).?.pending_bytes;
-    vat.queue_limits.max_pending_bytes = one_turn_bytes * 2 - 1;
-    try std.testing.expectError(
-        actors.Error.ResourceExhausted,
-        vat.tellFromIngress(ingress, counter, .{ .verb = "increment", .args = &.{.{ .bytes = &payload }} }),
-    );
-    try std.testing.expectEqual(@as(usize, 1), vat.ingresses.get(ingress).?.pending_turns);
-    try std.testing.expectEqual(one_turn_bytes, vat.ingresses.get(ingress).?.pending_bytes);
-    try vat.drive();
-    try std.testing.expectEqual(@as(i64, 3), (try vat.near(counter, .{ .verb = "get" })).integer);
-
-    // The orthogonal single-message chunk cap also refuses before mutation.
-    vat.queue_limits.max_pending_bytes = 4096;
-    vat.queue_limits.max_chunk_bytes = one_turn_bytes - 1;
-    try std.testing.expectError(
-        actors.Error.ResourceExhausted,
-        vat.tellFromIngress(ingress, counter, .{ .verb = "increment", .args = &.{.{ .bytes = &payload }} }),
-    );
-    try std.testing.expectEqual(@as(usize, 0), vat.ingresses.get(ingress).?.pending_turns);
-    try std.testing.expectEqual(@as(usize, 0), vat.ingresses.get(ingress).?.pending_bytes);
-    try std.testing.expectEqual(@as(i64, 3), (try vat.near(counter, .{ .verb = "get" })).integer);
-}
-
 test "an ingress closes only after its queued work drains" {
     const allocator = std.testing.allocator;
     var vat = actors.Vat.init(allocator);
@@ -257,6 +202,7 @@ const CausalFanout = struct {
 
     pub fn handle(self: *CausalFanout, turn: *Turn, msg: Delivery) !model.Argument {
         if (msg.is("fan")) {
+            self.refused = false;
             _ = try turn.send(self.sink, .{ .verb = "increment" });
             _ = turn.send(self.sink, .{ .verb = "increment" }) catch |err| {
                 if (err != actors.Error.ResourceExhausted) return err;
@@ -270,22 +216,60 @@ const CausalFanout = struct {
     }
 };
 
-test "causal sends stay charged to the turn ingress" {
-    const allocator = std.testing.allocator;
-    var vat = actors.Vat.initWithOptions(allocator, .{ .queue_limits = .{ .max_pending_turns = 1 } });
+test "live and causal sends share ingress capacity" {
+    var vat = actors.Vat.init(std.testing.allocator);
     defer vat.deinit();
     const ingress = try vat.openIngress();
-    defer vat.closeIngress(ingress) catch unreachable;
     const counter = try vat.spawn(Counter, .{ .n = 0 });
     const fanout = try vat.spawn(CausalFanout, .{ .sink = counter });
+    const increment: Message = .{ .verb = "increment" };
+    const state = vat.ingresses.get(ingress).?;
 
-    try vat.tellFromIngress(ingress, fanout, .{ .verb = "fan" });
-    try std.testing.expectEqual(actors.Vat.DriveProgress.more_pending, try vat.driveBudgeted(1));
-    try std.testing.expect((try vat.near(fanout, .{ .verb = "refused" })).boolean);
-    try std.testing.expectEqual(@as(usize, 1), vat.ingresses.get(ingress).?.pending_turns);
-    try std.testing.expectEqual(@as(usize, 0), vat.local_ingress.pending_turns);
+    try vat.tellFromIngress(ingress, counter, increment);
+    const charge = state.pending_bytes;
     try vat.drive();
-    try std.testing.expectEqual(@as(i64, 1), (try vat.near(counter, .{ .verb = "get" })).integer);
+
+    // Each refusal runs with room under both of the other caps.
+    const refusals: []const struct { limits: actors.QueueLimits, live: u32 } = &.{
+        .{ .limits = .{ .max_pending_turns = 1 }, .live = 1 },
+        .{ .limits = .{ .max_pending_bytes = charge * 2 - 1 }, .live = 1 },
+        .{ .limits = .{ .max_pending_bytes = charge - 1 }, .live = 1 },
+        .{ .limits = .{ .max_chunk_bytes = charge - 1 }, .live = 0 },
+    };
+    for (refusals) |run| {
+        vat.queue_limits = .{};
+        const before = try getN(&vat, counter);
+        for (0..run.live) |_| try vat.tellFromIngress(ingress, counter, increment);
+        vat.queue_limits = run.limits;
+        try std.testing.expectError(error.ResourceExhausted, vat.tellFromIngress(ingress, counter, increment));
+        try std.testing.expectEqual(run.live, state.pending_turns);
+        try std.testing.expectEqual(charge * run.live, state.pending_bytes);
+        try vat.drive();
+        try std.testing.expectEqual(before + run.live, try getN(&vat, counter));
+    }
+
+    // The fanout releases its own charge when it leaves the queue. Its
+    // first send takes the remaining capacity and its second is refused.
+    for ([_]u32{ 0, 1 }) |live| {
+        const total = live + 1;
+        for ([_]actors.QueueLimits{
+            .{ .max_pending_turns = total },
+            .{ .max_pending_bytes = charge * total },
+        }) |limits| {
+            vat.queue_limits = limits;
+            const before = try getN(&vat, counter);
+            try vat.tellFromIngress(ingress, fanout, .{ .verb = "fan" });
+            for (0..live) |_| try vat.tellFromIngress(ingress, counter, increment);
+            try std.testing.expectEqual(actors.Vat.DriveProgress.more_pending, try vat.driveBudgeted(1));
+            try std.testing.expect((try vat.near(fanout, .{ .verb = "refused" })).boolean);
+            try std.testing.expectEqual(total, state.pending_turns);
+            try std.testing.expectEqual(charge * total, state.pending_bytes);
+            try std.testing.expectEqual(@as(u32, 0), vat.local_ingress.pending_turns);
+            try vat.drive();
+            try std.testing.expectEqual(before + total, try getN(&vat, counter));
+        }
+    }
+    try vat.closeIngress(ingress);
 }
 
 test "a completed ingress chunk is reclaimed while another ingress remains runnable" {

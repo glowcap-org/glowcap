@@ -379,36 +379,30 @@ test "a refused allocation at any index enqueues nothing" {
     try std.testing.expect(k < 200);
 }
 
-/// The smallest `max_pending_bytes` at which one tell is admitted.
-fn smallestAdmittingLimit(peer: *engine.Peer, delivery: ?actors.Delivery) !u32 {
-    var low: u32 = 0;
-    var high: u32 = 1024 * 1024;
-    while (low < high) {
-        const middle = low + (high - low) / 2;
-        var vat = actors.Vat.initWithOptions(std.testing.allocator, .{
-            .queue_limits = .{ .max_pending_bytes = middle, .max_chunk_bytes = 1024 * 1024 },
-        });
-        defer vat.deinit();
-        var port = actors.Port.init(std.testing.allocator, peer);
-        defer port.deinit(&vat);
-        var seen: usize = 0;
-        const recorder = try vat.spawn(Recorder, .{ .seen = &seen });
-        const outcome = if (delivery) |d|
-            port.tellDelivery(&vat, recorder, d)
-        else
-            port.tell(&vat, recorder, owned_message);
-        if (outcome) |_| high = middle else |err| {
-            try std.testing.expectEqual(actors.Error.ResourceExhausted, err);
-            low = middle + 1;
-        }
-    }
-    return low;
-}
-
 test "a views delivery is admitted at exactly the limit the same owned message is" {
-    var pair = try engine.pairing.paired(std.testing.allocator);
+    const allocator = std.testing.allocator;
+    var pair = try engine.pairing.paired(allocator);
     defer pair.deinit();
+    var vat = actors.Vat.init(allocator);
+    defer vat.deinit();
+    var port = actors.Port.init(allocator, &pair.p1);
+    defer port.deinit(&vat);
+    var seen: usize = 0;
+    const recorder = try vat.spawn(Recorder, .{ .seen = &seen });
     var slots: [tree.len]view.Argument = undefined;
-    const delivery = viewsOf(&tree, &slots);
-    try std.testing.expectEqual(try smallestAdmittingLimit(&pair.p1, null), try smallestAdmittingLimit(&pair.p1, delivery));
+
+    try port.tell(&vat, recorder, owned_message);
+    const charge = vat.local_ingress.pending_bytes;
+    try vat.drive();
+    inline for (.{ owned_message, viewsOf(&tree, &slots) }) |message| {
+        const tell = if (@TypeOf(message) == actors.Message) actors.Port.tell else actors.Port.tellDelivery;
+        vat.queue_limits.max_pending_bytes = charge - 1;
+        try std.testing.expectError(error.ResourceExhausted, tell(&port, &vat, recorder, message));
+        try std.testing.expectEqual(@as(u32, 0), vat.local_ingress.pending_turns);
+        vat.queue_limits.max_pending_bytes = charge;
+        try tell(&port, &vat, recorder, message);
+        try std.testing.expectEqual(charge, vat.local_ingress.pending_bytes);
+        try vat.drive();
+    }
+    try std.testing.expectEqual(@as(usize, 3), seen);
 }

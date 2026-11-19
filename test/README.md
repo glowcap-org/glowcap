@@ -40,6 +40,15 @@ Swapping peers preserves candidate order at every rank. The Zig test
 checks the selector on the built-in offers, and the pairing tests
 exercise the handshake. [Rank proof](engine/negotiation_laws/PROOF.bend)
 
+### Queue capacity and reference releases
+
+A charge fits the remaining space exactly when the new total fits the cap.
+For one CapTP position, a sequence of releases fits the releasable count
+exactly when its sum fits. Applying those releases leaves the same releasable
+count as subtracting the sum.
+The Zig tests cover shared queue capacity and CapTP’s releasable references.
+[Accounting laws](support/bounded_arithmetic/LAWS.bend)
+
 ## Fuzz regression inputs
 
 Each layer's `fuzz_regressions/` holds one file per fuzzer finding: a byte
