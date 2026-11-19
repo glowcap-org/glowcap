@@ -31,6 +31,15 @@ store, incarnation, revision, and sequence. Bend proves uniqueness. The Zig
 fixture checks competing tickets and exhaustion at the revision limit.
 [Recovery law](loam/core/recovery_laws/LAWS.bend)
 
+### Loam resource scope
+
+Exact selections depend on resource identity. Subtree scopes depend on
+ancestry at a validated graph revision. Bend checks that subtree narrowing
+preserves containment and that finite selections grant only covered
+members. Zig exercises reparenting, grant checks, and reuse of a retired
+resource slot.
+[Scope laws](loam/access/scope_laws/LAWS.bend)
+
 ### Loam policy laws
 
 A delegated permission survives exactly when every grant carries it.

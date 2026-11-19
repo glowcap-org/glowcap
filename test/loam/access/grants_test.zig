@@ -143,7 +143,7 @@ test "access paused edits and revocation affect exact dependent branches" {
     try std.testing.expectEqualDeep(version, ledger.version());
 }
 
-test "access resource moves recheck all scopes and exact grants never retarget" {
+test "access exact scopes keep IDs while subtree grants follow resource moves" {
     var graph = try f.graphInit(std.testing.allocator);
     defer graph.deinit() catch unreachable;
     const a = try graph.create(graph.revision(), &structural_policy, f.kind, null);
@@ -151,23 +151,49 @@ test "access resource moves recheck all scopes and exact grants never retarget" 
     const message = try graph.create(graph.revision(), &structural_policy, f.kind, a);
     var ledger = try Ledger.init(std.testing.allocator, &graph, f.descriptor, .{ .capacity = 8 });
     defer ledger.deinit() catch unreachable;
-    const scope = try f.terms(.{ .owned_subtree = a }, &.{f.read}, null);
-    const exact = try f.terms(.{ .object = message }, &.{f.read}, null);
+    const from: core.Scope = .{ .owned_subtree = a };
+    const to: core.Scope = .{ .owned_subtree = b };
+    const subtree: core.Scope = .{ .owned_subtree = message };
+    const finite = [_]core.Scope{ .{ .object = message }, .{ .objects = &.{message} } };
+    var view = graph.readView();
+    try std.testing.expect(try subtree.isSubsetOf(&view, from));
+    try std.testing.expect(!try subtree.isSubsetOf(&view, to));
+    for (finite) |selection| {
+        try std.testing.expect(try selection.isSubsetOf(&view, subtree));
+        try std.testing.expect(!try subtree.isSubsetOf(&view, selection));
+    }
+    try std.testing.expect(!try (core.Scope{ .objects = &.{ a, b } }).isSubsetOf(&view, from));
+
+    const scope = try f.terms(from, &.{f.read}, null);
+    const exact = try f.terms(finite[0], &.{f.read}, null);
     const parent = (try ledger.issueRootCopying(ledger.version(), f.issue(scope, 2))).grant;
     const child = (try ledger.deriveCopying(ledger.version(), parent, f.issue(exact, 1))).grant;
     const independent = (try ledger.issueRootCopying(ledger.version(), f.issue(exact, 0))).grant;
     try std.testing.expectError(error.CeilingExceeded, ledger.deriveCopying(ledger.version(), child, f.issue(try f.terms(.{ .owned_subtree = message }, &.{f.read}, null), 0)));
     try graph.reparent(graph.revision(), &structural_policy, message, b);
+    view = graph.readView();
+    try std.testing.expect(!try subtree.isSubsetOf(&view, from));
+    try std.testing.expect(try subtree.isSubsetOf(&view, to));
+    try std.testing.expect(!try from.contains(&view, message));
+    for (finite) |selection| try std.testing.expect(try selection.contains(&view, message));
     try std.testing.expectError(error.OutOfScope, ledger.require(child, message, .{ .permissions = &.{f.read} }));
     try ledger.require(independent, message, .{ .permissions = &.{f.read} });
     try graph.reparent(graph.revision(), &structural_policy, message, a);
     try ledger.require(child, message, .{ .permissions = &.{f.read} });
-    const later = try graph.create(graph.revision(), &structural_policy, f.kind, a);
+    const later = try graph.create(graph.revision(), &structural_policy, f.kind, message);
+    view = graph.readView();
+    try std.testing.expect(try from.contains(&view, later));
+    try std.testing.expect(try subtree.contains(&view, later));
+    for (finite) |selection| try std.testing.expect(!try selection.contains(&view, later));
     try ledger.require(parent, later, .{ .permissions = &.{f.read} });
     try std.testing.expectError(error.OutOfScope, ledger.require(child, later, .{ .permissions = &.{f.read} }));
+    try graph.destroy(graph.revision(), later);
     try graph.destroy(graph.revision(), message);
     const replacement = try graph.create(graph.revision(), &structural_policy, f.kind, a);
     try std.testing.expectEqual(message.slot, replacement.slot);
+    view = graph.readView();
+    for ([_]core.Scope{ finite[0], finite[1], subtree }) |selection|
+        try std.testing.expectError(error.Gone, selection.contains(&view, replacement));
     try std.testing.expectError(error.Gone, ledger.require(independent, replacement, .{ .permissions = &.{f.read} }));
     _ = try ledger.revoke(ledger.version(), child);
     try std.testing.expectEqual(.revoked, try ledger.effectiveStatus(child));
