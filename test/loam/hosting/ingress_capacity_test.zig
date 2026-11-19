@@ -40,59 +40,80 @@ test "loam fresh inventory growth allowance matches observed spines when resizin
     try std.testing.expect(list.capacity >= 129);
 }
 
-test "loam aggregate allocation allowance covers split payloads without multiplying their sum" {
-    var bound: Bound = .{};
-    try bound.includeTotal(1024, 64, 32);
-    var traffic: metrics.AllocationTraffic(Bound) = .{ .backing = std.testing.allocator };
-    var memory: Memory = undefined;
-    memory.init(traffic.allocator(), try bound.physicalBytes());
-    defer memory.deinit();
-    var observed: Bound = .{};
-    var borrows: [32][]align(64) u8 = undefined;
-    for (&borrows, 0..) |*borrow, index| {
-        const length: usize = if (index == 31) 497 else 17;
-        borrow.* = try memory.working.allocator().alignedAlloc(u8, .fromByteUnits(64), length);
-        try observed.include(length, 64, 1);
-        @memset(borrow.*, @intCast(index));
+const Demand = struct {
+    length: usize,
+    alignment: std.mem.Alignment,
+    keep_input: bool = false,
+};
+
+fn checkPhysicalCallMemory(bound: Bound, demands: []const Demand, scratch_bytes: usize) !void {
+    const allocator = std.testing.allocator;
+    var live: metrics.LiveBytesAllocator = .{ .backing = allocator };
+    var traffic: metrics.AllocationTraffic(Bound) = .{ .backing = live.allocator() };
+    const backing = if (scratch_bytes == 0) traffic.allocator() else live.allocator();
+    const borrows = try allocator.alloc([]u8, demands.len);
+    defer allocator.free(borrows);
+    {
+        var memory: Memory = undefined;
+        memory.init(backing, try bound.physicalBytes());
+        defer memory.deinit();
+        for (demands, borrows, 0..) |demand, *borrow, index| {
+            const arena = if (demand.keep_input) memory.input.allocator() else memory.working.allocator();
+            const pointer = arena.rawAlloc(demand.length, demand.alignment, @returnAddress()) orelse return error.OutOfMemory;
+            borrow.* = pointer[0..demand.length];
+            try std.testing.expectEqual(@as(usize, 0), @intFromPtr(pointer) % demand.alignment.toByteUnits());
+            @memset(borrow.*, @intCast(index));
+            var scratch = memory.scratch();
+            defer scratch.deinit();
+            if (scratch_bytes != 0) _ = try scratch.allocator().alignedAlloc(u8, .fromByteUnits(64), scratch_bytes);
+            try std.testing.expectEqual(memory.backing.used, live.liveBytes());
+        }
+        for (borrows, 0..) |borrow, index| for (borrow) |byte| try std.testing.expectEqual(@as(u8, @intCast(index)), byte);
+        if (scratch_bytes == 0) try std.testing.expect(traffic.demand.bytes <= try bound.physicalBytes());
     }
-    try std.testing.expectEqualDeep(observed, bound);
-    try std.testing.expect(traffic.demand.bytes <= try bound.physicalBytes());
-    for (borrows, 0..) |borrow, index| for (borrow) |byte| try std.testing.expectEqual(@as(u8, @intCast(index)), byte);
-    var repeated: Bound = .{};
-    try repeated.include(1024, 64, 32);
-    try std.testing.expect(bound.bytes < repeated.bytes);
-    const saved = bound;
-    try std.testing.expectError(error.Overflow, bound.includeTotal(std.math.maxInt(usize), 64, 32));
-    try std.testing.expectEqualDeep(saved, bound);
+    try std.testing.expectEqual(@as(u64, 0), live.liveBytes());
 }
 
-test "loam physical call bound admits mixed alignment demands and one shared scratch peak" {
+test "loam call memory fits aggregate requests, mixed alignment, and scratch" {
+    const lengths = @as([31]usize, @splat(17)) ++ [_]usize{497};
+    var aggregate: Bound = .{};
+    try aggregate.includeTotal(1024, 64, lengths.len);
+    var split: Bound = .{};
+    var grouped: [lengths.len]Demand = undefined;
+    for (lengths, &grouped) |length, *demand| {
+        demand.* = .{ .length = length, .alignment = .fromByteUnits(64) };
+        try split.include(length, 64, 1);
+    }
+    try std.testing.expectEqualDeep(split, aggregate);
+    try checkPhysicalCallMemory(aggregate, &grouped, 0);
+    var repeated: Bound = .{};
+    try repeated.include(1024, 64, lengths.len);
+    try std.testing.expect(aggregate.bytes < repeated.bytes);
+
+    var limited: Bound = .{};
+    try limited.includeTotal(8, 64, lengths.len);
+    try limited.includeTotal(1024, 64, 0);
+    try limited.includeTotal(0, 64, lengths.len);
+    try std.testing.expectEqualDeep(Bound{ .bytes = 8 * 64, .allocations = 8 }, limited);
+
+    var mixed: [128]Demand = undefined;
     var bound: Bound = .{};
-    for (0..128) |index| try bound.include(1 + (index * 97) % 1024, @as(usize, 1) << @intCast(index % 8), 1);
+    for (&mixed, 0..) |*demand, index| {
+        demand.* = .{
+            .length = 1 + (index * 97) % 1024,
+            .alignment = .fromByteUnits(@as(usize, 1) << @intCast(index % 8)),
+            .keep_input = index % 3 == 0,
+        };
+        try bound.include(demand.length, demand.alignment.toByteUnits(), 1);
+    }
     var temporary: Bound = .{};
     try temporary.include(4096, 64, 1);
     try bound.merge(temporary);
-    var live: metrics.LiveBytesAllocator = .{ .backing = std.testing.allocator };
-    var memory: Memory = undefined;
-    memory.init(live.allocator(), try bound.physicalBytes());
-    var borrows: [128][]u8 = undefined;
-    for (&borrows, 0..) |*borrow, index| {
-        const alignment: std.mem.Alignment = .fromByteUnits(@as(usize, 1) << @intCast(index % 8));
-        const allocator = if (index % 3 == 0) memory.input.allocator() else memory.working.allocator();
-        const length = 1 + (index * 97) % 1024;
-        const pointer = allocator.rawAlloc(length, alignment, @returnAddress()) orelse return error.OutOfMemory;
-        borrow.* = pointer[0..length];
-        try std.testing.expectEqual(@as(usize, 0), @intFromPtr(pointer) % alignment.toByteUnits());
-        @memset(borrow.*, @intCast(index));
-        var scratch = memory.scratch();
-        _ = try scratch.allocator().alignedAlloc(u8, .fromByteUnits(64), 4096);
-        try std.testing.expectEqual(memory.backing.used, live.liveBytes());
-        scratch.deinit();
-    }
-    for (borrows, 0..) |borrow, index| for (borrow) |byte| try std.testing.expectEqual(@as(u8, @intCast(index)), byte);
-    memory.deinit();
-    try std.testing.expectEqual(@as(u64, 0), live.liveBytes());
+    try checkPhysicalCallMemory(bound, &mixed, 4096);
+
     const saved = bound;
+    try std.testing.expectError(error.Overflow, bound.includeTotal(std.math.maxInt(usize), 64, lengths.len));
+    try std.testing.expectEqualDeep(saved, bound);
     try std.testing.expectError(error.Overflow, bound.include(std.math.maxInt(usize), 2, 1));
     try std.testing.expectEqualDeep(saved, bound);
     try std.testing.expectError(error.Overflow, (Bound{ .bytes = std.math.maxInt(usize) }).physicalBytes());
