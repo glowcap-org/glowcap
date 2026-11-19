@@ -43,7 +43,7 @@ usage() {
 validate_tools() {
     local tool
     for tool in "$@"; do
-        glowcap_tools_registry_rows | grep -q "^${tool}|" || {
+        glowcap_tools_registry_row "${tool}" >/dev/null || {
             echo "tools: '${tool}' is not a managed tool; managed: $(glowcap_tools_all | tr '\n' ' ')" >&2
             return 64
         }

@@ -78,7 +78,7 @@ run_name() {
 }
 
 for tool in "$@"; do
-    if ! glowcap_tools_registry_rows | grep -q "^${tool}|"; then
+    if ! glowcap_tools_registry_row "${tool}" >/dev/null; then
         fail "'${tool}' is not a managed tool"
         continue
     fi

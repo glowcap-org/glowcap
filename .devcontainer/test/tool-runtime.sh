@@ -123,6 +123,10 @@ glowcap_tools_registry_rows() {
         "stub-badverify|stub-badverify|STUB_BADVERIFY_VERSION|stub-badverify" \
         "stub-slow|stub-slow|STUB_SLOW_VERSION|stub-slow" \
         "stub-pinned|-|STUB_PINNED_VERSION|stub-pinned|pinned"
+    if [[ "${STUB_REGISTRY_TAIL:-}" == 1 ]]; then
+        # Keep the producer writing after an early reader can see stub-a.
+        printf 'stub-tail|%*s|STUB_A_VERSION|stub-tail\n' 262144 ''
+    fi
 }
 REG
 cat "${sandbox}/tools/lib/registry-rows-override.sh" >> "${sandbox}/tools/lib/registry.sh"
@@ -573,6 +577,17 @@ fi
 expect_rc 1 "multi-tool aggregate returns the first failure" tools ensure stub-fail stub-a
 expect_rc 64 "mutating verbs need explicit tools" tools ensure
 expect_rc 64 "unknown tool is a usage error" tools ensure no-such-tool
+expect_rc 64 "tool names are literal" tools status 'stub-.*'
+if out="$(STUB_REGISTRY_TAIL=1 tools status stub-a 2>/dev/null)"; then
+    seed="$(awk '$1 == "stub-a" && NF == 4 {print $3}' <<< "${out}")"
+    if [[ "${seed}" == "1.0.0" ]]; then
+        pass
+    else
+        fail "tool lookup before a large registry tail reports the wrong seed: ${out}"
+    fi
+else
+    fail "tool lookup refuses a match before a large registry tail"
+fi
 expect_rc 64 "repair needs exactly one tool" tools repair stub-a stub-b
 out="$(tools status stub-a 2>/dev/null)"
 expect_contains "aggregated runs still completed the healthy tool" "1.4.0" "${out}"

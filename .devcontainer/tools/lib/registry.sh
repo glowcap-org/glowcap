@@ -28,6 +28,19 @@ glowcap_tools_registry_rows() {
         "bend|-|BEND_REQUIREMENT|bend|pinned"
 }
 
+# Collect the table before returning a match. A short-circuiting pipeline
+# can close the reader while the registry is still writing under pipefail.
+glowcap_tools_registry_row() {
+    local tool="$1" row
+    while IFS= read -r row; do
+        if [[ "${row%%|*}" == "${tool}" ]]; then
+            printf '%s\n' "${row}"
+            return 0
+        fi
+    done <<< "$(glowcap_tools_registry_rows)"
+    return 1
+}
+
 glowcap_tools_all() {
     glowcap_tools_registry_rows | cut -d'|' -f1
 }
@@ -46,17 +59,17 @@ glowcap_tools_path_names() {
 
 # The selection policy of one tool: seed or pinned.
 glowcap_tools_policy() {
-    glowcap_tools_registry_rows | grep -m1 "^$1|" | awk -F'|' '{ print ($5 == "" ? "seed" : $5) }'
+    glowcap_tools_registry_row "$1" | awk -F'|' '{ print ($5 == "" ? "seed" : $5) }'
 }
 
 glowcap_tools_seed_var() {
     local row
-    row="$(glowcap_tools_registry_rows | grep -m1 "^$1|")" || return 1
-    printf '%s\n' "${row}" | awk -F'|' '{ print $3 }'
+    row="$(glowcap_tools_registry_row "$1")" || return 1
+    cut -d'|' -f3 <<< "${row}"
 }
 
 glowcap_tools_dep() {
-    glowcap_tools_registry_rows | grep -m1 "^$1|" | awk -F'|' '{ print $4 }'
+    glowcap_tools_registry_row "$1" | cut -d'|' -f4
 }
 
 # Map an invoked command name to its tool. Unknown names are a usage error.
@@ -83,7 +96,7 @@ glowcap_tools_seed() {
 # Every name one tool answers to, one per line.
 glowcap_tools_names_for() {
     local aliases
-    aliases="$(glowcap_tools_registry_rows | grep -m1 "^$1|" | cut -d'|' -f2)"
+    aliases="$(glowcap_tools_registry_row "$1" | cut -d'|' -f2)" || return 1
     if [[ "${aliases}" == "-" ]]; then
         return 0
     fi
