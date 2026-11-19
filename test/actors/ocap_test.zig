@@ -37,29 +37,6 @@ const Counter = struct {
     }
 };
 
-test "a caretaker forwards until revoked, then breaks every call" {
-    const allocator = std.testing.allocator;
-    var vat = actors.Vat.init(allocator);
-    defer vat.deinit();
-
-    const target = try vat.spawn(Counter, .{ .n = 0 });
-    const care = try actors.ocap.caretaker(&vat, target);
-
-    // Live: the proxy forwards a near-call and returns the target's value.
-    try std.testing.expectEqual(
-        @as(i64, 5),
-        (try vat.near(care.proxy, .{ .verb = "add", .args = &.{.{ .integer = 5 }} })).integer,
-    );
-
-    // Revoked: every call through the proxy breaks, and the target is untouched.
-    care.revoke(&vat);
-    try std.testing.expectError(
-        actors.ocap.Error.Revoked,
-        vat.near(care.proxy, .{ .verb = "add", .args = &.{.{ .integer = 100 }} }),
-    );
-    try std.testing.expectEqual(@as(i64, 5), (try vat.near(target, .{ .verb = "get" })).integer);
-}
-
 test "revoking a caretaker whose proxy row a restore dropped is a no-op" {
     const allocator = std.testing.allocator;
     var vat = actors.Vat.init(allocator);
@@ -79,48 +56,34 @@ test "revoking a caretaker whose proxy row a restore dropped is a no-op" {
     try std.testing.expectError(actors.Error.NoSuchActor, vat.near(care.proxy, .{ .verb = "get" }));
 }
 
-test "an attenuator forwards only its allowed verbs" {
-    const allocator = std.testing.allocator;
-    var vat = actors.Vat.init(allocator);
+test "actor proxy authority intersects across wrappers and stays revoked" {
+    var vat = actors.Vat.init(std.testing.allocator);
     defer vat.deinit();
 
     const target = try vat.spawn(Counter, .{ .n = 0 });
-    const view = try actors.ocap.attenuate(&vat, target, &.{ "get", "add" });
+    const writer = try actors.ocap.attenuate(&vat, target, &.{ "get", "add" });
+    const inner = try actors.ocap.caretaker(&vat, writer);
+    const view = try actors.ocap.attenuate(&vat, inner.proxy, &.{ "get", "increment" });
+    const outer = try actors.ocap.caretaker(&vat, view);
 
-    try std.testing.expectEqual(@as(i64, 0), (try vat.near(view, .{ .verb = "get" })).integer);
-    try std.testing.expectEqual(
-        @as(i64, 7),
-        (try vat.near(view, .{ .verb = "add", .args = &.{.{ .integer = 7 }} })).integer,
-    );
-    // An out-of-list verb is unrepresentable through this view.
-    try std.testing.expectError(
-        actors.ocap.Error.Attenuated,
-        vat.near(view, .{ .verb = "increment" }),
-    );
-}
+    const empty = try actors.ocap.attenuate(&vat, target, &.{});
+    const read: Message = .{ .verb = "get" };
+    try std.testing.expectError(actors.ocap.Error.Attenuated, vat.near(empty, read));
+    const add: Message = .{ .verb = "add", .args = &.{.{ .integer = 5 }} };
+    try std.testing.expectEqual(@as(i64, 0), (try vat.near(outer.proxy, read)).integer);
+    try std.testing.expectEqual(@as(i64, 5), (try vat.near(inner.proxy, add)).integer);
+    try std.testing.expectEqual(@as(i64, 5), (try vat.near(outer.proxy, read)).integer);
+    try std.testing.expectError(actors.ocap.Error.Attenuated, vat.near(outer.proxy, add));
+    try std.testing.expectError(actors.ocap.Error.Attenuated, vat.near(outer.proxy, .{ .verb = "increment" }));
 
-test "a caretaker composes over an attenuator: a revocable read-only view" {
-    const allocator = std.testing.allocator;
-    var vat = actors.Vat.init(allocator);
-    defer vat.deinit();
-
-    const target = try vat.spawn(Counter, .{ .n = 3 });
-    const readonly = try actors.ocap.attenuate(&vat, target, &.{"get"});
-    const care = try actors.ocap.caretaker(&vat, readonly);
-
-    // Read forwards through both proxies; write is refused by the attenuator.
-    try std.testing.expectEqual(@as(i64, 3), (try vat.near(care.proxy, .{ .verb = "get" })).integer);
-    try std.testing.expectError(
-        actors.ocap.Error.Attenuated,
-        vat.near(care.proxy, .{ .verb = "increment" }),
-    );
-
-    // Revoke severs the outer caretaker before the attenuator is even consulted.
-    care.revoke(&vat);
-    try std.testing.expectError(
-        actors.ocap.Error.Revoked,
-        vat.near(care.proxy, .{ .verb = "get" }),
-    );
+    for (0..2) |_| {
+        inner.revoke(&vat);
+        try std.testing.expectError(actors.ocap.Error.Revoked, vat.near(outer.proxy, read));
+        try std.testing.expectError(actors.ocap.Error.Revoked, vat.near(inner.proxy, add));
+    }
+    outer.revoke(&vat);
+    try std.testing.expectError(actors.ocap.Error.Revoked, vat.near(outer.proxy, .{ .verb = "increment" }));
+    try std.testing.expectEqual(@as(i64, 5), (try vat.near(target, read)).integer);
 }
 
 fn serveAll(vat: *actors.Vat, port: *actors.Port, peer: *glowcap.ocapn.engine.Peer) !void {

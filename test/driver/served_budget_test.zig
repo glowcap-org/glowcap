@@ -1,11 +1,5 @@
-//! `Served.drivePostBatch`: the loop drivers' amplification cap, pinned
-//! sans-io. A high-fan-out loop drives each connection's queued local turns
-//! within a caller-supplied budget and closes the connection on
-//! `error.LocalTurnLimitExceeded`. This holds the verdict mapping and the
-//! resume contract (a refused batch leaves the residual queue intact, so a
-//! later budget drains it) without a socket or a loop. The authority is a
-//! `driver_core` invariant. The live loop consumer is `iroh.Backend` + Bridge
-//! (`zig build iroh-loop`).
+//! Served's per-ingress turn limits. Exercise batch slicing and an exhausted
+//! feed retry by reading the latest settled counter after each slice.
 const std = @import("std");
 const glowcap = @import("glowcap");
 
@@ -17,38 +11,22 @@ const support_actors = @import("../support/actors.zig");
 
 const Counter = support_actors.Counter;
 
-test "drivePostBatch refuses a batch past its budget and the residual drains under a later one" {
-    const allocator = std.testing.allocator;
-    var pair = try engine.pairing.paired(allocator);
-    defer pair.deinit();
-    var vat = actors.Vat.init(allocator);
-    defer vat.deinit();
-    var served = driver.Served.over(allocator, &pair.p1);
-    defer served.deinit(&vat);
-
-    const counter = try vat.spawn(Counter, .{});
-
-    // Queue more local turns than the budget admits. The budget is the
-    // caller's number, an operator knob, never the partner's.
-    const budget: usize = 4;
-    const queued: usize = budget + 3;
-    var i: usize = 0;
-    while (i < queued) : (i += 1) {
-        _ = try vat.send(counter, .{ .verb = "hit", .args = &.{} });
+fn queueHits(vat: *actors.Vat, counter: actors.Ref, queued: usize, hits: *i64) !void {
+    for (0..queued) |_| {
+        const vow = try vat.send(counter, .{ .verb = "hit" });
+        try vat.on(vow, .{ .ctx = hits, .func = capture.captureInt });
     }
-
-    // The over-budget batch is the runaway verdict, not a partial success.
-    try std.testing.expectError(error.LocalTurnLimitExceeded, served.drivePostBatch(&vat, budget));
-
-    // The refusal left the residual queue intact: a later post-batch with
-    // room drains it to quiescence, and every queued turn ran exactly once,
-    // read back through an ordinary near-call.
-    try served.drivePostBatch(&vat, queued);
-    const hits = try vat.near(counter, .{ .verb = "hit", .args = &.{} });
-    try std.testing.expectEqual(@as(i64, @intCast(queued + 1)), hits.integer);
 }
 
-test "drivePostBatch within budget drains and settles the local send's listener" {
+fn checkBatch(served: *driver.Served, vat: *actors.Vat, queued: usize, budget: usize) !usize {
+    if (queued > budget)
+        try std.testing.expectError(error.LocalTurnLimitExceeded, served.drivePostBatch(vat, budget))
+    else
+        try served.drivePostBatch(vat, budget);
+    return queued -| budget;
+}
+
+test "post-batch turn budgets leave the same residual across slices" {
     const allocator = std.testing.allocator;
     var pair = try engine.pairing.paired(allocator);
     defer pair.deinit();
@@ -57,16 +35,24 @@ test "drivePostBatch within budget drains and settles the local send's listener"
     var served = driver.Served.over(allocator, &pair.p1);
     defer served.deinit(&vat);
 
-    const counter = try vat.spawn(Counter, .{});
-    const vow = try vat.send(counter, .{ .verb = "hit", .args = &.{} });
-
-    var result: i64 = 0;
-    try vat.on(vow, .{ .ctx = &result, .func = capture.captureInt });
-    try served.drivePostBatch(&vat, std.math.maxInt(usize));
-    try std.testing.expectEqual(@as(i64, 1), result);
+    for (0..5) |queued| {
+        for (0..5) |first| {
+            for (0..5) |second| {
+                const counter = try vat.spawn(Counter, .{});
+                var hits: i64 = 0;
+                try queueHits(&vat, counter, queued, &hits);
+                const after_first = try checkBatch(&served, &vat, queued, first);
+                try std.testing.expectEqual(@as(i64, @intCast(queued - after_first)), hits);
+                const after_second = try checkBatch(&served, &vat, after_first, second);
+                try std.testing.expectEqual(@as(i64, @intCast(queued - after_second)), hits);
+                try served.drivePostBatch(&vat, std.math.maxInt(usize));
+                try std.testing.expectEqual(@as(i64, @intCast(queued)), hits);
+            }
+        }
+    }
 }
 
-test "driveFedBudgeted with zero local-turn budget consumes no turn" {
+test "retrying an exhausted fed turn budget consumes no more turns" {
     const allocator = std.testing.allocator;
     var pair = try engine.pairing.paired(allocator);
     defer pair.deinit();
@@ -74,41 +60,20 @@ test "driveFedBudgeted with zero local-turn budget consumes no turn" {
     defer vat.deinit();
     var served = driver.Served.over(allocator, &pair.p1);
     defer served.deinit(&vat);
-    served.local_turn_budget = 0;
 
-    const counter = try vat.spawn(Counter, .{});
-    _ = try vat.send(counter, .{ .verb = "hit", .args = &.{} });
-
-    try std.testing.expectError(error.LocalTurnLimitExceeded, served.driveFedBudgeted(&vat));
-    // The zero-budget probe must leave the queued turn untouched. A later
-    // explicit unbounded drive proves the failure did not consume it.
-    served.local_turn_budget = null;
-    try served.drivePostBatch(&vat, 1);
-    const hits = try vat.near(counter, .{ .verb = "hit", .args = &.{} });
-    try std.testing.expectEqual(@as(i64, 2), hits.integer);
-}
-
-test "driveFedBudgeted retry cannot exceed an exhausted local-turn epoch" {
-    const allocator = std.testing.allocator;
-    var pair = try engine.pairing.paired(allocator);
-    defer pair.deinit();
-    var vat = actors.Vat.init(allocator);
-    defer vat.deinit();
-    var served = driver.Served.over(allocator, &pair.p1);
-    defer served.deinit(&vat);
-    served.local_turn_budget = 1;
-    served.budgeted_local_turns = 1;
-
-    const counter = try vat.spawn(Counter, .{});
-    _ = try vat.send(counter, .{ .verb = "hit", .args = &.{} });
-
-    try std.testing.expectError(error.LocalTurnLimitExceeded, served.driveFedBudgeted(&vat));
-    // The carried epoch is already exhausted, so retrying the drive may encode
-    // prior work but must not execute the queued turn.
-    try std.testing.expectError(error.LocalTurnLimitExceeded, served.driveFedBudgeted(&vat));
-    served.local_turn_budget = null;
-    served.budgeted_local_turns = null;
-    try served.drivePostBatch(&vat, 1);
-    const hits = try vat.near(counter, .{ .verb = "hit", .args = &.{} });
-    try std.testing.expectEqual(@as(i64, 2), hits.integer);
+    for (0..3) |limit| {
+        served.local_turn_budget = limit;
+        served.budgeted_local_turns = null;
+        const counter = try vat.spawn(Counter, .{});
+        const queued = limit + 2;
+        var hits: i64 = 0;
+        try queueHits(&vat, counter, queued, &hits);
+        for (0..limit -| 1) |_| try std.testing.expectEqual(.more_pending, try served.driveFedBudgeted(&vat));
+        for (0..3) |_| {
+            try std.testing.expectError(error.LocalTurnLimitExceeded, served.driveFedBudgeted(&vat));
+            try std.testing.expectEqual(@as(i64, @intCast(limit)), hits);
+        }
+        try served.drivePostBatch(&vat, queued - limit);
+        try std.testing.expectEqual(@as(i64, @intCast(queued)), hits);
+    }
 }
