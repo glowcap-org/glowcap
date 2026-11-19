@@ -10,6 +10,13 @@ places a new test.
 From the repository root, run
 `.agents/skills/work/bin/glowcap-dev python3 ci/gates.py run bend-proofs`.
 
+### Spill growth
+
+During an append-only run of non-saturating growth, the sum of old capacities
+stays below the current capacity. That bounds bytes a relocating allocator
+might copy. The Zig test checks the growth rule and counts actual allocation
+events. [Growth laws](foundation/spill_laws/LAWS.bend)
+
 ### Stored-resolution releases
 
 The last stored-resolution hold releases the parked retains. Bend checks

@@ -11,75 +11,54 @@ const std = @import("std");
 const glowcap = @import("glowcap");
 
 const Spill = glowcap.foundation.Spill;
+const CountingAllocator = @import("../support/alloc_metrics.zig").CountingAllocator;
 
-test "a small straddle costs a small buffer, not a fixed floor" {
-    const allocator = std.testing.allocator;
-    // The byte-fed host tier reaches this on any chunk boundary that lands
-    // mid-frame, which is most connections. A kilobyte-scale growth floor here
-    // is multiplied by every live connection, so it is a footprint decision
-    // rather than an allocation detail: across half a million connections, a 4 KiB
-    // floor is about two gigabytes for tails that hold a few bytes each.
-    var spill: Spill = .{};
-    defer spill.deinit(allocator);
-
-    try spill.absorbBytes(allocator, &@as([10]u8, @splat(0)));
-    try std.testing.expectEqual(@as(usize, 10), spill.bytes().len);
-    try std.testing.expect(spill.buf.len < 64);
+test "spill capacity and allocation traffic follow geometric growth" {
+    const payload = &@as([16384]u8, @splat(7));
+    const Plan = struct { first: usize, chunk: usize = 0, repeats: usize = 0 };
+    for ([_]Plan{
+        .{ .first = 10 },
+        .{ .first = payload.len },
+        .{ .first = 1, .chunk = 1, .repeats = 999 },
+        .{ .first = 1, .chunk = payload.len, .repeats = 1 },
+    }) |plan| {
+        var counter: CountingAllocator = .{ .backing = std.testing.allocator };
+        const allocator = counter.allocator();
+        var spill: Spill = .{};
+        defer spill.deinit(allocator);
+        var copy_bound_bytes: usize = 0;
+        var growth_events: usize = 0;
+        for (0..plan.repeats + 1) |i| {
+            const before = spill.buf.len;
+            const incoming = if (i == 0) plan.first else plan.chunk;
+            const required = spill.len + incoming;
+            try spill.absorbBytes(allocator, payload[0..incoming]);
+            if (required > before) {
+                copy_bound_bytes += before;
+                growth_events += 1;
+                try std.testing.expectEqual(@max(before * 2, required), spill.buf.len);
+            } else {
+                try std.testing.expectEqual(before, spill.buf.len);
+            }
+            try std.testing.expectEqual(required, spill.len);
+            try std.testing.expectEqual(growth_events, counter.allocs);
+            try std.testing.expect(copy_bound_bytes < spill.buf.len);
+        }
+        for (spill.bytes()) |byte| try std.testing.expectEqual(@as(u8, 7), byte);
+    }
 }
 
-test "a whole read buffer lands in one allocation" {
+test "draining spill retains the smaller of capacity and the caller's limit" {
     const allocator = std.testing.allocator;
-    // The other tier's first absorb is everything the reader had buffered, so
-    // growing toward it in doublings would pay a realloc per doubling. Taking
-    // what is asked when it exceeds a double keeps that to one.
-    var spill: Spill = .{};
-    defer spill.deinit(allocator);
-
-    try spill.absorbBytes(allocator, &@as([16384]u8, @splat(0)));
-    try std.testing.expectEqual(@as(usize, 16384), spill.buf.len);
-}
-
-test "growth stays geometric across many small absorbs" {
-    const allocator = std.testing.allocator;
-    // Exact-fit growth would realloc on every absorb. Doubling is what keeps a
-    // dribbled frame's assembly amortized, which is the whole reason the spill
-    // is cheaper than re-reading.
-    var spill: Spill = .{};
-    defer spill.deinit(allocator);
-
-    var i: usize = 0;
-    while (i < 1000) : (i += 1) try spill.absorbBytes(allocator, &[_]u8{7});
-    try std.testing.expectEqual(@as(usize, 1000), spill.bytes().len);
-    // Ten doublings from a one-byte start reach 1024; anything near 1000 means
-    // it grew one byte at a time.
-    try std.testing.expect(spill.buf.len <= 2048);
-    for (spill.bytes()) |b| try std.testing.expectEqual(@as(u8, 7), b);
-}
-
-test "a drained spill keeps what its tier asked it to keep" {
-    const allocator = std.testing.allocator;
-    var spill: Spill = .{};
-    defer spill.deinit(allocator);
-
-    // Retain zero: the stream-reader posture, where spilling is the exception.
-    try spill.absorbBytes(allocator, &@as([8192]u8, @splat(0)));
-    spill.consume(allocator, 8192, 0);
-    try std.testing.expect(!spill.isActive());
-    try std.testing.expectEqual(@as(usize, 0), spill.buf.len);
-
-    // Retain a steady size: the byte-fed posture, where straddling is ordinary.
-    try spill.absorbBytes(allocator, &@as([8192]u8, @splat(0)));
-    spill.consume(allocator, 8192, 4096);
-    try std.testing.expect(!spill.isActive());
-    try std.testing.expectEqual(@as(usize, 4096), spill.buf.len);
-
-    // Under the bound, a drain keeps what it has rather than growing to meet it.
-    var small: Spill = .{};
-    defer small.deinit(allocator);
-    try small.absorbBytes(allocator, &@as([10]u8, @splat(0)));
-    const grown = small.buf.len;
-    small.consume(allocator, 10, 4096);
-    try std.testing.expectEqual(grown, small.buf.len);
+    for ([_]usize{ 0, 4096, 16384 }) |retain| {
+        var spill: Spill = .{};
+        defer spill.deinit(allocator);
+        try spill.absorbBytes(allocator, &@as([8192]u8, @splat(0)));
+        const expected = @min(retain, spill.buf.len);
+        spill.consume(allocator, spill.len, retain);
+        try std.testing.expect(!spill.isActive());
+        try std.testing.expectEqual(expected, spill.buf.len);
+    }
 }
 
 test "a partial consume compacts the remainder to the front" {
