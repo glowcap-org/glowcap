@@ -18,9 +18,9 @@
 // render from `zig build site-video`. It uploads the render's files from
 // `--out` as one release of the media repository with `gh`, reads back the
 // digests GitHub recorded, and only then rewrites the pin. The release is
-// named by the hashes of all its files, so publishing the same render again finds
-// it, uploads whatever an interrupted publish left out, and rewrites the pin
-// from it. A release under that name holding any other file is refused.
+// named by the hashes of all its files, so publishing the same render again
+// finds it, uploads whatever an interrupted publish left out, and rewrites the
+// pin from it. A release under that name holding any other file is refused.
 //
 // Usage: deno run --allow-all site/scripts/published-video.ts fetch|publish [--out=<dir>]
 // Runs from the repository root. Reasons for a refusal go to stderr.

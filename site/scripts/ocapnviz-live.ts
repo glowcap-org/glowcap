@@ -12,12 +12,12 @@ import { isLoopback, serveDirectory, type Theme, themedContext } from "./reel.ts
 export const serveOcapnviz = (): Deno.HttpServer<Deno.NetAddr> => serveDirectory("site/assets/ocapnviz");
 
 /** Open ocapnviz from `dist` on the trace endpoint `sturdyref`, in a context
- * of its own at `viewport` and `scale` in `theme`, and start recording. Recording starts
- * off camera: a loaded document asks before a recording replaces it, and a
- * reel opens on the recording itself, not that question. `errors` collects
- * the page's own errors for the film to report. `sizes`, when given, are the
- * pane sizes the app starts with, in CSS pixels. Without a
- * `bottomPaneHeight`, ocapnviz fits its timeline to its rows, as it does by
+ * of its own at `viewport` and `scale` in `theme`, and start recording.
+ * Recording starts off camera: a loaded document asks before a recording
+ * replaces it, and a reel opens on the recording itself, not that question.
+ * `errors` collects the page's own errors for the film to report. `sizes`,
+ * when given, are the pane sizes the app starts with, in CSS pixels. Without
+ * a `bottomPaneHeight`, ocapnviz fits its timeline to its rows, as it does by
  * default. */
 export async function openLiveRecording(
 	browser: Browser,

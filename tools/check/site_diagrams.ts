@@ -89,18 +89,17 @@ export async function checkDiagramViewer(browser: Browser, base: string): Promis
 			if (scrolling) fail(`${scrolling} figure(s) scroll sideways`);
 			const button = page.locator(".prose figure .diagram-open").first();
 			const viewer = page.locator("dialog.diagram-viewer");
+			const viewerOpen = () => viewer.evaluate((d: HTMLDialogElement) => d.open);
 			const drawing = page.locator(".prose figure .diagram").first();
 			if (width > 600) {
 				if (await button.isVisible()) fail("the enlarge button shows on a wide screen");
 				await drawing.click();
-				if (await viewer.evaluate((d: HTMLDialogElement) => d.open)) {
-					fail("a tap opened the viewer on a wide screen");
-				}
+				if (await viewerOpen()) fail("a tap opened the viewer on a wide screen");
 				continue;
 			}
 			if (!(await button.isVisible())) fail("the enlarge button is hidden");
 			const opened = async (how: string) => {
-				if (!(await viewer.evaluate((d: HTMLDialogElement) => d.open))) fail(`${how} did not open the viewer`);
+				if (!(await viewerOpen())) fail(`${how} did not open the viewer`);
 				const shown = await page.evaluate(() => {
 					const stage = document.querySelector(".diagram-viewer-stage");
 					const svg = stage?.querySelector(".diagram")?.shadowRoot?.querySelector("svg");
@@ -115,7 +114,7 @@ export async function checkDiagramViewer(browser: Browser, base: string): Promis
 				if (shown) fail(shown);
 			};
 			const closed = async (how: string) => {
-				if (await viewer.evaluate((d: HTMLDialogElement) => d.open)) fail(`${how} left the viewer open`);
+				if (await viewerOpen()) fail(`${how} left the viewer open`);
 				if (!page.url().endsWith("/concepts/")) fail(`${how} left the page for ${page.url()}`);
 			};
 			await button.click();
