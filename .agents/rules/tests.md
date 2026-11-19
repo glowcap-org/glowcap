@@ -35,6 +35,8 @@ implementation as the authority in prose.
 
 ## Discipline
 
+- Use the [bend-laws skill](../skills/bend-laws/SKILL.md) when adding
+  property coverage or replacing repeated cases of a deterministic rule.
 - A proof that reads rendered prose does so through the catalog or a marker
   the catalog owns. Rewording user-visible text means sweeping the test page
   helpers for the replaced wording in the same change, or the mismatch reads as

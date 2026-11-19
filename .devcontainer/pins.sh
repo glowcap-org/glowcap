@@ -25,8 +25,8 @@ ZLS_VERSION="0.17.0"
 ZLS_SOURCE_REVISION="542462c4ddf045493fa9ca028ee6bc3f38b2754a"
 ZLS_SOURCE_SHA256="3eb3107317ef948783cdc3daae07238f1fe7c6cf28fe8ed1a776ff38df781224"
 
-# --- Loam policy proofs (installed only for the proof run) ---
-# dep Bend: Checks the Loam policy laws.
+# --- Bend proofs (installed on demand) ---
+# dep Bend: Checks the laws in the shared proof phase.
 BEND_VERSION="2.0.40"
 # Bend checks this exact Lean version when it compiles the kernel.
 # dep Lean: Compiles Bend's independent proof kernel.

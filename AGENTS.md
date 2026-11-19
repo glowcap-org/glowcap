@@ -28,6 +28,7 @@ Run every gate through
 | Protocol semantics or layer boundary | [architecture](.agents/rules/architecture.md) + [tests](.agents/rules/tests.md) | `zig build oracle-check`, then `ocapn-conformance` and `goblins-interop`; `check-external` adds every Rooms browser proof |
 | Performance claim or slow path | [profiling skill](.agents/skills/profiling/SKILL.md) | the bench's `profile-*` step, then its ReleaseFast run |
 | Wire-path allocation or copy | [memory](.agents/rules/memory.md) + [memory-ledger skill](.agents/skills/memory-ledger/SKILL.md) | `zig build test` + `source-check` |
+| Bend laws or coverage of a deterministic property | [bend-laws](.agents/skills/bend-laws/SKILL.md) | `bend-proofs` plus focused implementation checks |
 | C ABI surface or a binding | [architecture](.agents/rules/architecture.md) + [`bindings/README.md`](bindings/README.md) | the `gen-*-check` steps ([cli rule](.agents/rules/cli.md)) + `zig build rust-test` |
 | Example or example app | [`examples/README.md`](examples/README.md) | `zig build examples` |
 | Live CapTP (shell, MCP, rooms) | [glowcap-cli](.agents/skills/glowcap-cli/SKILL.md), [glowcap-mcp](.agents/skills/glowcap-mcp/SKILL.md), [rooms-peer](.agents/skills/rooms-peer/SKILL.md) | `zig build cli-test` when `cli/` changed |
@@ -38,22 +39,18 @@ Run every gate through
 | Committed script or operations front | [`.agents/rules/scripts.md`](.agents/rules/scripts.md) | owning check + `zig build source-check` |
 | Docs, plans, or agent scaffolding | [doc-writing skill](.agents/skills/doc-writing/SKILL.md) + [doc-drift](.agents/rules/doc-drift.md), plus [agent-scaffolding](.agents/rules/agent-scaffolding.md) for `.agents/` | `zig build source-check`, plus `infrastructure-check` for executable workflow |
 
-**Context map:** milestones to 1.0 in [`docs/milestones.md`](docs/milestones.md), ordered
-work in [`docs/roadmap.md`](docs/roadmap.md) (idea to plan to execution runs
-through [plan to plan](docs/planning/plan-to-plan.md)), layer tour in
-[`docs/architecture.md`](docs/architecture.md), what the project builds on in
-[`docs/dependencies.md`](docs/dependencies.md), settled decisions in
-[`docs/decisions/adr/`](docs/decisions/adr/), the Syrup reference corpus in
-`test/oracle/`, live Goblins wire authority in `conformance/goblins-peer/`, and
-the OCapN spec in `conformance/ocapn-spec/`. The
-[`.agents/` index](.agents/README.md) lists every rule and skill.
+**Context map:** [milestones](docs/milestones.md), [roadmap](docs/roadmap.md),
+[planning](docs/planning/plan-to-plan.md), [architecture](docs/architecture.md),
+[dependencies](docs/dependencies.md), and [decisions](docs/decisions/adr/).
+Protocol evidence lives in `test/oracle/` (Syrup), `conformance/goblins-peer/`
+(live Goblins), and `conformance/ocapn-spec/` (the OCapN spec). The
+[agent index](.agents/README.md) lists the rules and skills.
 
 ## First Principles
 
 Read [project values](.agents/rules/project-values.md) and the
-[prerelease posture](.agents/rules/prerelease.md) first; they hold the
-principles, and Claude and Cursor load them as resident rules. Three more
-apply to every task:
+[prerelease posture](.agents/rules/prerelease.md) first. Three more rules
+apply to every task.
 
 - When the session has Serena, it is first for Zig symbol work ([serena skill](.agents/skills/serena/SKILL.md)).
 - Send no generated issue, patch, or comment to Zig, OCapN, or any project

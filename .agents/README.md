@@ -49,6 +49,7 @@ wiring, frontmatter, the index, and links.
 
 | Skill | Purpose |
 | --- | --- |
+| [bend-laws](skills/bend-laws/SKILL.md) | Use for Bend laws, deterministic property coverage, and migrating test or fuzz cases that exercise the same rule. |
 | [community-review](skills/community-review/SKILL.md) | Use before a real community review invite, or when asked to review glowcap from OCapN, Goblins, or FLOSS-reception concerns. |
 | [debugging](skills/debugging/SKILL.md) | Use when a gate is red, a test fails or flakes, a process hangs, or behavior is wrong and the cause is unknown: evidence before theory, ordered suspects, halving the search, and a fix that explains the symptom. |
 | [doc-writing](skills/doc-writing/SKILL.md) | Use when drafting a doc, tightening one, or sweeping prose for voice: any Markdown or site page, README, guide, plan, or agent doc. |
