@@ -51,6 +51,14 @@ settlement attempts and gaps between stamps. Zig exercises both profiles and
 a detached settlement after position reuse.
 [Answer laws](session/answer_laws/LAWS.bend)
 
+### Loam call allocation
+
+Each positive allocation spends a request slot and at least one byte.
+Bend checks that the aggregate allowance covers every partition within
+the byte and request limits, and charges padding only for possible
+requests. Zig measures the physical backing, alignment, and scratch lifetime.
+[Allocation laws](loam/hosting/allocation_laws/LAWS.bend)
+
 ### Export range disjointness
 
 Bend proves that adjacent half-open ranges share no position. The Zig tests
