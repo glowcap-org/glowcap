@@ -71,11 +71,11 @@ pub fn CompletionBackend(comptime Platform: type) type {
             pub const holds_admission_seat = true;
 
             pub fn tryRead(entry: *Self.Entry, buf: []u8) completion.TryRead {
-                return entry.provider.vtable.try_read(entry.provider.ctx, entry.phase.open, buf);
+                return entry.provider.vtable.try_read(entry.provider.ctx, entry.phase.open, buf, &entry.io_failure);
             }
 
             pub fn tryWrite(entry: *Self.Entry, bytes: []const u8) completion.TryWrite {
-                return entry.provider.vtable.try_write(entry.provider.ctx, entry.phase.open, bytes);
+                return entry.provider.vtable.try_write(entry.provider.ctx, entry.phase.open, bytes, &entry.io_failure);
             }
 
             pub fn closeOnFailure(_: *Self.Entry) void {}
@@ -199,19 +199,25 @@ pub fn CompletionBackend(comptime Platform: type) type {
             return .{ .platform = try self.platform.listenerAddress(fd) };
         }
 
-        /// The structured failure a provider keeps for the connection on
-        /// `fd`, claimed once. Platform connections answer through the
-        /// platform when it keeps any.
-        pub fn takeConnFailure(self: *Self, fd: Fd) ?foundation.FailureChain {
+        /// Claim the indicated source once. The transfer carries its own exact
+        /// result. A connection-level report belongs to the provider separately.
+        pub fn takeConnFailure(self: *Self, fd: Fd, source: completion.Completion.FailureSource) ?carrier_failure.Report {
             const entry = self.conns.getPtr(fd) orelse {
-                if (comptime @hasDecl(Platform, "takeConnFailure")) return self.platform.takeConnFailure(fd);
+                if (comptime @hasDecl(Platform, "takeConnFailure")) return self.platform.takeConnFailure(fd, source);
                 return null;
             };
-            const take = entry.provider.vtable.conn_take_failure orelse return null;
-            return switch (entry.phase) {
-                .open => |conn| take(entry.provider.ctx, conn),
-                .connecting, .failed => null,
-            };
+            if (entry.phase != .open) return null;
+            switch (source) {
+                .terminal_io => {
+                    const exact = entry.io_failure;
+                    entry.io_failure = null;
+                    return exact;
+                },
+                .independent => {
+                    const take = entry.provider.vtable.conn_take_failure orelse return null;
+                    return take(entry.provider.ctx, entry.phase.open);
+                },
+            }
         }
 
         pub fn listenerPort(address: ListenerAddress) ?u16 {

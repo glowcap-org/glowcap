@@ -365,6 +365,45 @@ test "keyed-relay header-only platform read waits for payload instead of reporti
     backend.recycleBorrowed(completions[0]);
 }
 
+test "keyed-relay shares a terminal I/O failure while transferring the original borrow once" {
+    for ([_]bool{ false, true }) |read_failed| {
+        var backend = try admissionBackend(std.testing.allocator);
+        defer deinitAdmissionBackend(&backend);
+        const fd = try openAdmissionRelay(&backend);
+        try backend.submitRecv(31, fd);
+        try backend.submitSend(32, fd, "payload");
+        var detail = glowcap.foundation.FailureChain.init(error.BrokenPipe);
+        detail.note(error.TransportCleanup);
+        const borrowed: @FieldType(net.completion.Completion, "borrowed") = .failure(&detail, 73);
+        if (read_failed) {
+            // Hold the in-flight platform send past the read refusal.
+            const held = backend.platform.pending_send.?;
+            backend.platform.pending_send = null;
+            backend.platform.pending_recv = .{ .user_data = backend.platform.armed_recv_ud.?, .result = -1, .borrowed = borrowed };
+            defer backend.platform.pending_send = held;
+            try checkTransferredFailure(&backend, 31, 32, &detail);
+        } else {
+            backend.platform.pending_send = .{ .user_data = backend.platform.pending_send.?.user_data, .result = -1, .borrowed = borrowed };
+            try checkTransferredFailure(&backend, 32, 31, &detail);
+        }
+    }
+}
+
+fn checkTransferredFailure(backend: *AdmissionBackend, first: u64, second: u64, detail: *const glowcap.foundation.FailureChain) !void {
+    const recycled = backend.platform.recycle_calls;
+    var out: [2]net.completion.Completion = undefined;
+    try std.testing.expectEqual(@as(usize, 2), try backend.poll(&out, 0));
+    try std.testing.expect(out[0].failure_origin == .terminal_io and out[1].failure_origin == .terminal_io);
+    try std.testing.expectEqual(first, out[0].user_data);
+    try std.testing.expect(out[0].borrowed.failureChain().? == detail);
+    try std.testing.expectEqual(second, out[1].user_data);
+    try std.testing.expect(!out[1].borrowed.active());
+    try std.testing.expectEqual(recycled, backend.platform.recycle_calls);
+    backend.recycleBorrowed(out[0]);
+    try std.testing.expectEqual(recycled + 1, backend.platform.recycle_calls);
+    try std.testing.expectEqual(@as(u32, 73), backend.platform.last_recycled_token);
+}
+
 test "keyed-relay reports wrapped transport EOF without turning it into failure" {
     var backend = try admissionBackend(std.testing.allocator);
     defer deinitAdmissionBackend(&backend);

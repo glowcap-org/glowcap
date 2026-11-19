@@ -18,7 +18,7 @@ const ip = std.Io.net;
 
 pub const frame_cap = 4096;
 
-const AdmissionPlatform = struct {
+pub const AdmissionPlatform = struct {
     pub const Fd = i32;
     pub const adapter_depth = 0;
     pub const ConnectTarget = ip.IpAddress;
@@ -60,13 +60,49 @@ const AdmissionPlatform = struct {
     send_submits: usize = 0,
     close_submits: usize = 0,
     poll_calls: usize = 0,
+    /// Ready adapter work that yields no outer record, after a send and before the next receive.
+    internal_steps: usize = 0,
     close_calls: usize = 0,
     shutdown_calls: usize = 0,
     recycle_calls: usize = 0,
     last_recycled_token: u32 = 0,
 
+    terminal_report: ?net.carrier_failure.Report = null,
+    independent_report: ?net.carrier_failure.Report = null,
+    reports_taken: usize = 0,
+
     pub fn init(_: std.mem.Allocator, _: u16, _: u16, _: u32) !AdmissionPlatform {
         return .{};
+    }
+
+    pub fn takeConnFailure(self: *AdmissionPlatform, _: Fd, source: net.completion.Completion.FailureSource) ?net.carrier_failure.Report {
+        const slot = switch (source) {
+            .independent => &self.independent_report,
+            .terminal_io => &self.terminal_report,
+        };
+        const report = slot.* orelse return null;
+        slot.* = null;
+        self.reports_taken += 1;
+        return report;
+    }
+
+    pub fn readinessFd(_: *const AdmissionPlatform) Fd {
+        return -1;
+    }
+
+    pub fn flush(_: *AdmissionPlatform) !void {}
+
+    pub fn submitPoll(_: *AdmissionPlatform, _: u64, _: Fd, _: net.completion.Interest) !void {
+        return error.OperationUnsupported;
+    }
+
+    pub fn readyPending(self: *const AdmissionPlatform) bool {
+        return self.internal_steps != 0 or self.pending_connect != null or self.pending_send != null or self.pending_recv != null or
+            self.pending_cancel != null or self.pending_close != null or self.race_connect_len != 0 or self.race_close_len != 0;
+    }
+
+    pub fn waitBoundMs(_: *const AdmissionPlatform, requested: i32) i32 {
+        return requested;
     }
 
     pub fn deinit(_: *AdmissionPlatform) void {}
@@ -77,7 +113,7 @@ const AdmissionPlatform = struct {
     }
 
     /// A scripted listener binds at `openListener`. Nothing pends.
-    pub fn listenerPending(_: *AdmissionPlatform, _: Fd) bool {
+    pub fn listenerPending(_: *const AdmissionPlatform, _: Fd) bool {
         return false;
     }
 
@@ -214,6 +250,10 @@ const AdmissionPlatform = struct {
             out[0] = completion;
             self.pending_send = null;
             return 1;
+        }
+        if (self.internal_steps != 0) {
+            self.internal_steps -= 1;
+            return 0;
         }
         if (self.close_before_recv) {
             if (self.pending_close) |completion| {

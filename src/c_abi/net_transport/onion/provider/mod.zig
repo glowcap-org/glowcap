@@ -116,7 +116,7 @@ fn streamTransport(profile: *runtime.Profile) c.GlowcapStreamTransport {
         .try_read = connection.providerTryRead,
         .try_write = connection.providerTryWrite,
         .conn_close = connection.providerConnClose,
-        .conn_take_failure = connection.providerConnTakeFailure,
+        .conn_take_failure = null,
     };
 }
 

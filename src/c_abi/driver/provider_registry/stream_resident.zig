@@ -74,7 +74,7 @@ pub fn validate(table_ptr: *const shared.GlowcapStreamTransport) !void {
         table.listener_wait_acceptable != null and
         table.listener_readiness_fd != null and table.listener_locator != null and
         table.listener_advertise != null and table.accept != null and table.listener_close != null, "stream listen");
-    if ((!dial and !listen) or table.try_read == null or table.try_write == null or table.conn_close == null or table.conn_take_failure == null) {
+    if ((!dial and !listen) or table.try_read == null or table.try_write == null or table.conn_close == null) {
         shared.setLastError("driver: stream provider has no operation group or connection callbacks", .{});
         return error.InvalidArgument;
     }

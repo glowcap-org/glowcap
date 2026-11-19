@@ -189,7 +189,6 @@ const ProviderProfile = struct {
 const RawConn = struct {
     connection: net.tcp.RawConnection,
     owner: *TcpNetlayerPayload,
-    failure: c.GlowcapProviderFailure = std.mem.zeroes(c.GlowcapProviderFailure),
 };
 
 const RawListener = struct {
@@ -259,7 +258,7 @@ fn streamTransport(profile: *ProviderProfile) c.GlowcapStreamTransport {
         .try_read = providerTryRead,
         .try_write = providerTryWrite,
         .conn_close = providerConnClose,
-        .conn_take_failure = providerConnTakeFailure,
+        .conn_take_failure = null,
     };
 }
 
@@ -558,20 +557,16 @@ fn rawConn(raw: ?*anyopaque) *RawConn {
     return @ptrCast(@alignCast(raw.?));
 }
 
-fn providerTryRead(_: ?*anyopaque, conn_raw: ?*anyopaque, out: ?[*]u8, cap: usize) callconv(.c) isize {
+fn providerTryRead(_: ?*anyopaque, conn_raw: ?*anyopaque, out: ?[*]u8, cap: usize, failure: ?*c.GlowcapProviderFailure) callconv(.c) isize {
     const conn = rawConn(conn_raw);
-    const dest = (out orelse return c.transport_provider.failNullBuffer(&conn.failure))[0..cap];
-    return c.transport_provider.tryOutcome(&conn.failure, net.socket.receiveNonblocking(conn.connection.readinessFd(), dest));
+    const dest = (out orelse return c.transport_provider.failNullBuffer(failure))[0..cap];
+    return c.transport_provider.tryOutcome(failure, net.socket.receiveNonblocking(conn.connection.readinessFd(), dest));
 }
 
-fn providerTryWrite(_: ?*anyopaque, conn_raw: ?*anyopaque, bytes: ?[*]const u8, len: usize) callconv(.c) isize {
+fn providerTryWrite(_: ?*anyopaque, conn_raw: ?*anyopaque, bytes: ?[*]const u8, len: usize, failure: ?*c.GlowcapProviderFailure) callconv(.c) isize {
     const conn = rawConn(conn_raw);
-    const source = (bytes orelse return c.transport_provider.failNullBuffer(&conn.failure))[0..len];
-    return c.transport_provider.tryOutcome(&conn.failure, net.socket.sendNonblocking(conn.connection.readinessFd(), source));
-}
-
-fn providerConnTakeFailure(_: ?*anyopaque, conn_raw: ?*anyopaque, out_failure: ?*c.GlowcapProviderFailure) callconv(.c) void {
-    c.transport_provider.takeProviderFailure(&rawConn(conn_raw).failure, out_failure);
+    const source = (bytes orelse return c.transport_provider.failNullBuffer(failure))[0..len];
+    return c.transport_provider.tryOutcome(failure, net.socket.sendNonblocking(conn.connection.readinessFd(), source));
 }
 
 fn providerConnClose(

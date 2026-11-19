@@ -6,8 +6,10 @@
 const std = @import("std");
 
 const completion = @import("../completion/loop.zig");
+const failures = @import("failures.zig");
 const completions = @import("completions.zig");
 const carrier_failure = @import("../carrier_failure.zig");
+const foundation = @import("foundation");
 const resident_mod = @import("../multiplexed_resident.zig");
 
 const TeardownOutcome = resident_mod.TeardownOutcome;
@@ -29,20 +31,21 @@ pub fn Machine(comptime Self: type) type {
             defer Completions.pump(self);
             const conn = self.conns.getPtr(id) orelse return .complete;
             if (conn.close == .closing) return closingOutcome(self, id, conn, mode);
+            if (conn.close == .open) {
+                // The caller has taken its live snapshot. Nothing more
+                // reads this wire, even during the first close's reap.
+                conn.close = .draining;
+                releaseRecv(self, id, conn);
+            }
             // Readiness backends perform sends when polled, not when submitted.
             // Keep the socket open until every admitted byte has completed.
-            conn.send_queued = false;
+            if (conn.send == .queued) conn.send = .idle;
             Completions.startSend(self, id, conn);
             Completions.submitQueued(self);
-            Completions.pump(self);
-            if (conn.write_failure == null and
-                (conn.sending or conn.front.items.len != conn.sent or conn.back.items.len != 0))
-            {
-                // The runtime reads nothing more from a closed wire, so a
-                // buffer this row holds goes back to the pool now rather
-                // than for as long as the partner takes to read the drain.
-                releaseRecv(self, id, conn);
-                conn.close = .draining;
+            Completions.reap(self, if (mode == .awaited) conn else null);
+            // A failed send owes no bytes. A refused later append still
+            // leaves the earlier prefix to drain.
+            if (conn.send == .armed or conn.front.items.len != conn.sent or conn.back.items.len != 0) {
                 conn.owes_writable = true;
                 return .pending;
             }
@@ -58,11 +61,16 @@ pub fn Machine(comptime Self: type) type {
             if (conn.close == .closing) {
                 // An abort delivers a result that is ready to `mode`'s
                 // recipient and otherwise gives up the wait: it never reports
-                // pending.
-                return closingOutcome(self, id, conn, if (conn.close_wait == .claimable) mode else .no_wait);
+                // pending. A held close the caller stops awaiting still
+                // reports the write that failed while it drained. A claimable
+                // result is claimed by `closingOutcome` itself.
+                const fresh = if (mode == .awaited and conn.close_wait != .claimable) takeFreshWrite(self, id, conn) else null;
+                return withFresh(fresh, closingOutcome(self, id, conn, if (conn.close_wait == .claimable) mode else .no_wait));
             }
-            conn.send_queued = false;
-            return shutConn(self, id, conn, .no_wait);
+            if (conn.send == .queued) conn.send = .idle;
+            const fresh = if (mode == .awaited) takeFreshWrite(self, id, conn) else null;
+            releaseRecv(self, id, conn);
+            return withFresh(fresh, shutConn(self, id, conn, .no_wait));
         }
 
         /// A second close call on a closing row. An awaiting caller sees
@@ -80,9 +88,14 @@ pub fn Machine(comptime Self: type) type {
                 },
                 .claimable => {
                     conn.close_wait = .none;
-                    const reported = if (mode == .awaited)
-                        claim(self, conn.fd)
-                    else blk: {
+                    const reported = if (mode == .awaited) blk: {
+                        // The row and its handle are still here: the write
+                        // that failed while draining is read before the
+                        // provider close runs, and the close result follows it.
+                        var slot = takeFreshWrite(self, id, conn);
+                        if (claim(self, conn.fd)) |closed| foundation.latchFailure(&slot, closed);
+                        break :blk slot;
+                    } else blk: {
                         settle(self, conn.fd);
                         break :blk null;
                     };
@@ -92,10 +105,14 @@ pub fn Machine(comptime Self: type) type {
             }
         }
 
-        /// Return a held pool buffer and leave the starved queue.
+        /// Return any held receive borrow and leave the starved queue.
         fn releaseRecv(self: *Self, id: usize, conn: *Self.Conn) void {
-            if (conn.recv == .holding) {
-                const held = conn.recv.holding.comp;
+            const borrowed = switch (conn.recv) {
+                .holding => |held| held.comp,
+                .draining_failure => |comp| comp,
+                else => null,
+            };
+            if (borrowed) |held| {
                 conn.recv = .idle;
                 Completions.recycle(self, held);
             }
@@ -105,11 +122,14 @@ pub fn Machine(comptime Self: type) type {
         /// Release the row and shut its socket. The row lives on until the
         /// backend retires the operations still borrowing it.
         fn shutConn(self: *Self, id: usize, conn: *Self.Conn, mode: resident_mod.CloseMode) TeardownOutcome {
-            releaseRecv(self, id, conn);
             conn.close = .closing;
             self.backend.shutdownFd(conn.fd);
             var outcome: TeardownOutcome = .complete;
             const awaited = mode == .awaited and conn.close_seat;
+            // A close with no seat releases the provider handle when it is
+            // submitted, so its fresh write is read first. A seat keeps the
+            // handle until the claim.
+            var fresh = if (mode == .awaited and !awaited) takeFreshWrite(self, id, conn) else null;
             const submitted = if (awaited) submitAwaited(self, id, conn) else self.backend.submitClose(userData(.close, id), conn.fd);
             if (submitted) {
                 conn.inflight += 1;
@@ -118,6 +138,9 @@ pub fn Machine(comptime Self: type) type {
                     outcome = .pending;
                 }
             } else |err| {
+                // A refused submission changed nothing, so a seat's handle
+                // is still owned.
+                if (awaited) fresh = takeFreshWrite(self, id, conn);
                 self.backend.closeFd(conn.fd);
                 outcome = .{ .failed = .init(err) };
                 // The descriptor is closed and its armed operations complete
@@ -127,7 +150,26 @@ pub fn Machine(comptime Self: type) type {
                 if (conn.inflight != 0) Completions.latch(self, err);
             }
             Completions.retireIfQuiet(self, id, conn);
-            return outcome;
+            return withFresh(fresh, outcome);
+        }
+
+        /// A write failure the close was first to see: one that arose after
+        /// the runtime's snapshot, so nothing has claimed it. Healthy rows
+        /// cost this check alone.
+        fn takeFreshWrite(self: *Self, id: usize, conn: *Self.Conn) ?carrier_failure.Report {
+            if (conn.failures.write != .failed) return null;
+            return failures.claim(self, id, conn);
+        }
+
+        /// A close that is not pending ends with the write that failed first.
+        fn withFresh(fresh: ?carrier_failure.Report, outcome: TeardownOutcome) TeardownOutcome {
+            var slot: ?carrier_failure.Report = fresh orelse return outcome;
+            switch (outcome) {
+                .pending => unreachable, // the caller keeps a fresh write on the row while pending
+                .complete => {},
+                .failed => |later| foundation.latchFailure(&slot, later),
+            }
+            return .{ .failed = slot.? };
         }
 
         fn submitAwaited(self: *Self, id: usize, conn: *Self.Conn) !void {
@@ -186,11 +228,7 @@ pub fn Machine(comptime Self: type) type {
                     }
                     continue;
                 }
-                if (conn.recv == .holding) {
-                    // Every receive is closing, so no starved one is fed.
-                    self.backend.recycleBorrowed(conn.recv.holding.comp);
-                    conn.recv = .idle;
-                }
+                releaseRecv(self, entry.key_ptr.*, conn);
                 conn.close = .closing;
                 self.backend.shutdownFd(conn.fd);
                 if (self.backend.submitClose(userData(.close, entry.key_ptr.*), conn.fd)) {

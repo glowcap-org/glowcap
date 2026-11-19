@@ -266,6 +266,7 @@ test "completion WSS keeps platform send primary ahead of TLS cleanup" {
     const fd = try startSecureRelay(&backend);
     var completions: [2]net.completion.Completion = undefined;
     try completeSecureUpgrade(&backend, 71, &completions);
+    try backend.submitRecv(115, fd);
     try backend.submitSend(116, fd, "payload");
     const internal_ud = backend.platform.pending_send.?.user_data;
     backend.platform.pending_send = .{
@@ -274,8 +275,16 @@ test "completion WSS keeps platform send primary ahead of TLS cleanup" {
         .failure = error.BrokenPipe,
     };
 
-    try std.testing.expectEqual(@as(usize, 1), try backend.poll(&completions, 0));
-    const failed = completions[0];
+    try std.testing.expectEqual(@as(usize, 2), try backend.poll(&completions, 0));
+    const read = completions[0];
+    const failed = completions[1];
+    try std.testing.expectEqual(@as(u64, 115), read.user_data);
+    try std.testing.expect(read.failure_origin == .terminal_io and failed.failure_origin == .terminal_io);
+    try std.testing.expect(read.borrowed.failureChain().? == failed.borrowed.failureChain().?);
+    const secure = backend.secure.get(1).?;
+    try std.testing.expectEqual(@as(u8, 2), secure.failure_borrows);
+    backend.recycleBorrowed(read);
+    try std.testing.expectEqual(@as(u8, 1), secure.failure_borrows);
     try std.testing.expectEqual(@as(u64, 116), failed.user_data);
     try std.testing.expectEqual(net.carrier_failure.Phase.transmit, failed.borrowed.carrierPhase().?);
     const chain = failed.borrowed.failureChain().?;
@@ -287,6 +296,126 @@ test "completion WSS keeps platform send primary ahead of TLS cleanup" {
     try std.testing.expectEqualStrings("TlsCiphertextAbandoned", chain.secondaryName().?);
     try std.testing.expectEqual(@as(u16, 2), chain.secondary_count);
     backend.recycleBorrowed(failed);
+    try std.testing.expectEqual(@as(u8, 0), secure.failure_borrows);
+}
+
+const Resident = net.completion_resident.Resident(AdmissionBackend, net.external_completion.PlatformRefused(AdmissionBackend));
+
+test "draining resident keeps the clear relay read borrow for its failed write" {
+    try clearDrainingWrite(false);
+    try clearDrainingWrite(true);
+}
+
+fn clearDrainingWrite(staging_refused: bool) !void {
+    var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{});
+    var resident = try Resident.init(failing.allocator(), try admission.admissionBackend(std.testing.allocator), .{});
+    defer {
+        resident.closeAndDrain(2_000) catch unreachable;
+        resident.deinit();
+    }
+    const fd = try admission.openAdmissionRelay(&resident.backend);
+    const id = try resident.adopt(fd);
+    const ops = resident.resident();
+    ops.beforeWait(.park);
+    try std.testing.expectEqual(@as(isize, 7), ops.tryWrite(id, "payload"));
+    Resident.Completions.startSend(&resident, id, resident.conns.getPtr(id).?);
+    if (staging_refused) {
+        failing.fail_index = failing.alloc_index;
+        const result = ops.tryWrite(id, "more");
+        failing.fail_index = std.math.maxInt(usize);
+        try std.testing.expectEqual(@as(isize, -1), result);
+    }
+    const allocation = @intFromPtr(resident.conns.getPtr(id).?.front.items.ptr);
+    const held = resident.backend.platform.pending_send.?;
+    resident.backend.platform.pending_send = null;
+    try std.testing.expect(ops.connCloseOutcome(id, .awaited) == .pending);
+    const row = resident.conns.getPtr(id).?;
+    try std.testing.expect(row.close == .draining and row.recv == .armed and row.send == .armed);
+
+    var detail = glowcap.foundation.FailureChain.initNamed(error.BrokenPipe, "ClearRelayRead");
+    detail.note(error.TransportCleanup);
+    const recycled = resident.backend.platform.recycle_calls;
+    resident.backend.platform.pending_recv = .{
+        .user_data = resident.backend.platform.armed_recv_ud.?,
+        .result = -1,
+        .borrowed = .failure(&detail, 73),
+    };
+    resident.pump();
+    // The relay returned the external send seat. Its lower send completion
+    // is still held, and the resident still owns the submitted allocation.
+    try std.testing.expect(row.send == .idle);
+    try std.testing.expectEqual(@as(usize, 7), row.front.items.len);
+    try std.testing.expectEqual(row.front.items.len, row.sent);
+    try std.testing.expectEqual(allocation, @intFromPtr(row.front.items.ptr));
+    resident.backend.platform.pending_send = held;
+    const close = ops.connCloseOutcome(id, .awaited);
+    try std.testing.expect(close == .failed);
+    if (staging_refused) {
+        try std.testing.expectEqual(error.OutOfMemory, close.failed.chain.cause);
+        try std.testing.expectEqualStrings("ClearRelayRead", close.failed.chain.secondaryName().?);
+        try std.testing.expectEqual(@as(u16, 2), close.failed.chain.secondary_count);
+    } else {
+        try std.testing.expectEqual(error.BrokenPipe, close.failed.chain.cause);
+        try std.testing.expectEqualStrings("ClearRelayRead", close.failed.chain.primaryName());
+        try std.testing.expectEqualStrings("TransportCleanup", close.failed.chain.secondaryName().?);
+        try std.testing.expectEqual(@as(u16, 1), close.failed.chain.secondary_count);
+    }
+    try std.testing.expectEqual(recycled + 1, resident.backend.platform.recycle_calls);
+    try std.testing.expectEqual(@as(u32, 73), resident.backend.platform.last_recycled_token);
+    try std.testing.expect(ops.takeFailure(id) == null);
+}
+
+test "connection failure order retains the WSS write and TLS cleanup behind a staging refusal" {
+    try wssFanOut(false);
+}
+
+test "connection failure order retains one scalar WSS write when report storage refuses" {
+    try wssFanOut(true);
+}
+
+fn wssFanOut(refuse_report_storage: bool) !void {
+    var fake = fake_tls.FakeRuntime{ .client_cleanup = .init(error.InjectedTlsCleanupFailure) };
+    var runtime = fake.erased();
+    var owner = try net.tls.runtime_owner.Owner.init(std.testing.allocator, &runtime);
+    defer std.debug.assert(owner.release() == .released);
+    var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{});
+    var resident = try Resident.init(failing.allocator(), try secureBackend(&owner), .{});
+    defer {
+        failing.fail_index = std.math.maxInt(usize);
+        resident.closeAndDrain(2_000) catch unreachable;
+        resident.deinit();
+    }
+    const fd = try startSecureRelay(&resident.backend);
+    var completions: [2]net.completion.Completion = undefined;
+    try completeSecureUpgrade(&resident.backend, 71, &completions);
+    const id = try resident.adopt(fd);
+    const row = resident.conns.getPtr(id).?;
+    const ops = resident.resident();
+    ops.beforeWait(.park);
+    try std.testing.expect(row.recv == .armed);
+    try std.testing.expectEqual(@as(isize, 7), ops.tryWrite(id, "payload"));
+    Resident.Completions.startSend(&resident, id, row);
+    try std.testing.expect(row.send == .armed);
+    failing.fail_index = failing.alloc_index;
+    try std.testing.expectEqual(@as(isize, -1), ops.tryWrite(id, "second"));
+    if (!refuse_report_storage) failing.fail_index = std.math.maxInt(usize);
+
+    const ud = resident.backend.platform.pending_send.?.user_data;
+    resident.backend.platform.pending_send = .{ .user_data = ud, .result = -1, .failure = error.BrokenPipe };
+    resident.pump();
+    failing.fail_index = std.math.maxInt(usize);
+    try std.testing.expect(row.send != .armed);
+    try std.testing.expectEqual(@as(usize, @intFromBool(!refuse_report_storage)), resident.conn_failures.count());
+    const report = ops.takeFailure(id) orelse return error.FailureMissing;
+    try std.testing.expectEqual(error.OutOfMemory, report.chain.cause);
+    try std.testing.expectEqualStrings("BrokenPipe", report.chain.secondaryName().?);
+    try std.testing.expectEqual(@as(u16, if (refuse_report_storage) 1 else 3), report.chain.secondary_count);
+    try std.testing.expectEqual(@as(usize, 0), resident.conn_failures.count());
+    try std.testing.expect(ops.takeFailure(id) == null);
+    // WSS also lends its close failure. Returning that borrow retires
+    // the backend handle after the resident has finished draining it.
+    try resident.closeAndDrain(2_000);
+    try std.testing.expectEqual(@as(usize, 0), resident.backend.conns.count());
 }
 
 test "completion WSS shutdown failure settles the close barrier exactly" {

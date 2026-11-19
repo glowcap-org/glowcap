@@ -89,6 +89,7 @@ test "keyed-relay peer close takes priority over an application send deferred by
     try std.testing.expectEqual(@as(usize, 1), try backend.poll(&completions, 0));
     try std.testing.expectEqual(@as(u64, 48), completions[0].user_data);
     try std.testing.expect(completions[0].result < 0);
+    try std.testing.expect(completions[0].failure_origin != .terminal_io);
     try std.testing.expect(conn.close.wire.hasReceived());
     try std.testing.expect(conn.close.wire.hasSent());
     try std.testing.expectEqual(@as(usize, 0), conn.external_send_remainder.len);
@@ -98,6 +99,7 @@ test "keyed-relay peer close takes priority over an application send deferred by
     try std.testing.expectEqual(@as(usize, 1), try backend.poll(&completions, 0));
     try std.testing.expectEqual(@as(u64, 47), completions[0].user_data);
     try std.testing.expectEqual(@as(i32, 0), completions[0].result);
+    try std.testing.expect(completions[0].failure_origin != .terminal_io);
 }
 
 test "keyed-relay local close releases an application send deferred by pong" {

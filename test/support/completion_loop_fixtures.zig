@@ -278,7 +278,7 @@ pub const FakeBackend = struct {
         _ = listen_fd;
         if (first_accept_failure) |failure| {
             first_accept_failure = null;
-            self.push(.{ .user_data = user_data, .result = -1, .failure = failure.cause, .arrival_retired = failure.retired });
+            self.push(.{ .user_data = user_data, .result = -1, .failure = failure.cause, .failure_origin = if (failure.retired) .retired_arrival else .operation });
             return;
         }
         // One scripted connection; the loop's re-armed accept pends forever.

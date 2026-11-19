@@ -21,14 +21,20 @@ Releases before 0.1.7 are in the
   arrival (`.arrival_failed` in Zig). `giftIdFailed` returns delivery status. A send
   without a recipient yields `.unobserved_gift_failure` with the original cause.
 
+- A failed drain write is the session's primary close failure. A later close failure is secondary.
+  Add `GlowcapProviderFailure *out_failure` to `GlowcapStreamTransport.try_read` and `.try_write`, then rebuild.
+  Both callbacks on Zig's `net.external_completion.VTable` take `*?net.carrier_failure.Report`.
+  Supply the transfer's cause there. Reserve `conn_take_failure` for independent connection failures.
+- Add a source parameter to Zig's `takeConnFailure`. Return the requested `.independent` or `.terminal_io` report.
+  Set `failure_origin` to `.terminal_io` for shared terminal I/O or `.retired_arrival` for a retired accept.
+
 - Create a Host with `glowcap_host_new_in` before `glowcap_driver_take_host`.
   Keep its Context alive until release consumes the loop. Adoption of a Host
   from `glowcap_host_new` returns `GLOWCAP_ERR_INVALID_ARGUMENT` and leaves
   it usable for byte-fed operation.
 
-- A live session reports a foreign stream provider's `conn_close` failure
-  with its primary and secondary causes. The C ABI is unchanged.
-  Zig residents and external providers change as follows:
+- A live session reports the provider's primary and secondary causes when a foreign stream's
+  `conn_close` fails. Zig residents and external providers use the following close contracts.
 
   - `net.MultiplexedResident.VTable.conn_close` and `connCloseOutcome` take a
     `net.multiplexed_resident.CloseMode`, `.awaited` or `.no_wait`, which names

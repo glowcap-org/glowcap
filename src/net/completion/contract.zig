@@ -388,6 +388,8 @@ pub const Borrowed = struct {
 /// underlying syscall's sign convention and `user_data` identifies the exact
 /// submitted operation.
 pub const Completion = struct {
+    pub const FailureSource = enum { independent, terminal_io };
+
     user_data: u64,
     result: i32,
     /// Typed primary when `result < 0`. Backends without a more specific cause
@@ -404,9 +406,9 @@ pub const Completion = struct {
     /// Pool pressure, not channel failure. The loop parks and re-arms the read
     /// after another completion returns a buffer.
     recv_no_buffer: bool = false,
-    /// The backend retired an already accepted connection before it could
-    /// publish a descriptor. A fresh accept can serve the next arrival.
-    arrival_retired: bool = false,
+    /// A shared terminal cause settles multiple I/O operations on one row.
+    /// A retired arrival failed after acceptance and leaves its listener usable.
+    failure_origin: enum { operation, terminal_io, retired_arrival } = .operation,
 
     /// A receive that ended under memory pressure: `recv_no_buffer`, or a
     /// failure of `error.OutOfMemory`, whether the pool's allocator refused or

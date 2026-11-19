@@ -246,8 +246,8 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
         \\typedef int32_t (*GlowcapStreamListenerReadinessFdFn)(void *ctx, void *listener);
         \\typedef int32_t (*GlowcapStreamAcceptFn)(void *ctx, void *listener, void **out_conn, int32_t *out_readiness_fd, GlowcapProviderFailure *out_failure);
         \\typedef int32_t (*GlowcapStreamListenerCloseFn)(void *ctx, void *listener, GlowcapProviderFailure *out_failure);
-        \\typedef intptr_t (*GlowcapStreamTryReadFn)(void *ctx, void *conn, uint8_t *out, size_t cap);
-        \\typedef intptr_t (*GlowcapStreamTryWriteFn)(void *ctx, void *conn, const uint8_t *bytes, size_t len);
+        \\typedef intptr_t (*GlowcapStreamTryReadFn)(void *ctx, void *conn, uint8_t *out, size_t cap, GlowcapProviderFailure *out_failure);
+        \\typedef intptr_t (*GlowcapStreamTryWriteFn)(void *ctx, void *conn, const uint8_t *bytes, size_t len, GlowcapProviderFailure *out_failure);
         \\typedef int32_t (*GlowcapStreamConnCloseFn)(void *ctx, void *conn, GlowcapProviderFailure *out_failure);
         \\typedef void (*GlowcapStreamConnTakeFailureFn)(void *ctx, void *conn, GlowcapProviderFailure *out_failure);
         \\typedef uint8_t (*GlowcapTransportProviderSameConfigurationFn)(void *ctx, void *other_ctx);
@@ -266,16 +266,16 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
         "GLOWCAP_WIRE_FRAMING_*.",                "Maximum packet payload bytes, or 0 for no transport cap.",
     });
     try E.emitStructWithTypes(&b, gpa, cp.GlowcapStreamTransport, "GlowcapStreamTransport", &.{
-        "GLOWCAP_STREAM_TRANSPORT_ABI_VERSION.",                                         "sizeof(GlowcapStreamTransport).",
-        "Provider-owned context; must outlive registration.",                            "Start a non-blocking stream connect.",
-        "Finish and consume a ready connect attempt.",                                   "Cancel and consume a connect attempt.",
-        "Begin listener construction; PENDING requires the completion pair.",            "Finish and consume a pending listener attempt on every return.",
-        "Cancel a pending listener attempt before finish.",                              "Wait for acceptable connection.",
-        "Listener readiness descriptor.",                                                "Query canonical listener locator.",
-        "Validate and canonicalize advertised locator.",                                 "Query or copy opaque listener restoration state.",
-        "On GLOWCAP_ERR_WOULD_BLOCK, leave outputs untouched and wait for readiness.",   "Close listener.",
-        "Read: 1..cap bytes, 0 at EOF, -1 when dead, or GLOWCAP_TRANSPORT_WOULD_BLOCK.", "Write: 1..len bytes consumed, -1 when dead, or GLOWCAP_TRANSPORT_WOULD_BLOCK.",
-        "Close connection.",                                                             "Atomically claim the connection's retained read/write failure.",
+        "GLOWCAP_STREAM_TRANSPORT_ABI_VERSION.",                                                                                                                        "sizeof(GlowcapStreamTransport).",
+        "Provider-owned context; must outlive registration.",                                                                                                           "Start a non-blocking stream connect.",
+        "Finish and consume a ready connect attempt.",                                                                                                                  "Cancel and consume a connect attempt.",
+        "Begin listener construction; PENDING requires the completion pair.",                                                                                           "Finish and consume a pending listener attempt on every return.",
+        "Cancel a pending listener attempt before finish.",                                                                                                             "Wait for acceptable connection.",
+        "Listener readiness descriptor.",                                                                                                                               "Query canonical listener locator.",
+        "Validate and canonicalize advertised locator.",                                                                                                                "Query or copy opaque listener restoration state.",
+        "On GLOWCAP_ERR_WOULD_BLOCK, leave outputs untouched and wait for readiness.",                                                                                  "Close listener.",
+        "Read: 1..cap bytes, 0 at EOF, -1, or GLOWCAP_TRANSPORT_WOULD_BLOCK. On -1 optionally write the complete out_failure. Only its result is initialized to zero.", "Write: 1..len bytes consumed, -1, or GLOWCAP_TRANSPORT_WOULD_BLOCK. On -1 optionally write the complete out_failure as for try_read.",
+        "Close connection.",                                                                                                                                            "Optional. Claim an independently retained connection failure.",
     }, &.{
         "",                                    "",                                           "",
         "GlowcapStreamStartConnectFn",         "GlowcapStreamFinishConnectFn",               "GlowcapStreamCancelConnectFn",

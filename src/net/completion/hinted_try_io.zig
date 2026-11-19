@@ -75,6 +75,7 @@ pub fn HintedTryIo(comptime Backend: type, comptime Ops: type) type {
             var comp: contract.Completion = .{ .user_data = ud, .result = -1 };
             if (entry.pending.terminal_failure) |err| {
                 comp.failure = err;
+                comp.failure_origin = .terminal_io;
                 entry.pending.read_ud = null;
                 Ops.publish(backend, comp);
                 return;
@@ -105,6 +106,7 @@ pub fn HintedTryIo(comptime Backend: type, comptime Ops: type) type {
                         backend.buffer_pool.release(idx);
                         entry.pending.readable_hint = false;
                         comp.failure = err;
+                        comp.failure_origin = .terminal_io;
                         latch(entry, err);
                     },
                 }
@@ -115,6 +117,7 @@ pub fn HintedTryIo(comptime Backend: type, comptime Ops: type) type {
                 // A refused acquisition creates no lease, so no recycle is
                 // owed: latch the cause on this connection.
                 comp.failure = err;
+                comp.failure_origin = .terminal_io;
                 entry.pending.readable_hint = false;
                 latch(entry, err);
             }
@@ -130,7 +133,7 @@ pub fn HintedTryIo(comptime Backend: type, comptime Ops: type) type {
             if (entry.pending.terminal_failure) |err| {
                 entry.pending.write_ud = null;
                 entry.pending.write_bytes = null;
-                Ops.publish(backend, .{ .user_data = ud, .result = -1, .failure = err });
+                Ops.publish(backend, .{ .user_data = ud, .result = -1, .failure = err, .failure_origin = .terminal_io });
                 return;
             }
             var result: i32 = -1;
@@ -145,7 +148,7 @@ pub fn HintedTryIo(comptime Backend: type, comptime Ops: type) type {
             }
             entry.pending.write_ud = null;
             entry.pending.write_bytes = null;
-            Ops.publish(backend, .{ .user_data = ud, .result = result, .failure = failure });
+            Ops.publish(backend, .{ .user_data = ud, .result = result, .failure = failure, .failure_origin = if (failure != null) .terminal_io else .operation });
         }
 
         pub fn submitRecv(backend: *Backend, user_data: u64, fd: Fd) !void {

@@ -56,7 +56,7 @@ test "inproc completion: dial, bounded transfer both ways, backpressure, and end
     try std.testing.expectEqual(@as(i32, 0), (try pollOne(&client, 81)).result);
     const refused = try pollOne(&server, 80);
     server.conns.allocator = allocator;
-    try std.testing.expect(refused.arrival_retired);
+    try std.testing.expect(refused.failure_origin == .retired_arrival);
     try std.testing.expectEqual(error.OutOfMemory, refused.failure.?);
     client.closeFd(refused_fd);
 

@@ -4,6 +4,7 @@
 //! dial, listen, and address unions.
 
 const foundation = @import("foundation");
+const carrier_failure = @import("../../carrier_failure.zig");
 const model = @import("model");
 const completion = @import("../../completion/loop.zig");
 const provider_mod = @import("provider.zig");
@@ -44,6 +45,8 @@ pub fn Types(comptime Platform: type, comptime Namespace: type) type {
             close_ud: ?u64 = null,
             closing: bool = false,
             pending: completion.HintedPending = .{},
+            /// Written only by the transfer that discovered the terminal failure.
+            io_failure: ?carrier_failure.Report = null,
             read_poll: bool = false,
             write_poll: bool = false,
             start_poll: bool = false,

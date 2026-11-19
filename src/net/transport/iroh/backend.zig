@@ -369,7 +369,7 @@ pub fn CompletionBackend(comptime Platform: type) type {
             const cconn = self.accept_stash.orderedRemove(0);
             const fd = self.allocFd(cconn) catch |err| {
                 sidecar.glowcap_iroh_sidecar_conn_free(cconn);
-                self.ready.appendReserved(.{ .user_data = ud, .result = -1, .failure = err, .arrival_retired = true });
+                self.ready.appendReserved(.{ .user_data = ud, .result = -1, .failure = err, .failure_origin = .retired_arrival });
                 self.accept_ud = null;
                 return;
             };

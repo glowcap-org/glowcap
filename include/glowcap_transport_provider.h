@@ -222,8 +222,8 @@ typedef int32_t (*GlowcapStreamListenerWaitFn)(void *ctx, void *listener, int32_
 typedef int32_t (*GlowcapStreamListenerReadinessFdFn)(void *ctx, void *listener);
 typedef int32_t (*GlowcapStreamAcceptFn)(void *ctx, void *listener, void **out_conn, int32_t *out_readiness_fd, GlowcapProviderFailure *out_failure);
 typedef int32_t (*GlowcapStreamListenerCloseFn)(void *ctx, void *listener, GlowcapProviderFailure *out_failure);
-typedef intptr_t (*GlowcapStreamTryReadFn)(void *ctx, void *conn, uint8_t *out, size_t cap);
-typedef intptr_t (*GlowcapStreamTryWriteFn)(void *ctx, void *conn, const uint8_t *bytes, size_t len);
+typedef intptr_t (*GlowcapStreamTryReadFn)(void *ctx, void *conn, uint8_t *out, size_t cap, GlowcapProviderFailure *out_failure);
+typedef intptr_t (*GlowcapStreamTryWriteFn)(void *ctx, void *conn, const uint8_t *bytes, size_t len, GlowcapProviderFailure *out_failure);
 typedef int32_t (*GlowcapStreamConnCloseFn)(void *ctx, void *conn, GlowcapProviderFailure *out_failure);
 typedef void (*GlowcapStreamConnTakeFailureFn)(void *ctx, void *conn, GlowcapProviderFailure *out_failure);
 typedef uint8_t (*GlowcapTransportProviderSameConfigurationFn)(void *ctx, void *other_ctx);
@@ -289,13 +289,13 @@ typedef struct GlowcapStreamTransport {
     GlowcapStreamAcceptFn accept;
     /* Close listener. */
     GlowcapStreamListenerCloseFn listener_close;
-    /* Read: 1..cap bytes, 0 at EOF, -1 when dead, or GLOWCAP_TRANSPORT_WOULD_BLOCK. */
+    /* Read: 1..cap bytes, 0 at EOF, -1, or GLOWCAP_TRANSPORT_WOULD_BLOCK. On -1 optionally write the complete out_failure. Only its result is initialized to zero. */
     GlowcapStreamTryReadFn try_read;
-    /* Write: 1..len bytes consumed, -1 when dead, or GLOWCAP_TRANSPORT_WOULD_BLOCK. */
+    /* Write: 1..len bytes consumed, -1, or GLOWCAP_TRANSPORT_WOULD_BLOCK. On -1 optionally write the complete out_failure as for try_read. */
     GlowcapStreamTryWriteFn try_write;
     /* Close connection. */
     GlowcapStreamConnCloseFn conn_close;
-    /* Atomically claim the connection's retained read/write failure. */
+    /* Optional. Claim an independently retained connection failure. */
     GlowcapStreamConnTakeFailureFn conn_take_failure;
 } GlowcapStreamTransport;
 typedef struct GlowcapTransportProviderEntry {

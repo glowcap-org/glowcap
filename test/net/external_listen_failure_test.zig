@@ -81,7 +81,7 @@ const Script = struct {
         return .{ .ready = .{ .ptr = &self.accept_wakes[self.accepts_issued - 1], .fd = wake.read } };
     }
 
-    fn tryRead(_: *anyopaque, _: *anyopaque, _: []u8) net.completion.TryRead {
+    fn tryRead(_: *anyopaque, _: *anyopaque, _: []u8, _: *?net.carrier_failure.Report) net.completion.TryRead {
         return .would_block;
     }
 
@@ -109,7 +109,7 @@ const Script = struct {
         return .{ .ready = .{ .ptr = attempt, .fd = wake.read } };
     }
 
-    fn unreachableWrite(_: *anyopaque, _: *anyopaque, _: []const u8) net.completion.TryWrite {
+    fn unreachableWrite(_: *anyopaque, _: *anyopaque, _: []const u8, _: *?net.carrier_failure.Report) net.completion.TryWrite {
         unreachable;
     }
 

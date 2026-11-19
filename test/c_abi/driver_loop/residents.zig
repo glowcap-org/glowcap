@@ -458,11 +458,11 @@ pub const MalformedImmediateStream = struct {
         return c.GLOWCAP_OK;
     }
 
-    pub fn tryRead(_: ?*anyopaque, _: ?*anyopaque, _: ?[*]u8, _: usize) callconv(.c) isize {
+    pub fn tryRead(_: ?*anyopaque, _: ?*anyopaque, _: ?[*]u8, _: usize, _: ?*cshared.GlowcapProviderFailure) callconv(.c) isize {
         return -1;
     }
 
-    pub fn tryWrite(_: ?*anyopaque, _: ?*anyopaque, _: ?[*]const u8, _: usize) callconv(.c) isize {
+    pub fn tryWrite(_: ?*anyopaque, _: ?*anyopaque, _: ?[*]const u8, _: usize, _: ?*cshared.GlowcapProviderFailure) callconv(.c) isize {
         return -1;
     }
 

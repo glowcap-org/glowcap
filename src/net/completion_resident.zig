@@ -23,11 +23,11 @@
 //! Writes copy into a two-buffer staging queue bounded by
 //! `Options.send_window_bytes`, because the contract hands the bytes over on
 //! return while the backend borrows a send until it completes. A connection
-//! holds staging only while bytes wait: a drained buffer goes to a
-//! resident-wide spare list of at most `Options.spare_send_buffers`, each no
-//! larger than `Options.spare_send_bytes`, and the next connection to write
-//! takes it. An idle connection therefore holds no buffer, and a busy
-//! resident allocates staging only when its spares run out. A message-framed
+//! returns a successfully drained buffer to a resident-wide spare list of at
+//! most `Options.spare_send_buffers`, each no larger than `Options.spare_send_bytes`.
+//! A failed send keeps its submitted buffer until the connection retires:
+//! an inner transport may still borrow it. New writes take a spare when
+//! available and allocate when the spares run out. A message-framed
 //! backend (WebRTC) sends each submit as one packet, so its connections stage
 //! whole packets, one behind the send in flight, and never merge or split one.
 
@@ -39,6 +39,7 @@ const completion = @import("completion/loop.zig");
 const netlayer = @import("netlayer.zig");
 const carrier_failure = @import("carrier_failure.zig");
 const resident_mod = @import("multiplexed_resident.zig");
+const failures = @import("completion_resident/failures.zig");
 const completions = @import("completion_resident/completions.zig");
 const teardown = @import("completion_resident/teardown.zig");
 const listening = @import("completion_resident/listening.zig");
@@ -69,6 +70,16 @@ pub const Options = struct {
 /// of yielding it. An adapter answers for its own queue, then asks the backend
 /// it wraps. A backend holding nothing returns false. Only this generic
 /// resident needs the method, and a `completion.Loop` backend does not.
+///
+/// A backend may provide `takeConnFailure(fd, source: completion.Completion.FailureSource) ?carrier_failure.Report`.
+/// A successful take consumes its report. The origin ties a terminal I/O
+/// report to the connection's marked completions, even before dispatch.
+/// An independent report adds a distinct cause. An operation-specific
+/// failure can lend its detail with that operation's completion. An awaited
+/// close can refine a pending write with a marked sibling it dispatches
+/// during its bounded nonblocking reap before the claim. To guarantee exact
+/// detail regardless of dispatch order, lend it with the first marked
+/// completion or retain it for the synchronous take before publication.
 ///
 /// `Policy` binds the backend to transport symbols:
 ///
@@ -113,34 +124,41 @@ pub fn Resident(comptime Backend: type, comptime Policy: type) type {
             /// precedes a park.
             queued,
             armed,
+            /// A marked failure lent by an ignored read while its sibling
+            /// send drains. Only that send can confirm the shared cause.
+            draining_failure: completion.Completion,
             /// The pool buffer that waits for `try_read`, and how much of it
             /// has been read.
             holding: struct { comp: completion.Completion, offset: usize },
             starved,
             eof,
-            failed: anyerror,
+            failed,
         };
 
         pub const Conn = struct {
             fd: Fd,
             recv: Recv = .idle,
-            /// `front` is borrowed by the backend while `sending`. Writes
-            /// append to `back`.
+            /// The backend borrows `front`. After a failed send the row
+            /// keeps its allocation through physical close. Writes append to `back`.
             front: std.ArrayList(u8) = .empty,
             back: std.ArrayList(u8) = .empty,
+            /// End of the sent prefix, or the whole front after a failed send.
             sent: usize = 0,
-            sending: bool = false,
-            /// Staged bytes wait in `send_queue` for the next `beforeWait`.
-            send_queued: bool = false,
+            send: enum {
+                idle,
+                /// Staged bytes wait in `send_queue` for the next `beforeWait`.
+                queued,
+                armed,
+            } = .idle,
             /// A refused `try_write` owes an `ev_writable` record.
             owes_writable: bool = false,
-            write_failure: ?anyerror = null,
-            /// `take_failure` has claimed this row's failure.
-            failure_claimed: bool = false,
-            /// A `draining` row belongs to no runtime wire: no read is armed
-            /// or lent, and only the bytes `conn_close` admitted keep the
-            /// socket open. `closing` rows are released and live on only
-            /// until the backend retires the operations borrowing them.
+            /// The first two scalar causes, populated in order by `failures`.
+            failure_causes: [2]?anyerror = .{ null, null },
+            failures: failures.Pending = .{},
+            /// A draining row sends the previously admitted bytes. An
+            /// outstanding read can still complete and lend a shared failure
+            /// to that send. The runtime can no longer read from this row.
+            /// A closing row waits for the backend to retire its operations.
             close: enum { open, draining, closing } = .open,
             /// Completions the backend still owes this row.
             inflight: u8 = 0,
@@ -234,7 +252,7 @@ pub fn Resident(comptime Backend: type, comptime Policy: type) type {
         rearm_owed_count: usize = 0,
         /// Structured failures a backend lent with a failed completion, kept
         /// until the runtime claims them. Only failed rows have an entry.
-        conn_failures: foundation.identity_hash.Map(usize, foundation.FailureChain) = .empty,
+        conn_failures: foundation.identity_hash.Map(usize, carrier_failure.Report) = .empty,
         dial_failures: foundation.identity_hash.Map(usize, foundation.FailureChain) = .empty,
 
         /// Ownership of `backend` transfers on entry, including every error
@@ -401,6 +419,7 @@ pub fn Resident(comptime Backend: type, comptime Policy: type) type {
                     self.armRecv(id, conn);
                     return resident_mod.would_block;
                 },
+                .draining_failure => unreachable, // a draining connection admits no reads
                 .queued, .armed, .starved => return resident_mod.would_block,
             }
         }
@@ -419,6 +438,7 @@ pub fn Resident(comptime Backend: type, comptime Policy: type) type {
                     self.armRecv(id, conn);
                     return .would_block;
                 },
+                .draining_failure => unreachable, // a draining connection admits no reads
                 .queued, .armed, .starved => return .would_block,
             }
         }
@@ -436,8 +456,8 @@ pub fn Resident(comptime Backend: type, comptime Policy: type) type {
         fn tryWrite(ctx: *anyopaque, id: usize, bytes: []const u8) isize {
             const self = of(ctx);
             const conn = self.conns.getPtr(id) orelse return -1;
-            if (conn.write_failure != null or conn.close != .open) return -1;
-            if (self.backend.wireFraming(conn.fd) == .message) return self.stagePacket(conn, bytes);
+            if (conn.failures.write != .open or conn.close != .open) return -1;
+            if (self.backend.wireFraming(conn.fd) == .message) return self.stagePacket(id, conn, bytes);
             const queued = conn.front.items.len - conn.sent + conn.back.items.len;
             const room = self.options.send_window_bytes -| queued;
             const take = @min(room, bytes.len);
@@ -450,7 +470,7 @@ pub fn Resident(comptime Backend: type, comptime Policy: type) type {
             // a would-block here owes an `ev_writable` that only a send
             // completion records, so an idle connection would stall.
             conn.back.appendSlice(self.allocator, bytes[0..take]) catch |err| {
-                conn.write_failure = err;
+                failures.writeFailed(self, id, conn, err, null);
                 return -1;
             };
             // The batch starts at `flushWrites` and leaves at `beforeWait`.
@@ -461,14 +481,14 @@ pub fn Resident(comptime Backend: type, comptime Policy: type) type {
         /// packet is staged whole and at most one waits behind the send in
         /// flight: `startSend` then always submits exactly one packet. The
         /// window does not split a packet. The frame cap already bounds it.
-        fn stagePacket(self: *Self, conn: *Conn, bytes: []const u8) isize {
+        fn stagePacket(self: *Self, id: usize, conn: *Conn, bytes: []const u8) isize {
             if (conn.back.items.len != 0) {
                 conn.owes_writable = true;
                 return resident_mod.would_block;
             }
             if (conn.back.capacity == 0) conn.back = self.spare_sends.pop() orelse .empty;
             conn.back.appendSlice(self.allocator, bytes) catch |err| {
-                conn.write_failure = err;
+                failures.writeFailed(self, id, conn, err, null);
                 return -1;
             };
             return @intCast(bytes.len);
@@ -486,24 +506,7 @@ pub fn Resident(comptime Backend: type, comptime Policy: type) type {
         fn takeFailure(ctx: *anyopaque, id: usize) ?carrier_failure.Report {
             const self = of(ctx);
             const conn = self.conns.getPtr(id) orelse return null;
-            if (conn.failure_claimed) return null;
-            // A backend that keeps its own report (a foreign provider) is the
-            // exact authority, even behind a clean end of stream.
-            if (comptime @hasDecl(Backend, "takeConnFailure")) {
-                if (self.backend.takeConnFailure(conn.fd)) |exact| {
-                    conn.failure_claimed = true;
-                    // idempotent: the borrowed copy, if any, is superseded.
-                    _ = self.conn_failures.remove(id);
-                    return .{ .chain = exact };
-                }
-            }
-            const cause = conn.write_failure orelse switch (conn.recv) {
-                .failed => |err| err,
-                else => return null,
-            };
-            conn.failure_claimed = true;
-            if (self.conn_failures.fetchRemove(id)) |kept| return .{ .chain = kept.value };
-            return .init(cause);
+            return failures.claim(self, id, conn);
         }
 
         /// The runtime's claim on the connection ends here. The row lives on,
