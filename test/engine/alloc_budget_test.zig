@@ -1,89 +1,72 @@
-//! Steady-state wire-path allocation budget.
-//!
-//! Locks the number of heap allocations a single `op:deliver` to an
-//! already-live local export costs once the session has reached steady state
-//! (tables warmed, event/queue backing arrays grown). This is the measurement
-//! anchor for the borrowed-validate / owned-on-retain receive path: the only
-//! per-turn heap allocation should be the owned-frame copy the frame-based event
-//! model requires for a retained event.
-//!
-//! A regression in *either* direction fails: the budget is an exact contract,
-//! not an upper bound.
+//! Steady borrowed delivery costs one owned frame, plus a mention copy for
+//! a capability-carrying delivery. Check each measured turn on both codecs.
 
 const std = @import("std");
 const glowcap = @import("glowcap");
 
 const foundation = glowcap.foundation;
+const codec = glowcap.ocapn.codec;
 const engine = glowcap.ocapn.engine;
+const model = glowcap.ocapn.model;
+const session = glowcap.ocapn.session;
+
 const CountingAllocator = @import("../support/alloc_metrics.zig").CountingAllocator;
-const driveOneTurn = @import("../support/warm_turn.zig").driveOneTurn;
+const warm_turn = @import("../support/warm_turn.zig");
 
-test "steady-state deliver to a live export holds its allocation budget" {
-    var counter = CountingAllocator{ .backing = std.testing.allocator };
-    var peer = engine.Peer.init(counter.allocator());
-    defer peer.deinit();
-    try peer.session_state.registerExport(.from(7));
+const Case = struct {
+    syrup_frame: []const u8,
+    argument: model.Argument,
+    allocations: usize,
+};
 
-    // Warm up: grow the inbound/event backing arrays so the measured window sees
-    // only per-turn wire-path traffic.
-    const warmup = 8;
-    for (0..warmup) |_| try driveOneTurn(&peer);
+const cases = [_]Case{
+    .{
+        .syrup_frame = warm_turn.deliver_to_live_export,
+        .argument = .{ .bytes = "hello" },
+        .allocations = 1,
+    },
+    .{
+        .syrup_frame = "<10'op:deliver<11'desc:export7+>[<18'desc:import-object99+>]ff>",
+        .argument = .{ .reference = .{ .near = model.NearRef.object(99) } },
+        .allocations = 2,
+    },
+};
 
-    const turns = 16;
-    counter.allocs = 0;
-    for (0..turns) |_| try driveOneTurn(&peer);
+test "steady-state borrowed deliveries spend their exact allocation budget on both codecs" {
+    const allocator = std.testing.allocator;
+    const profile = model.CaptpVersion.v1_0;
+    for ([_]model.CodecId{ .syrup, .capnp }) |selected| {
+        for (cases) |case| {
+            var encoded: ?foundation.Frame = if (selected == .capnp)
+                try codec.dispatch.encodeMessageForProfile(selected, allocator, profile, .{ .deliver = .{
+                    .target = .{ .far = model.FarRef.object(7) },
+                    .args = &.{case.argument},
+                } })
+            else
+                null;
+            defer if (encoded) |*frame| frame.deinit();
+            const input: foundation.FrameView = if (encoded) |*frame| frame.view() else .{
+                .bytes = case.syrup_frame,
+                .shape = .byte,
+            };
 
-    try std.testing.expectEqual(@as(usize, 0), counter.allocs % turns);
-    const per_turn = counter.allocs / turns;
+            var counter: CountingAllocator = .{ .backing = allocator };
+            const measured = counter.allocator();
+            var peer = engine.Peer.initWithSession(measured, session.Session.initWith(measured, .{ .codec = selected, .captp_version = profile }));
+            defer peer.deinit();
+            try peer.session_state.registerExport(.from(7));
 
-    // Budget for a one-arg inbound deliver to a live export: a single allocation,
-    // the owned-frame copy the retained event requires (`ownedFrameFromView`).
-    // `Session.recordRecvView` validates and applies authority straight from the
-    // borrowed codec projection. This is the irreducible steady-state floor under
-    // the frame-based event model; a regression in either direction fails.
-    const budget = 1;
-    try std.testing.expectEqual(@as(usize, budget), per_turn);
-}
-
-/// The same fire-and-forget deliver, but the single argument is a far reference
-/// (`desc:import-object 99`) the partner introduces. After the first turn
-/// registers import 99, every later turn finds it already held, so the measured
-/// window sees only the steady per-turn cost of a capability-carrying deliver.
-const deliver_introducing_far_ref = "<10'op:deliver<11'desc:export7+>[<18'desc:import-object99+>]ff>";
-
-fn driveOneCapTurn(peer: *engine.Peer) !void {
-    try peer.recvBorrowed(.{ .bytes = deliver_introducing_far_ref, .shape = .byte });
-    while (peer.pollEvent()) |event_in| {
-        var event = event_in;
-        event.deinit();
+            // Warm the queues and hold the capability in the case that carries one.
+            for (0..8) |_| {
+                try peer.recvBorrowed(input);
+                try std.testing.expectEqual(@as(usize, 1), warm_turn.drainEvents(&peer));
+            }
+            for (0..16) |_| {
+                counter.allocs = 0;
+                try peer.recvBorrowed(input);
+                try std.testing.expectEqual(@as(usize, 1), warm_turn.drainEvents(&peer));
+                try std.testing.expectEqual(case.allocations, counter.allocs);
+            }
+        }
     }
-}
-
-test "steady-state capability-carrying deliver holds its allocation budget" {
-    var counter = CountingAllocator{ .backing = std.testing.allocator };
-    var peer = engine.Peer.init(counter.allocator());
-    defer peer.deinit();
-    try peer.session_state.registerExport(.from(7));
-
-    // Warm up so the first turn's import registration and backing growth land
-    // outside the measured window; import 99 is held for every measured turn.
-    const warmup = 8;
-    for (0..warmup) |_| try driveOneCapTurn(&peer);
-
-    const turns = 16;
-    counter.allocs = 0;
-    for (0..turns) |_| try driveOneCapTurn(&peer);
-
-    try std.testing.expectEqual(@as(usize, 0), counter.allocs % turns);
-    const per_turn = counter.allocs / turns;
-
-    // Two allocations for a capability-carrying deliver, above the one-arg
-    // floor: the owned frame the retained event requires, and the gpa-backed
-    // copy of the introduced mentions that rides the event for post-dispatch
-    // stateless GC (`inbound.zig`, on `self.allocator` so it outlives the
-    // turn). The record's own mention list holds its rows in place. Import 99
-    // is already held, so there is no per-turn registration. This is an exact
-    // contract, not an upper bound; a third allocation here is a regression.
-    const budget = 2;
-    try std.testing.expectEqual(@as(usize, budget), per_turn);
 }
