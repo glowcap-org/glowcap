@@ -10,6 +10,13 @@ places a new test.
 From the repository root, run
 `.agents/skills/work/bin/glowcap-dev python3 ci/gates.py run bend-proofs`.
 
+### Stored-resolution releases
+
+The last stored-resolution hold releases the parked retains. Bend checks
+that releasing the application retain before or after that drop pays the same
+total. The Zig test runs every bounded schedule across both profiles and codecs.
+[Release laws](engine/held_resolution_laws/LAWS.bend)
+
 ### Loam policy laws
 
 A delegated permission survives exactly when every grant carries it.

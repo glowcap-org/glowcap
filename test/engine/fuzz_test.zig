@@ -54,11 +54,6 @@
 //! disagreement is a finding on its own. The program also never closes the
 //! session, because a frame one side refuses is one the other should not have
 //! sent, so a closed session is reported with its abort instead of skipped.
-//!
-//! The stored-resolution target releases every answer and application owner
-//! of a far import while the session stays open. Its zero-retain endpoint
-//! catches a lost release even when both peers agree on the retained count
-//! (`fuzz/held_resolution.zig`).
 
 const std = @import("std");
 const glowcap = @import("glowcap");
@@ -92,8 +87,6 @@ const heldImport = program.heldImport;
 /// The cross-peer relation the agreement target holds.
 const agreement = @import("scenarios").agreement;
 const audit = glowcap.ocapn.session.audit;
-
-const held_resolution = @import("fuzz/held_resolution.zig");
 
 /// Inputs the fuzzer found here, replayed by the ordinary suite so a bug it
 /// caught cannot come back quietly. `zig build fuzz` prints what to add when it
@@ -575,16 +568,4 @@ const seed_bytes = 256;
 
 test "fuzz: no legitimate program leaves the two peers disagreeing about a row" {
     try std.testing.fuzz({}, agreementProgramOne, .{ .corpus = (agreement_seeds ++ regression_seeds)[0..] });
-}
-
-test "fuzz: stored resolutions release every hold before session teardown" {
-    const zero: [40]u8 = @splat(0);
-    const one_byte: [40]u8 = @splat(1);
-    const full: [40]u8 = @splat(255);
-    const held_seeds = [_][]const u8{ &zero, &one_byte, &full };
-    try std.testing.fuzz({}, held_resolution.one, .{ .corpus = (held_seeds ++ regression_seeds)[0..] });
-}
-
-test "stored resolution owners release their last wire retain in every order" {
-    try held_resolution.everyOrder();
 }
