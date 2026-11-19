@@ -85,11 +85,16 @@ fn fs(@builtin(position) coord: vec4f) -> @location(0) vec4f {
 	let scale = mix(0.55, 1.0, smoothstep(180.0, 560.0, post.size.y));
 	let glow = textureSample(core, samp, uv).rgb * post.knobs.x * scale +
 		textureSample(halo, samp, uv).rgb * post.knobs.y * scale;
-	var col = base.rgb + glow;
+	// By day the glow is screened on: added to cream it goes white and clips
+	// to a hard edge, where screened it rolls off and keeps its cyan. Less
+	// of it lands on the body, so the mark keeps its colours under it.
+	let dayGlow = (vec3f(1.0) - exp(-glow * 1.8)) * (1.0 - base.a * 0.3);
+	let lit = mix(glow, dayGlow, post.size.z);
+	var col = mix(base.rgb + glow, base.rgb + dayGlow * (vec3f(1.0) - base.rgb), post.size.z);
 	var alpha = base.a;
 	// Coverage is the glow's own brightness, no more: padded coverage is
 	// invisible over a dark page and a grey fog over a light one.
-	alpha = max(alpha, min(max(max(glow.r, glow.g), glow.b), 1.0));
+	alpha = max(alpha, min(max(max(lit.r, lit.g), lit.b), 1.0));
 
 	// Soft shoulder so a beam's core goes white-hot instead of clipping to a
 	// flat plate, and stays inside the alpha it has. By day there is no

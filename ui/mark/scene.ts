@@ -10,9 +10,9 @@
 export const SCENE = `
 // How much of the night's teal the light keeps by day. A light by day is
 // white where it is brightest and cyan only where it falls off: the hearts
-// of the windows, the band under the brim at its lip, the stalk's top just
-// under the brim, and the middle of the pool on the ground are white, and their edges and
-// spill are the lamps' colour, white with this much of the ink's hue in it.
+// of the windows, the band under the brim at its lip, and the middle of the
+// pool on the ground are white, and their edges and spill are the lamps'
+// colour, white with this much of the ink's hue in it.
 const DAY_TEAL = 0.6;
 
 // False in the pipeline for a dark page, which compiles out every line only a
@@ -496,6 +496,8 @@ fn fs(@builtin(position) coord: vec4f) -> @location(0) vec4f {
 	var col = vec3f(0.0);
 	var alpha = 0.0;
 	let hit = min(dist, 18.0);
+	// How much of the brim's underside gives off light by day, for the bloom.
+	var brimLight = 0.0;
 
 	if (id >= 0.0) {
 		let p = ro + rd * hit;
@@ -506,6 +508,12 @@ fn fs(@builtin(position) coord: vec4f) -> @location(0) vec4f {
 		} else {
 			let n = normalAt(p, fr.stem, fr.cap, fr.squash, fr.bob, fr.detail);
 			col = shadeBody(p, n, rd, fr);
+			if (LIGHT_PAGE) {
+				let bp = toBody(p, fr.bob, fr.detail);
+				let toCap = capField(bp, fr.cap, fr.squash, fr.detail);
+				let isCap = smoothstep(-0.03, 0.03, stemField(bp, fr.stem, fr.detail) - toCap);
+				brimLight = smoothstep(-0.6, -0.95, n.y) * isCap;
+			}
 			alpha = 1.0;
 		}
 	}
@@ -595,6 +603,20 @@ fn fs(@builtin(position) coord: vec4f) -> @location(0) vec4f {
 	if (!LIGHT_PAGE) { return vec4f(col * a, a); }
 	let aDay = pow(a, 1.35);
 	let day = col / max(max(max(col.r, col.g), col.b), max(a, 1e-4)) * aDay;
-	return vec4f(mix(col * a, day, lightPage), mix(a, aDay, lightPage));
+	// The light under the brim by day is the night's: light past white that
+	// the bloom spreads, from the brim's underside and from the air at the
+	// two corners where the brim meets the stalk, measured at the depth of
+	// the stalk's axis. The corners give off light only from the air, so
+	// the body gets their glow and never their source. It keeps the air's
+	// beat, so it is gone at the strike as the night's is.
+	let axisT = -dot(ro.xz - vec2f(STEM_X, 0.0), rd.xz) / max(dot(rd.xz, rd.xz), 1e-4);
+	let atAxis = toBody(ro + rd * axisT, fr.bob, fr.detail);
+	let cornerCap = capField(atAxis, fr.cap, fr.squash, fr.detail);
+	let cornerStem = stemField(atAxis, fr.stem, fr.detail);
+	let corner = exp(-(cornerCap * cornerCap + cornerStem * cornerStem) / (0.15 * 0.15));
+	let source = brimLight * 3.0 + corner * 25.0 * select(1.0, 0.0, id >= 0.5);
+	let emit = fr.lamp * vec3f(0.0, 1.0, 1.0) * source * smoothstep(0.0, 0.3, fr.glow) * fr.gCap *
+		clamp(fr.rays / 0.6, 0.0, 1.0);
+	return vec4f(mix(col * a, day, lightPage) + emit * lightPage, mix(a, aDay, lightPage));
 }
 `;
