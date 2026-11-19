@@ -99,8 +99,10 @@ fn floorLight(p: vec3f, fr: Frame) -> vec3f {
 	let soft = smoothstep(2.3, 0.5, side);
 	let strength = (fall * facing * 1.1 + 0.15) * (1.0 + 0.5 * fr.lightPage) * soft * fr.glow * fr.gCap *
 		(1.0 + fr.flareMix * 1.2);
-	// The same day rule as the air: pale where thin, deep where dense.
-	let poolInk = mix(fr.ink, mix(vec3f(0.6, 0.92, 0.94), fr.ink, clamp(strength, 0.0, 1.0)), fr.lightPage);
+	// By day the pool is the halo's white, taking a little of the ink where
+	// the light is strongest, so it reads as light on the ground and not a
+	// stain under the foot.
+	let poolInk = mix(fr.ink, mix(vec3f(1.0), fr.ink, 0.3 * clamp(strength, 0.0, 1.0)), fr.lightPage);
 	return poolInk * strength;
 }
 
@@ -334,12 +336,13 @@ fn fs(@builtin(position) coord: vec4f) -> @location(0) vec4f {
 	let breath = u.more.y;
 
 	// The mushroom is drawn as a thing seen at night in both themes; the
-	// light is the page's own. By day the lamps are white and the air is
-	// teal ink. Ink at partial coverage over cream loses its colour before
-	// its darkness, so by day the ink is pushed past the token's own chroma,
-	// with some white in it, to arrive at the token's teal once it is on the
-	// page; and the lamps take some of that teal, so the windows and the
-	// beams that leave them are one light and not white beside cyan.
+	// light is the page's own. By day nothing on the page is darker than
+	// cream behind it, so the light cannot reach out as beams, which would
+	// be ink and read as shadow: it stays at the mushroom, white windows and
+	// a halo round the cap. Teal at partial coverage over cream loses its
+	// colour before its darkness, so by day the teal is pushed past the
+	// token's own chroma, with some white in it, to arrive at the token's
+	// teal once it is on the page; and the lamps take a little of it.
 	let lightPage = smoothstep(0.3, 0.8, u.night.a);
 	let inkLum = dot(u.flare.rgb, vec3f(0.2126, 0.7152, 0.0722));
 	let dayInk = mix(clamp(mix(vec3f(inkLum), u.flare.rgb, 1.9) * 1.15, vec3f(0.0), vec3f(1.0)), vec3f(1.0), 0.36);
@@ -349,7 +352,7 @@ fn fs(@builtin(position) coord: vec4f) -> @location(0) vec4f {
 	// brightens. By day the tint is exactly one.
 	let nightTint = mix(vec3f(0.96, 1.06, 0.91), vec3f(1.0), lightPage);
 	let ink = mix(u.flare.rgb * nightTint, dayInk, lightPage);
-	let lamp = mix(u.light.rgb * nightTint, ink, 0.6 * lightPage);
+	let lamp = mix(u.light.rgb * nightTint, ink, 0.2 * lightPage);
 
 	// The canvas is the flat mark's plume box: u.view is that box in the units
 	// of the 24-unit silhouette box, so the same four numbers place the canvas
@@ -497,7 +500,8 @@ fn fs(@builtin(position) coord: vec4f) -> @location(0) vec4f {
 	let disc = b * b - dot(oc, oc) + 5.4 * 5.4;
 	var vol = 0.0;
 	var dust = 0.0;
-	if (lightUp && disc > 0.0) {
+	let night = lightUp && lightPage < 1.0;
+	if (night && disc > 0.0) {
 		let root = sqrt(disc);
 		let near = max(-b - root, 0.0);
 		let farPlane = dot(bodyC - ro, ww) / max(dot(rd, ww), 0.01);
@@ -507,21 +511,27 @@ fn fs(@builtin(position) coord: vec4f) -> @location(0) vec4f {
 			vol = marchAir(ro, rd, near, far, farBack, coord.xy, lamps, fr);
 		}
 	}
-	if (lightUp) { dust = drift(ro, rd, hit, lamps, fr); }
+	if (night) { dust = drift(ro, rd, hit, lamps, fr); }
 
 	// A ceiling on the lit air, so a ray down the middle of a beam sums to a
-	// bright teal and never to white: the light has one colour. By day the
-	// ink's colour follows its coverage, pale where the air is thin and the
-	// token's teal where it is dense, because a thin wash of deep teal over
-	// cream is grey by arithmetic; and ink over cream needs more coverage
-	// than light over black to read as the same thing.
-	let air = vol * 10.0 * (1.0 + 0.7 * lightPage);
-	let airInk = mix(ink, mix(vec3f(0.78, 0.97, 0.98), ink, clamp(air * 0.5, 0.0, 1.0)), lightPage);
-	col = col + airInk * (air / (1.0 + air * 0.08) + dust) * fr.rays * fr.glow;
+	// bright teal and never to white: the light has one colour. It fades out
+	// as the page lightens, and a fully light page skips the march.
+	let air = vol * 10.0;
+	col = col + ink * (air / (1.0 + air * 0.08) + dust) * fr.rays * fr.glow * (1.0 - lightPage);
 
 	// The haze the mushroom stands in, by night only: on cream it was grey.
 	let toEye = length((ro + rd * min(hit, 12.0)) - vec3f(0.0, 1.05, 0.0));
 	col = col + ink * exp(-toEye * toEye * 0.15) * 0.05 * (1.0 - lightPage) * fr.glow * (1.0 + fr.flareMix * 2.8);
+
+	// By day the light is held round the cap instead: white leaning teal,
+	// off the body only, so it lifts the cream where the light would be and
+	// never washes the mushroom itself.
+	if (id < 0.5) {
+		let capC = fromBody(vec3f(0.0, CAP_Y + 0.45, 0.0), fr.bob, fr.detail);
+		let across = length(cross(capC - ro, rd));
+		let halo = exp(-across * across * 0.45) * lightPage * fr.glow * (1.0 + fr.flareMix * 1.5);
+		col = col + mix(vec3f(1.0), ink, 0.45) * halo * 2.6;
+	}
 
 	// The vignette is the canvas's own edge, softened: the flat mark's plume
 	// simply ends where its box does, and this one fades over the last few
@@ -551,6 +561,7 @@ fn fs(@builtin(position) coord: vec4f) -> @location(0) vec4f {
 	// hint on the page and not a cyan wash across all of it.
 	let a = clamp(alpha, 0.0, 1.0);
 	let aDay = pow(a, 1.35);
-	return vec4f(mix(col * a, min(col, vec3f(aDay)), lightPage), mix(a, aDay, lightPage));
+	let day = col / max(max(max(col.r, col.g), col.b), max(a, 1e-4)) * aDay;
+	return vec4f(mix(col * a, day, lightPage), mix(a, aDay, lightPage));
 }
 `;

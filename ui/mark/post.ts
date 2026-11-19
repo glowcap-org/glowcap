@@ -97,6 +97,13 @@ fn fs(@builtin(position) coord: vec4f) -> @location(0) vec4f {
 	// down to grey on cream, so it eases off with the page's brightness.
 	col = col / (vec3f(1.0) + col * 0.32 * (1.0 - post.size.z));
 	col = min(col, vec3f(alpha));
+	// A soft glow spread thin over a page lands on a handful of the target's
+	// 256 levels and shows as rings. Half a level of noise breaks them up.
+	// It fades out as coverage does, so bare page stays bare.
+	let n = (fract(52.9829189 * fract(dot(coord.xy, vec2f(0.06711056, 0.00583715)))) - 0.5) / 255.0 *
+		min(alpha * 255.0, 1.0);
+	alpha = clamp(alpha + n, 0.0, 1.0);
+	col = clamp(col + vec3f(n), vec3f(0.0), vec3f(alpha));
 	return vec4f(col, alpha);
 }
 `;
