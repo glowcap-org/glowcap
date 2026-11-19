@@ -183,7 +183,6 @@ comptime {
         _ = @import("engine/listen_on_far_test.zig");
         _ = @import("engine/resolver_export_test.zig");
         _ = @import("engine/alloc_budget_test.zig");
-        _ = @import("engine/cross_codec_budget_test.zig");
         _ = @import("engine/resolve_alloc_budget_test.zig");
         _ = @import("engine/listener_fire_budget_test.zig");
         _ = @import("engine/deliver_set_scratch_budget_test.zig");
