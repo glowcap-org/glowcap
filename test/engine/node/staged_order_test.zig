@@ -108,22 +108,21 @@ test "retracting a staged gift retires its queued release without sending either
         recipient.publishAnswerRelease(release, answer);
         const Retractions = struct {
             count: usize = 0,
-            fn record(ctx: *anyopaque, _: engine.OutboundAnswerTarget) void {
+            answer: ?engine.OutboundAnswerTarget = null,
+            fn record(ctx: *anyopaque, target: engine.OutboundAnswerTarget) void {
                 const self: *@This() = @ptrCast(@alignCast(ctx));
                 self.count += 1;
+                self.answer = target;
             }
         };
         var retractions: Retractions = .{};
         recipient.retractProvisional(&retractions, Retractions.record);
         while (fixture.node.nextAction()) |action| switch (action) {
-            .fail => |failure| {
-                try std.testing.expectEqual(answer, failure.dest.answer.answer);
-                retractions.count += 1;
-            },
             .flush, .need_gift_id => {},
             else => return error.UnexpectedAction,
         };
         try std.testing.expectEqual(@as(usize, 1), retractions.count);
+        try std.testing.expectEqual(answer, retractions.answer.?);
         try recipient.stepToIdle();
         try std.testing.expect(recipient.takeOutbound() == null);
         try std.testing.expect(!recipient.canObserveAnswer(answer));

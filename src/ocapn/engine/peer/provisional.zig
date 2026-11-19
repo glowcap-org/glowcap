@@ -60,11 +60,11 @@ pub fn retract(
         const row = self.pending_send.pending()[i];
         if (!row.provisional) continue;
         if (row.item == .staged) {
-            // The carrier is still in Node staging. Removing its row first
-            // lets the Node fail the batch without finding it again; the
-            // failure breaks the send's answer.
+            // The batch owns the stamped answer until the turn withdraws it.
             self.pending_send.removePending(i);
-            if (self.node_services) |services| services.stagedWithdrawn(row.item.staged.batch);
+            if (self.node_services) |services| {
+                if (services.stagedWithdrawn(row.item.staged.batch)) |answer| retracted(ctx, answer);
+            }
             continue;
         }
         const sent = switch (row.item) {

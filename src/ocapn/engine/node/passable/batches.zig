@@ -120,14 +120,16 @@ pub fn provisionalClosed(self: *Node, peer_handle: PeerHandle, outcome: node_ser
     }
 }
 
-/// A retracted provisional window removed the row of a send `batch` is still
-/// staging (ADR-0058). Failing it cancels its gift tickets and leases and
-/// breaks its answer. No gift has been deposited yet: the embedder does not
-/// pump while the turn that made the send runs.
-pub fn stagedWithdrawn(self: *Node, peer_handle: PeerHandle, batch: passable.BatchId) void {
-    const row = self.inline_passable_batches.rows.get(batch) orelse return;
+/// Withdraw a provisional send and return its stamped answer to the failed
+/// turn. The Vat notifies that recipient after every participant rolls back.
+pub fn stagedWithdrawn(self: *Node, peer_handle: PeerHandle, batch: passable.BatchId) ?session_mod.OutboundAnswerTarget {
+    const row = self.inline_passable_batches.rows.getPtr(batch) orelse return null;
     std.debug.assert(row.recipient_peer == peer_handle);
-    _ = fail(self, batch, error.TurnAborted);
+    defer _ = fail(self, batch, error.TurnAborted);
+    const target = row.failure_target orelse return null;
+    if (target != .outbound_answer) return null;
+    row.failure_target = null;
+    return target.outbound_answer;
 }
 
 /// Retire batches charged to a recipient while that exact Peer is alive.

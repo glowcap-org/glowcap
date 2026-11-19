@@ -359,7 +359,8 @@ test "same-exporter inline deposits share one cumulative outbound reservation" {
     const first_id = @as([model.handoff_gift_id_bytes]u8, @splat(0x79));
     const second_id = @as([model.handoff_gift_id_bytes]u8, @splat(0x7a));
     try node.provideGiftId(first, &first_id);
-    try node.provideGiftId(second, &second_id);
+    try std.testing.expectError(error.OutboundBackpressure, node.provideGiftId(second, &second_id));
+    try node.provideGiftId(second, &second_id); // The consumed ticket is now stale.
 
     try std.testing.expect(node.nextAction() == null);
     try std.testing.expect(recipient.sessionIsOpen());
