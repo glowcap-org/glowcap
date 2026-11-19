@@ -69,9 +69,10 @@ A charge fits the remaining space exactly when the new total fits the cap.
 For one CapTP position, a sequence of releases fits the releasable count
 exactly when its sum fits. Applying those releases leaves the same releasable
 count as subtracting the sum.
-Relay input charges the live suffix. Bend proves the admission check for
-any positive arrival and any number of bytes already consumed.
-The Zig tests cover the queue, release, and relay paths.
+
+Relay input charges the live suffix. Gift admission checks the remaining
+rows plus the replacement. One Bend law checks the capacity after either
+operation removes the old charge.
 [Accounting laws](support/bounded_arithmetic/LAWS.bend)
 
 ### Stream framing

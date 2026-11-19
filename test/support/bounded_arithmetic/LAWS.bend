@@ -36,11 +36,11 @@ law remainder_matches_total:
   for +held: Nat
   {remainder(deltas, held) == Nat.sub(held, total(deltas)) : Nat}
 
-# An empty append has no effect. A positive append charges the live suffix.
-law retained_input_admission:
+# The new charge is positive. The old charge is already in the total.
+law positive_charge_after_removal:
   for +limit: Nat
-  for +head: Nat
-  for +live: Nat
-  for +arrival: Nat
-  {Nat.is_le(1n+arrival, Nat.sub(limit, Nat.sub(Nat.add(head, live), head))) ==
-    Nat.is_le(Nat.add(live, 1n+arrival), limit) : Bool}
+  for +removed: Nat
+  for +kept: Nat
+  for +charge: Nat
+  {Nat.is_le(1n+charge, Nat.sub(limit, Nat.sub(Nat.add(removed, kept), removed))) ==
+    Nat.is_le(Nat.add(kept, 1n+charge), limit) : Bool}
