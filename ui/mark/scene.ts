@@ -8,10 +8,17 @@
 /** The entry point and its stages. Concatenated after the field and the
  * light, which it calls into. */
 export const SCENE = `
-// How much of the night's teal the windows and the cap's outline keep by
-// day: enough that they read as the same light as the night's, too little
+// How much of the night's teal the light keeps by day. The lamps are white
+// with this much of the ink's hue in them, and everything they light takes
+// their colour: the windows and their spill, the glow under the brim, and
+// the light on the ground. Enough to read as the night's light, too little
 // to dye the page.
-const DAY_TEAL = 0.25;
+const DAY_TEAL = 0.45;
+
+// False in the pipeline for a dark page, which compiles out every line only a
+// light page runs. A branch that never runs still costs every pixel its
+// registers, and the dark page is the one that pays for the beams.
+override LIGHT_PAGE: bool = true;
 
 struct Uniforms {
 	resolution: vec4f,
@@ -104,10 +111,10 @@ fn floorLight(p: vec3f, fr: Frame) -> vec3f {
 	let soft = smoothstep(2.3, 0.5, side);
 	let strength = (fall * facing * 1.1 + 0.15) * (1.0 + 0.5 * fr.lightPage) * soft * fr.glow * fr.gCap *
 		(1.0 + fr.flareMix * 1.2);
-	// By day the pool is the halo's white, taking a little of the ink where
-	// the light is strongest, so it reads as light on the ground and not a
-	// stain under the foot.
-	let poolInk = mix(fr.ink, mix(vec3f(1.0), fr.ink, 0.3 * clamp(strength, 0.0, 1.0)), fr.lightPage);
+	// By day the pool is the lamps' own colour, taking a little more of the
+	// ink where the light is strongest, so it reads as light on the ground
+	// and not a stain under the foot.
+	let poolInk = mix(fr.ink, mix(fr.lamp, fr.ink, 0.3 * clamp(strength, 0.0, 1.0)), fr.lightPage);
 	return poolInk * strength;
 }
 
@@ -197,14 +204,26 @@ fn shadeBody(p: vec3f, n: vec3f, rd: vec3f, fr: Frame) -> vec3f {
 	// Before the light, a window is a dark hole in the cap: the lamp is off,
 	// and what shows is the chamber behind it, a deep amber rather than a
 	// black. Lit, by night it is driven past white so it blooms; by day it
-	// is held near the lamp's own colour, or the teal clips to white.
+	// is held near the lamp's own colour, or the teal clips to white, and it
+	// shows that colour in full as soon as the light is up, because over the
+	// flesh a half-lit window is grey.
 	body = mix(body, u.accent.rgb * 0.14, dots * (1.0 - fr.glow));
-	body = mix(body, fr.lamp * mix(2.0, 1.15, fr.lightPage), dots * fr.glow);
+	var lit = fr.glow;
+	if (LIGHT_PAGE) { lit = mix(fr.glow, smoothstep(0.0, 0.3, fr.glow), fr.lightPage); }
+	body = mix(body, fr.lamp * mix(2.0, 1.15, fr.lightPage), dots * lit);
 
 	// The brim's own glow under it: the one piece of shading the mark keeps,
-	// because it is light rather than surface.
+	// because it is light rather than surface. By night it adds to the
+	// flesh. By day it covers it as soon as the light is up: the lamps' teal
+	// added to the cap's orange would sum to white.
 	let under = smoothstep(-0.05, -0.5, n.y) * isCap;
-	body = body + fr.lamp * under * 2.4 * fr.glow;
+	let underNight = body + fr.lamp * under * 2.4 * fr.glow;
+	if (LIGHT_PAGE) {
+		let underDay = mix(body, fr.lamp * 1.15, under * smoothstep(0.0, 0.3, fr.glow));
+		body = mix(underNight, underDay, fr.lightPage);
+	} else {
+		body = underNight;
+	}
 
 	// By night the strike tints the whole cap. A line is one pixel wide here
 	// and cannot hold the loudest beat in the animation. By day teal mixed
@@ -345,10 +364,11 @@ fn fs(@builtin(position) coord: vec4f) -> @location(0) vec4f {
 	// light is the page's own. By day nothing on the page is darker than
 	// cream behind it, so the light cannot reach out as beams, which would
 	// be ink and read as shadow: it stays at the mushroom, in windows that
-	// glow white and spill a little teal round them. Teal at partial coverage over cream loses its
-	// colour before its darkness, so by day the teal is pushed past the
-	// token's own chroma, with some white in it, to arrive at the token's
-	// teal once it is on the page; and the lamps take a little of it.
+	// glow in the lamps' colour and spill a little teal round them. Teal at
+	// partial coverage over cream loses its colour before its darkness, so
+	// by day the teal is pushed past the token's own chroma, with some white
+	// in it, to arrive at the token's teal once it is on the page; and the
+	// lamps take DAY_TEAL of it.
 	let lightPage = smoothstep(0.3, 0.8, u.night.a);
 	let inkLum = dot(u.flare.rgb, vec3f(0.2126, 0.7152, 0.0722));
 	let dayInk = mix(clamp(mix(vec3f(inkLum), u.flare.rgb, 1.9) * 1.15, vec3f(0.0), vec3f(1.0)), vec3f(1.0), 0.36);
@@ -358,7 +378,14 @@ fn fs(@builtin(position) coord: vec4f) -> @location(0) vec4f {
 	// brightens. By day the tint is exactly one.
 	let nightTint = mix(vec3f(0.96, 1.06, 0.91), vec3f(1.0), lightPage);
 	let ink = mix(u.flare.rgb * nightTint, dayInk, lightPage);
-	let lamp = mix(u.light.rgb * nightTint, ink, 0.2 * lightPage);
+	// By day the lamps are white with DAY_TEAL of the ink's hue at its full
+	// brightness: the light theme's teal is deep, and mixed in as it is it
+	// greys the light instead of tinting it.
+	var lamp = u.light.rgb * nightTint;
+	if (LIGHT_PAGE) {
+		let dayLamp = mix(vec3f(1.0), ink / max(max(ink.r, ink.g), max(ink.b, 1e-4)), DAY_TEAL);
+		lamp = mix(lamp, dayLamp, lightPage);
+	}
 
 	// The canvas is the flat mark's plume box: u.view is that box in the units
 	// of the 24-unit silhouette box, so the same four numbers place the canvas
@@ -531,14 +558,14 @@ fn fs(@builtin(position) coord: vec4f) -> @location(0) vec4f {
 
 	// By day the light is held at the mushroom instead. Over cream a glow
 	// reads by its colour and by following the thing it comes off, not by
-	// brightness: each window is white at its heart and teal at its fringe,
-	// spilling over the cap's edge, and a thin teal glow just outside the
-	// cap's outline, brighter as it strikes. The strike is the windows
+	// brightness: each window is the lamps' colour, spilling over the cap's
+	// edge with a little teal round it on the page. The strike is the windows
 	// flaring. Over the body it is screened on, so it lightens what it falls
 	// on and never darkens the rest.
-	if (lightPage > 0.0 && fr.glow > 0.0) {
+	if (LIGHT_PAGE && lightPage > 0.0 && fr.glow > 0.0) {
 		var heart = 0.0;
 		var fringe = 0.0;
+		// The back window is behind the dome, and shows no light by day.
 		for (var k = 0; k < 5; k = k + 1) {
 			if (k == 3) { continue; }
 			let w = poreWorld(k, fr.gCap, fr.squash, fr.bob, fr.detail);
@@ -546,18 +573,12 @@ fn fs(@builtin(position) coord: vec4f) -> @location(0) vec4f {
 			heart = heart + exp(-d * d * 1.6);
 			fringe = fringe + exp(-d * d * 0.45);
 		}
-		let capward = mix(0.3, 1.0, smoothstep(-0.32, -0.12, uv.y));
-		// Measured only by rays that enter the body's sphere, so it fades out
-		// before that sphere's edge and never shows it.
-		let inSphere = smoothstep(2.5, 1.9, length(cross(bodyC - ro, rd)));
-		let hug = exp(-max(closest, 0.0) / 0.3) * capward * inSphere;
-		let strength = lightPage * fr.glow * (1.0 + fr.flareMix * 1.5);
+		let strength = lightPage * smoothstep(0.0, 0.3, fr.glow) * (1.0 + fr.flareMix * 1.5);
 		if (id >= 0.5) {
-			let wash = mix(ink, vec3f(1.0), 0.45);
-			col = mix(min(col, vec3f(1.0)), wash, clamp(fringe * 0.6 * strength, 0.0, 0.6));
-			col = mix(col, mix(vec3f(1.0), ink, DAY_TEAL * 0.5), clamp(heart * 1.4 * strength, 0.0, 1.0));
+			col = mix(min(col, vec3f(1.0)), lamp, clamp(fringe * 0.6 * strength, 0.0, 0.6));
+			col = mix(col, lamp, clamp(heart * 1.4 * strength, 0.0, 1.0));
 		} else {
-			col = col + (vec3f(1.0) * heart * 0.9 + ink * (fringe * 0.4 + hug * DAY_TEAL * (1.0 + fr.flareMix))) * strength;
+			col = col + (lamp * heart * 0.9 + ink * fringe * 0.4) * strength;
 		}
 	}
 
@@ -588,6 +609,7 @@ fn fs(@builtin(position) coord: vec4f) -> @location(0) vec4f {
 	// is, rising a little slower than brightness so the faintest air is a
 	// hint on the page and not a cyan wash across all of it.
 	let a = clamp(alpha, 0.0, 1.0);
+	if (!LIGHT_PAGE) { return vec4f(col * a, a); }
 	let aDay = pow(a, 1.35);
 	let day = col / max(max(max(col.r, col.g), col.b), max(a, 1e-4)) * aDay;
 	return vec4f(mix(col * a, day, lightPage), mix(a, aDay, lightPage));

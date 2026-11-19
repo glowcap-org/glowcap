@@ -224,7 +224,11 @@ const BLOOM = { core: 0.012, halo: 0.05, threshold: 1.05, coreStrength: 0.7, hal
  * pixels because there is one of these. */
 export class Renderer {
 	readonly #device: GPUDevice;
-	readonly #scenePipe: GPURenderPipeline;
+	readonly #sceneModule: GPUShaderModule;
+	readonly #sceneLayout: GPUPipelineLayout;
+	/** The scene's pipeline for each kind of page, made on its first draw,
+	 * so a page compiles only the one it shows. */
+	readonly #scenePipes: { dark?: GPURenderPipeline; light?: GPURenderPipeline } = {};
 	readonly #blurPipe: GPURenderPipeline;
 	readonly #postPipe: GPURenderPipeline;
 	readonly #uniforms: GPUBuffer;
@@ -244,13 +248,12 @@ export class Renderer {
 
 	constructor(device: GPUDevice, format: GPUTextureFormat) {
 		this.#device = device;
-		const scene = device.createShaderModule({ code: SHADER });
-		this.#scenePipe = device.createRenderPipeline({
-			layout: "auto",
-			vertex: { module: scene, entryPoint: "vs" },
-			fragment: { module: scene, entryPoint: "fs", targets: [{ format: "rgba16float" }] },
-			primitive: { topology: "triangle-list" },
+		this.#sceneModule = device.createShaderModule({ code: SHADER });
+		// One layout both scene pipelines share, so one bind group serves both.
+		const sceneGroup = device.createBindGroupLayout({
+			entries: [{ binding: 0, visibility: GPUShaderStage.FRAGMENT, buffer: {} }],
 		});
+		this.#sceneLayout = device.createPipelineLayout({ bindGroupLayouts: [sceneGroup] });
 		const blur = device.createShaderModule({ code: BLUR });
 		this.#blurPipe = device.createRenderPipeline({
 			layout: "auto",
@@ -290,10 +293,31 @@ export class Renderer {
 			})
 		);
 		this.#sceneBind = device.createBindGroup({
-			layout: this.#scenePipe.getBindGroupLayout(0),
+			layout: sceneGroup,
 			entries: [{ binding: 0, resource: { buffer: this.#uniforms } }],
 		});
 		this.#sampler = device.createSampler({ magFilter: "linear", minFilter: "linear" });
+	}
+
+	/** The scene's pipeline for a light page, the whole shader, or for a
+	 * dark one, which leaves out the light page's work. */
+	#scenePipe(lightPage: boolean): GPURenderPipeline {
+		const face = lightPage ? "light" : "dark";
+		const made = this.#scenePipes[face];
+		if (made != null) return made;
+		const pipe = this.#device.createRenderPipeline({
+			layout: this.#sceneLayout,
+			vertex: { module: this.#sceneModule, entryPoint: "vs" },
+			fragment: {
+				module: this.#sceneModule,
+				entryPoint: "fs",
+				targets: [{ format: "rgba16float" }],
+				constants: { LIGHT_PAGE: lightPage ? 1 : 0 },
+			},
+			primitive: { topology: "triangle-list" },
+		});
+		this.#scenePipes[face] = pipe;
+		return pipe;
 	}
 
 	/** The scene target follows the output size. Recreated only on change,
@@ -407,7 +431,7 @@ export class Renderer {
 				storeOp: "store",
 			}],
 		});
-		scenePass.setPipeline(this.#scenePipe);
+		scenePass.setPipeline(this.#scenePipe(lightPage > 0));
 		scenePass.setBindGroup(0, this.#sceneBind);
 		scenePass.draw(3);
 		scenePass.end();
