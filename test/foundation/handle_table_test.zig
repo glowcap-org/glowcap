@@ -26,22 +26,6 @@ test "an owner mints handles that find their rows and a freed handle finds nothi
     try std.testing.expectEqual(@as(usize, 1), table.count());
 }
 
-test "a reused row answers only to its new handle" {
-    const allocator = std.testing.allocator;
-    var table: handle_table.Owner(Handle, u32) = .empty;
-    defer table.deinit(allocator);
-    const first = try table.mint(allocator, 1);
-    try std.testing.expect(table.remove(first));
-    const second = try table.mint(allocator, 2);
-    // The row came back from the free chain, under the next generation.
-    try std.testing.expectEqual(handle_table.index(first), handle_table.index(second));
-    try std.testing.expect(handle_table.generation(first) != handle_table.generation(second));
-    try std.testing.expect(first != second);
-    try std.testing.expect(table.get(first) == null);
-    try std.testing.expectEqual(@as(?u32, 2), table.get(second));
-    try std.testing.expectEqual(@as(usize, 1), table.rowCount());
-}
-
 test "a handle no owner minted names no row" {
     const allocator = std.testing.allocator;
     var table: handle_table.Owner(Handle, u32) = .empty;
@@ -119,23 +103,32 @@ test "a mirror reserves without allocating for a row it has seen" {
     try std.testing.expectEqual(@as(?u8, 8), mirror.get(h));
 }
 
-test "a row whose generation wraps retires, so no handle is minted twice" {
+test "freed handles stay stale through reuse and retirement" {
     const allocator = std.testing.allocator;
     var table: handle_table.Owner(Handle, u32) = .empty;
     defer table.deinit(allocator);
     const first = try table.mint(allocator, 1);
+    const row = handle_table.index(first);
     try std.testing.expect(table.remove(first));
-    // Spend the row's generations: the next mint hands out the last one.
-    table.rows.items[handle_table.index(first)].generation = std.math.maxInt(u32);
-    const last = try table.mint(allocator, 2);
-    try std.testing.expectEqual(handle_table.index(first), handle_table.index(last));
-    try std.testing.expect(table.remove(last));
-    // The row is spent: a mint takes a new row, and every handle the spent
-    // row ever carried misses, the first one included.
+
+    var stale: [4]Handle = .{ first, undefined, undefined, undefined };
+    const last = std.math.maxInt(u32);
+    for ([_]u32{ 2, last - 1, last }, 1..) |generation, count| {
+        // Skip to the last two generations after exercising normal reuse.
+        if (generation == last - 1) table.rows.items[row].generation = generation;
+        const current = try table.mint(allocator, generation);
+        try std.testing.expectEqual(row, handle_table.index(current));
+        try std.testing.expectEqual(generation, handle_table.generation(current));
+        try std.testing.expectEqual(@as(?u32, generation), table.get(current));
+        try std.testing.expectEqual(@as(usize, 1), table.rowCount());
+        for (stale[0..count]) |old| try std.testing.expect(table.get(old) == null);
+        try std.testing.expect(table.remove(current));
+        stale[count] = current;
+    }
+
     const next = try table.mint(allocator, 3);
-    try std.testing.expect(handle_table.index(next) != handle_table.index(first));
-    try std.testing.expect(table.get(first) == null);
-    try std.testing.expect(table.get(last) == null);
+    try std.testing.expect(handle_table.index(next) != row);
+    for (stale) |old| try std.testing.expect(table.get(old) == null);
     try std.testing.expectEqual(@as(?u32, 3), table.get(next));
     try std.testing.expectEqual(@as(usize, 1), table.count());
     try std.testing.expectEqual(@as(usize, 2), table.rowCount());
