@@ -301,8 +301,11 @@ fn multiplexedListenerAdvertise(
 fn multiplexedFinishAccept(ctx: ?*anyopaque, out_conn: ?*u64, out_failure: ?*c.GlowcapProviderFailure) callconv(.c) i32 {
     const adapter = MultiplexedAdapter.fromOpaque(ctx);
     const slot = out_conn orelse return c.transport_provider.failProvider(out_failure, GLOWCAP_ERR_NULL_POINTER, error.NullPointer);
-    slot.* = @intCast((adapter.zig.finishAccept() catch |err|
-        return c.transport_provider.failProvider(out_failure, GLOWCAP_ERR_INTERNAL, err)) orelse return GLOWCAP_ERR_WOULD_BLOCK);
+    const conn = adapter.zig.finishAccept() catch |err| {
+        c.transport_provider.setProviderFailure(out_failure, GLOWCAP_ERR_INTERNAL, err);
+        return c.GLOWCAP_ACCEPT_ARRIVAL_FAILED;
+    };
+    slot.* = @intCast(conn orelse return GLOWCAP_ERR_WOULD_BLOCK);
     return GLOWCAP_OK;
 }
 

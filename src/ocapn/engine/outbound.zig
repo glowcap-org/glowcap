@@ -378,12 +378,16 @@ pub fn settleAnswerTargetGuaranteed(
 /// Break a local promise projection the Node owns with an owned `reason`,
 /// consumed on every outcome. A target nobody holds any more makes the
 /// break moot. Any other refusal is this peer's failure to surface.
-pub fn breakAnswerTargetGuaranteed(self: *Peer, target: session.AnswerTarget, reason: []const u8) void {
-    settleAnswerTargetGuaranteed(self, target, .{ .@"break" = .{ .message = reason } }) catch |err| switch (err) {
-        // tolerant: the projection was collected, settled, or its session closed.
-        error.InvalidReference, error.UnexpectedMessage, error.SessionClosed => {},
-        else => self.emitFailure(err),
+pub fn breakAnswerTargetGuaranteed(self: *Peer, target: session.AnswerTarget, reason: []const u8) bool {
+    settleAnswerTargetGuaranteed(self, target, .{ .@"break" = .{ .message = reason } }) catch |err| {
+        switch (err) {
+            // tolerant: the projection was collected, settled, or its session closed.
+            error.InvalidReference, error.UnexpectedMessage, error.SessionClosed => {},
+            else => self.emitFailure(err),
+        }
+        return false;
     };
+    return true;
 }
 
 fn enqueueAnswerTargetResolutionAdmitted(

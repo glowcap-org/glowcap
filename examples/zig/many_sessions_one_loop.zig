@@ -71,7 +71,10 @@ fn serveAll(server: *driver.Server, done: *std.atomic.Value(bool)) anyerror!void
             }
             continue;
         }
-        _ = try server.runtime.stepAny(10);
+        _ = server.runtime.stepAny(10) catch |err| switch (err) {
+            error.LoopTerminal => return server.runtime.terminalFailure().?.chain.cause,
+            else => return err,
+        };
     }
 }
 

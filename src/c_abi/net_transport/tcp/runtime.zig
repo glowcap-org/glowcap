@@ -513,21 +513,28 @@ fn providerAccept(_: ?*anyopaque, listener_raw: ?*anyopaque, out_conn: ?*?*anyop
     const listener = rawListener(listener_raw);
     const slot = out_conn orelse return c.transport_provider.failProvider(out_failure, GLOWCAP_ERR_NULL_POINTER, error.NullPointer);
     const fd_slot = out_readiness_fd orelse return c.transport_provider.failProvider(out_failure, GLOWCAP_ERR_NULL_POINTER, error.NullPointer);
-    const connection = listener.listener.acceptRaw(&.{}, &.{}, listener.stream_options) catch |err| {
-        setLastError("accept: {s}", .{@errorName(err)});
-        return c.transport_provider.failProvider(out_failure, GLOWCAP_ERR_IO, err);
+    const connection = switch (listener.listener.socket.acceptOutcome(&.{}, &.{}, listener.stream_options, .ready)) {
+        .would_block => return c.GLOWCAP_ERR_WOULD_BLOCK,
+        .connection => |conn| conn,
+        .listener_failed => |err| return c.transport_provider.failProvider(out_failure, GLOWCAP_ERR_IO, err),
+        .arrival_failed => |err| {
+            c.transport_provider.setProviderFailure(out_failure, GLOWCAP_ERR_IO, err);
+            return c.GLOWCAP_ACCEPT_ARRIVAL_FAILED;
+        },
     };
     const owner = listener.owner;
     const conn = owner.allocator.create(RawConn) catch |err| {
         var owned = connection;
         owned.close();
-        return c.transport_provider.failProvider(out_failure, GLOWCAP_ERR_INTERNAL, err);
+        c.transport_provider.setProviderFailure(out_failure, GLOWCAP_ERR_INTERNAL, err);
+        return c.GLOWCAP_ACCEPT_ARRIVAL_FAILED;
     };
     conn.* = .{ .connection = connection, .owner = owner };
     if (!net.socket.setNoSigpipe(connection.readinessFd())) {
         conn.connection.close();
         owner.allocator.destroy(conn);
-        return c.transport_provider.failProvider(out_failure, GLOWCAP_ERR_IO, error.SocketConfigurationFailed);
+        c.transport_provider.setProviderFailure(out_failure, GLOWCAP_ERR_IO, error.SocketConfigurationFailed);
+        return c.GLOWCAP_ACCEPT_ARRIVAL_FAILED;
     }
     slot.* = conn;
     fd_slot.* = connection.readinessFd();

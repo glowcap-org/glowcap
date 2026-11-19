@@ -37,6 +37,8 @@ extern "C" {
 #define GLOWCAP_MULTIPLEXED_EV_CONNECT 16
 /* GlowcapMultiplexedReadyEvent.events: listener construction completed. */
 #define GLOWCAP_MULTIPLEXED_EV_LISTEN 32
+/* accept or finish_accept retired one arrival and leaves the listener usable. out_failure holds the original negative result and cause. out_conn is untouched. */
+#define GLOWCAP_ACCEPT_ARRIVAL_FAILED 1
 /* GlowcapMultiplexedTransport.abi_version. */
 #define GLOWCAP_MULTIPLEXED_TRANSPORT_ABI_VERSION 1
 /* GlowcapTransportProfile.designator_scheme: designators are addresses. */
@@ -283,7 +285,7 @@ typedef struct GlowcapStreamTransport {
     GlowcapTransportListenerAdvertiseFn listener_advertise;
     /* Query or copy opaque listener restoration state. */
     GlowcapTransportListenerRestorationStateFn listener_restoration_state;
-    /* Accept raw stream. */
+    /* On GLOWCAP_ERR_WOULD_BLOCK, leave outputs untouched and wait for readiness. */
     GlowcapStreamAcceptFn accept;
     /* Close listener. */
     GlowcapStreamListenerCloseFn listener_close;

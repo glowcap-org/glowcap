@@ -21,6 +21,35 @@ const GLOWCAP_ERR_INVALID_ARGUMENT = shared.GLOWCAP_ERR_INVALID_ARGUMENT;
 const GLOWCAP_ERR_WOULD_BLOCK = shared.GLOWCAP_ERR_WOULD_BLOCK;
 const instanceFrom = Internal.instanceFrom;
 
+pub fn observeUnhandled(ctx: *anyopaque, failure: driver.OperationFailure) void {
+    const inst: *Instance = @ptrCast(@alignCast(ctx));
+    if (inst.releasing.load(.monotonic)) {
+        inst.runtime.noteTerminalOperationFailure(failure);
+        return;
+    }
+    recordFailure(ctx, .host, 0, "driver", failure);
+}
+
+pub fn observeArrivalFailure(ctx: *anyopaque, listener: u64, failure: driver.OperationFailure) void {
+    recordFailure(ctx, .listener, listener, "accept", failure);
+}
+
+fn recordFailure(ctx: *anyopaque, scope: shared.failure_diagnostics.ScopeKind, id: u64, operation: []const u8, failure: driver.OperationFailure) void {
+    const inst: *Instance = @ptrCast(@alignCast(ctx));
+    const projected = FailureProjection.init(failure);
+    ch.embedding.recordDriverFailure(inst.host_handle, .{
+        .layer = .driver,
+        .operation = operation,
+        .scope_kind = scope,
+        .scope_id = id,
+        .primary_result = projected.primary_result,
+        .primary_name = projected.primary_name,
+        .secondary_result = projected.secondary_result,
+        .secondary_name = projected.secondary_name,
+        .secondary_count = projected.secondary_count,
+    });
+}
+
 /// One queued loop event, in owned form. Projection to C happens at pop.
 pub const OwnedEvent = union(enum) {
     opened: struct { operation_id: u64, session: SessionEventRef },

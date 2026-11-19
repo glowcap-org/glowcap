@@ -278,6 +278,7 @@ test "c-abi onion provider owns one profile and fixed, hintless locators" {
         table.listener_advertise.?(listener_raw, &wrong_designator, &accepted, LocatorCapture.receive, null),
     );
 
+    try @import("../../support/c_abi_accept.zig").expectPending(table, listener_raw);
     const forward = try onion.Endpoint.parse(daemon.lastForwardTarget());
     const client = try forward.connect(io);
     defer client.close(io);
@@ -287,6 +288,7 @@ test "c-abi onion provider owns one profile and fixed, hintless locators" {
         c.GLOWCAP_OK,
         table.accept.?(table.ctx, listener_raw, &accepted_conn, &readiness_fd, null),
     );
+    try @import("../../support/c_abi_accept.zig").expectDrained(table, listener_raw, readiness_fd);
     try std.testing.expect(readiness_fd >= 0);
 
     var client_read_buf: [32]u8 = undefined;

@@ -13,6 +13,14 @@ Releases before 0.1.7 are in the
 
 ### Breaking
 
+- An admitted C driver step preserves a terminal result through later steps
+  and consuming release. Read callerless failures from the adopted Host's
+  Context. Zig callers of `HostRuntime.stepAny` read the cause of
+  `error.LoopTerminal` with `terminalFailure()`.
+- Stream and multiplexed providers return `GLOWCAP_ACCEPT_ARRIVAL_FAILED` for a retired
+  arrival (`.arrival_failed` in Zig). `giftIdFailed` returns delivery status. A send
+  without a recipient yields `.unobserved_gift_failure` with the original cause.
+
 - C callers passing a Host to `glowcap_driver_take_host` must create it with
   `glowcap_host_new_in` and keep its Context alive until driver release consumes
   the loop. A Host created with `glowcap_host_new` now gets

@@ -223,8 +223,9 @@ pub const MultiplexedAdapter = struct {
     fn canonicalize(ctx: *anyopaque, _: *anyopaque, _: []const u8, allocator: std.mem.Allocator, value: model.PeerLocator) net.netlayer.ListenError!model.PeerLocator {
         return from(ctx).canonicalizeLocator(allocator, value);
     }
-    fn accept(ctx: *anyopaque, _: *anyopaque) net.netlayer.AcceptError!?usize {
-        return from(ctx).finishAccept();
+    fn accept(ctx: *anyopaque, _: *anyopaque) net.MultiplexedResident.RawFinishAcceptOutcome {
+        const conn = from(ctx).finishAccept() catch |err| return .{ .arrival_failed = .init(err) };
+        return .{ .connection = conn };
     }
     fn stop(ctx: *anyopaque, _: *anyopaque) net.multiplexed_resident.TeardownOutcome {
         from(ctx).stopListen() catch |err| return .{ .failed = .init(err) };
@@ -255,7 +256,7 @@ pub const MultiplexedAdapter = struct {
             .listen = startListen,
             .local_locator = net.MultiplexedResident.adaptListenerLocator(localLocatorCallback),
             .canonicalize_locator = net.MultiplexedResident.adaptListenerCanonicalize(canonicalize),
-            .finish_accept = net.MultiplexedResident.adaptFinishAccept(accept),
+            .finish_accept = accept,
             .stop_listen = stop,
         },
         .try_read = read,

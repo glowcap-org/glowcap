@@ -34,7 +34,7 @@ pub fn releaseRow(self: *HostRuntime, row: *PendingOpen) OpenAdmission {
 /// listed. A redeem row stays listed as a ready failed report holding the
 /// exact verdict, and every other row leaves the set.
 pub fn failPendingOpen(self: *HostRuntime, row: *PendingOpen, err: anyerror) void {
-    failPendingOpenFailure(self, row, self.operationFailure(err));
+    failPendingOpenFailure(self, row, if (row.outcome == .listener_accept) .fromError(err) else self.operationFailure(err));
 }
 
 pub fn failPendingOpenFailure(self: *HostRuntime, row: *PendingOpen, original_failure: OperationFailure) void {
@@ -65,10 +65,16 @@ pub fn failPendingOpenFailure(self: *HostRuntime, row: *PendingOpen, original_fa
             pending.remove(&self.pending_opens, row);
             var discarded = discardPendingOpen(self, row);
             defer discarded.admission.release();
-            if (discarded.cleanup) |cleanup| failure.noteChain(cleanup);
             const obs = observation.observer;
             obs.abandoned(obs.ctx, observation.tag);
-            if (obs.arrival_failed) |notify| notify(obs.ctx, observation.tag, failure);
+            // An accepted row owns a handshake session. Failure to retire it
+            // leaves the Host responsible for both the arrival and its cleanup.
+            if (discarded.cleanup) |cleanup| {
+                failure.noteChain(cleanup);
+                self.noteTerminalOperationFailure(failure);
+                return;
+            }
+            Internal.reportArrivalFailure(self, observation, failure);
         },
     }
 }

@@ -459,18 +459,30 @@ pub const Adapter = struct {
                 return .{ .failed = .init(error.ConnectionLost) };
             } };
         }
-        var chain = failureChainFromProvider(code, report) catch blk: {
+        const arrival = code == shared.transport_provider.GLOWCAP_ACCEPT_ARRIVAL_FAILED;
+        const result = if (arrival) report.result else code;
+        var failure = operationFailureFromProvider(result, report) catch {
             self.failContract("finish_accept returned an invalid failure report");
-            break :blk foundation.FailureChain.init(error.ProviderContract);
+            if (conn != 0) {
+                if (self.callSubjectTeardown(self.table.conn_close.?, @intCast(conn), "conn_close")) |cleanup|
+                    self.owner.runtime.noteTerminalOperationFailure(.fromChain(cleanup));
+            }
+            return .{ .failed = .init(error.ConnectionLost) };
         };
         if (conn != 0) {
             self.failContract("finish_accept published an output on failure");
             if (self.callSubjectTeardown(self.table.conn_close.?, @intCast(conn), "conn_close")) |cleanup|
-                chain.noteChain(cleanup);
-            self.owner.runtime.noteTerminalOperationFailure(.fromChain(chain));
+                failure.noteChain(cleanup);
+            self.owner.runtime.noteTerminalOperationFailure(failure);
+            return .{ .failed = .init(error.ConnectionLost) };
         }
-        const classification: net.netlayer.AcceptError = if (code == shared.GLOWCAP_ERR_INTERNAL) error.OutOfMemory else error.ConnectionLost;
-        return .{ .failed = .fromChain(classification, chain) };
+        const reported: net.netlayer.AcceptFailure = .{
+            .classification = if (result == shared.GLOWCAP_ERR_INTERNAL) error.OutOfMemory else error.ConnectionLost,
+            .chain = failure.chain,
+            .carrier_phase = failure.carrier_phase,
+            .carrier_detail = failure.carrier_detail,
+        };
+        return if (arrival) .{ .arrival_failed = reported } else .{ .failed = reported };
     }
 
     fn stopListen(ctx: *anyopaque, listener_ctx: *anyopaque) net.multiplexed_resident.TeardownOutcome {

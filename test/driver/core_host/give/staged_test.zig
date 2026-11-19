@@ -138,7 +138,7 @@ fn stagedGiftOutcome(profile: model.CaptpVersion, owner: Owner, success: bool) !
         const gift_id = @as([32]u8, @splat(0x5a));
         try gifter.provideGiftId(gift_ticket.?, &gift_id);
     } else {
-        try gifter.giftIdFailed(gift_ticket.?);
+        _ = try gifter.giftIdFailed(gift_ticket.?);
     }
     try std.testing.expectEqual(owner == .observed, staged_reply.broken);
     try std.testing.expect(!port.peer.canObserveAnswer(wire_vow.far));

@@ -261,6 +261,6 @@ pub fn provideGiftId(
 pub fn giftIdFailed(host: ?*c.GlowcapHost, ticket: u64) i32 {
     const inst = instance.instanceFrom(host) orelse return shared.GLOWCAP_ERR_NULL_POINTER;
     if (!instance.embedderOwnsDrive(inst, "gift_id_failed")) return shared.GLOWCAP_ERR_INVALID_ARGUMENT;
-    inst.core.giftIdFailed(ticket) catch |err| return host_error.errToCode(err);
+    _ = inst.core.giftIdFailed(ticket) catch |err| return host_error.errToCode(err);
     return shared.GLOWCAP_OK;
 }

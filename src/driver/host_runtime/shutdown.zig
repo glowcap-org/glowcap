@@ -36,7 +36,7 @@ pub fn enterDriver(self: *HostRuntime) void {
 /// Transfer core ownership only after the outermost call stops dispatching.
 pub fn leaveDriver(self: *HostRuntime) void {
     if (self.driver_depth == 0) {
-        Internal.retainAndReportUnhandledFailure(self, .fromError(error.ProviderContract));
+        self.failProviderContract();
         return;
     }
     self.driver_depth -= 1;
@@ -94,7 +94,7 @@ pub fn drainDeferredSessionReleases(self: *HostRuntime) bool {
         if (wire == null or wire.?.session != current.session) {
             current.next = null;
             current.queued = false;
-            Internal.retainAndReportUnhandledFailure(self, .fromError(error.ProviderContract));
+            self.failProviderContract();
             if (current.complete(current.ctx)) return true;
             request = next;
             continue;
@@ -287,6 +287,9 @@ pub fn deinit(self: *HostRuntime) void {
 
 pub fn deinitOutcome(self: *HostRuntime) ?OperationFailure {
     deinitImpl(self, true);
+    if (self.release_failure) |failure| {
+        if (self.terminal_failure) |*terminal| terminal.noteFailure(failure) else return failure;
+    }
     return self.terminal_failure;
 }
 

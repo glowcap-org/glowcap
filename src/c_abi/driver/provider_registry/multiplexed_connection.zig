@@ -47,7 +47,13 @@ pub fn close(ctx: *anyopaque, conn: usize, _: net.multiplexed_resident.CloseMode
     const self = of(ctx);
     var report = shared.transport_provider.emptyProviderFailure();
     const code = self.table.conn_close.?(self.table.ctx, @intCast(conn), &report);
-    return self.teardownOutcome(code, report, "conn_close");
+    const outcome = @import("teardown.zig").outcome(code, report) catch {
+        self.failContract("conn_close");
+        return .complete;
+    };
+    if (outcome == .failed and self.owner.claimReleaseFailure(.fromReport(outcome.failed)))
+        return .complete;
+    return outcome;
 }
 
 pub fn takeFailure(ctx: *anyopaque, conn: usize) ?net.carrier_failure.Report {
@@ -57,7 +63,7 @@ pub fn takeFailure(ctx: *anyopaque, conn: usize) ?net.carrier_failure.Report {
     if (providerFailureIsEmpty(report)) return null;
     return provider_failure.carrierReport(report.result, report) catch {
         self.failContract("multiplexed conn_take_failure returned an invalid report");
-        return .init(error.ProviderContract);
+        return null;
     };
 }
 

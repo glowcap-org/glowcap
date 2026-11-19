@@ -19,7 +19,7 @@ const Server = std.Io.net.Server;
 pub const Keepalive = socket.Keepalive;
 pub const ConfigurationError = socket.ConfigurationError;
 pub const WaitError = accept_gate.WaitError;
-pub const AcceptError = WaitError || ConfigurationError;
+pub const AcceptError = WaitError || ConfigurationError || error{SocketConfigurationFailed};
 
 pub const StreamOptions = struct {
     keepalive: ?Keepalive = null,
@@ -173,32 +173,44 @@ pub const Listener = struct {
         write_buf: []u8,
         options: StreamOptions,
     ) AcceptError!Connection {
+        return switch (self.acceptOutcome(read_buf, write_buf, options, .wait)) {
+            .would_block => error.ConnectionLost,
+            .connection => |connection| connection,
+            .arrival_failed, .listener_failed => |err| err,
+        };
+    }
+
+    pub fn acceptOutcome(
+        self: *Listener,
+        read_buf: []u8,
+        write_buf: []u8,
+        options: StreamOptions,
+        mode: accept_gate.AcceptMode,
+    ) union(enum) { connection: Connection, would_block, arrival_failed: AcceptError, listener_failed: AcceptError } {
         self.gate.lock(self.io);
         defer self.gate.unlock(self.io);
-        const stream = try self.acceptStreamLocked();
-        return Connection.over(self.io, stream, read_buf, write_buf, options) catch |err| {
-            stream.close(self.io);
-            return err;
+        const accepted = self.gate.acceptStream(self.io, &self.server, mode) catch |err| return .{ .listener_failed = err };
+        const stream = switch (accepted) {
+            .stream => |stream| stream,
+            .would_block => return .would_block,
+            .arrival_failed => |err| return .{ .arrival_failed = err },
         };
+        const connection = Connection.over(self.io, stream, read_buf, write_buf, options) catch |err| {
+            stream.close(self.io);
+            return .{ .arrival_failed = err };
+        };
+        return .{ .connection = connection };
     }
 
     pub fn acceptStream(self: *Listener, options: StreamOptions) AcceptError!Stream {
         self.gate.lock(self.io);
         defer self.gate.unlock(self.io);
-        const stream = try self.acceptStreamLocked();
+        const stream = try (try self.gate.acceptStream(self.io, &self.server, .wait)).unwrap();
         configureStream(stream, options) catch |err| {
             stream.close(self.io);
             return err;
         };
         return stream;
-    }
-
-    /// Accept under the gate's lease. The caller holds it through wrapper
-    /// construction so a concurrent deinit cannot free listener state between
-    /// the kernel accept and the last read of `self.io`.
-    fn acceptStreamLocked(self: *Listener) WaitError!Stream {
-        if (!try self.gate.waitReadable(self.server.socket.handle, -1)) return error.ConnectionLost;
-        return self.server.accept(self.io) catch error.ConnectionLost;
     }
 
     pub fn shutdown(self: *Listener) void {

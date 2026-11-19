@@ -31,6 +31,7 @@ pub const VTable = provider_mod.VTable;
 pub const Handle = provider_mod.Handle;
 pub const Started = provider_mod.Started;
 pub const Finished = provider_mod.Finished;
+pub const AcceptFinished = provider_mod.AcceptFinished;
 pub const ListenStarted = provider_mod.ListenStarted;
 pub const ListenFinished = provider_mod.ListenFinished;
 
@@ -92,7 +93,7 @@ pub fn CompletionBackend(comptime Platform: type) type {
             }
         };
         const TryIo = completion.HintedTryIo(Self, TryIoOps);
-        const Listening = @import("listener.zig").Machine(Self);
+        const Listening = @import("listener.zig").Machine(Self, Namespace.borrowToken(0));
 
         allocator: std.mem.Allocator,
         platform: Platform,
@@ -100,6 +101,9 @@ pub fn CompletionBackend(comptime Platform: type) type {
         listener: ?ListenerRow = null,
         /// The provider's exact chain when it refused the last `openListener`.
         refused_listen: ?foundation.FailureChain = null,
+        /// The single external listener lends its accept report until the
+        /// consumer recycles it. The next arm requires that receipt back.
+        accept_report: ?foundation.FailureChain = null,
         conns: std.AutoHashMap(Fd, Entry),
         /// Each admitted connection holds one close publication here until
         /// `maybeFinish` spends it or a direct `closeFd` releases it. Its I/O
@@ -385,7 +389,9 @@ pub fn CompletionBackend(comptime Platform: type) type {
 
         pub fn recycleBorrowed(self: *Self, comp: completion.Completion) void {
             if (Namespace.ownsBorrowToken(comp.borrowed.token)) {
-                self.buffer_pool.release(@intCast(Namespace.borrowTokenPayload(comp.borrowed.token)));
+                if (comp.borrowed.kind == .failure) {
+                    self.accept_report = null;
+                } else self.buffer_pool.release(@intCast(Namespace.borrowTokenPayload(comp.borrowed.token)));
             } else {
                 self.platform.recycleBorrowed(comp);
             }

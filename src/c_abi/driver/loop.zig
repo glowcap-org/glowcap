@@ -57,11 +57,10 @@ const Instance = struct {
     host_handle: *ch.GlowcapHost,
     runtime: driver.HostRuntime,
     providers: provider_registry.Registry,
-    /// One listener per transport, keyed by stable loop-minted ids. The Host
+    /// One listener per transport, keyed by stable Context lifecycle ids. The Host
     /// advertises one locator per transport too, so refusing a duplicate
     /// transport keeps listener state and Host authority in the same shape.
     listeners: std.AutoHashMapUnmanaged(ListenerId, ListenerState) = .empty,
-    next_listener: u64 = 1,
     next_operation_id: u64 = 1,
     /// FIFO event queue: `events[events_head..]` is pending. The storage
     /// compacts when drained.

@@ -410,3 +410,67 @@ test "a runtime over a borrowed core retires its deadline at teardown" {
     adopted.deinit();
     try std.testing.expectEqual(@as(?i64, null), core.memory_retry_due_ms);
 }
+
+test "send-only gift failure before or after an entropy draw reaches the observer or consuming release" {
+    const node_fixtures = @import("../../engine/node/harness.zig");
+    const capture_fixture = @import("harness.zig").FailureCapture;
+    for ([_]bool{ true, false }) |post_draw| {
+        for ([_]bool{ true, false }) |observe| {
+            var capture: capture_fixture = .{};
+            var options = @import("harness.zig").steppedQuiet();
+            if (observe) options.unhandled_failure = .{ .ctx = &capture, .report = capture_fixture.report };
+            var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{});
+            var runtime = try driver.HostRuntime.init(failing.allocator(), std.testing.io, .{}, .ephemeral, options);
+            var live = true;
+            defer if (live) runtime.deinit();
+            _ = try runtime.settleMailbox();
+            const node = &runtime.core.node;
+            const recipient_id = try node.registerPeer(.{});
+            const exporter_id = try node.registerPeer(.{});
+            const recipient = node.peer(recipient_id).?;
+            const exporter = node.peer(exporter_id).?;
+            var recipient_peer = try node_fixtures.openKeyedSessionWithCounterpart(std.testing.allocator, node, recipient, @splat(0x31));
+            defer recipient_peer.deinit();
+            var exporter_peer = try node_fixtures.openKeyedSessionWithCounterpart(std.testing.allocator, node, exporter, @splat(0x32));
+            defer exporter_peer.deinit();
+            try recipient.session_state.registerImport(.from(2));
+            try exporter.session_state.registerImport(.from(4));
+            const gift = try node.enrollForeign(exporter_id, glowcap.ocapn.model.FarRef.object(4));
+            try recipient.sendBorrowed(.{ .deliver = .{
+                .target = .{ .far = glowcap.ocapn.model.FarRef.object(2) },
+                .args = &.{.{ .reference = gift }},
+            } });
+            const pending = (try runtime.core.peekAction()).?.need_gift_id.ticket;
+            var io_vtable = runtime.io.vtable.*;
+            io_vtable.randomSecure = struct {
+                fn cancel(_: ?*anyopaque, _: []u8) std.Io.RandomSecureError!void {
+                    return error.Canceled;
+                }
+            }.cancel;
+            runtime.io.vtable = &io_vtable;
+            try std.testing.expectError(error.Canceled, runtime.stepAny(0));
+            try std.testing.expect(node.hasPendingGift(pending));
+            try std.testing.expect(runtime.terminalFailure() == null);
+            try std.testing.expect(capture.failure == null);
+
+            if (post_draw) {
+                failing.fail_index = failing.alloc_index;
+                io_vtable.randomSecure = std.testing.io.vtable.randomSecure;
+            } else io_vtable.randomSecure = std.Io.failingRandomSecure;
+            _ = try runtime.stepAny(0);
+            failing.fail_index = std.math.maxInt(usize);
+            try std.testing.expectEqual(post_draw, failing.has_induced_failure);
+            try std.testing.expect(!node.hasPendingGift(pending));
+            try std.testing.expect(runtime.terminalFailure() == null);
+            try std.testing.expect(runtime.core.memory_retry_due_ms == null);
+            _ = try runtime.stepAny(0);
+
+            const released = runtime.deinitOutcome();
+            live = false;
+            const received = if (observe) capture.failure else released;
+            try std.testing.expectEqual(if (post_draw) error.OutOfMemory else error.EntropyUnavailable, (received orelse return error.MissingGiftFailure).chain.cause);
+            try std.testing.expectEqual(@as(u16, 0), received.?.chain.secondary_count);
+            try std.testing.expect(if (observe) released == null else capture.failure == null);
+        }
+    }
+}

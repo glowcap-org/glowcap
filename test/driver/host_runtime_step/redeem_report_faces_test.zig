@@ -158,7 +158,7 @@ test "a non-memory drain failure after a refused report keeps the report and its
         again.f.sink.fail_with = error.ProviderContract;
         again.arm(k);
         again.becomeDue();
-        const result = again.f.runtime.stepAny(0);
+        const result = HostRuntime.testing.attempt(&again.f.runtime, .operational, .turn);
         const induced = again.failing.induced;
         if (again.memoryRefused()) {
             try again.expectGated();
@@ -173,7 +173,7 @@ test "a non-memory drain failure after a refused report keeps the report and its
         var rounds: usize = 0;
         while (again.rows() != 0 and rounds < 16) : (rounds += 1) {
             again.becomeDue();
-            _ = again.f.runtime.stepAny(0) catch |err| if (err != error.OutOfMemory) return err;
+            _ = try again.f.runtime.stepAny(0);
         }
         try std.testing.expectEqual(@as(usize, 0), again.rows());
         if (!induced) break;

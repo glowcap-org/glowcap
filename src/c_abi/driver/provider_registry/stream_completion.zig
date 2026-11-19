@@ -186,16 +186,33 @@ pub const StreamProvider = struct {
         self.released(self.table.cancel_listen.?(attempt, &report), report, "stream listen cancel");
     }
 
-    fn accept(ctx: *anyopaque, listener: *anyopaque) external.Finished {
+    fn accept(ctx: *anyopaque, listener: *anyopaque) external.AcceptFinished {
         const self = of(ctx);
         var conn: ?*anyopaque = null;
         var fd: i32 = -1;
         var report = shared.transport_provider.emptyProviderFailure();
         const code = self.table.accept.?(self.table.ctx, listener, &conn, &fd, &report);
-        if (code != GLOWCAP_OK) return .{ .failed = self.chainOf(code, report, "stream accept").cause };
+        if (code != GLOWCAP_OK) {
+            if (conn != null or fd != -1) {
+                self.sink.violation(self.sink.ctx, "stream accept published outputs on failure");
+                if (conn) |orphan| _ = connClose(ctx, orphan, .sink);
+                return .{ .failed = .init(error.ProviderContract) };
+            }
+            if (code == shared.GLOWCAP_ERR_WOULD_BLOCK) {
+                if (owner_mod.providerFailureIsEmpty(report)) return .would_block;
+                self.sink.violation(self.sink.ctx, "stream accept reported a failure while blocked");
+                return .{ .failed = .init(error.ProviderContract) };
+            }
+            const arrival = code == shared.GLOWCAP_ACCEPT_ARRIVAL_FAILED;
+            const failure = owner_mod.failureChainFromProvider(if (arrival) report.result else code, report) catch {
+                self.sink.violation(self.sink.ctx, "stream accept returned an invalid structured failure");
+                return .{ .failed = .init(error.ProviderContract) };
+            };
+            return if (arrival) .{ .arrival_failed = failure } else .{ .failed = failure };
+        }
         const handle = self.checkedHandle(report, conn, fd, "stream accept") orelse {
-            if (conn) |orphan| std.debug.assert(connClose(ctx, orphan, .sink) == null);
-            return .{ .failed = error.ProviderContract };
+            if (conn) |orphan| _ = connClose(ctx, orphan, .sink);
+            return .{ .failed = .init(error.ProviderContract) };
         };
         return .{ .ready = handle };
     }

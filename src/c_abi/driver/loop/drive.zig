@@ -14,7 +14,8 @@ const instanceFrom = Internal.instanceFrom;
 const errToCode = Internal.errToCode;
 const events = @import("events.zig");
 const reentrancyCode = events.reentrancyCode;
-const operationErrorCode = @import("events.zig").operationErrorCode;
+const failure_output = @import("../failure_output.zig");
+const driver_error = @import("../error.zig");
 const releaseRetiredListenerMetadata = lifecycle.releaseRetiredListenerMetadata;
 
 /// The one descriptor to park on: readable while any wire, resident,
@@ -43,29 +44,36 @@ pub export fn glowcap_driver_readiness_fd(raw: ?*c.GlowcapDriverLoop, out_fd: ?*
 /// was observed or an event remains queued, and `GLOWCAP_ERR_WOULD_BLOCK` when
 /// the loop is drained after that wait. Edge-triggered embedders therefore call
 /// until WOULD_BLOCK before clearing readiness. Drain
-/// `glowcap_driver_next_event` after every call that returns OK.
+/// `glowcap_driver_next_event` after every call that returns OK. After
+/// admission any other code names a latched failure. Subsequent steps and
+/// consuming release report it, even when events remain queued.
 pub export fn glowcap_driver_step(raw: ?*c.GlowcapDriverLoop, timeout_ms: i32) i32 {
     shared.lastErrorClear();
     const inst = instanceFrom(raw) orelse return GLOWCAP_ERR_NULL_POINTER;
     if (reentrancyCode(inst, "step")) |code| return code;
-    // Events are the consumer's backpressure signal. Do not commit more
-    // observable transitions until it drains what the prior step produced.
-    if (inst.events_head < inst.events.items.len) return GLOWCAP_OK;
     inst.stepping = true;
     defer inst.stepping = false;
-
-    const progress = inst.runtime.stepAny(timeout_ms) catch |err| {
-        return operationErrorCode(inst, err);
+    const progress = inst.runtime.stepEventLoop(timeout_ms, inst.events_head < inst.events.items.len) catch |err| switch (err) {
+        error.LoopTerminal => return terminalCode(inst.runtime.operationFailure(err)),
+        error.ReenteredHost, error.WrongThread => return errToCode(err),
     };
     // An individually closed listener retains its `.retired` C identity until
     // the caller retries listener_close after WOULD_BLOCK. Whole-loop close
     // has no such caller-owned retry and may release all projection metadata.
     if (inst.runtime.lifecyclePhase() != .active and inst.runtime.listenerOwnershipRetired() and
         !releaseRetiredListenerMetadata(inst))
-        inst.runtime.noteTerminalFailure(error.ProviderContract);
+    {
+        inst.runtime.failProviderContract();
+        return terminalCode(inst.runtime.operationFailure(error.ProviderContract));
+    }
     if (progress == null and inst.events_head >= inst.events.items.len)
         return GLOWCAP_ERR_WOULD_BLOCK;
     return GLOWCAP_OK;
+}
+
+fn terminalCode(failure: @import("driver").OperationFailure) i32 {
+    failure_output.setLastError("driver step", failure);
+    return driver_error.terminalCode(failure.kind());
 }
 
 /// Release the calling thread's exclusive claim on the loop's host at a

@@ -86,7 +86,7 @@ pub const Rig = struct {
 
     /// A step that tolerates only a memory refusal.
     pub fn step(self: *Rig) !void {
-        _ = self.f.runtime.stepAny(0) catch |err| if (err != error.OutOfMemory) return err;
+        _ = try self.f.runtime.stepAny(0);
     }
 
     /// Hold the memory retry deadline in the future, as a prior refusal does,

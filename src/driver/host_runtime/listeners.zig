@@ -238,8 +238,8 @@ pub fn closeActiveListener(self: *HostRuntime, tag: u64, async_completion: bool)
             value.observer.failed(value.observer.ctx, value.tag, failure.?)
         else
             value.observer.retired(value.observer.ctx, value.tag);
-    } else if (failure) |unclaimed| {
-        Internal.retainAndReportUnhandledFailure(self, unclaimed);
+    } else if (async_completion) {
+        if (failure) |unclaimed| self.reportUnhandledFailure(unclaimed);
     }
     return .{ .found = true, .failure = failure };
 }

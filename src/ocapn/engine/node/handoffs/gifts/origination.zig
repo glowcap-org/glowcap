@@ -53,6 +53,8 @@ fn routeNeedsGift(self: *Node, peer_handle: PeerHandle, route_id: model.Capabili
 /// Unknown tickets stay idempotent even for malformed bytes. A live ticket
 /// refuses malformed entropy before reserving consequences or consuming the
 /// row, so the host can retry it.
+/// A refusal after taking the ticket breaks its answer or returns the original
+/// cause to the caller when the send has no answer recipient.
 pub fn provideGiftId(self: *Node, ticket: u64, gift_id: []const u8) !void {
     if (!tickets.contains(self, ticket)) return;
     if (gift_id.len != model.handoff_gift_id_bytes) return error.InvalidArgument;
@@ -64,14 +66,15 @@ pub fn provideGiftId(self: *Node, ticket: u64, gift_id: []const u8) !void {
         pending.route_id,
         pending.staged,
         gift_id,
-    );
+    ) catch |err| {
+        if (passable_batches.fail(self, pending.staged.batch, err) == .unobserved) return err;
+    };
 }
 
 /// Terminalize a live entropy request the embedder could not answer. The
 /// destination must settle rather than leaving authority parked forever.
 /// Unknown or already-retired tickets remain idempotent no-ops.
-pub fn giftIdFailed(self: *Node, ticket: u64) !void {
-    if (!tickets.contains(self, ticket)) return;
-    const pending = tickets.take(self, ticket) orelse unreachable;
-    passable_batches.fail(self, pending.staged.batch, error.GiftIdUnavailable);
+pub fn giftIdFailed(self: *Node, ticket: u64) Node.GiftFailureDelivery {
+    const pending = tickets.take(self, ticket) orelse return .stale;
+    return passable_batches.fail(self, pending.staged.batch, error.GiftIdUnavailable);
 }

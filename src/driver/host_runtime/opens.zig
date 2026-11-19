@@ -422,13 +422,15 @@ fn reportOpened(self: *HostRuntime, observation: anytype, session: *driver_core.
 fn reportAcceptOpened(self: *HostRuntime, observation: SessionAcceptObservation, session: *driver_core.HostSession) void {
     const obs = observation.observer;
     obs.opened(obs.ctx, observation.tag, session) catch |err| {
-        var failure = self.operationFailure(err);
+        var failure = OperationFailure.fromError(err);
         self.releaseWire(session) catch |cleanup| {
-            failure.noteFailure(self.operationFailure(cleanup));
+            failure.note(cleanup);
             self.noteTerminalOperationFailure(failure);
+            obs.abandoned(obs.ctx, observation.tag);
+            return;
         };
         obs.abandoned(obs.ctx, observation.tag);
-        if (obs.arrival_failed) |notify| notify(obs.ctx, observation.tag, failure);
+        Internal.reportArrivalFailure(self, observation, failure);
     };
 }
 

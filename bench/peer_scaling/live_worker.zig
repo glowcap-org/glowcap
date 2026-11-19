@@ -154,7 +154,7 @@ const ServerShard = struct {
     fn run(self: *ServerShard) void {
         while (!self.shared.stop.load(.acquire)) {
             _ = self.runtime.stepAny(20) catch |err| {
-                self.loop_error = err;
+                self.loop_error = if (err == error.LoopTerminal) self.runtime.terminalFailure().?.chain.cause else err;
                 return;
             };
         }

@@ -386,12 +386,13 @@ pub fn Projection(
             const conn = listener.runtime.allocator.create(Connection) catch |err| {
                 var failure = foundation.FailureChain.init(err);
                 if (raw.close()) |cleanup| failure.noteChain(cleanup);
-                return c.transport_provider.failProviderChain(
+                c.transport_provider.setProviderFailureChain(
                     out_failure,
                     GLOWCAP_ERR_INTERNAL,
                     failure,
                     failure_projection.release,
                 );
+                return c.GLOWCAP_ACCEPT_ARRIVAL_FAILED;
             };
             conn.* = Connection.init(raw);
             listener.runtime.mutex.lock();
@@ -401,12 +402,13 @@ pub fn Projection(
                 if (conn.raw.close()) |cleanup| failure.noteChain(cleanup);
                 listener.runtime.allocator.destroy(conn);
                 const code: i32 = if (err == error.OutOfMemory) GLOWCAP_ERR_INTERNAL else GLOWCAP_ERR_CLOSED;
-                return c.transport_provider.failProviderChain(
+                c.transport_provider.setProviderFailureChain(
                     out_failure,
                     code,
                     failure,
                     failure_projection.release,
                 );
+                return c.GLOWCAP_ACCEPT_ARRIVAL_FAILED;
             };
             slot.* = id;
             listener.runtime.signalControl();

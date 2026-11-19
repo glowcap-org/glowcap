@@ -80,10 +80,9 @@ pub const NodeServices = struct {
         return Internal.stageOutbound(self.node, self.peer_handle, outbound, inventory);
     }
 
-    /// A retracted provisional window removed the row of a carrier the Node
-    /// is still staging (ADR-0058). The Node fails that batch.
-    pub fn stagedWithdrawn(self: NodeServices, batch: passable.BatchId) void {
-        Internal.stagedWithdrawn(self.node, self.peer_handle, batch);
+    /// Withdraw the staged carrier and return any answer its turn must break.
+    pub fn stagedWithdrawn(self: NodeServices, batch: passable.BatchId) ?session.OutboundAnswerTarget {
+        return Internal.stagedWithdrawn(self.node, self.peer_handle, batch);
     }
 
     /// The Peer's provisional window closed (ADR-0058), after the Peer kept

@@ -61,6 +61,17 @@ still drain recorded failures from that Context after release. A Host created
 with `glowcap_host_new` supports byte-fed operation. Attempting to adopt it
 returns `GLOWCAP_ERR_INVALID_ARGUMENT` and leaves its queued actions available.
 
+After an admitted `glowcap_driver_step`, drain events on `GLOWCAP_OK` and
+wait for readiness or the next deadline on `GLOWCAP_ERR_WOULD_BLOCK`.
+Any other result ends operational stepping. Later steps return that result,
+and consuming driver release gives you the primary failure and its consequences.
+A rejected reentrant or wrong-thread call leaves the loop with its owner.
+
+A failed dial or live session close reports through its operation event.
+If an arrival fails before it has a session, read its Context-unique listener ID and cause
+with `glowcap_context_next_failure`. The same reader gives the Host ID for a
+carrier failure that completes after its session has been released.
+
 The driver archive starts with zero transports. To add `noise-tcp`, create a
 `GlowcapTcpNetlayer`, call `glowcap_tcp_transport_provider`, and pass the
 result to `glowcap_driver_add_provider`. iroh installs the same way through

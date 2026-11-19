@@ -207,17 +207,21 @@ pub fn dialCancelled(self: *Host, ticket: engine.Node.PendingId, route_index: us
 /// exporter first. A stale ticket is a no-op.
 pub fn provideGiftId(self: *Host, ticket: u64, gift_id: []const u8) !void {
     try self.refuseReentry();
-    try self.node.provideGiftId(ticket, gift_id);
+    self.node.provideGiftId(ticket, gift_id) catch |err| {
+        if (!self.node.hasPendingGift(ticket)) finishCommittedEffect(self);
+        return err;
+    };
     finishCommittedEffect(self);
 }
 
 /// Report that the embedder could not answer a `need_gift_id` action. The
 /// pending handoff settles broken rather than retaining an action ticket no
 /// runtime can complete. A stale ticket is a no-op.
-pub fn giftIdFailed(self: *Host, ticket: u64) !void {
+pub fn giftIdFailed(self: *Host, ticket: u64) !engine.Node.GiftFailureDelivery {
     try self.refuseReentry();
-    try self.node.giftIdFailed(ticket);
+    const delivery = self.node.giftIdFailed(ticket);
     finishCommittedEffect(self);
+    return delivery;
 }
 
 /// Redeem a signed give that must settle the question this session asked at

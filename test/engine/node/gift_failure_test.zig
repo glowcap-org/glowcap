@@ -236,7 +236,7 @@ test "inline gift entropy failure breaks only the answered message" {
     } });
     const failed_ticket = node.nextAction().?.need_gift_id.ticket;
     _ = node.nextAction().?; // the sibling ticket becomes stale with the batch
-    try node.giftIdFailed(failed_ticket);
+    try std.testing.expectEqual(.delivered, node.giftIdFailed(failed_ticket));
 
     try std.testing.expectEqual(@as(usize, 0), node.pendingGiftEffects());
     const failure = node.nextAction().?.fail;
@@ -247,6 +247,17 @@ test "inline gift entropy failure breaks only the answered message" {
     try std.testing.expect(node.nextAction() == null);
     try std.testing.expectEqual(engine.StepOutcome.idle, try exporter.step());
     try std.testing.expect(exporter.takeOutbound() == null);
+
+    // A send-only delivery has no answer. Retire it once without a fake
+    // completion; a later call for the retired ticket owes no second report.
+    try recipient.sendBorrowed(.{ .deliver = .{
+        .target = .{ .far = model.FarRef.object(2) },
+        .args = &.{.{ .reference = foreign }},
+    } });
+    const tell_ticket = node.nextAction().?.need_gift_id.ticket;
+    try std.testing.expectEqual(.unobserved, node.giftIdFailed(tell_ticket));
+    try std.testing.expectEqual(.stale, node.giftIdFailed(tell_ticket));
+    try std.testing.expect(node.nextAction() == null);
 }
 
 test "terminal cancellation retires an inline batch and its admission budget" {
@@ -288,7 +299,7 @@ test "terminal cancellation retires an inline batch and its admission budget" {
     try std.testing.expectEqual(@as(usize, 0), node.pendingGiftEffects());
     try std.testing.expectEqual(@as(usize, 0), recipient.queuedOutboundBytes());
     const stale = node.nextAction().?.need_gift_id.ticket;
-    try node.giftIdFailed(stale);
+    _ = node.giftIdFailed(stale);
     try std.testing.expect(node.nextAction() == null);
 
     // The occurrence cap and terminal action seat retired with the batch, so
@@ -297,7 +308,7 @@ test "terminal cancellation retires an inline batch and its admission budget" {
     try std.testing.expectEqual(@as(usize, 1), node.pendingGiftEffects());
     const fresh = node.nextAction().?.need_gift_id.ticket;
     node.cancelPendingGifts();
-    try node.giftIdFailed(fresh);
+    _ = node.giftIdFailed(fresh);
     try std.testing.expect(node.nextAction() == null);
 }
 
@@ -491,7 +502,7 @@ test "gift-id entropy failure settles the claimed handoff instead of stranding i
     try std.testing.expect(try node.interceptFulfilledRoute(recipient, 62, gift.routed.id));
     const ask = node.nextAction().?;
 
-    try node.giftIdFailed(ask.need_gift_id.ticket);
+    _ = node.giftIdFailed(ask.need_gift_id.ticket);
     const failed = node.nextAction().?;
     try std.testing.expect(failed.fail.dest == .served_answer);
     try std.testing.expectEqual(recipient, failed.fail.dest.served_answer.recipient_peer);
@@ -505,6 +516,6 @@ test "gift-id entropy failure settles the claimed handoff instead of stranding i
     );
 
     // Completion reports are idempotent across racing teardown/retry.
-    try node.giftIdFailed(ask.need_gift_id.ticket);
+    _ = node.giftIdFailed(ask.need_gift_id.ticket);
     try std.testing.expect(node.nextAction() == null);
 }

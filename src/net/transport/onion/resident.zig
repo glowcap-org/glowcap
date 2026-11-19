@@ -23,6 +23,7 @@ const engine = @import("engine");
 const model = @import("model");
 
 const accept_gate = @import("../../accept_gate.zig");
+const socket = @import("../../socket.zig");
 const connection = @import("../../connection.zig");
 const frame_stream = @import("../../frame_stream.zig");
 const netlayer = @import("../../netlayer.zig");
@@ -441,15 +442,14 @@ pub const Listener = struct {
     /// complete wrapper construction so concurrent deinit cannot free listener
     /// state between the kernel accept and the last read of `self.io`.
     fn acceptStreamLocked(self: *Listener) netlayer.AcceptError!Stream {
-        if (!try self.gate.waitReadable(self.server.socket.handle, -1)) return error.ConnectionLost;
-        return self.server.accept(self.io) catch error.ConnectionLost;
+        return (try self.gate.acceptStream(self.io, &self.server, .wait)).unwrap();
     }
 
-    /// Accept an unframed stream for host integrations that own CapTP framing.
-    pub fn acceptRawStream(self: *Listener) netlayer.AcceptError!Stream {
+    /// Claim one ready unframed stream for the event-driven provider.
+    pub fn acceptReadyStream(self: *Listener) accept_gate.WaitError!socket.ReadyAccept {
         self.gate.lock(self.io);
         defer self.gate.unlock(self.io);
-        return self.acceptStreamLocked();
+        return self.gate.acceptStream(self.io, &self.server, .ready);
     }
 
     /// Wait until `accept` would make progress, up to `timeout_ms`. The poll

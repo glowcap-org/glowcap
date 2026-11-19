@@ -52,12 +52,22 @@ pub fn noteTerminalOperationFailure(self: *HostRuntime, later: OperationFailure)
 
 /// Publish a callerless failure without changing runtime control flow.
 pub fn reportUnhandledFailure(self: *HostRuntime, failure: OperationFailure) void {
-    if (self.opts.unhandled_failure) |observer| observer.report(observer.ctx, failure);
+    if (self.opts.unhandled_failure) |observer| {
+        observer.report(observer.ctx, failure);
+    } else {
+        foundation.latchFailure(&self.release_failure, failure);
+    }
 }
 
-pub fn retainAndReportUnhandledFailure(self: *HostRuntime, failure: OperationFailure) void {
-    noteTerminalOperationFailure(self, failure);
-    reportUnhandledFailure(self, failure);
+/// An arrival has no operation handle. Offer its failure to the listener or
+/// to the runtime's diagnostic observer when the listener has no recipient.
+pub fn reportArrivalFailure(self: *HostRuntime, observation: @import("lifecycle.zig").SessionAcceptObservation, failure: OperationFailure) void {
+    const observer = observation.observer;
+    if (observer.arrival_failed) |notify| {
+        notify(observer.ctx, observation.tag, failure);
+    } else {
+        self.reportUnhandledFailure(failure);
+    }
 }
 
 /// Record a provider callback contract violation at the driver boundary.

@@ -56,6 +56,7 @@ pub const HostFailure = struct {
     pub const named_rows = [_]Row{
         .{ .kind = .internal, .causes = &.{
             error.OutOfMemory,
+            error.GiftIdUnavailable,
             error.NoSpaceLeft,
             error.CapabilitySpaceExhausted,
             error.ResourceExhausted,
@@ -212,6 +213,9 @@ pub const HostFailure = struct {
         } },
         .{ .kind = .session, .causes = &.{
             error.PartnerUnverified,
+            error.NoRecipientKey,
+            error.NoExporterKey,
+            error.NoExporterLocator,
             error.PeerIdentityUnverified,
             error.HandshakeAlreadyApplied,
             error.SendRejected,

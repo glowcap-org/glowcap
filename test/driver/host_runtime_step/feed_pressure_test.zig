@@ -6,9 +6,7 @@
 //! latches a terminal failure, every byte the runtime took returned, and the
 //! single-wire workloads end with the sibling session answering a call.
 //!
-//! A step fails only where the workload says so, and only with
-//! `OutOfMemory`. The feed's own allocations, the park and the retained
-//! tail, never fail a step. A wait that owns the wire hears the exact cause.
+//! The step retains retryable work. A wait that owns a wire hears its exact cause.
 //!
 //! No allocation index in these workloads makes the core's close tail fail.
 //! The tail's classification and the retry deadline's rules are therefore
@@ -40,8 +38,6 @@ const Tally = struct {
     closed_clean: usize = 0,
     /// Runs where the rig's wire stayed open and answered in order.
     stayed_open: usize = 0,
-    /// Steps that failed under the refusal, where the scenario allows one.
-    step_errors: usize = 0,
     /// Steps that returned with core work retained behind the retry deadline.
     retained_steps: usize = 0,
     /// Failed steps after which a wire held input the sweep had not counted.
@@ -90,11 +86,6 @@ const Workload = enum {
     fn fetches(workload: Workload) usize {
         return if (workload == .requests) 2 else 1;
     }
-
-    /// Whether a step may fail while memory is short.
-    fn stepMayFail(workload: Workload, shortage: Shortage) bool {
-        return workload == .requests or workload == .held_pair or workload == .request_pair or shortage == .lasting;
-    }
 };
 
 const Trial = struct {
@@ -102,32 +93,17 @@ const Trial = struct {
     sibling: *Sibling,
     tally: *Tally,
     workload: Workload,
-    shortage: Shortage,
-    /// Memory has come back, so no step may fail.
-    recovered: bool = false,
 
     fn step(self: *Trial) !void {
         // Each step is the retry the wait allows: the deadline, if armed, is due.
         if (self.rig.runtime.core.memory_retry_due_ms != null) self.rig.clock.advanceMs(HostRuntime.testing.memory_retry_ms);
         _ = try self.sibling.resident.wake.nudge();
         _ = try self.rig.resident.wake.nudge();
-        const failed = if (self.rig.runtime.stepAny(0)) |_| false else |err| blk: {
-            if (self.recovered or !self.workload.stepMayFail(self.shortage)) return err;
-            try std.testing.expectEqual(error.OutOfMemory, err);
-            self.tally.step_errors += 1;
-            break :blk true;
-        };
-        // No step latches: a failure with a caller returns, and one that
-        // belongs to a connection closes it.
-        try std.testing.expect(self.rig.runtime.terminal_failure == null);
-        const retained = self.rig.runtime.core.memory_retry_due_ms != null;
-        if (retained and !failed) self.tally.retained_steps += 1;
-        if (failed or retained) {
-            // A failed or retained drain leaves the retry the wait wakes for.
-            try std.testing.expect(self.rig.runtime.core.memory_retry_due_ms != null);
-            try self.expectHoldsCounted();
-        }
+        _ = try self.rig.runtime.stepAny(0);
+        try std.testing.expect(self.rig.runtime.terminalFailure() == null);
         if (self.rig.runtime.core.memory_retry_due_ms != null) {
+            self.tally.retained_steps += 1;
+            try self.expectHoldsCounted();
             // The step's wait wakes for the retry and never past it.
             const wait = self.rig.runtime.stepWaitMs();
             try std.testing.expect(wait >= 0 and wait <= HostRuntime.testing.memory_retry_ms);
@@ -177,14 +153,13 @@ fn trial(workload: Workload, shortage: Shortage, k: usize, tally: *Tally) !bool 
         rig.destroy();
         sibling.destroy();
     }
-    var run = Trial{ .rig = rig, .sibling = sibling, .tally = tally, .workload = workload, .shortage = shortage };
+    var run = Trial{ .rig = rig, .sibling = sibling, .tally = tally, .workload = workload };
     try prepare(&run);
 
     failing.fail_index = failing.alloc_index + k;
     try drive(&run);
     const reached = failing.induced;
     failing.fail_index = disabled;
-    run.recovered = true;
     if (reached) try settle(&run);
 
     rig.destroy();
@@ -327,13 +302,11 @@ fn sweep(workload: Workload, shortage: Shortage) !Tally {
 test "a feed the core cannot retain closes that wire with the memory cause and no step fails" {
     const tally = try sweep(.half_request, .brief);
     try std.testing.expect(tally.closed_for_memory != 0);
-    try std.testing.expectEqual(@as(usize, 0), tally.step_errors);
 }
 
 test "a chunk an unattended wire cannot park closes that wire and no step fails" {
     const tally = try sweep(.parked_request, .brief);
     try std.testing.expect(tally.closed_for_memory != 0);
-    try std.testing.expectEqual(@as(usize, 0), tally.step_errors);
 }
 
 test "a refusal under serve, answer and drain leaves every wire in sync or closed" {
@@ -345,7 +318,7 @@ test "a refusal under serve, answer and drain leaves every wire in sync or close
 test "a lasting shortage across serve, answer, drain and close latches nothing" {
     const tally = try sweep(.requests, .lasting);
     try std.testing.expect(tally.closed_for_memory != 0);
-    try std.testing.expect(tally.step_errors + tally.retained_steps != 0);
+    try std.testing.expect(tally.retained_steps != 0);
 }
 
 test "a lasting shortage under two wires' requests closes wires only for memory and counts held input" {
@@ -357,7 +330,7 @@ test "a lasting shortage under two wires' requests closes wires only for memory 
 test "two held wires under a lasting shortage close for memory or stay held and counted" {
     const tally = try sweep(.held_pair, .lasting);
     try std.testing.expect(tally.closed_for_memory != 0);
-    try std.testing.expect(tally.step_errors + tally.retained_steps != 0);
+    try std.testing.expect(tally.retained_steps != 0);
     try std.testing.expectEqual(@as(usize, 0), tally.stale_hold);
 }
 
@@ -452,7 +425,7 @@ fn refuseReserve(_: *anyopaque) anyerror!void {
     return error.SinkRefused;
 }
 
-test "a due attempt renews the deadline before it runs, and a failure that is not memory leaves it renewed" {
+test "a hard failure reserving the completion sink terminates the admitted step" {
     const rig = try Rig.build(std.testing.allocator, .{ .fetches = 0, .attended = false, .clock_step_ns = 0 });
     const sibling = try Sibling.attach(rig, false);
     defer {
@@ -495,19 +468,9 @@ test "a due attempt renews the deadline before it runs, and a failure that is no
     // The first step opens the window and flushes the queue, so the replay
     // that follows it finds the session no longer at its waterline.
     _ = try rig.step();
-    try std.testing.expectError(error.SinkRefused, rig.step());
+    try std.testing.expectError(error.LoopTerminal, rig.step());
     try std.testing.expect(wire.closed);
-    try std.testing.expect(runtime.terminal_failure == null);
-    // No deadline was set, and a failure that is not memory sets none.
+    try std.testing.expectEqual(error.SinkRefused, runtime.terminalFailure().?.chain.cause);
     try std.testing.expect(runtime.core.memory_retry_due_ms == null);
-    try std.testing.expect(runtime.held_input_possible);
-
-    // With one set and past due, the attempt renews it to one interval from
-    // now before it runs, and the failure that is not memory leaves it so.
-    const now = runtime.nowMs();
-    runtime.core.memory_retry_due_ms = now - 1;
-    try std.testing.expectError(error.SinkRefused, runtime.drainActions());
-    try std.testing.expectEqual(@as(?i64, now + HostRuntime.testing.memory_retry_ms), runtime.core.memory_retry_due_ms);
-    const wait = runtime.stepWaitMs();
-    try std.testing.expect(wait >= 0 and wait <= HostRuntime.testing.memory_retry_ms);
+    try std.testing.expectError(error.LoopTerminal, rig.step());
 }

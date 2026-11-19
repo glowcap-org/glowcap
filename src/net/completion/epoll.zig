@@ -518,6 +518,7 @@ pub const Backend = struct {
                         .user_data = user_data,
                         .result = -1,
                         .failure = error.SocketConfigurationFailed,
+                        .arrival_retired = true,
                     };
                 }
                 return .{ .user_data = user_data, .result = accepted };

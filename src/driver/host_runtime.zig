@@ -155,6 +155,8 @@ pub const HostRuntime = struct {
     /// Runtime cleanup, but terminality is Runtime policy and every later
     /// application operation observes this one sticky concrete cause.
     terminal_failure: ?OperationFailure = null,
+    /// Without a diagnostic observer, callerless failures belong to deinitOutcome.
+    release_failure: ?OperationFailure = null,
     /// When the next paced retry of resident-owned memory debt is due, armed
     /// while a resident's `memory_retry` group owes one. It is separate from
     /// the core's deadline, which core, report and Loam predicates read, so
@@ -486,7 +488,7 @@ pub const HostRuntime = struct {
     const abandonFreshSession = runtime_failures.abandonFreshSession;
     pub const noteTerminalOperationFailure = runtime_failures.noteTerminalOperationFailure;
     pub const reportUnhandledFailure = runtime_failures.reportUnhandledFailure;
-    const retainAndReportUnhandledFailure = runtime_failures.retainAndReportUnhandledFailure;
+    const reportArrivalFailure = runtime_failures.reportArrivalFailure;
     pub const failProviderContract = runtime_failures.failProviderContract;
     const reportObservedFailure = runtime_failures.reportObservedFailure;
     const reportObservedOperationFailure = runtime_failures.reportObservedOperationFailure;
@@ -548,9 +550,8 @@ pub const HostRuntime = struct {
     pub const pumpUntilFlag = runtime_step.pumpUntilFlag;
     pub const stepSession = runtime_step.stepSession;
     pub const stepAny = runtime_step.stepAny;
+    pub const stepEventLoop = runtime_step.stepEventLoop;
     pub const stepAnyToward = runtime_step.stepAnyToward;
-    const stepAnyOwned = runtime_step.stepAnyOwned;
-    const stepAfterTerminalFailure = runtime_step.stepAfterTerminalFailure;
     const waitForTerminalSignal = runtime_step.waitForTerminalSignal;
     const terminalCleanupPending = runtime_step.terminalCleanupPending;
     const nudgeIfWorkRemains = runtime_step.nudgeIfWorkRemains;
@@ -616,7 +617,7 @@ pub const Internal = struct {
     pub const descriptorInUse = HostRuntime.descriptorInUse;
     pub const removeReadyFd = HostRuntime.removeReadyFd;
     pub const reserveListenerProfile = HostRuntime.reserveListenerProfile;
-    pub const retainAndReportUnhandledFailure = HostRuntime.retainAndReportUnhandledFailure;
+    pub const reportArrivalFailure = HostRuntime.reportArrivalFailure;
     pub const pendingOpenFor = HostRuntime.pendingOpenFor;
     pub const nudgeIfWorkRemains = HostRuntime.nudgeIfWorkRemains;
     pub const nudgeReadyReports = HostRuntime.nudgeReadyReports;

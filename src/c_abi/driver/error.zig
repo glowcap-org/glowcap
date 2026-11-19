@@ -22,3 +22,8 @@ pub fn code(kind: driver.OperationFailure.Kind) i32 {
 pub fn fromError(cause: anyerror) i32 {
     return code(driver.OperationFailure.classify(cause));
 }
+
+/// A latched failure can never ask the step caller to wait for readiness.
+pub fn terminalCode(kind: driver.OperationFailure.Kind) i32 {
+    return if (kind == .would_block) shared.GLOWCAP_ERR_INTERNAL else code(kind);
+}

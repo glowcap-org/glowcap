@@ -337,8 +337,8 @@ const Provider = struct {
         try std.testing.expectEqual(cause, latched.chain.cause);
         try std.testing.expectEqual(@as(?anyerror, null), latched.chain.secondary_cause);
         try std.testing.expectEqual(@as(u16, 0), latched.chain.secondary_count);
-        try std.testing.expectError(cause, self.runtime.stepAny(0));
-        try std.testing.expectError(cause, self.runtime.stepAny(0));
+        try std.testing.expectError(error.LoopTerminal, self.runtime.stepAny(0));
+        try std.testing.expectError(error.LoopTerminal, self.runtime.stepAny(0));
     }
 };
 
@@ -349,7 +349,7 @@ test "a provider that fails the accepted connection's remote key latches and clo
     provider.resident.fail_remote_key = true;
 
     provider.resident.announceAccept();
-    try std.testing.expectError(error.ProviderContract, provider.runtime.stepAny(0));
+    try std.testing.expectError(error.LoopTerminal, provider.runtime.stepAny(0));
     try provider.expectLatched(error.ProviderContract);
     // The violation is the provider's, so the arrival is not also reported as
     // a local refusal, but its connection, session, row and reservation are gone.
@@ -368,7 +368,7 @@ test "a connect record from a resident that has no dialer latches" {
 
     provider.resident.held_record = .{ .subject = 5, .events = net.multiplexed_resident.ev_connect };
     _ = try provider.resident.wake.nudge();
-    try std.testing.expectError(error.ProviderContract, provider.runtime.stepAny(0));
+    try std.testing.expectError(error.LoopTerminal, provider.runtime.stepAny(0));
     try provider.expectLatched(error.ProviderContract);
 }
 
@@ -379,7 +379,7 @@ test "a drain that reports more records than its buffer holds latches" {
 
     provider.resident.overreport_drain = true;
     _ = try provider.resident.wake.nudge();
-    try std.testing.expectError(error.ProviderContract, provider.runtime.stepAny(0));
+    try std.testing.expectError(error.LoopTerminal, provider.runtime.stepAny(0));
     try provider.expectLatched(error.ProviderContract);
 }
 
@@ -445,7 +445,7 @@ test "a retired arrival whose close fails keeps the failure first and a later vi
     provider.resident.announceAccept();
     // The step that served the batch reports the violation it found, and the
     // latch keeps the close failure as the cause every later step reports.
-    try std.testing.expectError(error.ProviderContract, provider.runtime.stepAny(0));
+    try std.testing.expectError(error.LoopTerminal, provider.runtime.stepAny(0));
     const latched = provider.runtime.terminal_failure orelse return error.NotLatched;
     try std.testing.expectEqual(error.ConnectionLost, latched.chain.cause);
     try std.testing.expectEqual(@as(?anyerror, error.ProviderContract), latched.chain.secondary_cause);
@@ -457,7 +457,7 @@ test "a retired arrival whose close fails keeps the failure first and a later vi
     try std.testing.expectEqual(@as(usize, 0), provider.runtime.pending_opens.items.len);
     try std.testing.expectEqual(@as(usize, 0), provider.runtime.resident_wires.count());
     try std.testing.expectEqual(provider.seat, provider.arrivals.held);
-    try std.testing.expectError(error.ConnectionLost, provider.runtime.stepAny(0));
+    try std.testing.expectError(error.LoopTerminal, provider.runtime.stepAny(0));
 }
 
 test "a contract violation on an accepted connection keeps its close failure as the consequence" {
@@ -468,7 +468,7 @@ test "a contract violation on an accepted connection keeps its close failure as 
     provider.resident.fail_remote_key = true;
     provider.resident.close_failure = .init(error.ConnectionLost);
     provider.resident.announceAccept();
-    try std.testing.expectError(error.ProviderContract, provider.runtime.stepAny(0));
+    try std.testing.expectError(error.LoopTerminal, provider.runtime.stepAny(0));
     const latched = provider.runtime.terminal_failure orelse return error.NotLatched;
     try std.testing.expectEqual(error.ProviderContract, latched.chain.cause);
     try std.testing.expectEqual(@as(?anyerror, error.ConnectionLost), latched.chain.secondary_cause);
@@ -476,7 +476,7 @@ test "a contract violation on an accepted connection keeps its close failure as 
     try std.testing.expectEqual(@as(usize, 1), provider.resident.close_calls);
     try std.testing.expectEqual(@as(usize, 0), provider.runtime.resident_wires.count());
     try std.testing.expectEqual(provider.seat, provider.arrivals.held);
-    try std.testing.expectError(error.ProviderContract, provider.runtime.stepAny(0));
+    try std.testing.expectError(error.LoopTerminal, provider.runtime.stepAny(0));
 }
 
 /// Step a session-scoped wait until it stops with an error, a few times at most: the

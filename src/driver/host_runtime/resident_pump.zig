@@ -97,27 +97,23 @@ fn handleResidentEvent(
             .resident = resident_index,
             .route = event.subject,
         }) orelse return 0;
-        if (self.active_listeners.get(listener.observation.tag)) |active| {
-            if (active.closing) {
-                var refused = switch (listener.listener.finishAcceptOutcome()) {
-                    .connection => |conn| conn orelse return 0,
-                    .failed => |failure| {
-                        self.noteTerminalOperationFailure(.fromAcceptFailure(failure));
-                        return 0;
-                    },
-                };
-                if (refused.deinit()) |failure| Internal.noteTerminalFailureChain(self, failure);
-                return 0;
-            }
-        }
+        const closing = if (self.active_listeners.get(listener.observation.tag)) |active| active.closing else false;
         var conn = switch (listener.listener.finishAcceptOutcome()) {
             .connection => |conn| conn orelse return 0,
+            .arrival_failed => |failure| {
+                Internal.reportArrivalFailure(self, listener.observation, .fromAcceptFailure(failure));
+                return 0;
+            },
             .failed => |failure| {
-                Internal.failActiveListener(self, listener.observation.tag, OperationFailure.fromAcceptFailure(failure));
+                if (closing)
+                    self.noteTerminalOperationFailure(.fromAcceptFailure(failure))
+                else
+                    Internal.failActiveListener(self, listener.observation.tag, .fromAcceptFailure(failure));
                 return 0;
             },
         };
         defer if (conn.deinit()) |failure| Internal.noteTerminalFailureChain(self, failure);
+        if (closing) return 0;
         // A claim that borrows no connection breaks the accept contract.
         const conn_id = conn.borrow() orelse {
             self.failProviderContract();
@@ -126,7 +122,7 @@ fn handleResidentEvent(
         // The provider already removed this connection from its accept queue. An
         // over-limit arrival closes here without a session or retained buffers.
         // Level-shaped readiness brings the next accept through a later step.
-        if (!Internal.pendingOpenSlotAvailable(self)) return 0;
+        if (self.terminal_failure != null or !Internal.pendingOpenSlotAvailable(self)) return 0;
         if (!listener.observation.observer.can_accept(listener.observation.observer.ctx)) return 0;
         // A listener is ready before its caller can select a location, and a
         // session cannot open without one. An arrival in that window closes,
@@ -135,6 +131,7 @@ fn handleResidentEvent(
         // A local failure admitting this arrival retires only the arrival:
         // `conn`'s deferred release closes it, and the listener, its siblings
         // and the runtime carry on.
+        var rollback: ArrivalRollback = .{};
         startAcceptedConn(
             self,
             resident_index,
@@ -142,7 +139,18 @@ fn handleResidentEvent(
             conn_id,
             listener.transport,
             listener.observation,
-        ) catch |err| retireArrival(self, listener.observation, err);
+            &rollback,
+        ) catch |err| {
+            if (rollback.provider_latched) {
+                if (rollback.cleanup) |cleanup| Internal.noteTerminalFailureChain(self, cleanup);
+            } else if (rollback.cleanup) |cleanup| {
+                var failure = OperationFailure.fromError(err);
+                failure.noteChain(cleanup);
+                self.noteTerminalOperationFailure(failure);
+            } else {
+                Internal.reportArrivalFailure(self, listener.observation, .fromError(err));
+            }
+        };
         return 0;
     }
     if (event.events & er.ev_connect != 0) {
@@ -199,16 +207,10 @@ fn handleResidentEvent(
     return own_fed;
 }
 
-/// Report an arrival refused before any session took it. A closing Host and
-/// the pending-open ceiling are ordinary refusals, as `can_accept` is, and a
-/// provider violation was already latched where it was found. Anything else
-/// reaches the observer's arrival channel, which leaves its listener open.
-fn retireArrival(self: *HostRuntime, observation: SessionAcceptObservation, err: anyerror) void {
-    if (err == driver_core.Error.HostClosing or err == driver_core.Error.PendingOpenLimitReached) return;
-    if (self.terminal_failure != null) return;
-    const observer = observation.observer;
-    if (observer.arrival_failed) |notify| notify(observer.ctx, observation.tag, OperationFailure.fromError(err));
-}
+const ArrivalRollback = struct {
+    provider_latched: bool = false,
+    cleanup: ?@import("foundation").FailureChain = null,
+};
 
 /// Adopt one connection claimed from a resident accept queue and park its
 /// CapTP handshake under the same observer path as a stream listener. Every
@@ -221,20 +223,28 @@ fn startAcceptedConn(
     conn_id: usize,
     transport: []const u8,
     observation: SessionAcceptObservation,
+    rollback: *ArrivalRollback,
 ) !void {
-    var admission = try Internal.acquireOpenAdmission(self, .application);
+    var admission = Internal.acquireOpenAdmission(self, .application) catch |err| switch (err) {
+        error.HostClosing, error.PendingOpenLimitReached => return,
+        else => return err,
+    };
     errdefer admission.release();
     const observer = observation.observer;
     try observer.reserve(observer.ctx, observation.tag);
     errdefer observer.release(observer.ctx, observation.tag);
     const resident = self.residents.items[resident_index].resident;
     const session = try self.core.openAcceptedAdvertised(transport);
-    errdefer Internal.abandonFreshSession(self, session);
+    errdefer {
+        Internal.dropWire(self, session.peer_handle);
+        rollback.cleanup = Internal.releaseCoreSession(self, session);
+    }
     const row = try self.allocator.create(PendingOpen);
     errdefer self.allocator.destroy(row);
     try self.pending_opens.ensureUnusedCapacity(self.allocator, 1);
     const remote_key = resident.connRemoteKey(conn_id) catch |err| {
         ensureProviderCause(self);
+        rollback.provider_latched = true;
         return err;
     };
     if (remote_key) |key| {

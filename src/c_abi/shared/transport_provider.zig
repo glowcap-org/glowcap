@@ -18,6 +18,9 @@ const locator = @import("locator.zig");
 const codes = @import("result.zig");
 
 pub const GLOWCAP_TRANSPORT_PROVIDER_ABI_VERSION: u32 = 1;
+
+/// accept or finish_accept retired one arrival. The failure slot holds its original result.
+pub const GLOWCAP_ACCEPT_ARRIVAL_FAILED: i32 = 1;
 pub const GLOWCAP_TRANSPORT_PROFILE_ABI_VERSION: u32 = 1;
 pub const GLOWCAP_STREAM_TRANSPORT_ABI_VERSION: u32 = 1;
 /// `try_read` / `try_write` result when the operation cannot progress

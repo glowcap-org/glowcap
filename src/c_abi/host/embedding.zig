@@ -68,9 +68,22 @@ pub const valueProjectionBound = marshal.valueProjectionBound;
 pub fn claimForDriver(handle: ?*c.GlowcapHost) ClaimError!?DriverClaim {
     const inst = instance.instanceFrom(handle) orelse return null;
     if (inst.drive_owner != .embedder) return error.HostAlreadyOwned;
-    if (inst.diagnostic_id == 0) return error.HostRequiresContext;
+    if (inst.diagnostics == null) return error.HostRequiresContext;
     inst.drive_owner = .driver;
     return .{ .inst = inst };
+}
+
+/// Allocate the listener's public ID in its adopted Host's Context.
+pub fn allocateListenerId(handle: *c.GlowcapHost) error{IdentifierExhausted}!u64 {
+    return instance.instanceFrom(handle).?.diagnostics.?.context.lifecycle_ids.allocate();
+}
+
+/// A driver owns only a Host whose Context survives release.
+pub fn recordDriverFailure(handle: *c.GlowcapHost, input: shared.failure_diagnostics.Input) void {
+    const scope = instance.instanceFrom(handle).?.diagnostics.?;
+    var record = input;
+    if (record.scope_kind == .host) record.scope_id = scope.host_id;
+    scope.context.failures.record(record);
 }
 
 pub const releaseFromDriver = instance.releaseFromDriver;

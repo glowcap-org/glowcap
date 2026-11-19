@@ -44,7 +44,9 @@ pub const SharedRuntime = struct {
         self.leases -= 1;
         if (self.leases != 0) return false;
         const allocator = self.allocator;
-        if (self.runtime.deinitOutcome()) |failure| self.runtime.reportUnhandledFailure(failure);
+        if (self.runtime.deinitOutcome()) |failure| {
+            if (self.runtime.opts.unhandled_failure) |observer| observer.report(observer.ctx, failure);
+        }
         allocator.destroy(self);
         return true;
     }

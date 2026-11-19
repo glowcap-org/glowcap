@@ -404,6 +404,9 @@ pub const Completion = struct {
     /// Pool pressure, not channel failure. The loop parks and re-arms the read
     /// after another completion returns a buffer.
     recv_no_buffer: bool = false,
+    /// The backend retired an already accepted connection before it could
+    /// publish a descriptor. A fresh accept can serve the next arrival.
+    arrival_retired: bool = false,
 
     /// A receive that ended under memory pressure: `recv_no_buffer`, or a
     /// failure of `error.OutOfMemory`, whether the pool's allocator refused or

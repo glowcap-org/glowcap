@@ -74,7 +74,7 @@ test "relayed gift-id failure spends no allocation after the home fire" {
     // reserved the terminal resolution, so reporting entropy failure must
     // settle even when the allocator refuses every request from here onward.
     failing.fail_index = failing.alloc_index;
-    try node.giftIdFailed(ask.need_gift_id.ticket);
+    _ = node.giftIdFailed(ask.need_gift_id.ticket);
     const settled = projection_support.resolution(&node.peer(recipient).?.session_state, .from(import_pos)).?;
     try std.testing.expect(settled.* == .@"break");
     try std.testing.expectEqualStrings("relayed promise could not be settled", settled.@"break".message);

@@ -102,10 +102,7 @@ pub fn stepServe(
         // Drain to quiet: level-shaped members keep the descriptor readable
         // while anything is pending, so quiet means serviced.
         while (true) {
-            const progress = server.runtime.stepAny(0) catch |err| switch (err) {
-                error.ConnectionClosed, error.ProtocolAbort => break,
-                else => |e| return e,
-            };
+            const progress = try server.runtime.stepAny(0);
             if (progress == null) break;
         }
     }

@@ -82,6 +82,7 @@ test "TCP provider operation options inherit, override, validate, and survive li
         table.listener_close.?(table.ctx, listen_result.listener, null),
     ) catch unreachable;
 
+    try @import("../support/c_abi_accept.zig").expectPending(table, listen_result.listener);
     var captured = LocatorCapture{};
     try std.testing.expectEqual(
         c.GLOWCAP_OK,
@@ -131,6 +132,7 @@ test "TCP provider operation options inherit, override, validate, and survive li
         table.accept.?(table.ctx, listen_result.listener, &server, &server_fd, null),
     );
     defer std.testing.expectEqual(c.GLOWCAP_OK, table.conn_close.?(table.ctx, server, null)) catch unreachable;
+    try @import("../support/c_abi_accept.zig").expectDrained(table, listen_result.listener, server_fd);
     try std.testing.expect(!(try keepaliveEnabled(server_fd)));
 
     var untouched: ?*anyopaque = @ptrFromInt(@alignOf(usize));

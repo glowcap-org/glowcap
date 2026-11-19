@@ -39,6 +39,7 @@ pub const TypedResident = struct {
     /// Runs inside the provider package release, before it reports.
     release_hook: ?*const fn (?*anyopaque) void = null,
     release_hook_ctx: ?*anyopaque = null,
+    arrival_retired: bool = false,
     failed_accept_route: ?u64 = null,
     locator_failure: bool = false,
     advertise_failure: bool = false,
@@ -290,6 +291,7 @@ pub const TypedResident = struct {
         const active = listener(ctx);
         if (active.active) {
             const slot = out_failure orelse return c.GLOWCAP_ERR_NULL_POINTER;
+            const name: []const u8 = if (active.resident.arrival_retired) "RefusedArrival" else "ForcedAcceptFailure";
             slot.* = .{
                 .result = c.GLOWCAP_ERR_IO,
                 .carrier_phase = cshared.transport_provider.GLOWCAP_CARRIER_PHASE_REGISTRATION,
@@ -297,14 +299,14 @@ pub const TypedResident = struct {
                 .carrier_verification_flags = 0,
                 .carrier_peer_alert = 0,
                 .carrier_engine_code = 0,
-                .primary_name = "ForcedAcceptFailure".ptr,
-                .primary_name_len = "ForcedAcceptFailure".len,
+                .primary_name = name.ptr,
+                .primary_name_len = name.len,
                 .secondary_result = c.GLOWCAP_ERR_INTERNAL,
                 .secondary_name = "ForcedAcceptCleanupFailure".ptr,
                 .secondary_name_len = "ForcedAcceptCleanupFailure".len,
                 .secondary_count = 2,
             };
-            return c.GLOWCAP_ERR_IO;
+            return if (active.resident.arrival_retired) cshared.GLOWCAP_ACCEPT_ARRIVAL_FAILED else c.GLOWCAP_ERR_IO;
         }
         cshared.transport_provider.setProviderFailure(out_failure, c.GLOWCAP_ERR_CLOSED, error.Closed);
         return c.GLOWCAP_ERR_CLOSED;

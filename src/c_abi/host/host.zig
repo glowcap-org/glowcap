@@ -51,7 +51,7 @@ const GLOWCAP_ERR_WOULD_BLOCK = shared.GLOWCAP_ERR_WOULD_BLOCK;
 
 pub fn hostNewIn(
     alloc: std.mem.Allocator,
-    diagnostic_id: u64,
+    diagnostics: ?instance.Diagnostics,
     seed_ptr: ?[*]const u8,
     seed_len: usize,
     frame_cap: usize,
@@ -122,7 +122,7 @@ pub fn hostNewIn(
     inst.* = .{
         .core = core,
         .allocator = alloc,
-        .diagnostic_id = diagnostic_id,
+        .diagnostics = diagnostics,
         .arg_scratch = std.heap.ArenaAllocator.init(alloc),
         .turn_scratch = std.heap.ArenaAllocator.init(alloc),
         .completion_scratch = std.heap.ArenaAllocator.init(alloc),
@@ -158,7 +158,7 @@ pub fn glowcap_host_new(
     out_host: ?*?*GlowcapHost,
 ) callconv(.c) i32 {
     shared.lastErrorClear();
-    return hostNewIn(shared.library_allocator, 0, seed, seed_len, frame_cap, verify_partner, codec, captp_version, features, local_turn_budget, release_on_drop, out_host);
+    return hostNewIn(shared.library_allocator, null, seed, seed_len, frame_cap, verify_partner, codec, captp_version, features, local_turn_budget, release_on_drop, out_host);
 }
 
 /// `glowcap_host_new` allocating every byte the host owns through `context`'s
@@ -182,7 +182,7 @@ pub fn glowcap_host_new_in(
         shared.setLastError("host: Context lifecycle identity space exhausted", .{});
         return GLOWCAP_ERR_INTERNAL;
     };
-    return hostNewIn(ctx.allocator(), diagnostic_id, seed, seed_len, frame_cap, verify_partner, codec, captp_version, features, local_turn_budget, release_on_drop, out_host);
+    return hostNewIn(ctx.allocator(), .{ .context = ctx, .host_id = diagnostic_id }, seed, seed_len, frame_cap, verify_partner, codec, captp_version, features, local_turn_budget, release_on_drop, out_host);
 }
 
 /// Read the Host-wide release-on-drop setting (ADR-0025) into `*out_enabled`
