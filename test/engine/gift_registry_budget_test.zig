@@ -38,24 +38,6 @@ fn makeReceive(gift_id: []const u8, recipient_key: []const u8, count: u64) model
     };
 }
 
-test "retained-byte admission saturates on a whole new row" {
-    const allocator = std.testing.allocator;
-    var registry: GiftRegistry = .{};
-    defer registry.deinit(allocator, null);
-
-    try registry.deposit(allocator, .{}, null, "a", "r");
-    const first_charge = registry.retainedBytes();
-    const limits = limitsForBytes(first_charge);
-
-    try std.testing.expectError(
-        session.Error.DepositedGiftCapExceeded,
-        registry.deposit(allocator, limits, null, "b", "r"),
-    );
-    try std.testing.expect(registry.giftLive("a"));
-    try std.testing.expect(!registry.giftLive("b"));
-    try std.testing.expectEqual(first_charge, registry.retainedBytes());
-}
-
 test "row-count admission remains independent of replacement" {
     const allocator = std.testing.allocator;
     var registry: GiftRegistry = .{};
@@ -73,47 +55,53 @@ test "row-count admission remains independent of replacement" {
     try std.testing.expect(!registry.giftLive("b"));
 }
 
-test "replacement growth refusal preserves the old row and caller authority" {
+test "gift byte admission charges a replacement once and retains the other rows" {
     var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{});
     const allocator = failing.allocator();
     var registry: GiftRegistry = .{};
-    defer {
-        failing.fail_index = std.math.maxInt(usize);
-        registry.deinit(allocator, null);
-    }
-
-    const old = try ownedBroken(allocator, "old");
-    try registry.depositOwned(allocator, .{}, null, "gift", old);
-    const old_charge = registry.retainedBytes();
-
-    const incoming = try ownedBroken(allocator, "a much larger replacement");
-    defer model.freeReference(allocator, incoming);
-    failing.fail_index = failing.alloc_index;
-    try std.testing.expectError(
-        session.Error.DepositedGiftCapExceeded,
-        registry.depositOwned(allocator, limitsForBytes(old_charge), null, "gift", incoming),
-    );
-    try std.testing.expectEqualStrings("old", registry.giftedCap("gift").?.broken.message);
-    try std.testing.expectEqual(old_charge, registry.retainedBytes());
-}
-
-test "replacement shrink releases the exact variable reference payload charge" {
-    const allocator = std.testing.allocator;
-    var registry: GiftRegistry = .{};
     defer registry.deinit(allocator, null);
 
-    const large_message = "a retained variable-sized broken-reference message";
-    const small_message = "small";
-    const large = try ownedBroken(allocator, large_message);
-    try registry.depositOwned(allocator, .{}, null, "gift", large);
-    const before = registry.retainedBytes();
+    try registry.deposit(allocator, .{}, null, "other", "retained");
+    const other_bytes = registry.retainedBytes();
+    try std.testing.expectError(
+        session.Error.DepositedGiftCapExceeded,
+        registry.deposit(allocator, limitsForBytes(other_bytes), null, "gift", "new"),
+    );
+    try std.testing.expect(registry.giftLive("other"));
+    try std.testing.expect(!registry.giftLive("gift"));
+    try std.testing.expectEqual(other_bytes, registry.retainedBytes());
 
-    const small = try ownedBroken(allocator, small_message);
-    try registry.depositOwned(allocator, .{}, null, "gift", small);
-    const after = registry.retainedBytes();
+    var prior: []const u8 = "old";
+    {
+        const initial = try ownedBroken(allocator, prior);
+        errdefer model.freeReference(allocator, initial);
+        try registry.depositOwned(allocator, .{}, null, "gift", initial);
+    }
+    for ([_][]const u8{ "large message replacement", "Large message replacement", "small" }) |message| {
+        const before = registry.retainedBytes();
+        const exact = before - prior.len + message.len;
+        const incoming = try ownedBroken(allocator, message);
+        var adopted = false;
+        defer if (!adopted) model.freeReference(allocator, incoming);
 
-    try std.testing.expectEqual(large_message.len - small_message.len, before - after);
-    try std.testing.expectEqualStrings(small_message, registry.giftedCap("gift").?.broken.message);
+        failing.fail_index = failing.alloc_index;
+        const refused = registry.depositOwned(allocator, limitsForBytes(exact - 1), null, "gift", incoming);
+        failing.fail_index = std.math.maxInt(usize);
+        if (refused) |_| {
+            adopted = true;
+            return error.ExpectedGiftCapRefusal;
+        } else |err| try std.testing.expectEqual(session.Error.DepositedGiftCapExceeded, err);
+        try std.testing.expect(!failing.has_induced_failure);
+        try std.testing.expectEqual(before, registry.retainedBytes());
+        try std.testing.expectEqualStrings(prior, registry.giftedCap("gift").?.broken.message);
+
+        try registry.depositOwned(allocator, limitsForBytes(exact), null, "gift", incoming);
+        adopted = true;
+        try std.testing.expectEqual(exact, registry.retainedBytes());
+        try std.testing.expectEqualStrings(message, registry.giftedCap("gift").?.broken.message);
+        try std.testing.expect(registry.giftLive("other"));
+        prior = message;
+    }
 }
 
 test "withdraw releases the row budget and accepts the full u64 count domain" {
