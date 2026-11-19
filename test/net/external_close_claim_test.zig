@@ -35,7 +35,7 @@ const Script = struct {
     /// Provider closes by path. Each connection closes once on one of them.
     report_closes: usize = 0,
     sink_closes: usize = 0,
-    /// A provider whose close is `plain` holds no close seat.
+    /// A plain provider holds no resident close seat.
     reports: bool = true,
 
     fn of(ctx: *anyopaque) *Script {
@@ -61,8 +61,8 @@ const Script = struct {
         return .would_block;
     }
 
-    fn unreachableWrite(_: *anyopaque, _: *anyopaque, _: []const u8) net.completion.TryWrite {
-        unreachable;
+    fn tryWrite(_: *anyopaque, _: *anyopaque, _: []const u8) net.completion.TryWrite {
+        return .would_block;
     }
 
     fn plainClose(ctx: *anyopaque, _: *anyopaque) void {
@@ -95,7 +95,7 @@ const Script = struct {
             .finish_connect = unreachableFinish,
             .cancel_connect = cancelConnect,
             .try_read = tryRead,
-            .try_write = unreachableWrite,
+            .try_write = tryWrite,
             .conn_close = close,
         };
     }
@@ -401,7 +401,7 @@ test "a drain finalizes an unclaimed close exactly once" {
     try std.testing.expect(resident.drained());
 }
 
-test "a provider without a close report keeps the ordinary close and holds no seat" {
+test "a provider without a close report keeps the ordinary close and holds no resident seat" {
     try skipUnlessPosix();
     var script: Script = .{ .reports = false };
     defer script.deinit();
@@ -456,6 +456,59 @@ test "adoption reserves the close seat or changes nothing under allocation refus
         }
         try expectSeatLaw(&resident);
     }
+}
+
+test "external connection admission reserves publication for its first close" {
+    try skipUnlessPosix();
+    var script: Script = .{};
+    defer script.deinit();
+    const providers = [_]external.Provider{script.provider()};
+    var measured = std.testing.FailingAllocator.init(std.testing.allocator, .{});
+    var backend = try Backend.initWithPlatform(measured.allocator(), .{ .providers = &providers }, try HeldPlatform.init(std.testing.allocator), 2, 256);
+    defer backend.deinit();
+    const target: Backend.ConnectTarget = .{ .external = .hintless(transport, "close") };
+    const fd = try backend.startDial(1, target);
+    const other = try backend.startDial(2, target);
+    var out: [2]net.completion.Completion = undefined;
+    try std.testing.expectEqual(2, try backend.peek(&out));
+    backend.platform.held = true;
+    try backend.submitRecv(3, fd);
+    try backend.submitSend(4, fd, "pending");
+    const occupied = backend.ready.reserved;
+    // Cover the queue's capacity bucket with other reservations. A late
+    // request for another seat would have to grow the adapter's allocation.
+    const spare = backend.ready.items.capacity - occupied;
+    try backend.ready.reserve(backend.allocator, spare);
+    const allocations = measured.alloc_index;
+    const resizes = measured.resize_index;
+    try backend.submitCloseAwaited(5, fd);
+    try std.testing.expectError(error.AlreadyClosing, backend.submitClose(6, fd));
+    for ([_]u64{ 3, 4 }) |token| {
+        try std.testing.expectEqual(1, try backend.peek(out[0..1]));
+        try std.testing.expectEqual(token, out[0].user_data);
+        try std.testing.expect(out[0].result < 0);
+    }
+    try std.testing.expectEqual(0, try backend.peek(&out));
+    try std.testing.expectEqual(0, script.report_closes + script.sink_closes);
+    backend.platform.held = false;
+    const deadline = net.clock.nowMonotonicMs() + wait_budget_ms;
+    while (try backend.poll(out[0..1], 10) == 0) {
+        if (net.clock.nowMonotonicMs() >= deadline) return error.CloseNeverClaimable;
+    }
+    try std.testing.expectEqual(5, out[0].user_data);
+    try std.testing.expectEqual(Backend.close_claimable, out[0].result);
+    try std.testing.expect(backend.claimClose(fd) != null);
+    const remaining = backend.ready.reserved - spare;
+    backend.ready.release(spare);
+    backend.closeFd(other);
+    try std.testing.expectEqual(0, try backend.peek(&out));
+    try std.testing.expectEqual(1, script.report_closes);
+    try std.testing.expectEqual(1, script.sink_closes);
+    try std.testing.expectEqual(4, occupied); // Two rows and two parked operations.
+    try std.testing.expectEqual(1, remaining); // Only the other row still owned a seat.
+    try std.testing.expectEqual(0, backend.ready.reserved);
+    try std.testing.expectEqual(allocations, measured.alloc_index);
+    try std.testing.expectEqual(resizes, measured.resize_index);
 }
 
 // The resident row's 152 bytes are pinned by the completion resident's own

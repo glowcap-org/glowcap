@@ -101,6 +101,10 @@ pub fn CompletionBackend(comptime Platform: type) type {
         /// The provider's exact chain when it refused the last `openListener`.
         refused_listen: ?foundation.FailureChain = null,
         conns: std.AutoHashMap(Fd, Entry),
+        /// Each admitted connection holds one close publication here until
+        /// `maybeFinish` spends it or a direct `closeFd` releases it. Its I/O
+        /// seats are separate, so the first close can settle every caller
+        /// without growing this queue while the platform retires its polls.
         ready: completion.ReadyQueue = .{},
         next_id: u32 = 1,
         buffer_pool: completion.BufferPool,
@@ -127,7 +131,7 @@ pub fn CompletionBackend(comptime Platform: type) type {
 
         /// The owning Loop closed and drained every handle first.
         pub fn deinit(self: *Self) void {
-            std.debug.assert(self.conns.count() == 0 and self.listener == null);
+            std.debug.assert(self.conns.count() == 0 and self.listener == null and self.ready.reserved == 0);
             self.conns.deinit();
             self.platform.deinit();
             self.ready.deinit(self.allocator);
@@ -219,8 +223,8 @@ pub fn CompletionBackend(comptime Platform: type) type {
                 .external => |locator| locator,
             };
             const provider = try self.providerFor(locator.transport);
-            try self.ready.reserve(self.allocator, 1);
-            errdefer self.ready.release(1);
+            try self.ready.reserve(self.allocator, 2); // Dial result and connection close.
+            errdefer self.ready.release(2);
             const fd = try self.reserveFd();
             try self.conns.ensureUnusedCapacity(1);
             switch (provider.vtable.start_connect(provider.ctx, locator)) {
@@ -357,8 +361,6 @@ pub fn CompletionBackend(comptime Platform: type) type {
                 return;
             };
             if (entry.closing) return error.AlreadyClosing;
-            // Pending operations already hold their seats; reserve the close's.
-            try self.ready.reserve(self.allocator, 1);
             if (entry.connect_ud) |ud| self.ready.appendReserved(.{ .user_data = ud, .result = -1 });
             if (entry.pending.read_ud) |ud| self.ready.appendReserved(.{ .user_data = ud, .result = -1 });
             if (entry.pending.write_ud) |ud| self.ready.appendReserved(.{ .user_data = ud, .result = -1 });
@@ -375,7 +377,10 @@ pub fn CompletionBackend(comptime Platform: type) type {
             if (fd == listen_fd) return Listening.release(self);
             const entry = self.conns.getPtr(fd) orelse return;
             std.debug.assert(entry.connect_ud == null and entry.pending.read_ud == null and entry.pending.write_ud == null);
-            if (!entry.closing) self.beginClose(fd, entry);
+            if (!entry.closing) {
+                self.ready.release(1);
+                self.beginClose(fd, entry);
+            }
         }
 
         pub fn recycleBorrowed(self: *Self, comp: completion.Completion) void {
@@ -518,8 +523,7 @@ pub fn CompletionBackend(comptime Platform: type) type {
             const provider = entry.provider;
             if (entry.close_phase == .awaited) {
                 // Only an open row awaits: the close completion tells the
-                // caller the result can be claimed, in the seat reserved by
-                // `closeRow`.
+                // caller the result can be claimed, in the row's close seat.
                 std.debug.assert(entry.phase == .open and entry.close_ud != null);
                 entry.close_phase = .claimable;
                 self.ready.appendReserved(.{ .user_data = entry.close_ud.?, .result = close_claimable });
