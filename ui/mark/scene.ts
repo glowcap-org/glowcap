@@ -8,6 +8,11 @@
 /** The entry point and its stages. Concatenated after the field and the
  * light, which it calls into. */
 export const SCENE = `
+// How much of the night's teal the windows and the cap's outline keep by
+// day: enough that they read as the same light as the night's, too little
+// to dye the page.
+const DAY_TEAL = 0.25;
+
 struct Uniforms {
 	resolution: vec4f,
 	view: vec4f,
@@ -202,8 +207,8 @@ fn shadeBody(p: vec3f, n: vec3f, rd: vec3f, fr: Frame) -> vec3f {
 	body = body + fr.lamp * under * 2.4 * fr.glow;
 
 	// By night the strike tints the whole cap. A line is one pixel wide here
-	// and cannot hold the loudest beat in the animation. By day the strike is
-	// the windows flaring, so the cap keeps its colour.
+	// and cannot hold the loudest beat in the animation. By day teal mixed
+	// into the cap's orange comes out tan, so the windows carry the strike.
 	body = mix(body, fr.flash * 1.15, fr.flareMix * 0.3 * (1.0 - fr.lightPage));
 
 	// The inner half of the outline. Inside the silhouette the band is
@@ -527,9 +532,10 @@ fn fs(@builtin(position) coord: vec4f) -> @location(0) vec4f {
 	// By day the light is held at the mushroom instead. Over cream a glow
 	// reads by its colour and by following the thing it comes off, not by
 	// brightness: each window is white at its heart and teal at its fringe,
-	// spilling over the cap's edge. The strike is the windows flaring. Over
-	// the body it is screened on, so it lightens what it falls on and never
-	// darkens the rest.
+	// spilling over the cap's edge, and a thin teal glow just outside the
+	// cap's outline, brighter as it strikes. The strike is the windows
+	// flaring. Over the body it is screened on, so it lightens what it falls
+	// on and never darkens the rest.
 	if (lightPage > 0.0 && fr.glow > 0.0) {
 		var heart = 0.0;
 		var fringe = 0.0;
@@ -540,13 +546,18 @@ fn fs(@builtin(position) coord: vec4f) -> @location(0) vec4f {
 			heart = heart + exp(-d * d * 1.6);
 			fringe = fringe + exp(-d * d * 0.45);
 		}
+		let capward = mix(0.3, 1.0, smoothstep(-0.32, -0.12, uv.y));
+		// Measured only by rays that enter the body's sphere, so it fades out
+		// before that sphere's edge and never shows it.
+		let inSphere = smoothstep(2.5, 1.9, length(cross(bodyC - ro, rd)));
+		let hug = exp(-max(closest, 0.0) / 0.3) * capward * inSphere;
 		let strength = lightPage * fr.glow * (1.0 + fr.flareMix * 1.5);
 		if (id >= 0.5) {
 			let wash = mix(ink, vec3f(1.0), 0.45);
 			col = mix(min(col, vec3f(1.0)), wash, clamp(fringe * 0.6 * strength, 0.0, 0.6));
-			col = mix(col, vec3f(1.0), clamp(heart * 1.4 * strength, 0.0, 1.0));
+			col = mix(col, mix(vec3f(1.0), ink, DAY_TEAL * 0.5), clamp(heart * 1.4 * strength, 0.0, 1.0));
 		} else {
-			col = col + (vec3f(1.0) * heart * 0.9 + ink * fringe * 0.4) * strength;
+			col = col + (vec3f(1.0) * heart * 0.9 + ink * (fringe * 0.4 + hug * DAY_TEAL * (1.0 + fr.flareMix))) * strength;
 		}
 	}
 
