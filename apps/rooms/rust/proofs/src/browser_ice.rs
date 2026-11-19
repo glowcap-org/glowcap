@@ -111,7 +111,9 @@ pub async fn rooms_browser_certificate_capacity(settle: js_sys::Function) {
 		() = std::future::ready(()) => panic!("cancelled observers released unsettled certificate capacity"),
 	}
 	settle.call0(&JsValue::UNDEFINED).unwrap();
-	assert!(matches!(observed.await, Err(Error::Certificate(reason)) if reason.contains("fixture certificate refusal")));
+	assert!(
+		matches!(observed.await, Err(Error::Certificate(reason)) if reason.contains("fixture certificate refusal"))
+	);
 	source.configuration().await.unwrap();
 	source.close().await.unwrap();
 }
