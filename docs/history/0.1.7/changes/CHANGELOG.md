@@ -37,10 +37,10 @@ These are the changes after November 11. Read the
 - Racket callers can drain recorded failures with `host-take-failures!` after
   `host-close!` consumes the Host, including when close returns a failure.
 
-- On a light page, the mushroom mark's light stays at the mushroom, a bright
-  pale cyan in its windows, under its cap, and on the ground, instead of
-  reaching out as beams, and it draws in about a third of the time the beams
-  took.
+- On a light page, the mushroom mark's light stays at the mushroom instead
+  of reaching out as beams: its windows, the glow under its cap, and the
+  light on the ground are white at their brightest and cyan where they fade.
+  It draws in about a third of the time the beams took.
 - The website and introductory guides shorten repeated explanations and clarify
   installation, shared-session lifetimes, history recovery limits, and Loam's
   supported interfaces.

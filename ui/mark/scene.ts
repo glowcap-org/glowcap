@@ -8,12 +8,12 @@
 /** The entry point and its stages. Concatenated after the field and the
  * light, which it calls into. */
 export const SCENE = `
-// How much of the night's teal the light keeps by day. The lamps are white
-// with this much of the ink's hue in them, and everything they light takes
-// their colour: the windows and their spill, the glow under the brim, and
-// the light on the ground. Enough to read as the night's light, too little
-// to dye the page.
-const DAY_TEAL = 0.45;
+// How much of the night's teal the light keeps by day. A light by day is
+// white where it is brightest and cyan only where it falls off: the hearts
+// of the windows, the middle of the band under the brim, and the middle of
+// the pool on the ground are white, and their edges and spill are the lamps'
+// colour, white with this much of the ink's hue in it.
+const DAY_TEAL = 0.6;
 
 // False in the pipeline for a dark page, which compiles out every line only a
 // light page runs. A branch that never runs still costs every pixel its
@@ -111,10 +111,10 @@ fn floorLight(p: vec3f, fr: Frame) -> vec3f {
 	let soft = smoothstep(2.3, 0.5, side);
 	let strength = (fall * facing * 1.1 + 0.15) * (1.0 + 0.5 * fr.lightPage) * soft * fr.glow * fr.gCap *
 		(1.0 + fr.flareMix * 1.2);
-	// By day the pool is the lamps' own colour, taking a little more of the
-	// ink where the light is strongest, so it reads as light on the ground
-	// and not a stain under the foot.
-	let poolInk = mix(fr.ink, mix(fr.lamp, fr.ink, 0.3 * clamp(strength, 0.0, 1.0)), fr.lightPage);
+	// By day the pool is white where the light is strongest and the lamps'
+	// cyan as it falls off, so it reads as light on the ground and not a
+	// stain under the foot.
+	let poolInk = mix(fr.ink, mix(fr.lamp, vec3f(1.0), 0.6 * clamp(strength, 0.0, 1.0)), fr.lightPage);
 	return poolInk * strength;
 }
 
@@ -214,12 +214,14 @@ fn shadeBody(p: vec3f, n: vec3f, rd: vec3f, fr: Frame) -> vec3f {
 
 	// The brim's own glow under it: the one piece of shading the mark keeps,
 	// because it is light rather than surface. By night it adds to the
-	// flesh. By day it covers it as soon as the light is up: the lamps' teal
-	// added to the cap's orange would sum to white.
+	// flesh. By day it covers it as soon as the light is up, white along the
+	// middle of the band and cyan at its edges: the lamps' teal added to the
+	// cap's orange would sum to a flat white.
 	let under = smoothstep(-0.05, -0.5, n.y) * isCap;
 	let underNight = body + fr.lamp * under * 2.4 * fr.glow;
 	if (LIGHT_PAGE) {
-		let underDay = mix(body, fr.lamp * 1.15, under * smoothstep(0.0, 0.3, fr.glow));
+		let underCore = mix(fr.lamp, vec3f(1.0), smoothstep(0.55, 1.0, under));
+		let underDay = mix(body, underCore * 1.15, under * smoothstep(0.0, 0.3, fr.glow));
 		body = mix(underNight, underDay, fr.lightPage);
 	} else {
 		body = underNight;
@@ -558,8 +560,8 @@ fn fs(@builtin(position) coord: vec4f) -> @location(0) vec4f {
 
 	// By day the light is held at the mushroom instead. Over cream a glow
 	// reads by its colour and by following the thing it comes off, not by
-	// brightness: each window is the lamps' colour, spilling over the cap's
-	// edge with a little teal round it on the page. The strike is the windows
+	// brightness: each window is white at its heart and the lamps' cyan at
+	// its rim and in its spill over the cap's edge. The strike is the windows
 	// flaring. Over the body it is screened on, so it lightens what it falls
 	// on and never darkens the rest.
 	if (LIGHT_PAGE && lightPage > 0.0 && fr.glow > 0.0) {
@@ -576,9 +578,9 @@ fn fs(@builtin(position) coord: vec4f) -> @location(0) vec4f {
 		let strength = lightPage * smoothstep(0.0, 0.3, fr.glow) * (1.0 + fr.flareMix * 1.5);
 		if (id >= 0.5) {
 			col = mix(min(col, vec3f(1.0)), lamp, clamp(fringe * 0.6 * strength, 0.0, 0.6));
-			col = mix(col, lamp, clamp(heart * 1.4 * strength, 0.0, 1.0));
+			col = mix(col, vec3f(1.0), clamp(heart * 1.4 * strength, 0.0, 1.0));
 		} else {
-			col = col + (lamp * heart * 0.9 + ink * fringe * 0.4) * strength;
+			col = col + (vec3f(1.0) * heart * 0.9 + lamp * fringe * 0.4) * strength;
 		}
 	}
 
