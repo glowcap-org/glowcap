@@ -21,17 +21,14 @@ Releases before 0.1.7 are in the
   arrival (`.arrival_failed` in Zig). `giftIdFailed` returns delivery status. A send
   without a recipient yields `.unobserved_gift_failure` with the original cause.
 
-- C callers passing a Host to `glowcap_driver_take_host` must create it with
-  `glowcap_host_new_in` and keep its Context alive until driver release consumes
-  the loop. A Host created with `glowcap_host_new` now gets
-  `GLOWCAP_ERR_INVALID_ARGUMENT` on adoption and remains usable for byte-fed
-  operation.
+- Create a Host with `glowcap_host_new_in` before `glowcap_driver_take_host`.
+  Keep its Context alive until release consumes the loop. Adoption of a Host
+  from `glowcap_host_new` returns `GLOWCAP_ERR_INVALID_ARGUMENT` and leaves
+  it usable for byte-fed operation.
 
-- A valid close failure from a foreign stream provider's `conn_close` now
-  reaches the session whose close ran it. A live session reports it as the
-  session's close failure, with the primary and secondary the provider gave,
-  where it was previously dropped. The C ABI is unchanged. Zig embedders that
-  write a resident or an external provider change as follows:
+- A live session reports a foreign stream provider's `conn_close` failure
+  with its primary and secondary causes. The C ABI is unchanged.
+  Zig residents and external providers change as follows:
 
   - `net.MultiplexedResident.VTable.conn_close` and `connCloseOutcome` take a
     `net.multiplexed_resident.CloseMode`, `.awaited` or `.no_wait`, which names
@@ -52,12 +49,11 @@ Releases before 0.1.7 are in the
   argument to `DriverLoop::open`. Keep the Context to read recorded failures
   with `next_failure` or `take_failures` after dropping the loop.
 
-- A custom `net.MultiplexedResident.park` callback now returns
-  `net.MultiplexedResident.Park`. Replace `true` with `.woke` and `false`
-  with `.timeout`. Return `.unavailable` before waiting if the resident
-  lacks capacity to arm an optional wake watch. The driver then polls its
-  readiness descriptors. Returning `error.OutOfMemory` from `watch` before
-  installing a watch selects the same fallback.
+- A custom `net.MultiplexedResident.park` returns `net.MultiplexedResident.Park`.
+  Replace `true` with `.woke` and `false` with `.timeout`. Return `.unavailable`
+  before waiting if capacity prevents arming an optional wake watch. The driver
+  polls its readiness descriptors then, and when `watch` returns
+  `error.OutOfMemory` before arming a watch.
 
 - On epoll, `submitPoll` now returns `error.EpollWatchLimit` for kernel
   `ENOSPC` and `error.OutOfMemory` for kernel `ENOMEM`. On kqueue it
@@ -67,12 +63,10 @@ Releases before 0.1.7 are in the
   capacity refusal. A transport that needs the poll still receives an error.
 
 - A custom backend for `net.completion_resident.Resident` declares
-  `readyPending(*const Backend) bool`. It answers true while the backend holds
-  work the next `peek` can advance or surface: a completion held in user
-  space, or a fault deferred for that peek. An adapter over another backend
-  answers for its own queue, then asks the wrapped backend. The method never
-  allocates, locks, waits, or does I/O. A `completion.Loop` backend does not
-  need it.
+  `readyPending(*const Backend) bool`. It reports whether the next `peek` can
+  advance or surface a user-space completion or deferred fault. Adapters
+  check their own queue first, then the wrapped backend. The method uses no
+  allocation, I/O, locks, or waits. `completion.Loop` backends need no change.
 
 - Recovering a room's manager link in Rooms is its own operation. The
   browser no longer reads the room's manager identity and sends it with a
@@ -87,18 +81,15 @@ Releases before 0.1.7 are in the
   the new version: finish it before upgrading, or release it and request the
   link again. Releasing a held recovery does not revoke a link the operator
   already issued.
-- A `SessionAcceptObserver.opened` that returns an error now keeps its
-  reservation. The runtime then calls `abandoned` and `arrival_failed`, where
-  it called `failed` before. An observer outside this repository releases
-  that reservation exactly once, in `abandoned`, and handles `arrival_failed`
-  as the retirement of one arrival with the listener still open.
-- `net.completion.BufferPool.acquire` returns `Allocator.Error!?u16`. Null
-  still means every buffer is leased, and a refused lazy allocation is now
-  `error.OutOfMemory` instead of looking like exhaustion. A caller that
-  unwrapped the old optional adds `try`. A data receive whose buffer
-  allocation is refused completes once with that error and retires only its
-  wire, where it used to wait for a recycle that never came and time out the
-  handshake. Signal and wake receives drain or re-arm instead.
+- `SessionAcceptObserver.opened` keeps its reservation on error. The runtime
+  calls `abandoned` and `arrival_failed` in place of `failed`. Release it once, in
+  `abandoned`. Handle `arrival_failed` as the retirement of one arrival with
+  the listener still open.
+- Add `try` when calling `net.completion.BufferPool.acquire`, which returns
+  `Allocator.Error!?u16`. Null means every buffer is leased. A lazy allocation
+  refusal returns `error.OutOfMemory`. A data receive whose allocation fails
+  completes once with that error and retires only its wire. Signal and wake
+  receives drain or re-arm.
 - Values nest at most 64 deep on every path (`model.max_value_depth`), and
   one count decides it: a top-level argument sits at depth 0, a container's
   items one deeper, and any container at depth 64, an empty one included, is
@@ -155,10 +146,9 @@ Releases before 0.1.7 are in the
   with a container at depth 64, an empty one included, no longer decodes, and
   a write refuses it. An author whose records hold such a value rewrites each
   one so every container sits at depth 63 or less.
-- A Host refuses an `outbound_high_water_bytes` of zero with
-  `InvalidOutboundHighWater`, at construction and in `setSessionLimits`. A
-  session with a zero waterline could never take input. Pass null for the
-  default. The C ABI already reads zero as the default.
+- Use null for the Host’s default `outbound_high_water_bytes`. Construction
+  and `setSessionLimits` refuse zero with `InvalidOutboundHighWater`. The C ABI
+  reads zero as the default.
 - `HostSession.resumeFeed` and `glowcap_host_session_resume_feed` refuse
   with `OutboundBackpressure` (`GLOWCAP_ERR_WOULD_BLOCK`) while a session
   holds input it can dispatch and its queued outbound is at the waterline.
@@ -212,16 +202,13 @@ Releases before 0.1.7 are in the
   `GLOWCAP_RESOLUTION_BREAK`, and `GLOWCAP_RESOLUTION_HANDOFF`. No function,
   field, or callback took or returned them. C code that names them deletes
   the use.
-- `net.Connection.waitReadable`, `waitWritable`, `waitAny`,
-  `waitAnyReadable`, and `waitAnyDescriptor` report a refused `poll(2)` as
-  its own cause (`SystemResources`, `InvalidWait`, or `Unexpected`) instead of
-  `ConnectionLost`. `ConnectionLost` remains the answer for an invalid
-  descriptor. A Zig caller that switched exhaustively on these error sets adds
-  the three names, and `net.WaitError` is the set a single-descriptor wait
-  returns. `net.poll.wait` returns the same three errors, treats every
-  negative timeout as an infinite wait, and no longer restarts an interrupted
-  wait with its whole timeout: an interruption continues to the original
-  deadline.
+- `net.Connection.waitReadable`, `waitWritable`, `waitAny`, `waitAnyReadable`,
+  and `waitAnyDescriptor` report `poll(2)` failures as `SystemResources`,
+  `InvalidWait`, or `Unexpected`. Add those cases to exhaustive Zig switches.
+  An invalid descriptor returns `ConnectionLost`. A single-descriptor wait
+  uses `net.WaitError`. `net.poll.wait` reports the same errors, waits
+  indefinitely for any negative timeout, and keeps the original deadline
+  across interrupts.
 - A custom `net.MultiplexedResident` reports a connection's carrier phase and
   detail through teardown. `VTable.take_failure` returns
   `?net.carrier_failure.Report`, and `TeardownOutcome.failed` holds a
