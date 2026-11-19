@@ -114,7 +114,7 @@ test "detached answers remain inside the inbound answer budget" {
     );
 }
 
-test "detached answer cannot adopt reused position resolver" {
+test "answer lifetime keeps a detached notification separate from position reuse" {
     const allocator = std.testing.allocator;
     var s = session.Session.initWith(allocator, .{
         .captp_version = .v1_0,
@@ -144,9 +144,22 @@ test "detached answer cannot adopt reused position resolver" {
 
     const old_again = try s.beginAnswerSettlement(old_target);
     defer s.releaseAnswerPayload(old_again.payload);
+    try std.testing.expectEqual(old_settlement.payload, old_again.payload);
     try std.testing.expect(old_again.payload.resolver_import == null);
     try std.testing.expectEqual(
         @as(?model.ImportPosition, .from(3)),
         s.resolverForInboundAnswer(answer),
     );
+
+    const resolution: model.Resolution = .{ .fulfill = .{ .integer = 1 } };
+    const inventory = try s.inventoryResolution(resolution, session.inventory.NoMeter);
+    defer inventory.deinit(allocator);
+    try s.recordSentResolutionTarget(old_settlement.target, old_settlement.payload, resolution, inventory);
+    try std.testing.expectEqual(@as(i64, 1), s.answerPayloadResolution(old_settlement.payload).?.fulfill.integer);
+    try std.testing.expectEqual(.pending, s.inboundAnswer(answer.wire).?.status);
+    try std.testing.expect(s.peekResolution(answer.wire) == null);
+
+    try s.recordSentResolutionNamed(answer, .{ .fulfill = .{ .integer = 2 } });
+    try std.testing.expectEqual(@as(i64, 2), s.peekResolution(answer.wire).?.fulfill.integer);
+    try std.testing.expectEqual(@as(i64, 1), s.answerPayloadResolution(old_settlement.payload).?.fulfill.integer);
 }

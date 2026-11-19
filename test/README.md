@@ -28,6 +28,15 @@ Zig tests exercise the permission masks and prerequisite edges together.
 The gate compares Zig’s policy bounds with Bend for each ordering and each
 combination of absent bounds, using zero and the largest `u64` as witnesses.
 
+### CapTP answer lifetime
+
+The first fulfillment or break fixes a promise's outcome. Reusing a wire
+position starts a fresh answer. An accepted notification can outlive the
+position and still settle its own answer. Bend checks arbitrary sequences of
+settlement attempts and gaps between stamps. Zig exercises both profiles and
+a detached settlement after position reuse.
+[Answer laws](session/answer_laws/LAWS.bend)
+
 ### Export range disjointness
 
 Bend proves that adjacent half-open ranges share no position. The Zig tests
