@@ -314,6 +314,8 @@ assert len(PHASES) == sum(len(group.phases) for group in GROUPS), "a phase name 
 NIGHTLY = {
     "bend-proofs": (
         "src/actors/vat/ingress.zig",
+        "src/net/transport/keyed_relay/completion/buffers.zig",
+        "test/net/keyed_relay_completion_bounds_test.zig",
         "src/ocapn/session/export_table.zig",
         "src/ocapn/session/gc.zig",
         "src/ocapn/session/import_table.zig",
