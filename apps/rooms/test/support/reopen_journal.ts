@@ -40,6 +40,20 @@ export function projectJournal(panel: { querySelectorAll(selector: string): Arra
 				"Answerer must use either active or passive value for setup attribute.",
 			].includes(inner)
 		) return "answer-dtls-role";
+		// Exact inner messages from jsep_transport.cc and dtls_transport.cc. The
+		// fingerprint mismatch embeds both digests, so only its prefix is matched.
+		const exact: Record<string, string> = {
+			"Failed to setup RTCP mux.": "answer-rtcp-mux",
+			"Fingerprint provided but no identity available.": "answer-local-certificate-missing",
+			"Applying an answer transport description without applying any offer.": "answer-transport-offer-missing",
+			"Local fingerprint supplied when caller didn't offer DTLS.": "answer-dtls-not-offered",
+			"Failed to set SSL role for the transport.": "answer-ssl-role",
+			"Failed to apply remote fingerprint.": "answer-remote-fingerprint",
+		};
+		if (Object.hasOwn(exact, inner)) return exact[inner];
+		if (inner.startsWith("Local fingerprint does not match identity. Expected: ")) {
+			return "answer-local-fingerprint-mismatch";
+		}
 		return "answer-transport-application";
 	}
 
