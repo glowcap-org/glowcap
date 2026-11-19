@@ -214,14 +214,23 @@ fn shadeBody(p: vec3f, n: vec3f, rd: vec3f, fr: Frame) -> vec3f {
 
 	// The brim's own glow under it: the one piece of shading the mark keeps,
 	// because it is light rather than surface. By night it adds to the
-	// flesh. By day it covers it as soon as the light is up, white along the
-	// middle of the band and cyan at its edges: the lamps' teal added to the
-	// cap's orange would sum to a flat white.
+	// flesh. By day it covers it as soon as the light is up, and reaches
+	// further up the underside, where the night's air would have lit it:
+	// white along the lip and cyan as it rises into the cap, because the
+	// lamps' teal added to the cap's orange would sum to a flat white. The
+	// stalk under it is lit the same way, white just under the brim and cyan
+	// toward the foot, its own shading kept as a deeper cyan.
 	let under = smoothstep(-0.05, -0.5, n.y) * isCap;
 	let underNight = body + fr.lamp * under * 2.4 * fr.glow;
 	if (LIGHT_PAGE) {
-		let underCore = mix(fr.lamp, vec3f(1.0), smoothstep(0.55, 1.0, under));
-		let underDay = mix(body, underCore * 1.15, under * smoothstep(0.0, 0.3, fr.glow));
+		let cover = smoothstep(0.0, 0.3, fr.glow);
+		let underWide = smoothstep(0.35, -0.25, n.y) * isCap;
+		let underCore = mix(fr.lamp, vec3f(1.0), smoothstep(0.55, 1.0, underWide));
+		var underDay = mix(body, underCore * 1.15, underWide * cover);
+		let stalkTop = smoothstep(0.0, 1.25, p.y);
+		let shade = mix(0.8, 1.0, smoothstep(0.08, 0.35, dot(body, vec3f(0.2126, 0.7152, 0.0722))));
+		let stalkLight = mix(fr.lamp, vec3f(1.0), smoothstep(0.75, 1.0, stalkTop)) * shade;
+		underDay = mix(underDay, stalkLight * 1.15, mix(0.8, 1.0, stalkTop) * (1.0 - isCap) * cover);
 		body = mix(underNight, underDay, fr.lightPage);
 	} else {
 		body = underNight;
