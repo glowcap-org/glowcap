@@ -19,7 +19,7 @@ pub fn providerReadAll(
     var offset: usize = 0;
     var retries: usize = 0;
     while (offset < out.len) {
-        const got = table.try_read.?(table.ctx, conn, out[offset..].ptr, out.len - offset);
+        const got = table.try_read.?(table.ctx, conn, out[offset..].ptr, out.len - offset, null);
         if (got == cdrv.GLOWCAP_TRANSPORT_WOULD_BLOCK) {
             retries += 1;
             if (retries == io_retry_budget) return error.ReadTimedOut;
@@ -39,7 +39,7 @@ pub fn providerWriteAll(
     var rest = bytes;
     var retries: usize = 0;
     while (rest.len != 0) {
-        const wrote = table.try_write.?(table.ctx, conn, rest.ptr, rest.len);
+        const wrote = table.try_write.?(table.ctx, conn, rest.ptr, rest.len, null);
         if (wrote == cdrv.GLOWCAP_TRANSPORT_WOULD_BLOCK) {
             retries += 1;
             if (retries == io_retry_budget) return c.GLOWCAP_ERR_IO;

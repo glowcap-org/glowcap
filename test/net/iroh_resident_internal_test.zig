@@ -343,7 +343,7 @@ test "accept readiness uses the endpoint reservation before later settlement" {
 
     try backend.submitAccept(76, Backend.listen_fd);
     try std.testing.expectEqual(@as(usize, 1), try backend.poll(&completions, 0));
-    try std.testing.expect(completions[0].arrival_retired);
+    try std.testing.expect(completions[0].failure_origin == .retired_arrival);
     try std.testing.expectEqual(error.OutOfMemory, completions[0].failure.?);
     try std.testing.expectEqual(@as(usize, 1), stub.conn_free_count);
 

@@ -173,7 +173,7 @@ pub fn Machine(comptime Backend: type, comptime report_token: u32) type {
                                 .user_data = ud,
                                 .result = -1,
                                 .failure = report.cause,
-                                .arrival_retired = tag == .arrival_failed,
+                                .failure_origin = if (tag == .arrival_failed) .retired_arrival else .operation,
                                 .borrowed = .failure(&backend.accept_report.?, report_token),
                             });
                         },
@@ -197,7 +197,7 @@ pub fn Machine(comptime Backend: type, comptime report_token: u32) type {
 
         fn refuseAccepted(backend: *Backend, ud: u64, provider: *const Provider, handle: provider_mod.Handle, err: anyerror) void {
             provider.vtable.closeToSink(provider.ctx, handle.ptr);
-            backend.ready.appendReserved(.{ .user_data = ud, .result = -1, .failure = err, .arrival_retired = true });
+            backend.ready.appendReserved(.{ .user_data = ud, .result = -1, .failure = err, .failure_origin = .retired_arrival });
         }
 
         /// Fail every waiter: a parked accept and a setup wait.

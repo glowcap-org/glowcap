@@ -288,13 +288,13 @@ fn Tests(comptime Backend: type) type {
             try std.testing.expectEqual(@as(isize, second.len), client_ops.try_write(&client, pair.client_conn, second));
             client_ops.flush_writes.?(&client, pair.client_conn);
             const conn = client.conns.getPtr(pair.client_conn).?;
-            try std.testing.expect(!conn.sending);
+            try std.testing.expect(conn.send != .armed);
             try std.testing.expectEqual(first.len + second.len, conn.back.items.len);
 
             // The park is the one place a send starts, and it takes the whole
             // staged batch.
             client.resident().beforeWait(.caller);
-            try std.testing.expect(!conn.send_queued);
+            try std.testing.expect(conn.send != .queued);
             try std.testing.expectEqual(@as(usize, 0), conn.back.items.len);
 
             const server_ops = server.resident().vtable;
@@ -333,7 +333,7 @@ fn Tests(comptime Backend: type) type {
             const abort = "<8'op:abort>";
             try std.testing.expectEqual(@as(isize, abort.len), client_ops.try_write(&client, pair.client_conn, abort));
             client_ops.flush_writes.?(&client, pair.client_conn);
-            try std.testing.expect(client.conns.getPtr(pair.client_conn).?.send_queued);
+            try std.testing.expect(client.conns.getPtr(pair.client_conn).?.send == .queued);
             try std.testing.expect(client_ops.conn_close(&client, pair.client_conn, .no_wait) == .complete);
 
             // The partner reads the abort, then end of stream.
@@ -432,7 +432,7 @@ fn Tests(comptime Backend: type) type {
             // Once the backend has every byte, the connection holds no staging; its
             // buffers wait in the resident's bounded spare list.
             const send_deadline = net.clock.nowMonotonicMs() + wait_budget_ms;
-            while (client.conns.get(client_conn).?.sending) {
+            while (client.conns.get(client_conn).?.send == .armed) {
                 if (net.clock.nowMonotonicMs() >= send_deadline) return error.SendNeverCompleted;
                 var fds = [_]std.posix.pollfd{.{ .fd = client.resident().readinessFd(), .events = std.posix.POLL.IN, .revents = 0 }};
                 _ = try std.posix.poll(&fds, 10);
@@ -551,6 +551,82 @@ fn Tests(comptime Backend: type) type {
             const failure = client_ops.take_failure.?(&client, pair.client_conn) orelse return error.TestExpectedFailure;
             try std.testing.expectEqual(error.OutOfMemory, failure.chain.cause);
             try std.testing.expectEqual(@as(isize, -1), client_ops.try_write(&client, pair.client_conn, &chunk));
+        }
+        test "completion resident delivers the admitted prefix when a later write's staging is refused" {
+            if (!(builtin.target.os.tag == .linux or builtin.target.os.tag.isDarwin())) return error.SkipZigTest;
+            const allocator = std.testing.allocator;
+
+            var server = try open();
+            defer retire(&server);
+            var failing = std.testing.FailingAllocator.init(allocator, .{});
+            var client = try Resident.init(failing.allocator(), try Backend.init(allocator, 64, 8, 4096), .{
+                .send_window_bytes = 512 << 10,
+                .spare_send_buffers = 0,
+            });
+            defer retire(&client);
+            var server_events = Events{ .resident = server.resident() };
+            defer server_events.deinit();
+            var client_events = Events{ .resident = client.resident() };
+            defer client_events.deinit();
+            const pair = try connectPair(allocator, &server, &client, &server_events, &client_events);
+            defer model.freePeerLocator(allocator, pair.locator);
+            const client_ops = client.resident().vtable;
+            const server_ops = server.resident().vtable;
+
+            // Small socket buffers and a partner that reads nothing keep the
+            // admitted bytes in flight when the close arrives.
+            const small = std.mem.toBytes(@as(c_int, 4096));
+            try std.posix.setsockopt(client.conns.getPtr(pair.client_conn).?.fd, std.posix.SOL.SOCKET, std.posix.SO.SNDBUF, &small);
+            try std.posix.setsockopt(server.conns.getPtr(pair.server_conn).?.fd, std.posix.SOL.SOCKET, std.posix.SO.RCVBUF, &small);
+
+            // The admitted prefix is accepted. The next write needs staging
+            // the allocator refuses, so only it fails: the prefix is owed.
+            const prefix_len: usize = 256 << 10;
+            const expected = try allocator.alloc(u8, prefix_len);
+            defer allocator.free(expected);
+            fill(expected, 0);
+            var staged: usize = 0;
+            while (staged < prefix_len) {
+                const n = client_ops.try_write(&client, pair.client_conn, expected[staged..@min(prefix_len, staged + (16 << 10))]);
+                try std.testing.expect(n > 0);
+                staged += @intCast(n);
+            }
+            client_ops.flush_writes.?(&client, pair.client_conn);
+            const row = client.conns.getPtr(pair.client_conn).?;
+            failing.fail_index = failing.alloc_index;
+            failing.resize_fail_index = failing.resize_index;
+            var more: [16 << 10]u8 = undefined;
+            fill(&more, 0);
+            try std.testing.expectEqual(@as(isize, -1), client_ops.try_write(&client, pair.client_conn, &more));
+            failing.fail_index = std.math.maxInt(usize);
+            failing.resize_fail_index = std.math.maxInt(usize);
+            try std.testing.expectEqual(@as(isize, -1), client_ops.try_write(&client, pair.client_conn, &more));
+            const failure = client_ops.take_failure.?(&client, pair.client_conn) orelse return error.TestExpectedFailure;
+            try std.testing.expectEqual(error.OutOfMemory, failure.chain.cause);
+
+            // The runtime closes the wire on that failure. The accepted bytes
+            // still reach the partner, ahead of the end of stream.
+            try std.testing.expect(client_ops.conn_close(&client, pair.client_conn, .no_wait) == .pending);
+            try std.testing.expect(row.close == .draining);
+            const received = try allocator.alloc(u8, prefix_len + 1);
+            defer allocator.free(received);
+            var got: usize = 0;
+            const deadline = net.clock.nowMonotonicMs() + wait_budget_ms;
+            while (true) {
+                if (net.clock.nowMonotonicMs() >= deadline) return error.RecordNeverArrived;
+                // Each partner read frees window; the draining client
+                // finishes its close when its row drains.
+                _ = client_ops.conn_close(&client, pair.client_conn, .no_wait);
+                const n = server_ops.try_read(&server, pair.server_conn, received[got..]);
+                if (n == er.would_block) {
+                    try server_events.await(pair.server_conn, er.ev_readable);
+                    continue;
+                }
+                if (n == 0) break;
+                try std.testing.expect(n > 0);
+                got += @intCast(n);
+            }
+            try std.testing.expectEqualSlices(u8, expected, received[0..got]);
         }
     };
 }

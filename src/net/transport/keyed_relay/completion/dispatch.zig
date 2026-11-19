@@ -93,6 +93,7 @@ pub fn Machine(
                             .result = -1,
                             .failure = comp.failure,
                             .borrowed = borrowed,
+                            .failure_origin = if (c.state != .closing) .terminal_io else .operation,
                         });
                         c.external_recv_ud = null;
                         disposition = .lent_to_caller;

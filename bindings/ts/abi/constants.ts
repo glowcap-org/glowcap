@@ -441,23 +441,23 @@ export const ABORT_DOMAIN_SESSION = 1;
 /** A `GlowcapLastAbort.domain` value: which layer classified the failure. Mirrors `GLOWCAP_ABORT_DOMAIN_FOREIGN`. */
 export const ABORT_DOMAIN_FOREIGN = 2;
 /** The C contract fingerprint of `libglowcap_ocapn`. The loader compares it with the library's own before the first call and refuses a stale companion. */
-export const OCAPN_ARCHIVE_FINGERPRINT = 11235810141579783441n;
+export const OCAPN_ARCHIVE_FINGERPRINT = 7134846395606915105n;
 /** The C contract fingerprint of `libglowcap_host`. The loader compares it with the library's own before the first call and refuses a stale companion. */
-export const HOST_ARCHIVE_FINGERPRINT = 1330235606562017225n;
+export const HOST_ARCHIVE_FINGERPRINT = 3432662901050275913n;
 /** The C contract fingerprint of `libglowcap_driver`. The loader compares it with the library's own before the first call and refuses a stale companion. */
-export const DRIVER_ARCHIVE_FINGERPRINT = 8181358032544748319n;
+export const DRIVER_ARCHIVE_FINGERPRINT = 15627938340304158807n;
 /** The C contract fingerprint of `libglowcap_net_transport_tcp`. The loader compares it with the library's own before the first call and refuses a stale companion. */
-export const TCP_ARCHIVE_FINGERPRINT = 12181794617345777596n;
+export const TCP_ARCHIVE_FINGERPRINT = 12235054440520285484n;
 /** The C contract fingerprint of `libglowcap_net_transport_inproc`. The loader compares it with the library's own before the first call and refuses a stale companion. */
-export const INPROC_ARCHIVE_FINGERPRINT = 14345323006945864940n;
+export const INPROC_ARCHIVE_FINGERPRINT = 5626579497172608548n;
 /** The C contract fingerprint of `libglowcap_net_transport_onion`. The loader compares it with the library's own before the first call and refuses a stale companion. */
-export const ONION_ARCHIVE_FINGERPRINT = 18055016265786041278n;
+export const ONION_ARCHIVE_FINGERPRINT = 8120781236923367614n;
 /** The C contract fingerprint of `libglowcap_net_transport_iroh`. The loader compares it with the library's own before the first call and refuses a stale companion. */
-export const IROH_ARCHIVE_FINGERPRINT = 14708323916831460391n;
+export const IROH_ARCHIVE_FINGERPRINT = 11819558371760912167n;
 /** The C contract fingerprint of `libglowcap_net_transport_relay`. The loader compares it with the library's own before the first call and refuses a stale companion. */
-export const RELAY_ARCHIVE_FINGERPRINT = 1433636707851327703n;
+export const RELAY_ARCHIVE_FINGERPRINT = 17111991329511390567n;
 /** The C contract fingerprint of `libglowcap_net_transport_webrtc`. The loader compares it with the library's own before the first call and refuses a stale companion. */
-export const WEBRTC_ARCHIVE_FINGERPRINT = 6378322623444944714n;
+export const WEBRTC_ARCHIVE_FINGERPRINT = 3124050976029887242n;
 /** Locator hint name carrying dial addresses for a transport whose designator is a key. */
 export const HINT_DIRECT_ADDRESSES = "direct-addresses";
 /** Locator hint name carrying a pipe-separated list of complete peer URIs to try after this locator. The value is routing advice, and the exporter's locator stays the signed authority for a redeem. */

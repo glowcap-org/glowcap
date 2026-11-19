@@ -71,15 +71,6 @@ pub fn Machines(
                 Send.refuseExternal(backend, c);
             }
 
-            pub fn refuseExternalSendWith(
-                backend: *Self,
-                c: *RelayConn,
-                cause: ?anyerror,
-                phase: carrier_failure.Phase,
-            ) void {
-                Send.refuseExternalWith(backend, c, cause, phase);
-            }
-
             pub fn borrowToken(index: u16) u32 {
                 return Namespace.borrowToken(index);
             }
@@ -114,15 +105,6 @@ pub fn Machines(
             pub fn borrowCarrierFailure(backend: *Self, c: *RelayConn) completion_contract.Borrowed {
                 return Tls.borrowFailure(backend, c) orelse .{};
             }
-
-            pub fn refuseExternalBorrowed(
-                backend: *Self,
-                c: *RelayConn,
-                comp: completion.Completion,
-                phase: carrier_failure.Phase,
-            ) bool {
-                return Send.refuseExternalBorrowed(backend, c, comp, phase);
-            }
         };
         pub const Send = send_machine.Machine(Self, Types, SendAccess, max_header_len);
 
@@ -131,18 +113,7 @@ pub fn Machines(
                 return Operations.idFromFd(fd);
             }
 
-            pub fn refuseExternalSend(backend: *Self, c: *RelayConn) void {
-                Send.refuseExternal(backend, c);
-            }
-
-            pub fn refuseExternalSendWith(
-                backend: *Self,
-                c: *RelayConn,
-                cause: ?anyerror,
-                phase: carrier_failure.Phase,
-            ) void {
-                Send.refuseExternalWith(backend, c, cause, phase);
-            }
+            pub const clearExternalSend = Send.clearExternal;
 
             pub fn clearWsOut(backend: *Self, c: *RelayConn) void {
                 buffers.clearSend(backend, c);

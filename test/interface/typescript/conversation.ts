@@ -16,8 +16,7 @@ type Outcome = "reader" | "wrong" | "broken" | "cancel";
 
 async function scenario(profile: HostProfile, outcome: Outcome): Promise<void> {
 	await withPair(profile, async (host, client, accepted) => {
-		let settle: ((value: Argument) => void) | undefined;
-		let rejectOpen: ((reason: unknown) => void) | undefined;
+		const answer = Promise.withResolvers<Argument>();
 		let sink: Ref | undefined;
 		let argument: Ref | undefined;
 		let pending = false;
@@ -27,10 +26,7 @@ async function scenario(profile: HostProfile, outcome: Outcome): Promise<void> {
 			if (verb === "open") {
 				sink = args[0];
 				pending = true;
-				return new Promise<Argument>((resolve, reject) => {
-					settle = resolve;
-					rejectOpen = reject;
-				});
+				return answer.promise;
 			}
 			if (verb === "accept") {
 				assert(pending, "argument must arrive before fulfillment");
@@ -61,7 +57,7 @@ async function scenario(profile: HostProfile, outcome: Outcome): Promise<void> {
 		const opened = generated.factory_open(client, root, callback);
 		const assimilated = Promise.resolve(opened);
 		await generated.factory_accept(client, root, opened.raw).observe();
-		assert(pending && argument && sink && settle, "unobserved open sent immediately");
+		assert(pending && argument && sink, "unobserved open sent immediately");
 		await generated.sink_changed(accepted, sink, "notice");
 		await generated.sink_push(accepted, sink, argument).observe();
 		assert(received && notices === 1, "callback and notification delivered");
@@ -73,10 +69,9 @@ async function scenario(profile: HostProfile, outcome: Outcome): Promise<void> {
 		if (outcome === "cancel") {
 			await client.close({ pending: "cancel" });
 		} else if (outcome === "broken") {
-			assert(rejectOpen, "factory rejection authority");
-			rejectOpen(new Error("future factory refusal"));
+			answer.reject(new Error("future factory refusal"));
 		} else {
-			settle(outcome === "wrong" ? "not a reader" : reader);
+			answer.resolve(outcome === "wrong" ? "not a reader" : reader);
 		}
 		const [typed, untyped, pipeline] = await observed;
 		if (outcome === "reader") {
@@ -109,8 +104,15 @@ async function scenario(profile: HostProfile, outcome: Outcome): Promise<void> {
 				assert(typed.reason.reason === "future factory refusal", "unknown remote break retained");
 				assert(pipeline.reason.reason === "future factory refusal", "pipeline remote break retained");
 			} else {
-				// The late application result must not revive the closed call.
-				settle(reader);
+				// Settle the late result after the server has observed the client close.
+				await new Promise<void>((resolve) => accepted.onClose(resolve));
+				answer.resolve(reader);
+				await answer.promise;
+				const [late] = await Promise.allSettled([opened.observe()]);
+				assert(
+					late.status === "rejected" && late.reason === typed.reason,
+					"observation after cancellation retained the original failure",
+				);
 			}
 		}
 	});

@@ -154,7 +154,11 @@ test "onion completion ends a data receive with the exact refused-buffer cause" 
     backend.inner.refuse_recv_at = backend.inner.recv_index;
 
     try backend.submitRecv(401, fd);
+    try backend.submitSend(403, fd, "pending");
     const received = try waitFor(&backend, 401);
+    const send = try waitFor(&backend, 403);
+    try std.testing.expect(received.failure_origin == .terminal_io and send.failure_origin == .terminal_io);
+    try std.testing.expectEqual(error.OutOfMemory, send.failure.?);
     try std.testing.expect(received.result < 0);
     try std.testing.expectEqual(error.OutOfMemory, received.failure.?);
     try std.testing.expectEqual(.receive, received.borrowed.carrierPhase().?);
@@ -213,6 +217,7 @@ test "onion completion cancellation retires target and cancel exactly once" {
     try backend.submitCancel(302, 301, fd);
     const target_done = try waitFor(&backend, 301);
     const cancel_done = try waitFor(&backend, 302);
+    try std.testing.expect(target_done.failure_origin != .terminal_io and cancel_done.failure_origin != .terminal_io);
     try std.testing.expect(target_done.result < 0);
     try std.testing.expectEqual(@as(i32, 0), cancel_done.result);
     try std.testing.expect((try pollOne(&backend)) == null);

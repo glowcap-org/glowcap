@@ -40,7 +40,6 @@ export async function runFinishClosePolicy(): Promise<void> {
 		const incoming = await accepting;
 		assert(!incoming.done, "cancel proof accepted its partner");
 		const serving = Promise.allSettled([incoming.value.serve()]);
-		let serveOutcome: PromiseSettledResult<void> | undefined;
 		try {
 			const service = await client.fetch("pending");
 			const pending = client.send(service, "open");
@@ -71,13 +70,12 @@ export async function runFinishClosePolicy(): Promise<void> {
 				first.status === "rejected" && repeated.status === "rejected" && first.reason === repeated.reason,
 				"repeated observation retained the same failure object",
 			);
+			// The partner must observe clean EOF while its answer is still pending.
+			const [outcome] = await within(serving, 5_000, "the partner session observing the cancelled close");
+			if (outcome.status === "rejected") throw outcome.reason;
 		} finally {
 			releaseAnswer(null);
-			await client.close({ pending: "cancel" });
-			await server.close();
-			[serveOutcome] = await serving;
 		}
-		if (serveOutcome?.status === "rejected") throw serveOutcome.reason;
 		ok(`${profile} cancel close owns original, repeated, and pipelined vow observations`);
 	}
 

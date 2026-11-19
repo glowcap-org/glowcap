@@ -383,6 +383,7 @@ comptime {
         _ = @import("net/completion_listeners_test.zig");
         _ = @import("net/tcp_completion_policy_test.zig");
         _ = @import("net/completion_resident_test.zig");
+        _ = @import("net/completion_resident_failure_test.zig");
         _ = @import("net/completion_resident_listener_test.zig");
         _ = @import("net/completion_resident_rearm_test.zig");
         _ = @import("net/completion_resident_watch_test.zig");

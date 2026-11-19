@@ -171,14 +171,21 @@ and stream costs.
   - The state is one `usize` (`close_seats`) on the resident, one `bool`
     (`close_seat`) and one one-byte enum (`close_wait`) per `Conn`, and one
     one-byte enum (`close_phase`) per external `Entry`. Debug, aarch64:
-    `Conn` 152 and `Entry` 128 unchanged (the fields fit padding; the
-    completion resident's test pins `Conn`, `test/net/external_close_claim_test.zig`
-    pins `Entry`), `Resident` 1128 to 1136
+    `Conn` 152 (the fields fit padding; the
+    completion resident's test pins `Conn`), `Resident` 1128 to 1136
     bytes.
   - Each awaitable connection carries one 16-byte `ReadyEvent` of record
     capacity for its life. An unclaimed close holds its provider handle and
     descriptor until the next `awaited` call, the runtime's close deadline, or
     the drain.
+- **Stream transfer failure**: `external/state.zig` `io_failure` holds the
+  originating operation's `carrier_failure.Report` until claim or retirement.
+  On aarch64 Debug the external row grows from 128 to 208 bytes. TCP and onion
+  release a 72-byte C report per connection, a net increase of eight bytes of
+  struct storage. Successful transfers and would-block leave the slot alone.
+  - Borrowed completion detail uses the resident's existing cold map. Its value
+    grows from `@sizeOf(FailureChain)` to `@sizeOf(carrier_failure.Report)`.
+    The completion stays at 48 bytes and the resident connection at 152.
 - **External connection close publication**: `external/completion.zig` `ready`.
   `startDial` and `bindAccepted` reserve one `Completion` of shared queue
   capacity for every provider connection, including a pending dial. The charge

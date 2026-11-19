@@ -6,9 +6,9 @@
 //! carry the inner descriptor through close submission, retry, or direct
 //! release, and retire the row only when nothing borrowed remains. This
 //! module owns that choreography. Each adapter keeps its own row type and
-//! supplies, through `Access`, the steps that differ by transport: what a
-//! refused send carries, how a requested close starts on the wire, and which
-//! retry memberships to clear.
+//! supplies, through `Access`, the steps that differ by transport: how a
+//! send releases its staging, how a requested close starts on the wire, and
+//! which retry memberships to clear.
 //!
 //! A row is any struct with these fields: `id`, `inner_fd`, `state` (an
 //! enum with a `closing` member), `pending` (a `PendingOps`), `inner_close`
@@ -26,8 +26,8 @@
 //!   * `prepareClose(backend, inner, c) !void` and `closeRefused(backend,
 //!     inner, c) void`, the fallible preparation a requested close needs and
 //!     its undo when a later step refuses.
-//!   * `refuseExternalSend(backend, c, cause, phase) void`, which publishes
-//!     and clears the send seat in the adapter's own shape.
+//!   * `clearExternalSend(c) void`, which releases the adapter's send seat
+//!     and any reference it held to the caller's bytes.
 //!   * `startClose(backend, inner, c) void`, how a requested close proceeds
 //!     once every seat is refused.
 //!   * `owesClose`, `oweClose`, and `clearOwedClose`, the close-submission
@@ -109,7 +109,10 @@ pub fn Lifecycle(
                 backend.ready.appendAssumeCapacity(.{ .user_data = ud, .result = -1 });
                 c.external_recv_ud = null;
             }
-            Access.refuseExternalSend(backend, c, null, .transmit);
+            if (c.external_send_ud) |ud| {
+                publish(backend, c, ud, -1, null, .transmit, false);
+                Access.clearExternalSend(c);
+            }
             Access.startClose(backend, inner, c);
             if (backend.conns.get(c.id)) |live| maybeFinish(backend, inner, live);
         }
@@ -147,34 +150,33 @@ pub fn Lifecycle(
             Access.onClosing(backend, inner, c, .ended);
             c.state = .closing;
             if (c.external_connect_ud) |ud| {
-                var borrowed = Access.borrowFailure(backend, c);
-                if (cause != null and borrowed.carrierPhase() == null)
-                    borrowed = borrowed.withPhase(phase);
-                backend.ready.appendAssumeCapacity(.{
-                    .user_data = ud,
-                    .result = -1,
-                    .failure = cause,
-                    .borrowed = borrowed,
-                });
+                publish(backend, c, ud, -1, cause, phase, false);
                 c.external_connect_ud = null;
             }
+            // Both I/O seats settle from this terminal transition. Each
+            // failure borrows its own reference to any retained detail.
+            const failed = recv_result < 0;
             if (c.external_recv_ud) |ud| {
-                var borrowed: contract.Borrowed = if (recv_result < 0)
-                    Access.borrowFailure(backend, c)
-                else
-                    .{};
-                if (cause != null and borrowed.carrierPhase() == null)
-                    borrowed = borrowed.withPhase(phase);
-                backend.ready.appendAssumeCapacity(.{
-                    .user_data = ud,
-                    .result = recv_result,
-                    .failure = if (recv_result < 0) cause else null,
-                    .borrowed = borrowed,
-                });
+                publish(backend, c, ud, recv_result, cause, phase, failed);
                 c.external_recv_ud = null;
             }
-            Access.refuseExternalSend(backend, c, cause, phase);
+            if (c.external_send_ud) |ud| {
+                publish(backend, c, ud, -1, cause, phase, failed);
+                Access.clearExternalSend(c);
+            }
             if (c.external_close_ud == null) inner.shutdownFd(c.inner_fd);
+        }
+
+        fn publish(backend: *Backend, c: *Conn, ud: u64, result: i32, cause: ?anyerror, phase: carrier_failure.Phase, latched: bool) void {
+            var borrowed: contract.Borrowed = if (result < 0) Access.borrowFailure(backend, c) else .{};
+            if (cause != null and borrowed.carrierPhase() == null) borrowed = borrowed.withPhase(phase);
+            backend.ready.appendAssumeCapacity(.{
+                .user_data = ud,
+                .result = result,
+                .failure = if (result < 0) cause else null,
+                .borrowed = borrowed,
+                .failure_origin = if (latched) .terminal_io else .operation,
+            });
         }
 
         /// Submit the inner close, or owe it when the inner backend refuses

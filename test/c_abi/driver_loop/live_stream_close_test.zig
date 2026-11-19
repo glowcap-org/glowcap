@@ -27,14 +27,24 @@ var real_write: WriteFn = null;
 /// Write attempts the provider refuses before it takes bytes again.
 var held_writes: usize = 0;
 var refused_writes: usize = 0;
+var fail_write: bool = false;
 
-fn shimWrite(ctx: ?*anyopaque, conn: ?*anyopaque, bytes: ?[*]const u8, len: usize) callconv(.c) isize {
+fn shimWrite(ctx: ?*anyopaque, conn: ?*anyopaque, bytes: ?[*]const u8, len: usize, detail: ?*cshared.GlowcapProviderFailure) callconv(.c) isize {
     if (held_writes != 0) {
         held_writes -= 1;
         refused_writes += 1;
         return cshared.GLOWCAP_TRANSPORT_WOULD_BLOCK;
     }
-    return real_write.?(ctx, conn, bytes, len);
+    if (fail_write) {
+        fail_write = false;
+        _ = harness.providerFailure(detail, c.GLOWCAP_ERR_IO, "LiveDrainFailed");
+        const report = detail.?;
+        report.carrier_phase = cshared.transport_provider.GLOWCAP_CARRIER_PHASE_TRANSMIT;
+        report.carrier_detail_flags = cshared.transport_provider.GLOWCAP_CARRIER_DETAIL_ENGINE_CODE;
+        report.carrier_engine_code = -0x2702;
+        return -1;
+    }
+    return real_write.?(ctx, conn, bytes, len, detail);
 }
 
 fn shimClose(ctx: ?*anyopaque, conn: ?*anyopaque, out: ?*cdrv.GlowcapProviderFailure) callconv(.c) i32 {
@@ -91,7 +101,7 @@ fn name(ptr: ?[*]const u8, len: usize) []const u8 {
     return if (ptr) |p| p[0..len] else "";
 }
 
-const Mode = enum { healthy, ordinary_close_fails, release_owned_fails, release_after_queued_close, release_with_admitted_bytes };
+const Mode = enum { healthy, drain_write_fails, ordinary_close_fails, release_owned_fails, release_after_queued_close, release_with_admitted_bytes };
 
 fn journalRecords(ctx: ?*c.GlowcapContext) !usize {
     var n: usize = 0;
@@ -123,6 +133,7 @@ fn scenario(mode: Mode, seed: u8) !void {
     failing_returns = 0;
     held_writes = 0;
     refused_writes = 0;
+    fail_write = false;
 
     const server = try harness.newLoop(seed);
     defer server.deinit();
@@ -156,7 +167,7 @@ fn scenario(mode: Mode, seed: u8) !void {
 
     var release_failure = cdrv.GlowcapDriverFailure.init();
     const consuming = mode == .release_owned_fails or mode == .release_after_queued_close or mode == .release_with_admitted_bytes;
-    if (mode == .release_with_admitted_bytes) {
+    if (mode == .release_with_admitted_bytes or mode == .drain_write_fails) {
         // The session stages a request the provider keeps refusing, so the
         // consuming release finds bytes admitted when it submits the close:
         // the provider's close cannot run until they drain inside the release.
@@ -178,6 +189,10 @@ fn scenario(mode: Mode, seed: u8) !void {
     }
     if (!consuming) {
         try expectOk(cdrv.glowcap_driver_session_close(client, csess, &harness.close_cancel));
+        if (mode == .drain_write_fails) {
+            held_writes = 0;
+            fail_write = true;
+        }
         var state: u32 = 0;
         for (0..200) |_| {
             try harness.expectStep(cdrv.glowcap_driver_step(client, 5));
@@ -199,6 +214,13 @@ fn scenario(mode: Mode, seed: u8) !void {
         if (mode == .healthy) {
             try std.testing.expectEqual(@as(i32, c.GLOWCAP_OK), cs.closed_result);
             try std.testing.expectEqual(@as(u32, 0), cs.closed_secondary_count);
+        } else if (mode == .drain_write_fails) {
+            try std.testing.expectEqual(@as(i32, c.GLOWCAP_ERR_IO), cs.closed_result);
+            try std.testing.expectEqualStrings("LiveDrainFailed", cs.closed_message[0..cs.closed_message_len]);
+            try std.testing.expectEqual(cshared.transport_provider.GLOWCAP_CARRIER_PHASE_TRANSMIT, cs.closed_carrier.phase);
+            try std.testing.expectEqual(@as(i32, -0x2702), cs.closed_carrier.engine_code);
+            try std.testing.expectEqualStrings("LiveCloseCleanupFailed", cs.closed_secondary_message[0..cs.closed_secondary_message_len]);
+            try std.testing.expectEqual(@as(u32, 2), cs.closed_secondary_count);
         } else {
             try std.testing.expectEqual(@as(i32, c.GLOWCAP_ERR_IO), cs.closed_result);
             try std.testing.expectEqualStrings("LiveCloseCleanupFailed", cs.closed_message[0..cs.closed_message_len]);
@@ -245,4 +267,8 @@ test "live stream close: a release after a queued close owns its failure once" {
 
 test "live stream close: a release that finds admitted bytes owns the close failure once" {
     try scenario(.release_with_admitted_bytes, 0x98);
+}
+
+test "live stream close: a held write retains its carrier detail on SESSION_CLOSED" {
+    try scenario(.drain_write_fails, 0x9a);
 }

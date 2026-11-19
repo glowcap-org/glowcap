@@ -15,6 +15,7 @@ const c = @import("c_abi_shared");
 const tcp_provider = @import("c_abi_net_transport_tcp");
 const stream_completion = @import("c_abi_driver").stream_completion;
 const harness = @import("../host_runtime_step/harness.zig");
+const SteppedClock = @import("../../support/stepped_clock.zig").SteppedClock;
 
 const driver = glowcap.driver;
 const driver_core = driver.core;
@@ -34,20 +35,65 @@ var real_write: WriteFn = null;
 /// Write attempts the provider refuses before it takes bytes again.
 var held_writes: usize = 0;
 var refused_writes: usize = 0;
+/// The next write can fail once and return its own structured cause.
+var next_write: DrainWrite = .{ .fail = false };
+var failed_writes: usize = 0;
+var write_calls: usize = 0;
+/// A pre-existing connection report has a separate lifetime from a transfer.
+var take_name: ?[]const u8 = null;
+var take_calls: usize = 0;
+const TakeFn = @TypeOf(@as(c.GlowcapStreamTransport, undefined).conn_take_failure);
+var real_take: TakeFn = null;
+/// A healthy `conn_close` returns the real close unchanged.
+var healthy_close: bool = false;
+var close_calls: usize = 0;
 
-fn heldWrite(ctx: ?*anyopaque, conn: ?*anyopaque, bytes: ?[*]const u8, len: usize) callconv(.c) isize {
+fn heldWrite(ctx: ?*anyopaque, conn: ?*anyopaque, bytes: ?[*]const u8, len: usize, detail: ?*c.GlowcapProviderFailure) callconv(.c) isize {
     if (held_writes != 0) {
         held_writes -= 1;
         refused_writes += 1;
         return c.GLOWCAP_TRANSPORT_WOULD_BLOCK;
     }
-    return real_write.?(ctx, conn, bytes, len);
+    write_calls += 1;
+    if (next_write.fail) {
+        if (next_write.kept) |reason| if (detail) |out| {
+            out.* = c.transport_provider.emptyProviderFailure();
+            out.result = c.GLOWCAP_ERR_IO;
+            out.carrier_phase = c.transport_provider.GLOWCAP_CARRIER_PHASE_TRANSMIT;
+            out.carrier_detail_flags = c.transport_provider.GLOWCAP_CARRIER_DETAIL_ENGINE_CODE;
+            out.carrier_engine_code = -19;
+            out.primary_name = reason.ptr;
+            out.primary_name_len = reason.len;
+        };
+        next_write = .{ .fail = false };
+        failed_writes += 1;
+        return -1;
+    }
+    return real_write.?(ctx, conn, bytes, len, detail);
+}
+
+fn keptTake(ctx: ?*anyopaque, conn: ?*anyopaque, out: ?*c.GlowcapProviderFailure) callconv(.c) void {
+    take_calls += 1;
+    const name = take_name orelse {
+        if (real_take) |take| take(ctx, conn, out);
+        return;
+    };
+    take_name = null;
+    const report = out orelse return;
+    report.* = c.transport_provider.emptyProviderFailure();
+    report.result = c.GLOWCAP_ERR_IO;
+    report.carrier_phase = c.transport_provider.GLOWCAP_CARRIER_PHASE_RECEIVE;
+    report.carrier_detail_flags = c.transport_provider.GLOWCAP_CARRIER_DETAIL_ENGINE_CODE;
+    report.carrier_engine_code = -12;
+    report.primary_name = name.ptr;
+    report.primary_name_len = name.len;
 }
 
 /// The real close, then a typed cleanup failure with a secondary in its place.
 fn failingClose(ctx: ?*anyopaque, conn: ?*anyopaque, out: ?*c.GlowcapProviderFailure) callconv(.c) i32 {
     const rc = real_close.?(ctx, conn, out);
-    if (rc != c.GLOWCAP_OK) return rc;
+    close_calls += 1;
+    if (rc != c.GLOWCAP_OK or healthy_close) return rc;
     failing_closes += 1;
     const report = out orelse return c.GLOWCAP_ERR_IO;
     report.* = c.transport_provider.emptyProviderFailure();
@@ -116,6 +162,9 @@ const Sink = struct {
 /// established client session.
 const Fixture = struct {
     threaded: std.Io.Threaded,
+    /// The client runtime's clock: it moves only when read, so a test crosses
+    /// the carrier-close deadline at the moment it names.
+    clock: SteppedClock = undefined,
     netlayer: ?*tcp_provider.GlowcapTcpNetlayer = null,
     sink: Sink = .{},
     recipients: Recipients = .{},
@@ -145,8 +194,17 @@ const Fixture = struct {
         table.conn_close = failingClose;
         real_write = table.try_write;
         table.try_write = heldWrite;
+        real_take = table.conn_take_failure;
+        table.conn_take_failure = keptTake;
+        take_name = null;
+        take_calls = 0;
         held_writes = 0;
         refused_writes = 0;
+        next_write = .{ .fail = false };
+        failed_writes = 0;
+        write_calls = 0;
+        healthy_close = false;
+        close_calls = 0;
         failing_closes = 0;
 
         self.stream = .{
@@ -193,7 +251,8 @@ const Fixture = struct {
                 .closed = Recipients.closedSession,
             },
         } };
-        self.client = try driver.HostRuntime.init(allocator, io, .{}, .ephemeral, options);
+        self.clock = SteppedClock.init(io, 0, 1);
+        self.client = try driver.HostRuntime.init(allocator, self.clock.io(), .{}, .ephemeral, options);
         errdefer self.client.deinit();
         self.sink.runtime = &self.client;
         _ = try self.client.addResident(model.transport.Known.tcp.metadata(), resident.resident());
@@ -342,5 +401,206 @@ test "dropping a session whose admitted bytes are still draining hands the close
     try std.testing.expectEqual(@as(usize, 1), f.recipients.unhandled);
     try std.testing.expectEqualStrings("LiveCloseFailed", f.recipients.unhandled_failure.?.chain.primaryName());
     try std.testing.expectEqual(@as(usize, 0), f.recipients.closed);
+    try std.testing.expect(f.resident.drained());
+}
+
+/// Stage a request the provider refuses, then ask for the close while those
+/// bytes are still admitted: the row drains with the provider holding every
+/// byte. `earlier` is a failure the provider already keeps when the runtime
+/// takes its one snapshot at the close request. Returns once the close
+/// request has been refused at least once.
+fn holdDrainingClose(f: *Fixture, earlier: ?[]const u8) !void {
+    held_writes = 50;
+    _ = try f.client.core.fetch(f.session(), "treasure");
+    take_name = earlier;
+    try f.client.beginSessionClose(f.session(), .cancel);
+    var rounds: usize = 0;
+    while (refused_writes == 0 and rounds < 100) : (rounds += 1) try f.step(10);
+    try std.testing.expect(refused_writes != 0 and held_writes != 0);
+    try std.testing.expectEqual(@as(usize, 0), close_calls);
+    try std.testing.expectEqual(@as(usize, 0), f.recipients.closed);
+    // The initial live snapshot consumes any earlier independent report.
+    try std.testing.expectEqual(@as(?[]const u8, null), take_name);
+}
+
+/// A failed write supplies its optional name in that operation's output.
+const DrainWrite = struct { fail: bool, kept: ?[]const u8 = null };
+
+/// Let the held refusals lapse, run the close to its observer, and read the
+/// session's retained close status on the same path.
+fn finishDrainingClose(f: *Fixture, write: DrainWrite) !void {
+    held_writes = 0;
+    next_write = write;
+    try std.testing.expect(take_name == null);
+    var rounds: usize = 0;
+    while (f.recipients.closed == 0 and rounds < 1_000) : (rounds += 1) try f.step(10);
+    try f.stepQuiet();
+}
+
+/// The observer and `sessionCloseStatus` hold the same close failure: its
+/// primary and secondary names, or none.
+fn expectClosedWith(f: *Fixture, primary: ?[]const u8, secondary: ?[]const u8) !void {
+    try std.testing.expectEqual(@as(usize, 1), f.recipients.closed);
+    const status = try f.client.sessionCloseStatus(f.session());
+    const heard = [2]?driver.OperationFailure{ f.recipients.closed_failure, status.cause };
+    for (heard) |failure| {
+        const expected = primary orelse {
+            try std.testing.expectEqual(@as(?driver.OperationFailure, null), failure);
+            continue;
+        };
+        const actual = failure orelse return error.TestUnexpectedResult;
+        try std.testing.expectEqualStrings(expected, actual.chain.primaryName());
+        if (std.mem.eql(u8, expected, "DrainWriteFailed")) {
+            try std.testing.expectEqual(@as(?net.carrier_failure.Phase, .transmit), actual.carrier_phase);
+            try std.testing.expectEqual(@as(?i32, -19), actual.carrier_detail.engine_code);
+        } else if (std.mem.eql(u8, expected, "EarlierPeerFailure")) {
+            try std.testing.expectEqual(@as(?net.carrier_failure.Phase, .receive), actual.carrier_phase);
+            try std.testing.expectEqual(@as(?i32, -12), actual.carrier_detail.engine_code);
+        }
+        try std.testing.expectEqual(secondary == null, actual.chain.secondaryName() == null);
+        if (secondary) |name| try std.testing.expectEqualStrings(name, actual.chain.secondaryName().?);
+    }
+}
+
+test "a healthy drain on a closing session reports no failure" {
+    if (skip()) return error.SkipZigTest;
+    var f: Fixture = .{ .threaded = undefined, .allocator = undefined };
+    try f.start(std.testing.allocator);
+    defer f.deinit();
+    healthy_close = true;
+
+    try holdDrainingClose(&f, null);
+    try finishDrainingClose(&f, .{ .fail = false });
+    try expectClosedWith(&f, null, null);
+
+    try std.testing.expectEqual(@as(usize, 0), failed_writes);
+    try std.testing.expectEqual(@as(usize, 1), close_calls);
+    try std.testing.expectEqual(@as(usize, 0), f.recipients.unhandled);
+    try std.testing.expect(f.resident.drained());
+}
+
+test "a write that fails while a close drains reaches the close observer once with the provider's cause" {
+    if (skip()) return error.SkipZigTest;
+    var f: Fixture = .{ .threaded = undefined, .allocator = undefined };
+    try f.start(std.testing.allocator);
+    defer f.deinit();
+    healthy_close = true;
+
+    try holdDrainingClose(&f, null);
+    const before = write_calls;
+    try finishDrainingClose(&f, .{ .fail = true, .kept = "DrainWriteFailed" });
+    try expectClosedWith(&f, "DrainWriteFailed", null);
+
+    // The provider sees exactly one further write after the held attempts.
+    try std.testing.expectEqual(@as(usize, 1), failed_writes);
+    try std.testing.expectEqual(before + 1, write_calls);
+    try std.testing.expectEqual(@as(usize, 1), close_calls);
+    try std.testing.expectEqual(@as(usize, 0), f.recipients.unhandled);
+    try std.testing.expectEqual(@as(usize, 0), f.sink.teardowns);
+    try std.testing.expect(f.resident.drained());
+}
+
+test "a failed drain write with no provider cause leads the later provider close failure" {
+    if (skip()) return error.SkipZigTest;
+    var f: Fixture = .{ .threaded = undefined, .allocator = undefined };
+    try f.start(std.testing.allocator);
+    defer f.deinit();
+
+    try holdDrainingClose(&f, null);
+    try finishDrainingClose(&f, .{ .fail = true });
+    try expectClosedWith(&f, "WriteFailed", "LiveCloseFailed");
+
+    try std.testing.expectEqual(@as(usize, 1), failed_writes);
+    try std.testing.expectEqual(@as(usize, 1), failing_closes);
+    // The adapter's name for a provider write that returned -1.
+    try std.testing.expectEqual(@as(usize, 0), f.recipients.unhandled);
+    try std.testing.expect(f.resident.drained());
+}
+
+test "a drain write's exact report precedes the physical close and its cleanup" {
+    if (skip()) return error.SkipZigTest;
+    var f: Fixture = .{ .threaded = undefined, .allocator = undefined };
+    try f.start(std.testing.allocator);
+    defer f.deinit();
+
+    try holdDrainingClose(&f, null);
+    try finishDrainingClose(&f, .{ .fail = true, .kept = "DrainWriteFailed" });
+    try expectClosedWith(&f, "DrainWriteFailed", "LiveCloseFailed");
+    const status = try f.client.sessionCloseStatus(f.session());
+    try std.testing.expectEqual(2, status.cause.?.chain.secondary_count);
+    try std.testing.expectEqual(1, failed_writes);
+    try std.testing.expectEqual(1, close_calls);
+    try std.testing.expectEqual(0, f.recipients.unhandled);
+}
+
+test "a failed drain write follows a cause the close request already claimed" {
+    if (skip()) return error.SkipZigTest;
+    var f: Fixture = .{ .threaded = undefined, .allocator = undefined };
+    try f.start(std.testing.allocator);
+    defer f.deinit();
+    healthy_close = true;
+
+    // The snapshot claims the provider's earlier cause. The write fails later
+    // with a cause of its own, so the claim opens again for it.
+    try holdDrainingClose(&f, "EarlierPeerFailure");
+    try finishDrainingClose(&f, .{ .fail = true, .kept = "DrainWriteFailed" });
+    try expectClosedWith(&f, "EarlierPeerFailure", "DrainWriteFailed");
+
+    try std.testing.expectEqual(@as(usize, 1), failed_writes);
+    try std.testing.expectEqual(@as(usize, 0), f.recipients.unhandled);
+    try std.testing.expect(f.resident.drained());
+}
+
+test "a dropped session's failed drain write has no recipient and leaves the close to the sink" {
+    if (skip()) return error.SkipZigTest;
+    var f: Fixture = .{ .threaded = undefined, .allocator = undefined };
+    try f.start(std.testing.allocator);
+    defer f.deinit();
+
+    held_writes = 50;
+    _ = try f.client.core.fetch(f.session(), "treasure");
+    try f.client.releaseWire(f.session());
+    try std.testing.expect(refused_writes != 0 and held_writes != 0);
+    const takes = take_calls;
+    held_writes = 0;
+    next_write = .{ .fail = true, .kept = "DrainWriteFailed" };
+    try std.testing.expect(take_name == null);
+    var rounds: usize = 0;
+    while (f.recipients.unhandled == 0 and rounds < 1_000) : (rounds += 1) try f.step(10);
+    try f.stepQuiet();
+
+    try std.testing.expectEqual(@as(usize, 1), failed_writes);
+    // A detached close has no waiter to claim another independent cause.
+    try std.testing.expectEqual(takes, take_calls);
+    try std.testing.expect(take_name == null);
+    try std.testing.expectEqual(@as(usize, 1), failing_closes);
+    try std.testing.expectEqual(@as(usize, 1), f.sink.teardowns);
+    try std.testing.expectEqual(@as(usize, 1), f.recipients.unhandled);
+    try std.testing.expectEqualStrings("LiveCloseFailed", f.recipients.unhandled_failure.?.chain.primaryName());
+    try std.testing.expectEqual(@as(usize, 0), f.recipients.closed);
+    try std.testing.expect(f.resident.drained());
+}
+
+/// Past the runtime's carrier-close deadline.
+const past_deadline_ms = 5_001;
+
+test "a held close that times out before the partner reads reports the timeout and hands the physical close to the sink" {
+    if (skip()) return error.SkipZigTest;
+    var f: Fixture = .{ .threaded = undefined, .allocator = undefined };
+    try f.start(std.testing.allocator);
+    defer f.deinit();
+
+    try holdDrainingClose(&f, null);
+    f.clock.advanceMs(past_deadline_ms);
+    try f.step(10);
+    try f.stepQuiet();
+
+    // The abort ended the wait before any write failed: the observer hears the
+    // timeout, and the provider's close result goes to its own sink.
+    try std.testing.expectEqual(@as(usize, 1), f.recipients.closed);
+    try std.testing.expectEqualStrings("CloseTimedOut", f.recipients.closed_failure.?.chain.primaryName());
+    try std.testing.expectEqual(@as(usize, 1), failing_closes);
+    try std.testing.expectEqual(@as(usize, 1), f.sink.teardowns);
+    try std.testing.expectEqual(@as(usize, 1), f.recipients.unhandled);
     try std.testing.expect(f.resident.drained());
 }

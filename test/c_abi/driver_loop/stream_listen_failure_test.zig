@@ -84,11 +84,11 @@ const BusyStream = struct {
         return c.GLOWCAP_OK;
     }
 
-    fn tryIo(_: ?*anyopaque, _: ?*anyopaque, _: ?[*]u8, _: usize) callconv(.c) isize {
+    fn tryIo(_: ?*anyopaque, _: ?*anyopaque, _: ?[*]u8, _: usize, _: ?*cshared.GlowcapProviderFailure) callconv(.c) isize {
         return -1;
     }
 
-    fn tryWrite(_: ?*anyopaque, _: ?*anyopaque, _: ?[*]const u8, _: usize) callconv(.c) isize {
+    fn tryWrite(_: ?*anyopaque, _: ?*anyopaque, _: ?[*]const u8, _: usize, _: ?*cshared.GlowcapProviderFailure) callconv(.c) isize {
         return -1;
     }
 

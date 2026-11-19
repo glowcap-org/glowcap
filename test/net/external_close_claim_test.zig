@@ -57,11 +57,11 @@ const Script = struct {
 
     fn cancelConnect(_: *anyopaque, _: *anyopaque) void {}
 
-    fn tryRead(_: *anyopaque, _: *anyopaque, _: []u8) net.completion.TryRead {
+    fn tryRead(_: *anyopaque, _: *anyopaque, _: []u8, _: *?net.carrier_failure.Report) net.completion.TryRead {
         return .would_block;
     }
 
-    fn tryWrite(_: *anyopaque, _: *anyopaque, _: []const u8) net.completion.TryWrite {
+    fn tryWrite(_: *anyopaque, _: *anyopaque, _: []const u8, _: *?net.carrier_failure.Report) net.completion.TryWrite {
         return .would_block;
     }
 
@@ -514,7 +514,7 @@ test "external connection admission reserves publication for its first close" {
 // The resident row's 152 bytes are pinned by the completion resident's own
 // test. Stated for 64-bit targets under runtime safety, where each embedded
 // list header carries std's one-word pointer-stability lock.
-test "the close phase adds no bytes to a provider connection row" {
+test "external connection row fits its transfer failure budget" {
     if (!builtin.optimize.runtimeSafety() or @sizeOf(usize) != 8) return error.SkipZigTest;
-    try std.testing.expectEqual(@as(usize, 128), Backend.connection_state_bytes);
+    try std.testing.expectEqual(@as(usize, 208), Backend.connection_state_bytes);
 }

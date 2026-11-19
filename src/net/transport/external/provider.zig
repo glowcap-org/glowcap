@@ -92,11 +92,12 @@ pub const VTable = struct {
     /// Query or copy the opaque state that restores the listener's address.
     /// Null means the provider keeps none.
     listener_restoration_state: ?*const fn (ctx: *anyopaque, listener: *anyopaque, out: []u8) netlayer.ListenerRestorationOutcome = null,
-    try_read: *const fn (ctx: *anyopaque, conn: *anyopaque, buf: []u8) completion.TryRead,
-    try_write: *const fn (ctx: *anyopaque, conn: *anyopaque, bytes: []const u8) completion.TryWrite,
-    /// Claim the structured failure behind a refused read or write on
-    /// `conn`, once. Null when the provider keeps none.
-    conn_take_failure: ?*const fn (ctx: *anyopaque, conn: *anyopaque) ?foundation.FailureChain = null,
+    /// A failed transfer can supply its exact cause in detail. Other results leave it alone.
+    try_read: *const fn (ctx: *anyopaque, conn: *anyopaque, buf: []u8, detail: *?carrier_failure.Report) completion.TryRead,
+    try_write: *const fn (ctx: *anyopaque, conn: *anyopaque, bytes: []const u8, detail: *?carrier_failure.Report) completion.TryWrite,
+    /// Claim an independently retained connection failure once. Transfer failures
+    /// belong to the operation that returned them.
+    conn_take_failure: ?*const fn (ctx: *anyopaque, conn: *anyopaque) ?carrier_failure.Report = null,
     /// Releases `conn` and its descriptor, once, through the one close this
     /// provider declares. The choice also decides which connections can hand
     /// a close failure to a waiting caller: only `reporting` ones.

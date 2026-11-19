@@ -36,6 +36,7 @@ pub fn Machine(comptime Self: type) type {
     return struct {
         const Conn = Self.Conn;
         const Listener = Self.Listener;
+        const Failures = @import("failures.zig");
         const Fd = Self.Fd;
 
         /// Keep the first resident-wide failure. `drain_ready` reports it.
@@ -58,7 +59,7 @@ pub fn Machine(comptime Self: type) type {
 
         fn startRecv(self: *Self, id: usize, conn: *Conn) void {
             self.backend.submitRecv(userData(.recv, id), conn.fd) catch |err| {
-                conn.recv = .{ .failed = err };
+                Failures.readFailed(self, id, conn, err, null);
                 record(self, id, resident_mod.ev_readable);
                 return;
             };
@@ -67,7 +68,7 @@ pub fn Machine(comptime Self: type) type {
         }
 
         pub fn startSend(self: *Self, id: usize, conn: *Conn) void {
-            if (conn.sending or conn.close == .closing) return;
+            if (conn.send == .armed or conn.close == .closing) return;
             if (conn.front.items.len == conn.sent) {
                 if (conn.back.items.len == 0) return;
                 std.mem.swap(std.ArrayList(u8), &conn.front, &conn.back);
@@ -75,11 +76,11 @@ pub fn Machine(comptime Self: type) type {
                 conn.sent = 0;
             }
             self.backend.submitSend(userData(.send, id), conn.fd, conn.front.items[conn.sent..]) catch |err| {
-                conn.write_failure = err;
+                failSend(self, id, conn, err, null);
                 record(self, id, resident_mod.ev_writable);
                 return;
             };
-            conn.sending = true;
+            conn.send = .armed;
             conn.inflight += 1;
         }
 
@@ -134,8 +135,8 @@ pub fn Machine(comptime Self: type) type {
             }
         }
 
-        /// Turn every completion the backend already holds into held bytes,
-        /// records, and re-armed operations. The runtime's `reap` and
+        /// Turn available completions into held bytes, records, and re-armed
+        /// operations. An ordinary pump stops on a short batch. The runtime's `reap` and
         /// `drain_ready` verbs and `beforeWait` run it, and a read verb runs
         /// it first when no receive is held, so bytes that landed since the
         /// last pump answer now. A verb that only arms or stages leaves what
@@ -145,6 +146,13 @@ pub fn Machine(comptime Self: type) type {
         /// armed until `beforeWait`, and a record reaped here waits in
         /// `records`, which `ready_pending` reports.
         pub fn pump(self: *Self) void {
+            reap(self, null);
+        }
+
+        /// An awaited close can use the remainder of the same peek budget
+        /// to refine its scalar write while its read is still outstanding.
+        /// Backend readiness can describe unrelated or adapter-internal work.
+        pub fn reap(self: *Self, draining: ?*const Conn) void {
             var out: [64]completion.Completion = undefined;
             var turns: usize = 0;
             while (turns < 64) : (turns += 1) {
@@ -153,7 +161,10 @@ pub fn Machine(comptime Self: type) type {
                     break;
                 };
                 for (out[0..n]) |comp| dispatch(self, comp);
-                if (n < out.len) break;
+                if (n == out.len) continue;
+                const conn = draining orelse break;
+                if (conn.recv != .armed or conn.failures.write != .failed or
+                    !conn.failures.needsDetail() or !self.backend.readyPending()) break;
             }
         }
 
@@ -174,8 +185,8 @@ pub fn Machine(comptime Self: type) type {
             // `beforeWait` before it parks (ADR-0060).
             for (self.send_queue.items) |id| {
                 const conn = self.conns.getPtr(id) orelse continue;
-                if (!conn.send_queued) continue;
-                conn.send_queued = false;
+                if (conn.send != .queued) continue;
+                conn.send = .idle;
                 startSend(self, id, conn);
             }
             self.send_queue.clearRetainingCapacity();
@@ -260,14 +271,14 @@ pub fn Machine(comptime Self: type) type {
         /// batch boundary.
         pub fn queueSend(self: *Self, id: usize, conn: *Conn) void {
             if (self.backend.wireFraming(conn.fd) == .message) return startSend(self, id, conn);
-            if (conn.send_queued or conn.sending or conn.close != .open) return;
+            if (conn.send != .idle or conn.close != .open) return;
             if (conn.front.items.len == conn.sent and conn.back.items.len == 0) return;
             self.send_queue.append(self.allocator, id) catch {
                 // The queue is the only allocation on this path; a refusal
                 // sends this batch alone rather than losing it.
                 return startSend(self, id, conn);
             };
-            conn.send_queued = true;
+            conn.send = .queued;
         }
 
         pub fn dispatch(self: *Self, comp_in: completion.Completion) void {
@@ -289,7 +300,7 @@ pub fn Machine(comptime Self: type) type {
                         .connecting => {
                             if (comp.result < 0) {
                                 dial.state = .{ .failed = failure_projection.primary(comp, error.ConnectionRefused) };
-                                keepChain(self, .dial_failures, id, comp);
+                                keepDialChain(self, id, comp);
                             } else dial.state = .connected;
                             record(self, id, resident_mod.ev_connect);
                         },
@@ -316,13 +327,22 @@ pub fn Machine(comptime Self: type) type {
                     };
                     conn.inflight -= 1;
                     if (conn.close != .open) {
+                        if (comp.result < 0 and comp.failure_origin == .terminal_io and comp.borrowed.failureChain() != null) {
+                            if (conn.close == .draining and conn.send == .armed) {
+                                conn.recv = .{ .draining_failure = comp };
+                                return;
+                            }
+                            if (conn.failures.write == .failed and (conn.close == .draining or conn.close_wait != .none))
+                                Failures.refineLatch(self, id, conn, comp);
+                        }
+                        conn.recv = .idle;
                         recycle(self, comp);
                         return retireIfQuiet(self, id, conn);
                     }
                     if (comp.recv_no_buffer) {
                         conn.recv = .starved;
                         self.starved.append(self.allocator, id) catch {
-                            conn.recv = .{ .failed = error.SystemResources };
+                            Failures.readFailed(self, id, conn, error.SystemResources, null);
                             record(self, id, resident_mod.ev_readable);
                         };
                         return;
@@ -331,8 +351,8 @@ pub fn Machine(comptime Self: type) type {
                         conn.recv = .{ .holding = .{ .comp = comp, .offset = 0 } };
                     } else {
                         if (comp.result < 0) {
-                            conn.recv = .{ .failed = failure_projection.primary(comp, error.ConnectionLost) };
-                            keepChain(self, .conn_failures, id, comp);
+                            const cause = failure_projection.primary(comp, error.ConnectionLost);
+                            Failures.readFailed(self, id, conn, cause, comp);
                         } else conn.recv = .eof;
                         recycle(self, comp);
                     }
@@ -341,11 +361,19 @@ pub fn Machine(comptime Self: type) type {
                 .send => {
                     const conn = self.conns.getPtr(id) orelse return;
                     conn.inflight -= 1;
-                    conn.sending = false;
+                    // Only a marked send can confirm the ignored read's
+                    // terminal failure. A successful or independent write
+                    // releases the read without reporting it.
+                    const held = if (conn.recv == .draining_failure) conn.recv.draining_failure else null;
                     if (conn.close != .closing and comp.result <= 0) {
-                        conn.write_failure = failure_projection.primary(comp, error.ConnectionLost);
-                        keepChain(self, .conn_failures, id, comp);
+                        const source = if (comp.failure_origin == .terminal_io) held orelse comp else comp;
+                        failSend(self, id, conn, failure_projection.primary(source, error.ConnectionLost), source);
                     }
+                    if (held) |read| {
+                        conn.recv = .idle;
+                        recycle(self, read);
+                    }
+                    conn.send = .idle;
                     recycle(self, comp);
                     if (conn.close == .closing) return retireIfQuiet(self, id, conn);
                     if (comp.result <= 0) {
@@ -356,7 +384,7 @@ pub fn Machine(comptime Self: type) type {
                     if (self.backend.wireFraming(conn.fd) == .message and
                         @as(usize, @intCast(comp.result)) != conn.front.items.len - conn.sent)
                     {
-                        conn.write_failure = error.WriteFailed;
+                        failSend(self, id, conn, error.WriteFailed, null);
                         record(self, id, resident_mod.ev_writable | resident_mod.ev_readable);
                         return;
                     }
@@ -387,6 +415,9 @@ pub fn Machine(comptime Self: type) type {
                         conn.close_wait = if (claimable) .claimable else .none;
                         self.records.appendAssumeCapacity(.{ .subject = id, .events = resident_mod.ev_closed });
                     }
+                    // A carrier can lend its terminal failure with the close.
+                    // The borrow keeps its physical handle live until returned.
+                    recycle(self, comp);
                     retireIfQuiet(self, id, conn);
                 },
                 .listen_close => self.closing_listeners -= 1,
@@ -427,9 +458,9 @@ pub fn Machine(comptime Self: type) type {
                         self.records.appendAssumeCapacity(.{ .subject = listener.route, .events = resident_mod.ev_accept });
                     } else {
                         const chain = report orelse foundation.FailureChain.init(comp.failure orelse error.AcceptFailed);
-                        if (comp.arrival_retired or acceptRefusalPersists(chain.cause)) {
+                        if (comp.failure_origin == .retired_arrival or acceptRefusalPersists(chain.cause)) {
                             std.debug.assert(listener.accept_failure == null);
-                            listener.accept_failure = if (comp.arrival_retired) .{ .arrival = chain } else .{ .listener = chain };
+                            listener.accept_failure = if (comp.failure_origin == .retired_arrival) .{ .arrival = chain } else .{ .listener = chain };
                             self.records.appendAssumeCapacity(.{ .subject = listener.route, .events = resident_mod.ev_accept });
                             return;
                         }
@@ -460,11 +491,20 @@ pub fn Machine(comptime Self: type) type {
             _ = self.conn_failures.remove(id);
         }
 
+        /// Stop offering these bytes. An adapter can finish its external
+        /// send while a physical send still borrows the front. Keep that
+        /// allocation until the connection retires. The back was never lent.
+        fn failSend(self: *Self, id: usize, conn: *Conn, cause: anyerror, comp: ?completion.Completion) void {
+            conn.sent = conn.front.items.len;
+            retireStaging(self, &conn.back);
+            Failures.writeFailed(self, id, conn, cause, comp);
+        }
+
         /// Copy the structured failure a backend lent with `comp` before the
         /// borrow returns. The first failure per row wins.
-        fn keepChain(self: *Self, comptime table: enum { conn_failures, dial_failures }, id: usize, comp: completion.Completion) void {
+        fn keepDialChain(self: *Self, id: usize, comp: completion.Completion) void {
             const chain = comp.borrowed.failureChain() orelse return;
-            const slot = @field(self, @tagName(table)).getOrPut(self.allocator, id) catch return; // best-effort: the scalar cause remains.
+            const slot = self.dial_failures.getOrPut(self.allocator, id) catch return; // best-effort: the scalar cause remains.
             if (!slot.found_existing) slot.value_ptr.* = chain.*;
         }
 

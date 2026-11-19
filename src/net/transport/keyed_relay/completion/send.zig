@@ -78,7 +78,7 @@ pub fn Machine(
             clearExternal(c);
         }
 
-        fn clearExternal(c: *RelayConn) void {
+        pub fn clearExternal(c: *RelayConn) void {
             c.external_send_ud = null;
             c.external_send_len = 0;
             c.external_send_remainder = &.{};
@@ -142,24 +142,11 @@ pub fn Machine(
         }
 
         pub fn refuseExternal(backend: *Backend, c: *RelayConn) void {
-            refuseExternalWith(backend, c, null, .transmit);
-        }
-
-        pub fn refuseExternalWith(
-            backend: *Backend,
-            c: *RelayConn,
-            cause: ?anyerror,
-            phase: carrier_failure.Phase,
-        ) void {
             if (c.external_send_ud) |ud| {
-                var borrowed = Access.borrowCarrierFailure(backend, c);
-                if (cause != null and borrowed.carrierPhase() == null)
-                    borrowed = borrowed.withPhase(phase);
                 backend.ready.appendAssumeCapacity(.{
                     .user_data = ud,
                     .result = -1,
-                    .failure = cause,
-                    .borrowed = borrowed,
+                    .borrowed = Access.borrowCarrierFailure(backend, c),
                 });
                 clearExternal(c);
             }
@@ -184,6 +171,7 @@ pub fn Machine(
                 .result = -1,
                 .failure = comp.failure,
                 .borrowed = borrowed,
+                .failure_origin = if (c.state != .closing) .terminal_io else .operation,
             });
             clearExternal(c);
             return true;

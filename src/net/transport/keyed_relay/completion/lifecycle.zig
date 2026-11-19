@@ -53,14 +53,7 @@ pub fn Machine(
                 if (c.close.shutdown_requested) backend.platform.shutdownFd(c.inner_fd);
             }
 
-            pub fn refuseExternalSend(
-                backend: *Backend,
-                c: *RelayConn,
-                cause: ?anyerror,
-                phase: carrier_failure.Phase,
-            ) void {
-                Access.refuseExternalSendWith(backend, c, cause, phase);
-            }
+            pub const clearExternalSend = Access.clearExternalSend;
 
             /// A send in flight borrows `ws_out`. Its completion resumes the
             /// close through `advance` once that borrow retires.

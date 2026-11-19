@@ -283,31 +283,43 @@ pub const StreamProvider = struct {
         return .{ .failed = failure };
     }
 
-    fn tryRead(ctx: *anyopaque, conn: *anyopaque, buf: []u8) net.completion.TryRead {
+    fn tryRead(ctx: *anyopaque, conn: *anyopaque, buf: []u8, detail: *?net.carrier_failure.Report) net.completion.TryRead {
         const self = of(ctx);
-        const got = self.table.try_read.?(self.table.ctx, conn, buf.ptr, buf.len);
+        var report: shared.GlowcapProviderFailure = undefined;
+        report.result = 0;
+        const got = self.table.try_read.?(self.table.ctx, conn, buf.ptr, buf.len, &report);
         if (!validation.tryIoResultValid(got, buf.len)) {
             self.sink.violation(self.sink.ctx, "stream try_read returned an invalid result");
             return .{ .failed = error.ProviderContract };
         }
         if (got == shared.GLOWCAP_TRANSPORT_WOULD_BLOCK) return .would_block;
         if (got == 0) return .closed;
-        // The connection's report stays with the table until the runtime
-        // claims it through `conn_take_failure`.
-        if (got < 0) return .{ .failed = error.ReadFailed };
+        if (got < 0) return .{ .failed = self.transferFailure(report, detail, error.ReadFailed) };
         return .{ .transferred = @intCast(got) };
     }
 
-    fn tryWrite(ctx: *anyopaque, conn: *anyopaque, bytes: []const u8) net.completion.TryWrite {
+    fn tryWrite(ctx: *anyopaque, conn: *anyopaque, bytes: []const u8, detail: *?net.carrier_failure.Report) net.completion.TryWrite {
         const self = of(ctx);
-        const wrote = self.table.try_write.?(self.table.ctx, conn, bytes.ptr, bytes.len);
+        var report: shared.GlowcapProviderFailure = undefined;
+        report.result = 0;
+        const wrote = self.table.try_write.?(self.table.ctx, conn, bytes.ptr, bytes.len, &report);
         if (!validation.tryIoResultValid(wrote, bytes.len)) {
             self.sink.violation(self.sink.ctx, "stream try_write returned an invalid result");
             return .{ .failed = error.ProviderContract };
         }
         if (wrote == shared.GLOWCAP_TRANSPORT_WOULD_BLOCK or wrote == 0) return .would_block;
-        if (wrote < 0) return .{ .failed = error.WriteFailed };
+        if (wrote < 0) return .{ .failed = self.transferFailure(report, detail, error.WriteFailed) };
         return .{ .transferred = @intCast(wrote) };
+    }
+
+    fn transferFailure(self: *StreamProvider, report: shared.GlowcapProviderFailure, detail: *?net.carrier_failure.Report, fallback: anyerror) anyerror {
+        if (report.result == 0) return fallback;
+        const exact = provider_failure.carrierReport(report.result, report) catch {
+            self.sink.violation(self.sink.ctx, "stream transfer returned an invalid failure report");
+            return error.ProviderContract;
+        };
+        detail.* = exact;
+        return exact.chain.cause;
     }
 
     /// The one `conn_close` call per handle. A failure goes to the waiting
@@ -401,12 +413,13 @@ pub const StreamProvider = struct {
         return failure.classification;
     }
 
-    fn connTakeFailure(ctx: *anyopaque, conn: *anyopaque) ?foundation.FailureChain {
+    fn connTakeFailure(ctx: *anyopaque, conn: *anyopaque) ?net.carrier_failure.Report {
         const self = of(ctx);
         var report = std.mem.zeroes(shared.GlowcapProviderFailure);
-        self.table.conn_take_failure.?(self.table.ctx, conn, &report);
+        const take = self.table.conn_take_failure orelse return null;
+        take(self.table.ctx, conn, &report);
         if (owner_mod.providerFailureIsEmpty(report)) return null;
-        return owner_mod.failureChainFromProvider(report.result, report) catch {
+        return provider_failure.carrierReport(report.result, report) catch {
             self.sink.violation(self.sink.ctx, "stream conn_take_failure returned an invalid report");
             return .init(error.ProviderContract);
         };

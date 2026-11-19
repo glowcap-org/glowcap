@@ -436,7 +436,7 @@ pub const Backend = struct {
                 self.closeFd(cqe.res);
                 comp.result = -1;
                 comp.failure = error.SocketConfigurationFailed;
-                comp.arrival_retired = true;
+                comp.failure_origin = .retired_arrival;
             }
             // A CQE carries the negated errno itself. `std.posix.errno` would
             // read the thread's libc `errno` instead whenever libc is linked.

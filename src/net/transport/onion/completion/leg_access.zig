@@ -5,9 +5,7 @@
 //! submission-debt state. `Self.Leg` owns the lifecycle machinery this
 //! access feeds, and the reference is lazy.
 
-const adapter = @import("../../../completion/adapter.zig");
 const contract = @import("../../../completion/contract.zig");
-const carrier_failure = @import("../../../carrier_failure.zig");
 const inner_leg = @import("../../../completion/inner_leg.zig");
 
 pub fn Access(comptime Self: type, comptime Inner: type, comptime Types: type) type {
@@ -25,9 +23,7 @@ pub fn Access(comptime Self: type, comptime Inner: type, comptime Types: type) t
 
         pub fn closeRefused(_: *Self, _: *Inner, _: *Types.Conn) void {}
 
-        pub fn refuseExternalSend(self: *Self, c: *Types.Conn, cause: ?anyerror, _: carrier_failure.Phase) void {
-            const ud = c.external_send_ud orelse return;
-            self.ready.appendAssumeCapacity(.{ .user_data = ud, .result = -1, .failure = cause });
+        pub fn clearExternalSend(c: *Types.Conn) void {
             c.external_send_ud = null;
         }
 

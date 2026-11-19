@@ -53,14 +53,14 @@ const Provider = struct {
 
     fn cancelConnect(_: *anyopaque, _: *anyopaque) void {}
 
-    fn tryRead(ctx: *anyopaque, _: *anyopaque, buf: []u8) net.completion.TryRead {
+    fn tryRead(ctx: *anyopaque, _: *anyopaque, buf: []u8, _: *?net.carrier_failure.Report) net.completion.TryRead {
         const rc = std.c.read(of(ctx).pair.write, buf.ptr, buf.len);
         if (rc > 0) return .{ .transferred = @intCast(rc) };
         if (rc == 0) return .closed;
         return if (std.posix.errno(rc) == .AGAIN) .would_block else .{ .failed = error.ReadFailed };
     }
 
-    fn tryWrite(ctx: *anyopaque, _: *anyopaque, bytes: []const u8) net.completion.TryWrite {
+    fn tryWrite(ctx: *anyopaque, _: *anyopaque, bytes: []const u8, _: *?net.carrier_failure.Report) net.completion.TryWrite {
         const self = of(ctx);
         const rc = std.c.write(self.pair.write, bytes.ptr, @min(bytes.len, self.cap));
         if (rc < 0) return if (std.posix.errno(rc) == .AGAIN) .would_block else .{ .failed = error.WriteFailed };
@@ -176,7 +176,7 @@ fn run(shape: Shape) !void {
     for (script.timeouts[0..script.calls]) |timeout_ms| try std.testing.expectEqual(@as(i32, 0), timeout_ms);
     try prov.drainPeer(&got, &have);
     if (have == payload.len) {
-        try std.testing.expect(!ext.conns.getPtr(conn).?.sending);
+        try std.testing.expect(ext.conns.getPtr(conn).?.send != .armed);
         try std.testing.expectEqual(@as(usize, 0), ext.backend.ready.len());
     } else {
         try std.testing.expect(shape.cap < payload.len);
@@ -187,7 +187,7 @@ fn run(shape: Shape) !void {
     // the connection no send in flight: moved bytes do not prove the last
     // completion was consumed.
     var turns: usize = 0;
-    while (have < payload.len or ext.conns.getPtr(conn).?.sending or ext.backend.ready.len() != 0) : (turns += 1) {
+    while (have < payload.len or ext.conns.getPtr(conn).?.send == .armed or ext.backend.ready.len() != 0) : (turns += 1) {
         try std.testing.expect(turns < 2 * payload.len);
         try std.testing.expect(try readable(rfd, wake_bound_ms));
         _ = try runtime.stepAny(0);

@@ -136,7 +136,8 @@ pub fn dialOriginIntroducer(origin: ?*const GlowcapDialOrigin) ?[]const u8 {
 }
 
 /// Structured failure output for provider callbacks that expose this output.
-/// The callback receives caller-owned storage and must leave it empty on success.
+/// Stream try callbacks touch the output only to return a complete failure.
+/// Other callbacks receive caller-owned storage and leave it empty on success.
 /// On failure, `result` matches the returned GLOWCAP_ERR_* status and
 /// `primary_name` names the provider's exact cause. A non-zero
 /// `secondary_count` carries the first cleanup/consequence name and its stable
@@ -281,18 +282,18 @@ pub fn failProviderChain(
 
 /// Project a nonblocking transfer's outcome onto a provider `try_read` or
 /// `try_write` result: the byte count, `GLOWCAP_TRANSPORT_WOULD_BLOCK`, or -1
-/// with the first failure latched in `failure` for `conn_take_failure`.
-pub fn tryOutcome(failure: *GlowcapProviderFailure, outcome: anyerror!usize) isize {
+/// with the cause of this transfer written to the caller's output.
+pub fn tryOutcome(failure: ?*GlowcapProviderFailure, outcome: anyerror!usize) isize {
     const moved = outcome catch |err| {
         if (err == error.WouldBlock) return GLOWCAP_TRANSPORT_WOULD_BLOCK;
-        if (providerFailureEmpty(failure.*)) setProviderFailure(failure, codes.GLOWCAP_ERR_IO, err);
+        setProviderFailure(failure, codes.GLOWCAP_ERR_IO, err);
         return -1;
     };
     return @intCast(moved);
 }
 
-/// A try hook handed a null buffer: latch the refusal and fail the call.
-pub fn failNullBuffer(failure: *GlowcapProviderFailure) isize {
+/// Report a refused null buffer on this transfer.
+pub fn failNullBuffer(failure: ?*GlowcapProviderFailure) isize {
     setProviderFailure(failure, codes.GLOWCAP_ERR_NULL_POINTER, error.NullPointer);
     return -1;
 }
@@ -454,24 +455,28 @@ pub const GlowcapStreamListenerCloseFn = *const fn (
 ) callconv(.c) i32;
 
 /// Read into `out` without blocking: 1..cap bytes, 0 at end of stream, -1 on
-/// a dead connection (its cause is claimable through `conn_take_failure`), or
+/// a dead connection (optionally write its cause to `out_failure`), or
 /// `GLOWCAP_TRANSPORT_WOULD_BLOCK` until the connection's readiness
-/// descriptor is readable again.
+/// descriptor is readable again. On -1 the provider may write a complete
+/// report. The caller initializes only its result to zero.
 pub const GlowcapStreamTryReadFn = *const fn (
     ctx: ?*anyopaque,
     conn: ?*anyopaque,
     out: ?[*]u8,
     cap: usize,
+    out_failure: ?*GlowcapProviderFailure,
 ) callconv(.c) isize;
 
 /// Write from `bytes` without blocking: 1..len bytes consumed (the provider
 /// owns them once counted), -1 on a dead connection, or
 /// `GLOWCAP_TRANSPORT_WOULD_BLOCK` until the readiness descriptor is writable.
+/// The failure output follows the same rules as `try_read`.
 pub const GlowcapStreamTryWriteFn = *const fn (
     ctx: ?*anyopaque,
     conn: ?*anyopaque,
     bytes: ?[*]const u8,
     len: usize,
+    out_failure: ?*GlowcapProviderFailure,
 ) callconv(.c) isize;
 
 pub const GlowcapStreamConnCloseFn = *const fn (
@@ -480,7 +485,7 @@ pub const GlowcapStreamConnCloseFn = *const fn (
     out_failure: ?*GlowcapProviderFailure,
 ) callconv(.c) i32;
 
-/// Atomically claim the connection's first retained read/write failure into
+/// Optional. Claim an independently retained connection failure into
 /// `out_failure`. Write the all-zero value when no failure remains.
 pub const GlowcapStreamConnTakeFailureFn = *const fn (
     ctx: ?*anyopaque,
@@ -488,7 +493,7 @@ pub const GlowcapStreamConnTakeFailureFn = *const fn (
     out_failure: ?*GlowcapProviderFailure,
 ) callconv(.c) void;
 
-/// One byte-stream transport profile. Connection callbacks are required.
+/// One byte-stream transport profile. Reading, writing and closing are required.
 /// Staged dial and the base listener capability are each complete or absent
 /// operation groups. Listener completion is a separate optional finish/cancel
 /// pair. Without it `listen` must return READY. A
