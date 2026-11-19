@@ -1,10 +1,10 @@
-# Changelog, 0.1.7
+# 0.1.7 changes through November 11
 
-The [changelog](../../../CHANGELOG.md) holds the current release line. This
-page holds release 0.1.7, in the same form. The releases before it are in the
-[earlier changelog](../CHANGELOG.md).
+See the [release changelog](../../../CHANGELOG.md) for
+later changes in this release and the [earlier changelog](../CHANGELOG.md)
+for previous releases.
 
-## [0.1.7] - 2026-11-11
+## [0.1.7] - 2026-11-19
 
 ### Breaking
 
