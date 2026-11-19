@@ -11,11 +11,17 @@
 const std = @import("std");
 const commands = @import("commands.zig");
 
+var preparations: std.AutoHashMapUnmanaged(*std.Build, *std.Build.Step) = .empty;
+
 pub fn register(b: *std.Build) *std.Build.Step {
+    const entry = preparations.getOrPut(b.allocator, b) catch @panic("OOM");
+    if (entry.found_existing) return entry.value_ptr.*;
+
     const preflight = commands.addRootedSystemCommand(b, .build_tool, &.{
         "python3", "tools/run-with-timeout.py",           "--kill-after", "2s", "600s",
         "bash",    "tools/check/playwright-preflight.sh",
     });
     preflight.has_side_effects = true;
+    entry.value_ptr.* = &preflight.step;
     return &preflight.step;
 }
