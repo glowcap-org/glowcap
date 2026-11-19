@@ -17,6 +17,13 @@ that releasing the application retain before or after that drop pays the same
 total. The Zig test runs every bounded schedule across both profiles and codecs.
 [Release laws](engine/held_resolution_laws/LAWS.bend)
 
+### Loam recovery
+
+When a commit advances the revision, its stamp identifies one ticket by
+store, incarnation, revision, and sequence. Bend proves uniqueness. The Zig
+fixture checks competing tickets and exhaustion at the revision limit.
+[Recovery law](loam/core/recovery_laws/LAWS.bend)
+
 ### Loam policy laws
 
 A delegated permission survives exactly when every grant carries it.
