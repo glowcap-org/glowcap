@@ -21,6 +21,12 @@ Zig tests exercise the permission masks and prerequisite edges together.
 The gate compares Zig’s policy bounds with Bend for each ordering and each
 combination of absent bounds, using zero and the largest `u64` as witnesses.
 
+### Export range disjointness
+
+Bend proves that adjacent half-open ranges share no position. The Zig tests
+check node assignment and the bounds on fresh exports.
+[Export range law](engine/export_range_laws/LAWS.bend)
+
 ### Negotiation laws
 
 Swapping peers preserves candidate order at every rank. The Zig test

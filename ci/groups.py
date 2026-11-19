@@ -82,6 +82,7 @@ GROUPS = (
             ],
             "bend-proofs": [
                 gate("bash .devcontainer/bin/tools.sh exec bend -- zig build loam-policy-proof --test-timeout 30s"),
+                bend_proof("test/engine/export_range_laws/PROOF.bend"),
                 bend_proof("test/engine/negotiation_laws/PROOF.bend"),
             ],
         },
@@ -311,6 +312,12 @@ NIGHTLY = {
     "bend-proofs": (
         "src/ocapn/engine/negotiation.zig",
         "src/ocapn/model/negotiated.zig",
+        "src/ocapn/engine/export_ranges.zig",
+        "src/ocapn/session/export_table.zig",
+        "src/ocapn/session/references/positions.zig",
+        "test/engine/export_range_laws/",
+        "test/engine/node/tables_test.zig",
+        "test/session/grant_test.zig",
         "test/engine/negotiation_test.zig",
         "test/engine/negotiation_laws/",
         "build.zig",

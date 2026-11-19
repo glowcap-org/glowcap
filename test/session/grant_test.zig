@@ -133,24 +133,20 @@ test "import registration is bounded by max_imports (ADR-0008)" {
     try std.testing.expect(!s.hasImport(.from(3)));
 }
 
-test "a session that exhausts its export range refuses rather than naming a neighbour's object" {
+test "object and promise exports stop at the end of their range" {
     const allocator = std.testing.allocator;
-    // The export allocator is monotonic and counts positions ever minted, not
-    // live ones, so a long-lived session that mints and releases would walk
-    // past the range its host gave it and start naming positions that belong to
-    // the next session along, the exact aliasing the ranges exist to prevent.
-    var s = session.Session.initWith(allocator, .{ .export_base = 1000, .export_span = 3 });
-    defer s.deinit();
+    inline for (.{ session.Session.allocateExport, session.Session.allocatePromiseExport }) |allocate| {
+        for ([_]u64{ 1, 3 }) |span| {
+            const base: u64 = 1000;
+            var s = session.Session.initWith(allocator, .{ .export_base = base, .export_span = span });
+            defer s.deinit();
 
-    try std.testing.expectEqual(@as(u64, 1000), (try s.allocateExport()).int());
-    try std.testing.expectEqual(@as(u64, 1001), (try s.allocateExport()).int());
-    try std.testing.expectEqual(@as(u64, 1002), (try s.allocateExport()).int());
-    try std.testing.expectError(session.Error.ExportRangeExhausted, s.allocateExport());
-
-    var promise_session = session.Session.initWith(allocator, .{ .export_base = 2000, .export_span = 1 });
-    defer promise_session.deinit();
-    try std.testing.expectEqual(@as(u64, 2000), (try promise_session.allocatePromiseExport()).int());
-    try std.testing.expectError(session.Error.ExportRangeExhausted, promise_session.allocatePromiseExport());
+            for (base..base + span) |position| {
+                try std.testing.expectEqual(@as(u64, position), (try allocate(&s)).int());
+            }
+            try std.testing.expectError(error.ExportRangeExhausted, allocate(&s));
+        }
+    }
 }
 
 test "the import cap is decided in validate, so a refused deliver commits nothing" {
@@ -296,45 +292,37 @@ test "a V1.0 resolver accepts the complete u64 import space" {
     );
 }
 
-test "an export position from outside this session's range is refused at every door" {
+test "grant, reserve, and marshal keep fresh exports in range" {
     const allocator = std.testing.allocator;
-    // A host gives each session a disjoint slice of the export numbers, so a
-    // position outside this session's slice is a name in some other
-    // conversation. Three doors let one in from outside the allocator, an
-    // explicit grant, a reservation, and the first marshal of a sent resolve,
-    // and each must refuse to mint a row for it. Minting one above the range
-    // would drag the allocator past its end, after which the session could
-    // export nothing at all.
-    var s = session.Session.initWith(allocator, .{ .export_base = 1000, .export_span = 100 });
-    defer s.deinit();
+    const span: u64 = 4;
+    const Entry = enum { grant, reserve, marshal };
+    for ([_]u64{ 1000, std.math.maxInt(u64) - span }) |base| {
+        const end = base + span;
+        for ([_]Entry{ .grant, .reserve, .marshal }) |entry| {
+            var s = session.Session.initWith(allocator, .{ .export_base = base, .export_span = span });
+            defer s.deinit();
 
-    // Inside the range: all three doors admit.
-    try s.registerExport(.from(1000));
-    try s.reserveExport(.from(1050));
-    try s.retainSentExportRef(.{ .near = .{ .export_position = .from(1060) } });
-
-    // Above it, another session's numbers, and the half that kills this one.
-    try std.testing.expectError(error.InvalidReference, s.registerExport(.from(1100)));
-    try std.testing.expectError(error.InvalidReference, s.reserveExport(.from(5000)));
-    try std.testing.expectError(
-        error.InvalidReference,
-        s.retainSentExportRef(.{ .near = .{ .export_position = .from(9999) } }),
-    );
-
-    // Below it names an object this session does not host just as surely, and
-    // is the half a high-end-only check would have let through.
-    try std.testing.expectError(error.InvalidReference, s.registerExport(.from(999)));
-    try std.testing.expectError(error.InvalidReference, s.reserveExport(.from(1)));
-    try std.testing.expectError(
-        error.InvalidReference,
-        s.retainSentExportRef(.{ .near = .{ .export_position = .from(500) } }),
-    );
-
-    // The allocator is untouched by every refusal, which is the damage the
-    // range exists to prevent.
-    try std.testing.expect(s.exports.nextPosition().int() <= 1061);
-    const fresh = try s.allocateExport();
-    try std.testing.expect(fresh.int() >= 1000 and fresh.int() < 1100);
+            for ([_]u64{ base - 1, base, end - 1, end }) |number| {
+                const position: model.ExportPosition = .from(number);
+                const before = s.exports.nextPosition();
+                const result = switch (entry) {
+                    .grant => s.registerExport(position),
+                    .reserve => s.reserveExport(position),
+                    .marshal => s.retainSentExportRef(.{ .near = .{ .export_position = position } }),
+                };
+                if (number >= base and number < end) {
+                    try result;
+                    try std.testing.expect(s.hasExport(position));
+                } else {
+                    try std.testing.expectError(error.InvalidReference, result);
+                    try std.testing.expectEqual(before, s.exports.nextPosition());
+                    try std.testing.expect(!s.hasExport(position));
+                }
+            }
+            const fresh = (try s.allocateExport()).int();
+            try std.testing.expect(fresh >= base and fresh < end);
+        }
+    }
 }
 
 test "every inbound door refuses an export the partner does not hold (ADR-0027)" {
