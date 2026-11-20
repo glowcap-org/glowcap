@@ -1,0 +1,137 @@
+/* App destinations share one launcher and a place above the footer index. */
+.apps-menu {
+  position: relative;
+}
+
+.apps-menu summary {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-height: var(--icon-button-size);
+  box-sizing: border-box;
+  padding: 0.3rem 0.7rem;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-control);
+  color: var(--ink);
+  font-weight: 600;
+  list-style: none;
+  cursor: pointer;
+}
+
+.apps-menu summary::-webkit-details-marker {
+  display: none;
+}
+
+.apps-menu summary:hover,
+.apps-menu[open] summary {
+  background: var(--paper-raised);
+  border-color: var(--ink-soft);
+}
+
+.apps-chevron {
+  width: 0.8rem;
+  height: 0.8rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+}
+
+.apps-menu[open] .apps-chevron {
+  transform: rotate(180deg);
+}
+
+.apps-popover {
+  position: absolute;
+  top: calc(100% + 0.6rem);
+  right: 0;
+  z-index: 1;
+  width: 18rem;
+  max-width: calc(100vw - 2rem);
+  box-sizing: border-box;
+  padding: 0.35rem;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-control);
+  background: var(--paper-raised);
+  box-shadow: var(--shadow);
+}
+
+.app-link {
+  display: grid;
+  grid-template-columns: 1.5rem minmax(0, 1fr) 1rem;
+  align-items: center;
+  gap: 0.8rem;
+  color: var(--ink);
+}
+
+.apps-menu .app-link {
+  padding: 0.75rem;
+  border-radius: var(--radius-control);
+}
+
+.app-link:hover {
+  text-decoration: none;
+}
+
+.apps-menu .app-link:hover {
+  background: color-mix(in srgb, var(--ink) 5%, transparent);
+}
+
+.app-name,
+.app-note {
+  display: block;
+}
+
+.app-name {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.app-note {
+  margin-top: 0.15rem;
+  color: var(--ink-soft);
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
+.app-icon,
+.app-arrow {
+  width: 100%;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.app-rooms .app-icon {
+  color: var(--accent-ink);
+}
+
+.app-viz .app-icon {
+  color: var(--teal-ink);
+}
+
+.app-viz .app-icon circle {
+  fill: var(--paper-raised);
+}
+
+.app-arrow {
+  color: var(--ink-soft);
+}
+
+.app-link:hover .app-name {
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+}
+
+@media (max-width: 38rem) {
+  .apps-menu {
+    position: absolute;
+    right: calc(var(--header-inset) + var(--icon-button-size) + 0.6rem);
+    top: calc(0.7rem + var(--accent-line) - 5px);
+  }
+
+  .apps-popover {
+    right: calc(0px - var(--icon-button-size) - 0.6rem);
+  }
+}

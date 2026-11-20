@@ -287,21 +287,6 @@ html.js .hero-mark:not(.mark-shaded):not(.mark-still) > .icon-mark {
   color: var(--ink-soft);
 }
 
-/* The application link: a small pill, so the one thing in the header that
-   opens an app rather than a page reads as an action. */
-.top-nav .top-nav-app {
-  padding: 0.3rem 0.75rem;
-  border: 1px solid var(--rule);
-  border-radius: var(--radius-control);
-  font-weight: 700;
-  color: var(--accent-ink);
-}
-
-.top-nav .top-nav-app:hover {
-  text-decoration: none;
-  background: color-mix(in srgb, var(--accent) 10%, transparent);
-}
-
 /* The theme switch. It shows the theme you would move to, not the one you are
    in, so the icon reads as an action. Which icon that is comes straight from
    the same conditions that pick the palette, so the button cannot fall out of
