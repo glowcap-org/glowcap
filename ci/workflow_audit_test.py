@@ -90,17 +90,27 @@ class WorkflowAudit(unittest.TestCase):
         self.assertEqual(validation["defaults"], {"run": {"shell": "bash"}}, "a failed download fails its pipe")
         found = validation["jobs"]
         self.assertEqual(list(found), ["newest", "installer", "registries"])
+        discovery = next(item for item in found["newest"]["steps"] if item.get("name") == "Read the newest release")
+        self.assertEqual(discovery["env"]["GH_TOKEN"], "${{ github.token }}")
         installer = found["installer"]
         self.assertNotIn("if", installer)
         linux = ["ubuntu-24.04", "ubuntu-24.04-arm"]
         for event, runners in (("schedule", linux), ("workflow_dispatch", [*linux, "macos-15", "macos-15-intel"])):
             with self.subTest(event=event):
                 self.assertEqual(value(installer["strategy"]["matrix"]["runner"], {"event_name": event}), runners)
-        self.assertEqual(installer["env"]["VERSION"], "${{ needs.newest.outputs.version }}")
+        self.assertEqual(
+            installer["env"].get("GLOWCAP_VERSION"),
+            "${{ needs.newest.outputs.version }}",
+            "install the version already resolved by the authenticated newest job",
+        )
         self.assertFalse(any("uses" in item for item in installer["steps"]), "the reader's host has no checkout")
+        install = next(
+            item["run"] for item in installer["steps"] if item["name"] == "Install the newest release through the site"
+        )
+        self.assertEqual(install, "curl -fsSL https://glowcap.org/install.sh | sh")
         script = next(item["run"] for item in installer["steps"] if item["name"] == "Run the installed product")
         self.assertIn("glowcap version | tee version.txt", script)
-        self.assertIn('grep -Fx "glowcap $VERSION" version.txt', script)
+        self.assertIn('grep -Fx "glowcap $GLOWCAP_VERSION" version.txt', script)
         checkout = found["registries"]["steps"][0]
         self.assertTrue(checkout["uses"].startswith("actions/checkout@"))
         self.assertEqual(checkout["with"]["ref"], "refs/tags/v${{ needs.newest.outputs.version }}")
