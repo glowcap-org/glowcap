@@ -13,12 +13,12 @@ import { firstBorn, type Network } from "./network.ts";
 import { RUN_SLOTS, RUN_THREADS, SHADER, WAVE_SLOTS } from "./shader.ts";
 
 /** A canvas the mycelium draws on: its context, its size in CSS pixels, and
- * how far it reaches past the window's edges. */
+ * where the window's corner falls on it, since it reaches past the window. */
 export interface Sheet {
 	context: GPUCanvasContext;
 	w: number;
 	h: number;
-	bleed: number;
+	origin: { x: number; y: number };
 }
 
 /** How a plane is drawn: on which sheet, shrunk by how much from the size it
@@ -238,7 +238,17 @@ export class GroundRenderer {
 				const u = new Float32Array(PLANE_BYTES / 4);
 				u.set(color, 0);
 				u.set(
-					[sheet.w, sheet.h, sheet.bleed, sheet.bleed, look.shrink, scale, look.alpha, look.blur, upTo[k]],
+					[
+						sheet.w,
+						sheet.h,
+						sheet.origin.x,
+						sheet.origin.y,
+						look.shrink,
+						scale,
+						look.alpha,
+						look.blur,
+						upTo[k],
+					],
 					4,
 				);
 				queue.writeBuffer(plane.uniform, 0, u);
@@ -259,6 +269,7 @@ export class GroundRenderer {
 		f.set(color, 0);
 		f.set([sheet.w, sheet.h, frame.mouse.x, frame.mouse.y, scale, frame.hover, frame.upTo, frame.front], 4);
 		new Uint32Array(words)[12] = this.#planes[this.#focus].net.count;
+		f.set([sheet.origin.x, sheet.origin.y], 14);
 		for (const w of frame.waves) f.set([w.edge, w.reach, w.strength], 16 + w.slot * 4);
 		for (const r of frame.runs) f.set([r.head, r.running ? 1 : 0], 16 + WAVE_SLOTS * 4 + r.slot * 4);
 		this.#device.queue.writeBuffer(this.#lightUniform, 0, words);

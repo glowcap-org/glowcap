@@ -1,7 +1,7 @@
 // zig build mycelium-test passes the browser bundle as argv[0] and runs from
 // the repository root. Count GPU work and prove activity stops at its boundary.
 // SwiftShader timings are not measurements of a phone.
-import { chromium } from "playwright";
+import { type Browser, chromium } from "playwright";
 import { deepStrictEqual as assertEquals, ok as assert } from "node:assert/strict";
 import type {} from "./mycelium_page.ts";
 
@@ -30,6 +30,7 @@ try {
 			"--use-webgpu-adapter=swiftshader",
 		],
 	});
+	await drift(browser);
 	for (const mobile of [true, false]) {
 		const page = await browser.newPage({
 			viewport: mobile ? { width: 390, height: 844 } : { width: 1280, height: 800 },
@@ -59,6 +60,11 @@ try {
 			await page.clock.fastForward(850);
 			const grown = await page.evaluate(() => myceliumFixture.read());
 			assertEquals(grown.canvases, 3);
+			assertEquals(
+				await page.evaluate(() => myceliumFixture.rises()),
+				{ far: null, focal: 0, near: 0, light: 0, boxes: 3 },
+				"a page that does not drift keeps the far plane on the focal canvas and moves nothing",
+			);
 			assert(grown.buffers > 0 && grown.pipelines > 0 && grown.submissions > 0);
 			await page.clock.fastForward(100);
 			assertEquals(
@@ -144,4 +150,56 @@ try {
 } finally {
 	await browser?.close();
 	await server.shutdown();
+}
+
+/** The site's drift: each plane rises by its own share of the scroll, moved
+ * by the compositor with nothing redrawn, holds still under reduced motion,
+ * and hears no scroll once stopped. */
+async function drift(browser: Browser) {
+	const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+	const errors: string[] = [];
+	page.on("pageerror", (error) => errors.push(error.message));
+	try {
+		const epoch = new Date("2026-01-01T00:00:00Z");
+		await page.clock.install({ time: epoch });
+		await page.clock.pauseAt(epoch);
+		await page.goto(`http://127.0.0.1:${server.addr.port}/?drift`);
+		assertEquals(await page.evaluate(() => myceliumFixture.start()), true);
+		await page.clock.fastForward(950);
+		const rises = () => page.evaluate(() => myceliumFixture.rises());
+		const top = { far: 0, focal: 0, near: 0, light: 0, boxes: 4 };
+		const grown = await page.evaluate(() => myceliumFixture.read());
+		assertEquals(grown.canvases, 4);
+		assertEquals(await rises(), top);
+		await page.evaluate(() => myceliumFixture.scroll(document.documentElement.scrollHeight));
+		await page.clock.runFor(32);
+		const bottom = { far: -28, focal: -64, near: -150, light: -64, boxes: 4 };
+		assertEquals(await rises(), bottom);
+		assertEquals(
+			(await page.evaluate(() => myceliumFixture.read())).planes,
+			grown.planes,
+			"scrolling redraws nothing",
+		);
+
+		await page.evaluate(() => myceliumFixture.expectMotionChange());
+		await page.emulateMedia({ reducedMotion: "reduce" });
+		await page.evaluate(() => myceliumFixture.motionChanged());
+		assertEquals(await rises(), top, "reduced motion holds the ground still");
+		await page.evaluate(() => myceliumFixture.expectMotionChange());
+		await page.emulateMedia({ reducedMotion: "no-preference" });
+		await page.evaluate(() => myceliumFixture.motionChanged());
+		assertEquals(await rises(), bottom);
+
+		await page.evaluate(() => myceliumFixture.stop());
+		const stopped = await page.evaluate(() => myceliumFixture.read());
+		assertEquals(stopped.unconfigured, 4);
+		assertEquals((await rises()).boxes, 0);
+		await page.evaluate(() => myceliumFixture.scroll(0));
+		await page.clock.runFor(32);
+		assertEquals(await page.evaluate(() => myceliumFixture.read()), stopped, "a stopped ground hears no scroll");
+		console.log("mycelium drift: rise, reduced motion and teardown passed");
+	} finally {
+		await page.close();
+		assertEquals(errors, []);
+	}
 }

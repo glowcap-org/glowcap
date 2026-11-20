@@ -47,6 +47,8 @@ struct Light {
 	upTo: f32,
 	front: f32,
 	count: u32,
+	// Where the window's corner falls on the sheet, which reaches past it.
+	origin: vec2f,
 	// Each wave: its edge, its reach, and its strength, 0 when the slot is free.
 	waves: array<vec4f, ${WAVE_SLOTS}>,
 	// Each run: its head, and 1 while it is still running.
@@ -228,7 +230,7 @@ fn lightVertex(@builtin(vertex_index) v: u32, @builtin(instance_index) entry: u3
 	if (hover + front + wave <= 0.0) { return culled(); }
 	let k = light.scale;
 	let width = vec3f(pt.width + 0.5, 1.1, select(1.4, ${f(HAIR_LIT)}, hair)) * k;
-	return stroke(a * k, b * k, vec3f(hover, front, wave), width, 0.0, light.view * k, v);
+	return stroke((a + light.origin) * k, (b + light.origin) * k, vec3f(hover, front, wave), width, 0.0, light.view * k, v);
 }
 
 @vertex
@@ -244,7 +246,7 @@ fn runVertex(@builtin(vertex_index) v: u32, @builtin(instance_index) i: u32) -> 
 	let trail = 0.85 * level(1.0 - behind / ${f(TRAIL)});
 	let tip = select(0.0, 0.6 * level(1.0 - behind / ${f(HEAD)}), run.y > 0.0 && behind < ${f(HEAD)});
 	let k = light.scale;
-	return stroke(t.a * k, t.b * k, vec3f(0.0, trail, tip), vec3f(0.0, 1.2, 2.2) * k, 0.0, light.view * k, v);
+	return stroke((t.a + light.origin) * k, (t.b + light.origin) * k, vec3f(0.0, trail, tip), vec3f(0.0, 1.2, 2.2) * k, 0.0, light.view * k, v);
 }
 
 /** The mouse's light, cut to a soft disc around it. */
@@ -265,7 +267,7 @@ fn lightFragment(s: Stroke) -> @location(0) vec4f {
  * drawn first, a painted stroke like the threads, and the rest adds to it. */
 @fragment
 fn hoverFragment(s: Stroke) -> @location(0) vec4f {
-	let r = distance(s.at / light.scale, light.mouse) / ${f(REACH)};
+	let r = distance(s.at / light.scale - light.origin, light.mouse) / ${f(REACH)};
 	let c = s.strength.x * cover(toSegment(s.at, s.a, s.b), s.width.x, 0.0) * disc(r) * light.color.a;
 	return vec4f(light.color.rgb * c, c);
 }

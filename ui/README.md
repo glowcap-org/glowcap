@@ -48,7 +48,10 @@ readable accent text on both surfaces.
 - **Mycelium:** `ui/mycelium/` grows the network of threads
   behind both surfaces on devices with a fine pointer and hover. Touch-first
   devices and browsers without WebGPU use the plain background. Hidden tabs
-  and reduced motion stop recurring animation work. A
+  and reduced motion stop recurring animation work. On the site, which
+  scrolls, `startMycelium({ drift: true })` lets each plane rise a little
+  with the scroll, nearer ones more, moved by the compositor without
+  redrawing. Rooms does not scroll, so its ground holds still. A
   surface that paints its own full-page ground hides it, so a page shows the
   body's `--page-bg` instead of repainting it.
 - **Mark lockup:** `mark.css` owns where the still mushroom sits in its box,

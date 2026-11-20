@@ -343,7 +343,7 @@ pub fn register(ctx: Context) Registered {
     mycelium.addFileArg(mycelium_source);
     mycelium.has_side_effects = true;
     mycelium.step.dependOn(ctx.browser_preflight);
-    const mycelium_test = b.step("mycelium-test", "Prove touch devices skip the background and desktop animation respects visibility, motion preferences and teardown (needs deno + Playwright)");
+    const mycelium_test = b.step("mycelium-test", "Prove touch devices skip the background and desktop animation respects visibility, motion preferences, scroll drift and teardown (needs deno + Playwright)");
     mycelium_test.dependOn(&mycelium.step);
     site_render_check_step.dependOn(mycelium_test);
 
