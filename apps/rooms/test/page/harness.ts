@@ -8,7 +8,7 @@
 import { errors, type Locator, type Page } from "playwright";
 import { inkContrast } from "../ink_contrast.ts";
 import { fail } from "../support/fail.ts";
-import { delay } from "../support/wait.ts";
+import { delay, until } from "../support/wait.ts";
 import { factDmDirect, factDmRelay } from "../../lib/text/conversation.ts";
 import { LOCAL_REFUSALS } from "../../lib/text/local_refusals.ts";
 
@@ -82,11 +82,25 @@ export async function say(tab: Page, text: string): Promise<void> {
 	await composer.press("Enter");
 }
 
-/** A line's edit authority proves receipt settlement. Quiet progress does not. */
+const lineMenuLabel = /^More for this message/;
+
+/** A line's Edit action proves receipt settlement. History can regroup the
+ * line while its receipt arrives, replacing the bubble and closing its menu. */
 export async function waitForPostedLine(tab: Page, text: string): Promise<void> {
 	const bubble = tab.locator(".row.mine .bubble").filter({ hasText: text });
-	await openLineMenu(bubble);
-	await tab.getByRole("menuitem", { name: "Edit", exact: true }).waitFor();
+	const mark = bubble.getByLabel(lineMenuLabel);
+	const closed = mark.and(bubble.locator('[aria-expanded="false"]'));
+	const opened = mark.and(bubble.locator('[aria-expanded="true"]'));
+	const edit = tab.locator(".line-menu").getByRole("menuitem", { name: "Edit", exact: true });
+	const deadline = Date.now() + 30_000;
+	await until(
+		async () => {
+			if (await closed.count() === 1) await openLineMenu(bubble, deadline);
+			return await opened.isVisible() && await edit.isVisible();
+		},
+		`the Edit action for ${JSON.stringify(text)}`,
+		deadline - Date.now(),
+	);
 	await tab.keyboard.press("Escape");
 }
 
@@ -95,13 +109,12 @@ export async function waitForPostedLine(tab: Page, text: string): Promise<void> 
  * from under a pointer that has stopped. A click that started by then waits
  * its whole deadline for a mark that will not show again. A reader moves the
  * pointer back, so each attempt aims at the bubble afresh. */
-export async function openLineMenu(bubble: Locator): Promise<void> {
-	const mark = bubble.getByLabel(/^More for this message/);
-	const deadline = Date.now() + 30_000;
+export async function openLineMenu(bubble: Locator, deadline = Date.now() + 30_000): Promise<void> {
+	const mark = bubble.getByLabel(lineMenuLabel);
 	while (true) {
 		await bubble.hover({ timeout: Math.max(1, deadline - Date.now()) });
 		try {
-			await mark.click({ timeout: 2_000 });
+			await mark.click({ timeout: Math.min(2_000, Math.max(1, deadline - Date.now())) });
 			return;
 		} catch (error) {
 			if (!(error instanceof errors.TimeoutError) || Date.now() >= deadline) throw error;
