@@ -79,12 +79,12 @@
 					<div class="apps-popover">
 						<a class="app-link app-rooms" href="$site.asset('rooms/app/index.html').link()" data-rooms-app>
 							<svg class="app-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a7 7 0 0 1-7 7H7l-4 3V8a5 5 0 0 1 5-5h5a7 7 0 0 1 7 8Z"/><path d="M7 8h8M7 12h5"/></svg>
-							<span><span class="app-name">glowcap rooms</span><span class="app-note">Chat and direct messages</span></span>
+							<span><span class="app-name">glowcap rooms</span><span class="app-note">Decentralized chat on OCapN</span></span>
 							<svg class="app-arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12h16m-6-6 6 6-6 6"/></svg>
 						</a>
 						<a class="app-link app-viz" href="$site.asset('ocapnviz/index.html').link()">
 							<svg class="app-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 6-12 6V6Z"/><circle cx="6" cy="6" r="3"/><circle cx="18" cy="12" r="3"/><circle cx="6" cy="18" r="3"/></svg>
-							<span><span class="app-name">ocapnviz</span><span class="app-note">Network visualizer</span></span>
+							<span><span class="app-name">ocapnviz</span><span class="app-note">OCapN network visualizer</span></span>
 							<svg class="app-arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12h16m-6-6 6 6-6 6"/></svg>
 						</a>
 					</div>
@@ -185,14 +185,14 @@
 						<svg class="app-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a7 7 0 0 1-7 7H7l-4 3V8a5 5 0 0 1 5-5h5a7 7 0 0 1 7 8Z"/><path d="M7 8h8M7 12h5"/></svg>
 						<span>glowcap rooms</span>
 					</span>
-					<span class="footer-project-description">Chat and direct messages</span>
+					<span class="footer-project-description">Decentralized chat on OCapN</span>
 				</a>
 				<a class="footer-project app-viz" href="$site.asset('ocapnviz/index.html').link()">
 					<span class="footer-project-title">
 						<svg class="app-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 6-12 6V6Z"/><circle cx="6" cy="6" r="3"/><circle cx="18" cy="12" r="3"/><circle cx="6" cy="18" r="3"/></svg>
 						<span>ocapnviz</span>
 					</span>
-					<span class="footer-project-description">Network visualizer</span>
+					<span class="footer-project-description">OCapN network visualizer</span>
 				</a>
 			</nav>
 			<div class="footer-cols">
