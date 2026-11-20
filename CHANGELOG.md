@@ -17,6 +17,10 @@ This release includes the [changes prepared for 0.1.7](docs/history/0.1.7/change
 Read the [migration notes](docs/history/0.1.7/migration/CHANGELOG.md) before
 upgrading a client, provider, or Rooms deployment with saved state.
 
+### Changed
+
+- Open glowcap rooms and ocapnviz from the website's Apps menu and project footer.
+
 ### Fixed
 
 - Verify the installed glowcap executable before publishing the host archives.
