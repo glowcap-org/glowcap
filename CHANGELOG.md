@@ -11,6 +11,16 @@ Releases before 0.1.7 are in the
 
 ## [Unreleased]
 
+## [0.1.8] - 2026-11-20
+
+This release includes the [changes prepared for 0.1.7](docs/history/0.1.7/changes/CHANGELOG.md).
+Read the [migration notes](docs/history/0.1.7/migration/CHANGELOG.md) before
+upgrading a client, provider, or Rooms deployment with saved state.
+
+### Fixed
+
+- Verify the installed glowcap executable before publishing the host archives.
+
 ## [0.1.7] - 2026-11-19
 
 Read the [migration notes](docs/history/0.1.7/migration/CHANGELOG.md) before
@@ -19,5 +29,6 @@ the [features and fixes](docs/history/0.1.7/changes/CHANGELOG.md), including
 the WebRTC reopen fix, and the [earlier changes](docs/history/0.1.7/CHANGELOG.md)
 in this release.
 
-[Unreleased]: https://github.com/glowcap-org/glowcap/compare/v0.1.7...HEAD
+[Unreleased]: https://github.com/glowcap-org/glowcap/compare/v0.1.8...HEAD
+[0.1.8]: https://github.com/glowcap-org/glowcap/compare/v0.1.7...v0.1.8
 [0.1.7]: https://github.com/glowcap-org/glowcap/compare/v0.1.6...v0.1.7
