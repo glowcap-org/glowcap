@@ -9,14 +9,15 @@
 ;; committed file" pattern as gen-header. glowcap's own costs go to
 ;; site/content/performance.smd and the comparisons with Cap'n Proto RPC and
 ;; Goblins to site/content/performance/compared.smd, both stamped with the
-;; same run. bench/README.md says which cores the benches keep. Surrounding
+;; same run. site_machine.rkt decides where and when each bench runs, and
+;; bench/README.md says which cores the benches keep. Surrounding
 ;; prose is left untouched. There is no stale-check: bench numbers vary by
 ;; machine, so the pages are a dated snapshot you refresh, not a gated
 ;; invariant.
 ;;
 ;; Parsers and renderers are pure and exercised by site_report-test.rkt; only
 ;; `main` runs benches and writes the file.
-(require racket/string racket/list racket/format racket/system racket/port racket/file "site_chart.rkt" "site_sessions.rkt")
+(require racket/string racket/list racket/format racket/system racket/port racket/file "site_chart.rkt" "site_sessions.rkt" "site_machine.rkt")
 
 (provide parse-codec parse-frameview parse-peer parse-goblins-md parse-snapshot parse-goblins-snapshot parse-iroh
          parse-langs-md parse-loam parse-live sessions-region
@@ -349,34 +350,6 @@
                (for/list ([i (in-list impls)])
                  (list (car i) (cell one-core i "greet") (cell two-core i "greet") (cell one-core i "report") (cell two-core i "report"))))))
 
-;; The cores that share the highest maximum clock when two or more do, lowest
-;; number first, and empty otherwise. On a mixed-core machine the scheduler may
-;; place an unpinned bench on a slow core, and the figure follows the core it
-;; drew. One core cannot hold a two-thread row.
-(define (fast-cluster)
-  (define cpus
-    (for*/list ([d (in-list (directory-list "/sys/devices/system/cpu"))]
-                [m (in-value (regexp-match #px"^cpu(\\d+)$" (path->string d)))]
-                #:when m
-                [f (in-value (build-path "/sys/devices/system/cpu" d "cpufreq/cpuinfo_max_freq"))]
-                #:when (file-exists? f))
-      (cons (n (cadr m)) (n (string-trim (file->string f))))))
-  (define top (if (null? cpus) 0 (apply max (map cdr cpus))))
-  (define fast (sort (for/list ([c (in-list cpus)] #:when (= (cdr c) top)) (car c)) <))
-  (if (>= (length fast) 2) fast '()))
-
-;; The two cores a pinned row names: the first two of the fast cluster, or
-;; cores 0 and 1 when there is no cluster.
-(define (fast-cores)
-  (define fast (fast-cluster))
-  (if (null? fast) (list 0 1) (list (car fast) (cadr fast))))
-
-;; The prefix that keeps a bench and the build that runs it on the fast
-;; cluster. Empty when there is no cluster.
-(define (cluster-prefix)
-  (define fast (fast-cluster))
-  (if (null? fast) "" (format "taskset -c ~a " (string-join (map number->string fast) ","))))
-
 (define (frameview-region fv)
   (html-table '("metric" "value")
               (list (list "Allocations per delivered turn" (format "~a (build check requires <code>== 1</code>)" (hash-ref fv 'per_turn)))
@@ -508,34 +481,6 @@
                        (list-ref r 4) (list-ref r 5) (~r (or (list-ref r 6) 0) #:precision 1))))))
 
 ;; ── Run + splice (effectful) ─────────────────────────────────────────────────
-;; `system` returns #f on a non-zero exit without raising; check it so a failed
-;; bench cannot leave the page half-freshened with a stale goblins/langs report.
-;; Start a bench only once the machine's one-minute load is under 2, the
-;; same gate the bench README's repeated runs use, so a build running in
-;; another checkout does not land in the page's figures. A machine without
-;; /proc/loadavg starts at once.
-(define (quiet)
-  (when (file-exists? "/proc/loadavg")
-    (let loop ()
-      (define load (string->number (car (string-split (file->string "/proc/loadavg")))))
-      (when (and load (>= load 2)) (sleep 20) (loop)))))
-
-;; Run one bench command under the cluster prefix and return what it printed.
-(define (run bench) (run-command (string-append (cluster-prefix) bench)))
-
-;; Run one command as given and return what it printed.
-(define (run-command cmd)
-  (quiet)
-  (printf "  $ ~a\n" cmd) (flush-output)
-  (define out (open-output-string))
-  (define ok (parameterize ([current-output-port out]
-                            [current-error-port out])
-               (system cmd)))
-  (define text (get-output-string out))
-  (display text)
-  (unless ok (error 'site-report "command failed: ~a" cmd))
-  text)
-
 (define (sh1 cmd) (string-trim (with-output-to-string (lambda () (system cmd)))))
 
 (define (latest-goblins-md)

@@ -68,7 +68,9 @@ The [performance report](https://glowcap.org/performance/) and
 [comparison report](https://glowcap.org/performance/compared/) contain the
 generated figures, with their source revision and run environment.
 `zig build bench-site-report` regenerates both from live runs. Refreshing the
-figures is manual. CI checks the report code and builds the site from its
+figures is manual. The report starts each bench once the machine's one-minute
+load is under a quarter of its logical CPUs, and it stops with an error if the
+machine stays busier than that. CI checks the report code and builds the site from its
 committed snapshots. Keep numerical results in those reports instead of
 copying them into this index.
 
