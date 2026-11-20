@@ -85,6 +85,7 @@ def publish(artifacts, env):
     image, version = env["IMAGE"], env["VERSION"]
     docker("login", "ghcr.io", "--username", env["GITHUB_ACTOR"], "--password-stdin", stdin=env["GH_TOKEN"].encode())
     sources = []
+    media_types = []
     for arch in PLATFORMS:
         tag = f"{image}:v{version}-{arch}"
         docker("image", "load", "--input", str(verified_archive(artifacts, version, arch)))
@@ -92,9 +93,11 @@ def publish(artifacts, env):
         manifest = remote(tag)
         if manifest is None:
             docker("image", "push", tag)
+            manifest = remote(tag)
         elif json.loads(manifest)["config"]["digest"] != expected:
             fail(f"{tag} is already published from a different image")
-        sources.append(f"{image}@sha256:{hashlib.sha256(remote(tag)).hexdigest()}")
+        sources.append(f"{image}@sha256:{hashlib.sha256(manifest).hexdigest()}")
+        media_types.append(json.loads(manifest)["mediaType"])
     index = remote(f"{image}:v{version}")
     if index is None:
         annotations = {
@@ -105,7 +108,11 @@ def publish(artifacts, env):
             "version": f"v{version}",
             "licenses": "Apache-2.0",
         }
-        flags = [f"--annotation=index:org.opencontainers.image.{key}={value}" for key, value in annotations.items()]
+        # Buildx combines Docker manifests into a Docker manifest list, which
+        # cannot carry OCI index annotations. The images retain their labels.
+        flags = []
+        if not all(media_type.startswith("application/vnd.docker.") for media_type in media_types):
+            flags = [f"--annotation=index:org.opencontainers.image.{key}={value}" for key, value in annotations.items()]
         docker("buildx", "imagetools", "create", "--tag", f"{image}:v{version}", *flags, *sources)
         index = remote(f"{image}:v{version}")
     manifests = [entry for entry in json.loads(index)["manifests"] if entry["platform"]["architecture"] != "unknown"]

@@ -5,10 +5,12 @@ command, which hold each command to the arguments the release image needs. The
 publisher runs against a fake docker that answers as a registry in each
 state: nothing published, everything published, one platform published, a
 platform or the index holding another image, a platform missing, and the
-network refusing. It never reaches a registry.
+network refusing. Docker, OCI, and mixed source formats exercise the index's
+metadata constraints. It never reaches a registry.
 """
 
 import hashlib
+import itertools
 import json
 import os
 import subprocess
@@ -35,8 +37,13 @@ args = sys.argv[1:]
 with open('calls', 'a') as output:
     output.write(json.dumps(args) + '\n')
 mode = os.environ['IMAGE_MODE']
+media_type = os.environ['IMAGE_MEDIA_TYPE']
 def manifest(arch):
-    return json.dumps({'config': {'digest': 'sha256:expected'}, 'arch': arch})
+    kind = media_type
+    if kind == 'mixed':
+        kind = ('application/vnd.docker.distribution.manifest.v2+json' if arch == 'amd64'
+                else 'application/vnd.oci.image.manifest.v1+json')
+    return json.dumps({'mediaType': kind, 'config': {'digest': 'sha256:expected'}, 'arch': arch})
 def index():
     return json.dumps({'manifests': [
         {'platform': {'os': 'linux', 'architecture': arch},
@@ -49,6 +56,11 @@ elif args[:2] == ['image', 'inspect']:
 elif args[:2] == ['image', 'push']:
     Path(args[-1].split('-')[-1] + '.pushed').touch()
 elif args[:3] == ['buildx', 'imagetools', 'create']:
+    annotations = [arg for arg in args if arg.startswith('--annotation=')]
+    if media_type.startswith('application/vnd.docker.') and annotations:
+        sys.exit('annotations are not supported for Docker manifest lists')
+    if not media_type.startswith('application/vnd.docker.') and not annotations:
+        sys.exit('OCI index metadata is missing')
     Path('index.pushed').touch()
 elif args[:3] == ['buildx', 'imagetools', 'inspect']:
     arch = args[-1].split('-')[-1]
@@ -76,8 +88,14 @@ if sys.argv[1:]:
 else:
     print(hashlib.sha256(sys.stdin.buffer.read()).hexdigest())
 """
-        for mode in ("new", "existing", "partial", "conflict", "index-conflict", "missing-platform", "network"):
-            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as temp:
+        media_types = (
+            "application/vnd.docker.distribution.manifest.v2+json",
+            "application/vnd.oci.image.manifest.v1+json",
+            "mixed",
+        )
+        modes = ("new", "existing", "partial", "conflict", "index-conflict", "missing-platform", "network")
+        for media_type, mode in itertools.product(media_types, modes):
+            with self.subTest(mode=mode, media_type=media_type), tempfile.TemporaryDirectory() as temp:
                 directory = Path(temp)
                 stub(directory, "docker", docker)
                 stub(directory, "sha256sum", checksum)
@@ -100,6 +118,7 @@ else:
                         GITHUB_REPOSITORY=REPOSITORY,
                         GITHUB_SHA="a" * 40,
                         IMAGE_MODE=mode,
+                        IMAGE_MEDIA_TYPE=media_type,
                         GITHUB_OUTPUT=str(directory / "output"),
                     ),
                     capture_output=True,

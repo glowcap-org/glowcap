@@ -11,6 +11,10 @@ Releases before 0.1.7 are in the
 
 ## [Unreleased]
 
+### Fixed
+
+- Match release image metadata to the Docker or OCI manifest format when publishing the multi-platform image.
+
 ## [0.1.8] - 2026-11-20
 
 This release includes the [changes prepared for 0.1.7](docs/history/0.1.7/changes/CHANGELOG.md).
