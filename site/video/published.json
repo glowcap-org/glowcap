@@ -1,18 +1,28 @@
 {
-	"release": "https://github.com/glowcap-org/glowcap-site-media/releases/tag/explainer-9c23aefd9c64",
+	"release": "https://github.com/glowcap-org/glowcap-site-media/releases/tag/explainer-d5d16d60f6ab",
 	"files": {
-		"glowcap-explainer.webm": {
-			"url": "https://github.com/glowcap-org/glowcap-site-media/releases/download/explainer-9c23aefd9c64/glowcap-explainer.webm",
-			"bytes": 7913069,
-			"sha256": "3266b127d941775ffd0b8af9fa5232d89aaa6845540f885fa626110c82f09557"
+		"glowcap-explainer-dark.webm": {
+			"url": "https://github.com/glowcap-org/glowcap-site-media/releases/download/explainer-d5d16d60f6ab/glowcap-explainer-dark.webm",
+			"bytes": 7878439,
+			"sha256": "54b26196b6cc6a270d62105fd3c0305fa46ca4c4ca301eb5078e00f5cccd216a"
 		},
-		"glowcap-explainer.webp": {
-			"url": "https://github.com/glowcap-org/glowcap-site-media/releases/download/explainer-9c23aefd9c64/glowcap-explainer.webp",
+		"glowcap-explainer-dark.webp": {
+			"url": "https://github.com/glowcap-org/glowcap-site-media/releases/download/explainer-d5d16d60f6ab/glowcap-explainer-dark.webp",
 			"bytes": 148966,
 			"sha256": "2e786d9802765bd123a13622a73778a8e32ed295f25b7f35bce48228dc889f1d"
 		},
+		"glowcap-explainer-light.webm": {
+			"url": "https://github.com/glowcap-org/glowcap-site-media/releases/download/explainer-d5d16d60f6ab/glowcap-explainer-light.webm",
+			"bytes": 8997016,
+			"sha256": "9cb102e02e78eba45265720a38be87f2e4752276ca2137047b284b7f48db6853"
+		},
+		"glowcap-explainer-light.webp": {
+			"url": "https://github.com/glowcap-org/glowcap-site-media/releases/download/explainer-d5d16d60f6ab/glowcap-explainer-light.webp",
+			"bytes": 150808,
+			"sha256": "da7a0245903d020325243ca0a3500fe27cc0592531a33ed78ba247e8b63d748c"
+		},
 		"glowcap-explainer.vtt": {
-			"url": "https://github.com/glowcap-org/glowcap-site-media/releases/download/explainer-9c23aefd9c64/glowcap-explainer.vtt",
+			"url": "https://github.com/glowcap-org/glowcap-site-media/releases/download/explainer-d5d16d60f6ab/glowcap-explainer.vtt",
 			"bytes": 1163,
 			"sha256": "37add4b9a4b05fcec149e636116eb087e30a9b2c622e47a3ab8bfaf3b53dc793"
 		}

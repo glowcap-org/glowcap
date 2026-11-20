@@ -28,11 +28,14 @@
 	     and served from the render site/video/published.json pins.
 	     It has no sound: the words are on screen, and the captions track
 	     carries them for a viewer who turns captions on. Its poster is its
-	     first frame. -->
+	     first frame. It is drawn in both of the site's faces, and the page
+	     shows the one that matches its theme. -->
 	<figure class="hero-video">
 		<div class="hero-video-frame">
-			<video controls playsinline preload="none" width="1920" height="1080" poster="$site.asset('glowcap-explainer.webp').link()" aria-describedby="hero-video-caption">
-				<source src="$site.asset('glowcap-explainer.webm').link()" type="video/webm">
+			<video controls playsinline preload="none" width="1920" height="1080" poster="$site.asset('glowcap-explainer-dark.webp').link()" aria-describedby="hero-video-caption"
+				data-dark-poster="$site.asset('glowcap-explainer-dark.webp').link()" data-dark-src="$site.asset('glowcap-explainer-dark.webm').link()"
+				data-light-poster="$site.asset('glowcap-explainer-light.webp').link()" data-light-src="$site.asset('glowcap-explainer-light.webm').link()">
+				<source src="$site.asset('glowcap-explainer-dark.webm').link()" type="video/webm">
 				<track kind="captions" srclang="en" label="English" src="$site.asset('glowcap-explainer.vtt').link()">
 			</video>
 			<button class="hero-video-play" type="button" aria-describedby="hero-video-caption" hidden>
@@ -44,11 +47,37 @@
 	<script>
 		// Until the first play, the whole poster is one play button, instead of
 		// the browser's controls across its foot. Without JavaScript, the
-		// browser's own controls stay.
+		// browser's own controls stay, on the dark face.
 		(() => {
 			const video = document.querySelector(".hero-video video");
 			const play = document.querySelector(".hero-video-play");
-			if (video == null || play == null) return;
+			const source = video?.querySelector("source");
+			if (video == null || play == null || source == null) return;
+			// The face that matches the page's theme, and on a theme change the
+			// other face from the same moment, playing if this one was.
+			let shown = "dark";
+			const wear = () => {
+				const face = document.documentElement.dataset.theme === "light" ? "light" : "dark";
+				if (face === shown) return;
+				shown = face;
+				const at = video.currentTime;
+				const started = at > 0 || !video.paused;
+				const playing = !video.paused && !video.ended;
+				video.poster = video.dataset[`${face}Poster`];
+				source.src = video.dataset[`${face}Src`];
+				if (started) {
+					video.preload = "auto";
+					video.addEventListener("loadedmetadata", () => {
+						video.currentTime = at;
+						// best-effort: a refused play leaves the video paused at the
+						// same moment, with its controls showing.
+						if (playing) video.play().catch(() => {});
+					}, { once: true });
+				}
+				video.load();
+			};
+			wear();
+			new MutationObserver(wear).observe(document.documentElement, { attributeFilter: ["data-theme"] });
 			video.controls = false;
 			play.hidden = false;
 			// On a phone the video's words are too small to read inside the

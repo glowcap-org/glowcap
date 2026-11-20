@@ -8,6 +8,18 @@
 /** The entry point and its stages. Concatenated after the field and the
  * light, which it calls into. */
 export const SCENE = `
+// How much of the night's teal the light keeps by day. A light by day is
+// white where it is brightest and cyan only where it falls off: the hearts
+// of the windows, the band under the brim at its lip, and the middle of the
+// pool on the ground are white, and their edges and spill are the lamps'
+// colour, white with this much of the ink's hue in it.
+const DAY_TEAL = 0.6;
+
+// False in the pipeline for a dark page, which compiles out every line only a
+// light page runs. A branch that never runs still costs every pixel its
+// registers, and the dark page is the one that pays for the beams.
+override LIGHT_PAGE: bool = true;
+
 struct Uniforms {
 	resolution: vec4f,
 	view: vec4f,
@@ -46,8 +58,9 @@ struct Frame {
 };
 
 /** Where the light leaves from this frame: the five windows' beams and the
- * spill under the brim, in the world. */
+ * spill under the brim, in the world, and the windows themselves. */
 struct Lamps {
+	window: array<vec3f, 5>,
 	at: array<vec3f, 5>,
 	dir: array<vec3f, 5>,
 	spill: vec3f,
@@ -72,6 +85,7 @@ fn placeLamps(ro: vec3f, ww: vec3f, fr: Frame) -> Lamps {
 		let w = poreWorld(k, fr.gCap, fr.squash, fr.bob, fr.detail);
 		let depth = dot(w - ro, ww);
 		let push = select(-1.4, 0.5, k == 3);
+		lamps.window[k] = w;
 		lamps.at[k] = ro + (w - ro) * ((depth + push) / max(depth, 0.01));
 		lamps.dir[k] = poreAxis(k, fr.detail);
 	}
@@ -97,28 +111,35 @@ fn floorLight(p: vec3f, fr: Frame) -> vec3f {
 	let fall = 1.0 / (1.0 + 1.4 * side * side);
 	let facing = normalize(toward).y;
 	let soft = smoothstep(2.3, 0.5, side);
-	let strength = (fall * facing * 1.1 + 0.15) * (1.0 + 0.5 * fr.lightPage) * soft * fr.glow * fr.gCap *
+	// By day the windows stay lit after the strike, so the ground they light
+	// stays lit too, held a little higher than the strike leaves it: the
+	// light page's coverage curve takes the faint end of a pool off the page.
+	let dayLift = fr.lightPage * (0.5 + 2.0 * (1.0 - fr.flareMix));
+	let strength = (fall * facing * 1.1 + 0.15) * (1.0 + dayLift) * soft * fr.glow * fr.gCap *
 		(1.0 + fr.flareMix * 1.2);
-	// The same day rule as the air: pale where thin, deep where dense.
-	let poolInk = mix(fr.ink, mix(vec3f(0.6, 0.92, 0.94), fr.ink, clamp(strength, 0.0, 1.0)), fr.lightPage);
+	// By day the pool is white where the light is strongest and the lamps'
+	// cyan as it falls off, so it reads as light on the ground and not a
+	// stain under the foot.
+	let poolInk = mix(fr.ink, mix(fr.lamp, vec3f(1.0), 0.6 * clamp(strength, 0.0, 1.0)), fr.lightPage);
 	return poolInk * strength;
 }
 
 /** The mushroom at a surface point: two flat tones and a line, with the
- * light on it.
+ * light on it. The fourth channel is how much of the point is line.
  *
  * The drawing is flat. Everything a renderer is proud of, a
  * gradient over the dome and a sheen and ridges, is texture at two hundred
  * pixels and mud at forty-eight. So the object is a dark flesh, a flat
  * highlight, the windows, and the outline, and the device spends itself on
  * light that moves, reaches, and lands on things. */
-fn shadeBody(p: vec3f, n: vec3f, rd: vec3f, fr: Frame) -> vec3f {
+fn shadeBody(p: vec3f, n: vec3f, rd: vec3f, fr: Frame) -> vec4f {
 	let bp = toBody(p, fr.bob, fr.detail);
 	let capNear = capField(bp, fr.cap, fr.squash, fr.detail);
 	// Cap or stalk is which field owns the point, never a height: the
 	// stalk's top reaches inside the cap, and a height cut painted a collar
 	// of cap tone round it.
-	let onStem = smoothstep(0.03, -0.03, stemField(bp, fr.stem, fr.detail) - capNear);
+	let stemGap = stemField(bp, fr.stem, fr.detail) - capNear;
+	let onStem = smoothstep(0.03, -0.03, stemGap);
 	let isCap = 1.0 - onStem;
 
 	// Darker than the token, because the token was a fill for a flat drawing
@@ -190,18 +211,44 @@ fn shadeBody(p: vec3f, n: vec3f, rd: vec3f, fr: Frame) -> vec3f {
 	// Before the light, a window is a dark hole in the cap: the lamp is off,
 	// and what shows is the chamber behind it, a deep amber rather than a
 	// black. Lit, by night it is driven past white so it blooms; by day it
-	// is held near the lamp's own colour, or the teal clips to white.
+	// is held near the lamp's own colour, or the teal clips to white, and it
+	// shows that colour in full as soon as the light is up, because over the
+	// flesh a half-lit window is grey.
 	body = mix(body, u.accent.rgb * 0.14, dots * (1.0 - fr.glow));
-	body = mix(body, fr.lamp * mix(2.0, 1.15, fr.lightPage), dots * fr.glow);
+	var lit = fr.glow;
+	if (LIGHT_PAGE) { lit = mix(fr.glow, smoothstep(0.0, 0.3, fr.glow), fr.lightPage); }
+	body = mix(body, fr.lamp * mix(2.0, 1.15, fr.lightPage), dots * lit);
 
 	// The brim's own glow under it: the one piece of shading the mark keeps,
-	// because it is light rather than surface.
+	// because it is light rather than surface. By night it adds to the
+	// flesh. By day it covers it as soon as the light is up, because the
+	// lamps' teal added to the cap's orange would sum to a flat white: a
+	// wider band than the night's, white along the lip and cyan as it fades
+	// up into the cap. Its colour is set past white so the white holds most
+	// of the band's height: the light page's output is scaled to its
+	// brightest channel, so what passes white comes back to the page's range.
 	let under = smoothstep(-0.05, -0.5, n.y) * isCap;
-	body = body + fr.lamp * under * 2.4 * fr.glow;
+	let underNight = body + fr.lamp * under * 2.4 * fr.glow;
+	if (LIGHT_PAGE) {
+		let cover = smoothstep(0.0, 0.3, fr.glow);
+		// The band stops short of the stalk. Where the two fields blend, the
+		// fillet faces the eye past the inner outline but turns down like the
+		// underside, and a sliver of it under a pixel lit white is a row of
+		// ticks along the stalk's top. It is the seam, so it takes the line.
+		let fillet = 1.0 - smoothstep(0.03, 0.1, stemGap);
+		let band = smoothstep(0.3, -0.5, n.y) * (1.0 - fillet);
+		let bandCol = mix(fr.lamp, vec3f(1.0), smoothstep(0.85, 1.0, band));
+		var underDay = mix(body, bandCol * 1.35, smoothstep(0.0, 0.8, band) * cover);
+		underDay = mix(underDay, fr.edge, isCap * fillet);
+		body = mix(underNight, underDay, fr.lightPage);
+	} else {
+		body = underNight;
+	}
 
-	// The strike tints the whole cap. A line is one pixel wide here and
-	// cannot hold the loudest beat in the animation.
-	body = mix(body, fr.flash * 1.15, fr.flareMix * 0.3);
+	// By night the strike tints the whole cap. A line is one pixel wide here
+	// and cannot hold the loudest beat in the animation. By day teal mixed
+	// into the cap's orange comes out tan, so the windows carry the strike.
+	body = mix(body, fr.flash * 1.15, fr.flareMix * 0.3 * (1.0 - fr.lightPage));
 
 	// The inner half of the outline. Inside the silhouette the band is
 	// angular: on a rounded body the normal turns away from the eye over
@@ -215,8 +262,10 @@ fn shadeBody(p: vec3f, n: vec3f, rd: vec3f, fr: Frame) -> vec3f {
 	// The outline catches the light too: near a window the amber line goes
 	// teal, the rim of a lantern seen against its lamp. There is no line
 	// where the stalk enters the cap: the brim hangs in front of the stalk
-	// and its own outline is the seam.
-	let litEdge = mix(fr.edge, fr.lamp * 1.3, clamp(around * 0.9, 0.0, 1.0) * fr.glow);
+	// and its own outline is the seam. By day the line keeps most of its
+	// amber: on cream it is what draws the mark, and gone pale it reads as
+	// the light eating the edge.
+	let litEdge = mix(fr.edge, fr.lamp * 1.3, clamp(around * 0.9, 0.0, 1.0) * fr.glow * (1.0 - 0.7 * fr.lightPage));
 	// The foot's bottom edge is the one place the silhouette has no surface
 	// turning away toward it, so the inner half of the line is drawn by
 	// height instead, measured from the dipped rim so it follows the
@@ -224,7 +273,8 @@ fn shadeBody(p: vec3f, n: vec3f, rd: vec3f, fr: Frame) -> vec3f {
 	let footX = (bp.x - STEM_X) / 0.67;
 	let rim = -STEM_DIP * max(1.0 - footX * footX, 0.0);
 	let footLine = (1.0 - isCap) * (1.0 - smoothstep(fr.strokeW * 0.3, fr.strokeW * 0.45, bp.y - rim));
-	return mix(body, litEdge, clamp(max(turn, footLine), 0.0, 1.0));
+	let line = clamp(max(turn, footLine), 0.0, 1.0);
+	return vec4f(mix(body, litEdge, line), line);
 }
 
 /** The lit air along one ray, from where it enters the light's sphere to
@@ -334,12 +384,14 @@ fn fs(@builtin(position) coord: vec4f) -> @location(0) vec4f {
 	let breath = u.more.y;
 
 	// The mushroom is drawn as a thing seen at night in both themes; the
-	// light is the page's own. By day the lamps are white and the air is
-	// teal ink. Ink at partial coverage over cream loses its colour before
-	// its darkness, so by day the ink is pushed past the token's own chroma,
-	// with some white in it, to arrive at the token's teal once it is on the
-	// page; and the lamps take some of that teal, so the windows and the
-	// beams that leave them are one light and not white beside cyan.
+	// light is the page's own. By day nothing on the page is darker than
+	// cream behind it, so the light cannot reach out as beams, which would
+	// be ink and read as shadow: it stays at the mushroom, in windows that
+	// glow in the lamps' colour and spill a little teal round them. Teal at
+	// partial coverage over cream loses its colour before its darkness, so
+	// by day the teal is pushed past the token's own chroma, with some white
+	// in it, to arrive at the token's teal once it is on the page; and the
+	// lamps take DAY_TEAL of it.
 	let lightPage = smoothstep(0.3, 0.8, u.night.a);
 	let inkLum = dot(u.flare.rgb, vec3f(0.2126, 0.7152, 0.0722));
 	let dayInk = mix(clamp(mix(vec3f(inkLum), u.flare.rgb, 1.9) * 1.15, vec3f(0.0), vec3f(1.0)), vec3f(1.0), 0.36);
@@ -349,7 +401,14 @@ fn fs(@builtin(position) coord: vec4f) -> @location(0) vec4f {
 	// brightens. By day the tint is exactly one.
 	let nightTint = mix(vec3f(0.96, 1.06, 0.91), vec3f(1.0), lightPage);
 	let ink = mix(u.flare.rgb * nightTint, dayInk, lightPage);
-	let lamp = mix(u.light.rgb * nightTint, ink, 0.6 * lightPage);
+	// By day the lamps are white with DAY_TEAL of the ink's hue at its full
+	// brightness: the light theme's teal is deep, and mixed in as it is it
+	// greys the light instead of tinting it.
+	var lamp = u.light.rgb * nightTint;
+	if (LIGHT_PAGE) {
+		let dayLamp = mix(vec3f(1.0), ink / max(max(ink.r, ink.g), max(ink.b, 1e-4)), DAY_TEAL);
+		lamp = mix(lamp, dayLamp, lightPage);
+	}
 
 	// The canvas is the flat mark's plume box: u.view is that box in the units
 	// of the 24-unit silhouette box, so the same four numbers place the canvas
@@ -402,7 +461,7 @@ fn fs(@builtin(position) coord: vec4f) -> @location(0) vec4f {
 	fr.lamp = lamp;
 	fr.ink = ink;
 	fr.flash = flash;
-	fr.edge = mix(mix(u.rim.rgb * 1.08, u.accent.rgb * 1.05, 1.0 - detail), flash, fr.flareMix);
+	fr.edge = mix(mix(u.rim.rgb * 1.08, u.accent.rgb * 1.05, 1.0 - detail), flash, fr.flareMix * (1.0 - lightPage));
 	fr.strokeW = max(BOX * 0.07, 1.5 * px * over) * weight;
 
 	// A little above the brim, looking slightly down, so the ground the light
@@ -453,6 +512,7 @@ fn fs(@builtin(position) coord: vec4f) -> @location(0) vec4f {
 
 	var col = vec3f(0.0);
 	var alpha = 0.0;
+	var line = 0.0;
 	let hit = min(dist, 18.0);
 
 	if (id >= 0.0) {
@@ -463,7 +523,9 @@ fn fs(@builtin(position) coord: vec4f) -> @location(0) vec4f {
 			alpha = max(alpha, min(max(max(landed.r, landed.g), landed.b), 1.0));
 		} else {
 			let n = normalAt(p, fr.stem, fr.cap, fr.squash, fr.bob, fr.detail);
-			col = shadeBody(p, n, rd, fr);
+			let shaded = shadeBody(p, n, rd, fr);
+			col = shaded.rgb;
+			line = shaded.a;
 			alpha = 1.0;
 		}
 	}
@@ -476,6 +538,7 @@ fn fs(@builtin(position) coord: vec4f) -> @location(0) vec4f {
 	if (stroke > 0.0 && id < 0.5) {
 		col = mix(col, fr.edge, stroke);
 		alpha = max(alpha, stroke);
+		line = stroke;
 	}
 
 	// The air and the dust are most of a lit frame's cost and are drawn at
@@ -497,7 +560,8 @@ fn fs(@builtin(position) coord: vec4f) -> @location(0) vec4f {
 	let disc = b * b - dot(oc, oc) + 5.4 * 5.4;
 	var vol = 0.0;
 	var dust = 0.0;
-	if (lightUp && disc > 0.0) {
+	let night = lightUp && lightPage < 1.0;
+	if (night && disc > 0.0) {
 		let root = sqrt(disc);
 		let near = max(-b - root, 0.0);
 		let farPlane = dot(bodyC - ro, ww) / max(dot(rd, ww), 0.01);
@@ -507,21 +571,20 @@ fn fs(@builtin(position) coord: vec4f) -> @location(0) vec4f {
 			vol = marchAir(ro, rd, near, far, farBack, coord.xy, lamps, fr);
 		}
 	}
-	if (lightUp) { dust = drift(ro, rd, hit, lamps, fr); }
+	if (night) { dust = drift(ro, rd, hit, lamps, fr); }
 
 	// A ceiling on the lit air, so a ray down the middle of a beam sums to a
-	// bright teal and never to white: the light has one colour. By day the
-	// ink's colour follows its coverage, pale where the air is thin and the
-	// token's teal where it is dense, because a thin wash of deep teal over
-	// cream is grey by arithmetic; and ink over cream needs more coverage
-	// than light over black to read as the same thing.
-	let air = vol * 10.0 * (1.0 + 0.7 * lightPage);
-	let airInk = mix(ink, mix(vec3f(0.78, 0.97, 0.98), ink, clamp(air * 0.5, 0.0, 1.0)), lightPage);
-	col = col + airInk * (air / (1.0 + air * 0.08) + dust) * fr.rays * fr.glow;
+	// bright teal and never to white: the light has one colour. It fades out
+	// as the page lightens, and a fully light page skips the march.
+	let air = vol * 10.0;
+	col = col + ink * (air / (1.0 + air * 0.08) + dust) * fr.rays * fr.glow * (1.0 - lightPage);
 
 	// The haze the mushroom stands in, by night only: on cream it was grey.
 	let toEye = length((ro + rd * min(hit, 12.0)) - vec3f(0.0, 1.05, 0.0));
 	col = col + ink * exp(-toEye * toEye * 0.15) * 0.05 * (1.0 - lightPage) * fr.glow * (1.0 + fr.flareMix * 2.8);
+
+	// By day the light is held at the mushroom instead, in its own stage.
+	if (LIGHT_PAGE && lightPage > 0.0 && fr.glow > 0.0) { col = dayLight(col, id, ro, rd, line, lamps, fr); }
 
 	// The vignette is the canvas's own edge, softened: the flat mark's plume
 	// simply ends where its box does, and this one fades over the last few
@@ -550,7 +613,9 @@ fn fs(@builtin(position) coord: vec4f) -> @location(0) vec4f {
 	// is, rising a little slower than brightness so the faintest air is a
 	// hint on the page and not a cyan wash across all of it.
 	let a = clamp(alpha, 0.0, 1.0);
+	if (!LIGHT_PAGE) { return vec4f(col * a, a); }
 	let aDay = pow(a, 1.35);
-	return vec4f(mix(col * a, min(col, vec3f(aDay)), lightPage), mix(a, aDay, lightPage));
+	let day = col / max(max(max(col.r, col.g), col.b), max(a, 1e-4)) * aDay;
+	return vec4f(mix(col * a, day, lightPage), mix(a, aDay, lightPage));
 }
 `;

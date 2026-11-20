@@ -10,15 +10,18 @@
  * puts each reel's frame for that moment into its image. It captures only the
  * frames that differ from the one before and pipes every frame, in order,
  * into the VP9 encoder Playwright installs beside its browsers. The output is
- * the same whatever the machine's speed. It writes three files into `--out`
- * (default `site/assets`):
+ * the same whatever the machine's speed. It renders the site's face that
+ * `--theme=dark|light` names (dark by default), from the reels filmed in that
+ * face, and writes three files into `--out` (default `site/assets`):
  *
- * - `glowcap-explainer.webm`, the video
- * - `glowcap-explainer.webp`, its poster, the first frame
- * - `glowcap-explainer.vtt`, captions made from the page's `[data-cue]` elements
+ * - `glowcap-explainer-<theme>.webm`, the video
+ * - `glowcap-explainer-<theme>.webp`, its poster, the first frame
+ * - `glowcap-explainer.vtt`, captions made from the page's `[data-cue]`
+ *   elements, the same words in both faces
  *
- * `zig build site-video` films every reel first. `--reels=<dir>` reads them
- * from somewhere other than `zig-out/site-video/reels`.
+ * `zig build site-video` films every reel in both faces and renders both.
+ * `--reels=<dir>` reads them from somewhere other than
+ * `zig-out/site-video/reels/<theme>`.
  *
  * `--stills=<seconds>[,<seconds>…]` writes PNG frames at those times instead,
  * for reviewing a scene without a full render.
@@ -26,9 +29,12 @@
 import captureAssets from "./capture-assets.json" with { type: "json" };
 import { type Browser, chromium, type Page } from "playwright";
 import { outDirArg, replaceFile } from "./capture.ts";
-import { isLoopback, type ReelIndex, reelsDirArg, serveDirectory } from "./reel.ts";
+import { isLoopback, type ReelIndex, reelsDirArg, serveDirectory, themeArg } from "./reel.ts";
 
 const NAME = "glowcap-explainer";
+const theme = themeArg();
+/** The picture's files carry the face they were drawn in. */
+const FACE = `${NAME}-${theme}`;
 const FPS = 30;
 const VIEWPORT = { width: 1280, height: 720 };
 /** 1280×720 laid out, 1920×1080 encoded. */
@@ -44,8 +50,9 @@ if (stills?.some((at) => !(at >= 0))) throw new Error("--stills takes times in s
 const reelsDir = reelsDirArg();
 
 for (const ext of ["webm", "webp", "vtt"]) {
-	if (!captureAssets.includes(`${NAME}.${ext}`)) {
-		throw new Error(`Undeclared site capture: ${NAME}.${ext}`);
+	const name = ext === "vtt" ? NAME : FACE;
+	if (!captureAssets.includes(`${name}.${ext}`)) {
+		throw new Error(`Undeclared site capture: ${name}.${ext}`);
 	}
 }
 
@@ -83,7 +90,7 @@ const reelsUrl = `http://127.0.0.1:${reels.addr.port}`;
 // The scene reads each reel's index for its camera, so it learns where they
 // are, and loads its bundle.
 const sceneUrl = `http://127.0.0.1:${server.addr.port}/video/explainer.html?` +
-	new URLSearchParams({ reels: reelsUrl, bundle: `http://127.0.0.1:${bundle.addr.port}/scene.js` });
+	new URLSearchParams({ reels: reelsUrl, bundle: `http://127.0.0.1:${bundle.addr.port}/scene.js`, theme });
 
 /** The VP9 encoder Playwright installs beside its browsers. A shared cache
  * can hold several revisions, and older ones encode only VP8, so the newest
@@ -194,7 +201,7 @@ function reelFrame({ index, at, from, speed }: Placed, ms: number): string {
  * browser context, so Chromium gives each its own renderer process and the
  * copies capture frames in parallel. */
 async function openStage(browser: Browser): Promise<Stage> {
-	const context = await browser.newContext({ viewport: VIEWPORT, deviceScaleFactor: SCALE, colorScheme: "dark" });
+	const context = await browser.newContext({ viewport: VIEWPORT, deviceScaleFactor: SCALE, colorScheme: theme });
 	// No frame may depend on the network.
 	await context.route((url) => !isLoopback(url.href), (route) => route.abort("blockedbyclient"));
 	const page = await context.newPage();
@@ -283,7 +290,7 @@ await Deno.mkdir(outDir, { recursive: true });
 if (stills) {
 	for (const at of stills) {
 		await seek(first, at);
-		await page.screenshot({ path: `${outDir}/${NAME}-${at}s.png` });
+		await page.screenshot({ path: `${outDir}/${FACE}-${at}s.png` });
 	}
 } else {
 	const cues = await page.evaluate(() =>
@@ -307,14 +314,14 @@ if (stills) {
 	);
 
 	await seek(first, 0);
-	await replaceFile(`${outDir}/${NAME}.webp`, async (temp) => {
+	await replaceFile(`${outDir}/${FACE}.webp`, async (temp) => {
 		await page.screenshot({ path: temp, type: "webp", quality: 90 });
 	});
 
 	const stages = [first, ...await Promise.all(Array.from({ length: STAGES - 1 }, () => openStage(browser)))];
 	const frames = Math.round(duration * FPS);
 	let captured = 0;
-	await replaceFile(`${outDir}/${NAME}.webm`, async (temp) => {
+	await replaceFile(`${outDir}/${FACE}.webm`, async (temp) => {
 		const ffmpeg = new Deno.Command(await playwrightFfmpeg(), {
 			// Playwright's ffmpeg build reads stdin as `pipe:0` and refuses `-`.
 			// deno-fmt-ignore
@@ -380,6 +387,6 @@ if (stills) {
 		if (code !== 0) throw new Error(`the encoder exited with ${code}`);
 	});
 	console.log(
-		`rendered ${NAME}: ${duration} s, ${cues.length} captions, ${captured} of ${frames} frames captured, into ${outDir}`,
+		`rendered ${FACE}: ${duration} s, ${cues.length} captions, ${captured} of ${frames} frames captured, into ${outDir}`,
 	);
 }

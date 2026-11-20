@@ -50,10 +50,9 @@
   margin: 0 0 2.25rem;
 }
 
-/* The video is drawn in the site's dark face whatever the page's theme, so
-   its box takes the dark scheme: the paper token resolves to the dark page
-   color, and the controls draw dark. The poster holds the space before
-   anything plays. */
+/* The video is drawn in both of the site's faces, and the page shows the
+   one that matches its theme. The poster holds the space before anything
+   plays. */
 .hero-video video {
   display: block;
   width: 100%;
@@ -61,16 +60,13 @@
   aspect-ratio: 16 / 9;
   border: 1px solid var(--rule);
   border-radius: var(--radius-card);
-  color-scheme: dark;
   background: var(--paper);
 }
 
 /* Until the first play hands over to the browser's controls, the whole
    poster is the play button. The poster is the video's first frame, its
    title card, and the control stands on that card's text column under its
-   last line. The poster is the video's dark face in either page theme, so
-   the control takes the dark scheme: the site's primary button as the dark
-   face draws it.
+   last line, as the site's primary button.
 
    The poster scales with the frame, not the page, so the control is sized
    and placed against the frame's width. Its column and foot follow the
@@ -90,7 +86,6 @@
   border: 0;
   border-radius: var(--radius-card);
   background: none;
-  color-scheme: dark;
   font: inherit;
   cursor: pointer;
 }

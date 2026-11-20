@@ -1,9 +1,10 @@
 #lang racket/base
-;; Pure-parser checks for site_report.rkt, run by `zig build check`, or:
+;; Checks for site_report.rkt's parsers and renderers and site_machine.rkt's
+;; wait for a quiet machine, run by `zig build check`, or:
 ;;   racket bench/site_report-test.rkt
 ;; No benches run here, the fixtures are captured ReleaseFast output, so the
 ;; parsers work without a build. Exit code is nonzero on any failure.
-(require rackunit rackunit/text-ui racket/file (file "site_report.rkt"))
+(require rackunit rackunit/text-ui racket/file (file "site_report.rkt") (file "site_machine.rkt"))
 
 (define codec-out
   (string-append
@@ -205,6 +206,27 @@
       (check-exn exn:fail? (lambda () (sessions-region (parse-live output) (hash) html-table "stamp")))
       (check-exn exn:fail? (lambda () (parse-live "")))
       (check-exn exn:fail? (lambda () (parse-live (regexp-replace "live=500000" output "live=499999")))))
+    (test-case "a bench waits for a quiet machine, and only so long"
+      ;; Fake load and clock, so the case runs at once.
+      (define (wait-on loads cpus)
+        (define pauses 0)
+        (define said '())
+        (define left loads)
+        (quiet #:cpus cpus
+               #:load (lambda () (begin0 (car left) (unless (null? (cdr left)) (set! left (cdr left)))))
+               #:pause (lambda (s) (set! pauses (+ pauses s)))
+               #:say (lambda (line) (set! said (cons line said))))
+        (list pauses (reverse said)))
+      ;; Eight CPUs start under 2, and the wait says why it holds.
+      (check-equal? (wait-on '(1.9) 8) '(0 ()))
+      (check-equal? (wait-on '(5.0 2.0 1.5) 8)
+                    '(40 ("waiting for a quiet machine: load 5, starting under 2")))
+      ;; No load reading starts at once, and a small machine still starts under 1.
+      (check-equal? (wait-on '(#f) 8) '(0 ()))
+      (check-equal? (wait-on '(0.9) 2) '(0 ()))
+      ;; A machine that stays busy refuses after the deadline instead of hanging.
+      (check-exn #px"load stayed at or above 2 for 10 minutes \\(last 9.5\\)"
+                 (lambda () (wait-on '(9.5) 8))))
     (test-case "langs"
       (define rows (parse-langs-md langs-md))
       ;; Three data rows; the header separator (`| --- | ...`) must not parse.

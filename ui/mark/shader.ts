@@ -11,16 +11,18 @@
 // under the brim onto the floor, dust drifts up through it, and the whole
 // thing blooms in a second pass.
 //
-// The scene shader is three files concatenated: the field (where the
-// mushroom is), the light (what a lamp puts into the air), and the scene (one
-// pixel of one frame). WGSL resolves module-scope names in any order, so the
+// The scene shader is four files concatenated: the field (where the
+// mushroom is), the light (what a lamp puts into the air), the scene (one
+// pixel of one frame), and the day (the light held at the mushroom on a
+// light page). WGSL resolves module-scope names in any order, so the
 // order here is for reading.
 
 import { FIELD } from "./field.ts";
 import { LIGHT } from "./light.ts";
+import { DAY } from "./day.ts";
 import { SCENE } from "./scene.ts";
 
 export { BLUR, COMPOSITE } from "./post.ts";
 
 /** The scene pass: one module, both stages. */
-export const SHADER = FIELD + LIGHT + SCENE;
+export const SHADER = FIELD + LIGHT + SCENE + DAY;

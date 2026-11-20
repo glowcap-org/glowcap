@@ -39,7 +39,18 @@ import { reapOwned } from "../../apps/rooms/test/support/children.ts";
 import { establishLocalSession } from "../../apps/rooms/test/support/session_setup.ts";
 import { directOpened, openDmTo, reachDirectoryOnCard } from "../../apps/rooms/test/page/harness.ts";
 import { outDirArg, pinToLatest, plainRun, shot, still } from "./capture.ts";
-import { filmArgs, filmDirArg, glide, glideClick, placePointer, startReel, typeOnFilm, unfilmed } from "./reel.ts";
+import {
+	filmArgs,
+	filmDirArg,
+	glide,
+	glideClick,
+	placePointer,
+	startReel,
+	themeArg,
+	themedContext,
+	typeOnFilm,
+	unfilmed,
+} from "./reel.ts";
 import { ROOMS_LAYOUT, settled, smoothLayout } from "./film-smooth.ts";
 
 const outDir = outDirArg();
@@ -145,17 +156,17 @@ async function open(page: Page, list: "#roomList" | "#dmList", name: string): Pr
 // A run that films draws mira's window at its scale.
 const FILM_SCALE = 1.5;
 const reelsDir = filmDirArg();
+const theme = themeArg();
 const browser = await chromium.launch({
 	headless: true,
 	args: ["--no-sandbox", ...(reelsDir == null ? [] : filmArgs(FILM_SCALE))],
 });
 const contexts: BrowserContext[] = [];
 async function tab(dir: Directory, scale = 1): Promise<Page> {
-	const context = await browser.newContext({
+	const context = await themedContext(browser, theme, {
 		...still,
 		viewport: { width: 1280, height: 760 },
 		deviceScaleFactor: scale,
-		colorScheme: "dark",
 	});
 	contexts.push(context);
 	const page = await context.newPage();
@@ -308,11 +319,10 @@ try {
 	if (!sessionCapability.startsWith("ocapn://")) throw new Error(`no session capability: ${sessionCapability}`);
 	await mira.click("#settingsClose");
 
-	const second = await browser.newContext({
+	const second = await themedContext(browser, theme, {
 		...still,
 		viewport: { width: 430, height: 900 },
 		deviceScaleFactor: 2,
-		colorScheme: "dark",
 		isMobile: true,
 		hasTouch: true,
 	});

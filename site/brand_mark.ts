@@ -22,7 +22,7 @@ import { type MarkPlay, start } from "../ui/mark/live.ts";
 import { startMycelium } from "../ui/mycelium/live.ts";
 
 // The network of threads behind every page, shared with Rooms.
-void startMycelium();
+void startMycelium({ drift: true });
 
 for (const home of document.querySelectorAll<HTMLElement>(".hero-mark")) {
 	const host = home.querySelector<HTMLElement>(".mark-live");

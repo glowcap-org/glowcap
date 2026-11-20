@@ -63,13 +63,20 @@ const DIM_MS = 800;
  * denser and a near one is coarser. Only the middle plane carries light, the
  * way only one depth is in focus. The near plane has a canvas of its own,
  * kept to the edges of the window, blurred by `blur` CSS pixels, and moving
- * a little against the pointer. */
+ * a little against the pointer.
+ *
+ * On a page that drifts, each plane rises `rise` CSS pixels over the whole
+ * of the scroll, nearer ones more, as nearer things do, and all far less
+ * than the page, so the ground stays behind it. The far plane then has a
+ * canvas of its own too, since it no longer moves with the focal one. */
 const PLANES = [
-	{ grown: 1.5, alpha: 0.5, blur: 0, fuzz: false, near: false },
-	{ grown: 1, alpha: 1, blur: 0, fuzz: true, near: false },
-	{ grown: 0.5, alpha: 0.4, blur: 1.4, fuzz: true, near: true },
+	{ grown: 1.5, alpha: 0.5, blur: 0, fuzz: false, rise: 28 },
+	{ grown: 1, alpha: 1, blur: 0, fuzz: true, rise: 64 },
+	{ grown: 0.5, alpha: 0.4, blur: 1.4, fuzz: true, rise: 150 },
 ] as const;
+const FAR = 0;
 const FOCUS = 1;
+const NEAR = 2;
 /** The threads' color and their light's, from ui/tokens.css. */
 const COLORS = { thread: "--mycelium", light: "--mycelium-pulse" } as const;
 
@@ -97,36 +104,49 @@ interface MyceliumOptions {
 	/** Treat this load as an arrival, whatever the tab has seen. A page that
 	 * is opened rather than navigated to, as Rooms is, says so. */
 	arriving?: boolean;
+	/** Rise a little as the page scrolls, as ground seen through it would. A
+	 * page that scrolls past its ground, as the site's do, says so. */
+	drift?: boolean;
 }
 
-/** A canvas and its WebGPU context. */
+/** A canvas in the window-sized box that masks it, its WebGPU context, how
+ * far it reaches past every edge of the window, and how far it rises over the
+ * whole of the scroll, in CSS pixels. */
 interface Layer {
+	box: HTMLDivElement;
 	canvas: HTMLCanvasElement;
 	context: GPUCanvasContext;
+	side: number;
+	rise: number;
 }
 
-/** A canvas fixed under the content, reaching `bleed` CSS pixels past every
- * edge. `middle` is how much of it shows in the middle of the window, where
- * the reading is. Null if the browser gives no WebGPU context. */
-function fixedLayer(name: string, middle: number, bleed = 0): Layer | null {
+/** A canvas fixed under the content, reaching `side` CSS pixels past every
+ * edge and, since it rises `rise` with the scroll, that much more past the
+ * bottom, so moving it bares nothing. `middle` is how much of it shows in
+ * the middle of the window, where the reading is. The mask is the window's,
+ * on a box that holds the canvas, so it stays over the reading while the
+ * canvas moves under it. Null if the browser gives no WebGPU context. */
+function fixedLayer(name: string, middle: number, rise: number, side = 0): Layer | null {
 	const canvas = document.createElement("canvas");
 	const context = canvas.getContext("webgpu") as GPUCanvasContext | null;
 	if (context === null) return null;
 	canvas.className = name;
-	canvas.setAttribute("aria-hidden", "true");
-	const style = canvas.style;
-	style.position = "fixed";
-	style.inset = `${-bleed}px`;
-	style.width = `calc(100% + ${2 * bleed}px)`;
-	style.height = `calc(100% + ${2 * bleed}px)`;
-	style.zIndex = "-1";
-	style.pointerEvents = "none";
+	Object.assign(canvas.style, {
+		position: "absolute",
+		left: `${-side}px`,
+		top: `${-side}px`,
+		width: `calc(100% + ${2 * side}px)`,
+		height: `calc(100% + ${2 * side + rise}px)`,
+	});
+	const box = document.createElement("div");
+	box.setAttribute("aria-hidden", "true");
 	const at = `50% ${READING.y * 100}%`;
 	const mask = `radial-gradient(ellipse 62% 56% at ${at}, rgb(0 0 0 / ${middle}), ` +
 		`rgb(0 0 0 / ${Math.min(1, middle * 2)}) 55%, #000 96%)`;
-	style.maskImage = mask;
-	style.setProperty("-webkit-mask-image", mask);
-	return { canvas, context };
+	Object.assign(box.style, { position: "fixed", inset: "0", zIndex: "-1", pointerEvents: "none", maskImage: mask });
+	box.style.setProperty("-webkit-mask-image", mask);
+	box.append(canvas);
+	return { box, canvas, context, side, rise };
 }
 
 /** Start the mycelium under the page. Resolves to null, with nothing added
@@ -135,14 +155,22 @@ export async function startMycelium(options: MyceliumOptions = {}): Promise<Myce
 	// Avoid network growth, GPU setup, and full-screen compositing on phones
 	// and tablets. Viewport width alone would miss a tablet in landscape.
 	if (!matchMedia("(hover: hover) and (pointer: fine)").matches) return null;
-	const mid = fixedLayer("mycelium", 0.22);
+	const drifts = options.drift === true;
+	const riseOf = (k: number) => (drifts ? PLANES[k].rise : 0);
+	const far = drifts ? fixedLayer("mycelium-far", 0.22, riseOf(FAR)) : null;
+	const mid = fixedLayer("mycelium", 0.22, riseOf(FOCUS));
 	// Out of focus, it would only blur the reading, so none of it reaches the
 	// middle of the window.
-	const near = fixedLayer("mycelium-near", 0, PARALLAX);
+	const near = fixedLayer("mycelium-near", 0, riseOf(NEAR), PARALLAX);
 	// Light draws the eye, so less of it reaches the text than of the threads.
-	const light = fixedLayer("mycelium-light", 0.08);
-	if (mid === null || near === null || light === null) return null;
-	const shown = [mid, near, light];
+	// It lies on the focal plane, so it reaches and rises as the threads do.
+	const light = fixedLayer("mycelium-light", 0.08, riseOf(FOCUS));
+	if ((drifts && far === null) || mid === null || near === null || light === null) return null;
+	// The canvas each plane is drawn on, far to near, and the canvases shown,
+	// the planes' first.
+	const planeLayers = [far ?? mid, mid, near];
+	const sheetLayers = [...new Set(planeLayers)];
+	const shown = [...sheetLayers, light];
 	const read = readColors(document.body, COLORS);
 	if (read === null) return null;
 	let colors = read;
@@ -181,7 +209,7 @@ export async function startMycelium(options: MyceliumOptions = {}): Promise<Myce
 		},
 	});
 	if (release === null) return null;
-	document.body.prepend(...shown.map((l) => l.canvas));
+	document.body.prepend(...shown.map((l) => l.box));
 	near.canvas.style.transition = PARALLAX_EASE;
 
 	const still = matchMedia("(prefers-reduced-motion: reduce)");
@@ -201,22 +229,29 @@ export async function startMycelium(options: MyceliumOptions = {}): Promise<Myce
 	// Where the mouse last moved over open ground, when, since when it has
 	// been there without leaving for content, and whether it has left.
 	const mouse = { x: 0, y: 0, at: -Infinity, since: -Infinity, away: true };
+	// How far the threads have risen with the scroll, in CSS pixels. The mouse
+	// is over the threads where they are now, so it is moved by as much.
+	let risen = 0;
 
-	const sheets = (): Sheet[] => [
-		{ context: mid.context, w: size.w, h: size.h, bleed: 0 },
-		{ context: near.context, w: size.w + 2 * PARALLAX, h: size.h + 2 * PARALLAX, bleed: PARALLAX },
-	];
-	const lightSheet = (): Sheet => ({ context: light.context, w: size.w, h: size.h, bleed: 0 });
-	const looks: PlaneLook[] = PLANES.map((p) => ({
-		sheet: p.near ? 1 : 0,
+	const sheetOf = ({ context, side, rise }: Layer): Sheet => ({
+		context,
+		w: size.w + 2 * side,
+		h: size.h + 2 * side + rise,
+		origin: { x: side, y: side },
+	});
+	const sheets = (): Sheet[] => sheetLayers.map(sheetOf);
+	const lightSheet = () => sheetOf(light);
+	const looks: PlaneLook[] = PLANES.map((p, k) => ({
+		sheet: sheetLayers.indexOf(planeLayers[k]),
 		shrink: 1 / p.grown,
 		alpha: p.alpha,
 		blur: p.blur * scale,
 	}));
 
-	const fit = ({ canvas }: Layer, bleed = 0) => {
-		canvas.width = Math.round((size.w + 2 * bleed) * scale);
-		canvas.height = Math.round((size.h + 2 * bleed) * scale);
+	const fit = (layer: Layer) => {
+		const { w, h } = sheetOf(layer);
+		layer.canvas.width = Math.round(w * scale);
+		layer.canvas.height = Math.round(h * scale);
 	};
 
 	// Every plane, each grown up to its step in `upTo`.
@@ -292,8 +327,8 @@ export async function startMycelium(options: MyceliumOptions = {}): Promise<Myce
 		activity?.cancelFrame();
 		paintedUpTo = -1;
 		size = { w: innerWidth, h: innerHeight };
-		for (const l of [mid, light]) fit(l);
-		fit(near, PARALLAX);
+		for (const l of shown) fit(l);
+		lift();
 		planes = PLANES.map((p) => grow(size.w * p.grown, size.h * p.grown, p.fuzz));
 		focus = planes[FOCUS];
 		links = null;
@@ -328,7 +363,8 @@ export async function startMycelium(options: MyceliumOptions = {}): Promise<Myce
 		for (let tries = 0; tries < 60; tries++) {
 			const i = Math.floor(Math.random() * net.count);
 			const x = net.x[i];
-			const y = net.y[i];
+			// Where the point is in the window, risen with the scroll.
+			const y = net.y[i] - risen;
 			const dx = (x - size.w * READING.x) / (size.w / 2);
 			const dy = (y - size.h * READING.y) / (size.h / 2);
 			const inside = x >= 0 && y >= 0 && x <= size.w && y <= size.h;
@@ -377,7 +413,7 @@ export async function startMycelium(options: MyceliumOptions = {}): Promise<Myce
 
 	const touch = (event: PointerEvent) => {
 		if (!lively() || event.button > 0 || !onOpenGround(event.target)) return;
-		const from = focus!.nearest(event.clientX, event.clientY);
+		const from = focus!.nearest(event.clientX, event.clientY + risen);
 		if (from >= 0) startWave(focus!, from, WAVE_REACH, 1);
 	};
 
@@ -394,12 +430,35 @@ export async function startMycelium(options: MyceliumOptions = {}): Promise<Myce
 		if (mouse.away || now - mouse.at > LINGER) mouse.since = now;
 		mouse.away = false;
 		mouse.x = event.clientX;
-		mouse.y = event.clientY;
+		mouse.y = event.clientY + risen;
 		mouse.at = now;
-		const dx = (mouse.x / size.w - 0.5) * 2;
-		const dy = (mouse.y / size.h - 0.5) * 2;
+		const dx = (event.clientX / size.w - 0.5) * 2;
+		const dy = (event.clientY / size.h - 0.5) * 2;
 		near.canvas.style.translate = `${-dx * PARALLAX}px ${-dy * PARALLAX}px`;
 		wake();
+	};
+
+	// Rise by the share of the page scrolled past, so a long page moves the
+	// ground no farther than a short one. Moved by the compositor, never
+	// redrawn. The pointer's parallax is the near plane's `translate`, which
+	// eases, and the scroll its `transform`, which keeps up. The mouse has
+	// not moved, so its light, which draws every frame while it shows, stays
+	// under it as the threads pass.
+	let liftFrame = 0;
+	const lift = () => {
+		if (!drifts) return;
+		const room = document.documentElement.scrollHeight - innerHeight;
+		const share = still.matches || room <= 0 ? 0 : Math.min(1, Math.max(0, scrollY / room));
+		mouse.y += share * mid.rise - risen;
+		risen = share * mid.rise;
+		for (const { canvas, rise } of shown) canvas.style.transform = `translateY(${-share * rise}px)`;
+	};
+	const onScroll = () => {
+		if (liftFrame !== 0) return;
+		liftFrame = requestAnimationFrame(() => {
+			liftFrame = 0;
+			lift();
+		});
 	};
 
 	let stopped = false;
@@ -416,7 +475,7 @@ export async function startMycelium(options: MyceliumOptions = {}): Promise<Myce
 	// everyone. An arrival rises early and settles slowly, so the growth is
 	// not spent in the dark.
 	let rest = still.matches ? 1 : 0.82;
-	const depths = [mid.canvas, near.canvas];
+	const depths = sheetLayers.map(({ canvas }) => canvas);
 	// The fades that hold each shown canvas where it is, and the timer that
 	// moves the breath once the threads are fully up.
 	let fades: Animation[] = [];
@@ -434,9 +493,11 @@ export async function startMycelium(options: MyceliumOptions = {}): Promise<Myce
 
 	// Each shown canvas fades from `from` to `level` of its full light.
 	const fadeTo = (from: readonly (number | string)[], level: number, timing: KeyframeAnimationOptions) => {
-		const full = [rest, rest, 1];
-		fades = shown.map(({ canvas }, k) =>
-			canvas.animate([{ opacity: from[k] }, { opacity: full[k] * level }], { ...timing, fill: "forwards" })
+		fades = shown.map((l, k) =>
+			l.canvas.animate([{ opacity: from[k] }, { opacity: (l === light ? 1 : rest) * level }], {
+				...timing,
+				fill: "forwards",
+			})
 		);
 		const mine = fades;
 		mine[0].finished.then(() => {
@@ -461,8 +522,8 @@ export async function startMycelium(options: MyceliumOptions = {}): Promise<Myce
 			else flicker();
 		},
 		breath: (now) => {
-			depths.forEach((canvas, k) => {
-				const t = (now - breathBegan) / (BREATH_MS / 2) - k;
+			depths.forEach((canvas) => {
+				const t = (now - breathBegan) / (BREATH_MS / 2) - (canvas === near.canvas ? 1 : 0);
 				if (t < 0) return;
 				const x = Math.floor(t) % 2 === 0 ? t % 1 : 1 - (t % 1);
 				canvas.style.opacity = String(rest + ((1 - rest) * (1 - Math.cos(Math.PI * x))) / 2);
@@ -475,9 +536,7 @@ export async function startMycelium(options: MyceliumOptions = {}): Promise<Myce
 			mouse.at = -Infinity;
 			for (const fade of fades) fade.cancel();
 			rest = still.matches ? 1 : 0.82;
-			shown.forEach(({ canvas }, k) => {
-				canvas.style.opacity = String((k < 2 ? rest : 1) * (dimmed ? DIM : 1));
-			});
+			for (const l of shown) l.canvas.style.opacity = String((l === light ? 1 : rest) * (dimmed ? DIM : 1));
 			if (!document.hidden && renderer !== null) {
 				paint();
 				renderer.light(
@@ -501,7 +560,7 @@ export async function startMycelium(options: MyceliumOptions = {}): Promise<Myce
 		easing: "cubic-bezier(.25, .5, .3, 1)",
 	};
 	fadeTo(
-		[0, 0, 0],
+		shown.map(() => 0),
 		1,
 		arrival ? arriving : { duration: RETURN_MS, easing: "cubic-bezier(.4, 0, .2, 1)" },
 	);
@@ -541,6 +600,10 @@ export async function startMycelium(options: MyceliumOptions = {}): Promise<Myce
 	addEventListener("resize", onResize);
 	addEventListener("pointermove", hover, { passive: true });
 	addEventListener("pointerdown", touch, { passive: true });
+	if (drifts) {
+		addEventListener("scroll", onScroll, { passive: true });
+		still.addEventListener("change", lift);
+	}
 
 	return {
 		pulse,
@@ -556,9 +619,12 @@ export async function startMycelium(options: MyceliumOptions = {}): Promise<Myce
 			removeEventListener("resize", onResize);
 			removeEventListener("pointermove", hover);
 			removeEventListener("pointerdown", touch);
-			for (const { canvas, context } of shown) {
+			removeEventListener("scroll", onScroll);
+			still.removeEventListener("change", lift);
+			cancelAnimationFrame(liftFrame);
+			for (const { box, context } of shown) {
 				context.unconfigure();
-				canvas.remove();
+				box.remove();
 			}
 			// The buffers are the threads' and go with them; the device is the
 			// page's and stays.

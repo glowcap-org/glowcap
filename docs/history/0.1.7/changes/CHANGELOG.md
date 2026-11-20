@@ -15,8 +15,9 @@ These are the changes after November 11. Read the
   blocks a WebSocket without TLS from an https page unless it goes to the
   computer's own address.
   `zig build site-ocapnviz-page` builds the page into the site's assets.
-- The home page shows a short captioned video of Rooms and ocapnviz in use.
-  `zig build site-video` renders it, and `site-video-publish` publishes it.
+- The home page shows a short captioned video of Rooms and ocapnviz in use,
+  in the page's light or dark theme, and it switches with the theme.
+  `zig build site-video` renders both, and `site-video-publish` publishes them.
 - The Rust binding exports `BINDING_WEBSOCKET_MESSAGE_CAP_BYTES`, the largest
   WebSocket message a binding's adapter admits.
 - Every binding exports `VERSION_MAJOR`, `VERSION_MINOR`, and `VERSION_PATCH`,
@@ -36,6 +37,10 @@ These are the changes after November 11. Read the
 - Racket callers can drain recorded failures with `host-take-failures!` after
   `host-close!` consumes the Host, including when close returns a failure.
 
+- On a light page, the mushroom mark's light stays at the mushroom instead
+  of reaching out as beams: its windows, the glow under its cap, and the
+  light on the ground are white at their brightest and cyan where they fade.
+  It draws in about a third of the time the beams took.
 - The website and introductory guides shorten repeated explanations and clarify
   installation, shared-session lifetimes, history recovery limits, and Loam's
   supported interfaces.
@@ -128,6 +133,8 @@ These are the changes after November 11. Read the
   page at wide widths, draws one focus ring on every control, and sizes its
   fallback fonts like IBM Plex, so less of a page moves when the web font
   arrives. The Rooms page shares the fallback fonts.
+- On a phone, the website's diagrams fit the screen instead of scrolling
+  sideways, and a tap opens one full screen to pan and zoom.
 - A reply from a behavior served through the C library, and so through
   every binding, has its text and bytes copied once, into the stored answer.
   They were copied into the turn arena first.

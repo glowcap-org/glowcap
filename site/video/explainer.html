@@ -34,6 +34,13 @@
 	<head>
 		<meta charset="utf-8">
 		<title>glowcap video</title>
+		<!-- The face the renderer asks for with ?theme=, stamped before the
+		     site's stylesheets read it. -->
+		<script>
+		document.documentElement.dataset.theme = new URLSearchParams(location.search).get("theme") === "light"
+			? "light"
+			: "dark";
+		</script>
 		<link rel="stylesheet" href="../assets/tokens.css">
 		<link rel="stylesheet" href="../assets/style.css">
 		<link rel="stylesheet" href="../assets/prose.css">
@@ -106,7 +113,8 @@
 						</div>
 					</div>
 					<figure class="window">
-						<img data-reel="ocapnviz" data-at="20.6" data-from="recording" data-speed="1.35" data-len="11.92"
+						<img data-reel="ocapnviz" data-at="20.6" data-from="recording" data-speed="1.35"
+							data-len="11.92"
 							data-camera="pick, details" alt="">
 					</figure>
 				</section>
@@ -124,7 +132,8 @@
 						</div>
 					</div>
 					<figure class="window phone">
-						<img data-reel="traced-rooms" data-at="32.57" data-from="start" data-speed="1.35" data-len="9.71"
+						<img data-reel="traced-rooms" data-at="32.57" data-from="start" data-speed="1.35"
+							data-len="9.71"
 							data-camera="start" alt="">
 					</figure>
 					<figure class="window viewer">
@@ -188,12 +197,17 @@
 					if (beat.classList.contains("window")) {
 						const below = `${beat.offsetHeight}px`;
 						const covers = beat.previousElementSibling?.classList.contains("window") ?? false;
-						tw(start, beat, covers
-							? [
-								{ opacity: 1, translate: `0 ${below}`, clipPath: `inset(0 0 ${below} 0)` },
-								{ opacity: 1, translate: "0 0", clipPath: "inset(0 0 0 0)" },
-							]
-							: [{ opacity: 1 }, { opacity: 1 }], covers ? 0.5 : 0);
+						tw(
+							start,
+							beat,
+							covers
+								? [
+									{ opacity: 1, translate: `0 ${below}`, clipPath: `inset(0 0 ${below} 0)` },
+									{ opacity: 1, translate: "0 0", clipPath: "inset(0 0 0 0)" },
+								]
+								: [{ opacity: 1 }, { opacity: 1 }],
+							covers ? 0.5 : 0,
+						);
 						if (end != null) tw(end - FADE, beat, [{ opacity: 1 }, { opacity: 0 }], FADE, "ease-in");
 						continue;
 					}

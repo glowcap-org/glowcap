@@ -621,10 +621,10 @@ pub fn build(b: *std.Build) void {
     // archives through the TypeScript binding, as `ocapnviz-live-browser` does.
     site_reg.film_ocapnviz.dependOn(b.getInstallStep());
     site_reg.film_ocapnviz.dependOn(rooms_services_install);
-    rooms.film_traced.dependOn(ocapnviz.site_page);
-    // The ocapnviz film goes last, so no two films share the machine, and the
-    // video waits on it, so every film comes before the render.
-    site_reg.film_ocapnviz.dependOn(rooms.film_traced);
+    for (rooms.film_traced) |traced| traced.dependOn(ocapnviz.site_page);
+    // The ocapnviz films go last, so no two films share the machine, and the
+    // video waits on them, so every film comes before the render.
+    site_reg.film_ocapnviz.dependOn(rooms.film_traced[1]);
 
     // Finalize graph-level runtime policing after every registrar has had a
     // chance to add members to `check`.

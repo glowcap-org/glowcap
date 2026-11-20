@@ -224,7 +224,11 @@ const BLOOM = { core: 0.012, halo: 0.05, threshold: 1.05, coreStrength: 0.7, hal
  * pixels because there is one of these. */
 export class Renderer {
 	readonly #device: GPUDevice;
-	readonly #scenePipe: GPURenderPipeline;
+	readonly #sceneModule: GPUShaderModule;
+	readonly #sceneLayout: GPUPipelineLayout;
+	/** The scene's pipeline for each kind of page, made on its first draw,
+	 * so a page compiles only the one it shows. */
+	readonly #scenePipes: { dark?: GPURenderPipeline; light?: GPURenderPipeline } = {};
 	readonly #blurPipe: GPURenderPipeline;
 	readonly #postPipe: GPURenderPipeline;
 	readonly #uniforms: GPUBuffer;
@@ -244,13 +248,12 @@ export class Renderer {
 
 	constructor(device: GPUDevice, format: GPUTextureFormat) {
 		this.#device = device;
-		const scene = device.createShaderModule({ code: SHADER });
-		this.#scenePipe = device.createRenderPipeline({
-			layout: "auto",
-			vertex: { module: scene, entryPoint: "vs" },
-			fragment: { module: scene, entryPoint: "fs", targets: [{ format: "rgba16float" }] },
-			primitive: { topology: "triangle-list" },
+		this.#sceneModule = device.createShaderModule({ code: SHADER });
+		// One layout both scene pipelines share, so one bind group serves both.
+		const sceneGroup = device.createBindGroupLayout({
+			entries: [{ binding: 0, visibility: GPUShaderStage.FRAGMENT, buffer: {} }],
 		});
+		this.#sceneLayout = device.createPipelineLayout({ bindGroupLayouts: [sceneGroup] });
 		const blur = device.createShaderModule({ code: BLUR });
 		this.#blurPipe = device.createRenderPipeline({
 			layout: "auto",
@@ -290,10 +293,31 @@ export class Renderer {
 			})
 		);
 		this.#sceneBind = device.createBindGroup({
-			layout: this.#scenePipe.getBindGroupLayout(0),
+			layout: sceneGroup,
 			entries: [{ binding: 0, resource: { buffer: this.#uniforms } }],
 		});
 		this.#sampler = device.createSampler({ magFilter: "linear", minFilter: "linear" });
+	}
+
+	/** The scene's pipeline for a light page, the whole shader, or for a
+	 * dark one, which leaves out the light page's work. */
+	#scenePipe(lightPage: boolean): GPURenderPipeline {
+		const face = lightPage ? "light" : "dark";
+		const made = this.#scenePipes[face];
+		if (made != null) return made;
+		const pipe = this.#device.createRenderPipeline({
+			layout: this.#sceneLayout,
+			vertex: { module: this.#sceneModule, entryPoint: "vs" },
+			fragment: {
+				module: this.#sceneModule,
+				entryPoint: "fs",
+				targets: [{ format: "rgba16float" }],
+				constants: { LIGHT_PAGE: lightPage ? 1 : 0 },
+			},
+			primitive: { topology: "triangle-list" },
+		});
+		this.#scenePipes[face] = pipe;
+		return pipe;
 	}
 
 	/** The scene target follows the output size. Recreated only on change,
@@ -331,18 +355,30 @@ export class Renderer {
 		// The halo blurs what is already blurred, and widths add in quadrature.
 		const haloSigma = Math.sqrt(Math.max((BLOOM.halo * hh) ** 2 - coreSigma ** 2, 0.25));
 		// Each width is in its source's texels, and the first pass reads the
-		// full-size scene.
+		// full-size scene. The last number is the widest a tap may step
+		// without skipping detail. The core reads the scene's own pixels, so
+		// it steps one texel down and two across, where each sample of the
+		// full-size scene lands between two texels and takes both. The halo
+		// reads the core, which holds nothing finer than the core's width,
+		// and a step of one and a half of those leaves a ripple far under
+		// one level of the target.
 		const passes = [
-			[1, 0, coreSigma * 2, BLOOM.threshold],
-			[0, 1, coreSigma, -1],
-			[1, 0, haloSigma, -1],
-			[0, 1, haloSigma, -1],
+			[1, 0, coreSigma * 2, BLOOM.threshold, 2],
+			[0, 1, coreSigma, -1, 1],
+			[1, 0, haloSigma, -1, coreSigma * 1.5],
+			[0, 1, haloSigma, -1, coreSigma * 1.5],
 		];
-		passes.forEach(([dx, dy, sigma, threshold], i) => {
+		passes.forEach(([dx, dy, sigma, threshold, widest], i) => {
+			// Seven taps a side at the least, more where seven would step
+			// too wide. The step is the widest one or a whole fraction of
+			// it, so a step across the scene still lands between texels.
+			const reach = Math.max(sigma, 0.5) * 3;
+			const spacing = widest / Math.max(1, Math.ceil((widest * 7) / reach));
+			const taps = Math.ceil(reach / spacing);
 			this.#device.queue.writeBuffer(
 				this.#blurs[i],
 				0,
-				new Float32Array([hw, hh, dx, dy, sigma, threshold, 0, 0]),
+				new Float32Array([hw, hh, dx, dy, sigma, threshold, spacing, taps]),
 			);
 		});
 		this.#postBind = this.#device.createBindGroup({
@@ -407,7 +443,7 @@ export class Renderer {
 				storeOp: "store",
 			}],
 		});
-		scenePass.setPipeline(this.#scenePipe);
+		scenePass.setPipeline(this.#scenePipe(lightPage > 0));
 		scenePass.setBindGroup(0, this.#sceneBind);
 		scenePass.draw(3);
 		scenePass.end();

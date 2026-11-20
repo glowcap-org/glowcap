@@ -145,6 +145,27 @@ const fixture = {
 			frames: frames.size,
 		};
 	},
+	/** Each plane canvas's scroll offset in CSS pixels, by class, and how
+	 * many of the boxes that hold them are on the page. */
+	rises() {
+		const rise = (name: string) => {
+			const canvas = document.querySelector<HTMLCanvasElement>(`canvas.${name}`);
+			return canvas === null ? null : new DOMMatrix(getComputedStyle(canvas).transform).f;
+		};
+		return {
+			far: rise("mycelium-far"),
+			focal: rise("mycelium"),
+			near: rise("mycelium-near"),
+			light: rise("mycelium-light"),
+			boxes: document.body.querySelectorAll(":scope > div[aria-hidden]").length,
+		};
+	},
+	/** Scroll the window to `y` and resolve once the page has heard it. */
+	scroll(y: number) {
+		const heard = new Promise<void>((resolve) => addEventListener("scroll", () => resolve(), { once: true }));
+		scrollTo(0, y);
+		return heard;
+	},
 	hide(hidden: boolean) {
 		// Deliver visibility changes without relying on headless window focus
 		// or Chromium throttling to conceal a leaked timer.
@@ -166,8 +187,11 @@ declare global {
 }
 globalThis.myceliumFixture = fixture;
 
-// Start the background with page load, as both consumers do.
-const started = startMycelium({ arriving: true }).then((value) => {
+// Start the background with page load, as both consumers do. `?drift` starts
+// it as the site does, under a page tall enough to scroll.
+const drift = new URL(location.href).searchParams.has("drift");
+if (drift) document.body.style.minHeight = "300vh";
+const started = startMycelium({ arriving: true, drift }).then((value) => {
 	ground = value;
 	return value !== null;
 });

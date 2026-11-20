@@ -26,7 +26,17 @@ import { joinAs } from "../../apps/rooms/test/support/join.ts";
 import { openDmTo } from "../../apps/rooms/test/page/harness.ts";
 import { namedRoomRow } from "../../apps/rooms/test/support/conversation_row.ts";
 import { plainRun } from "./capture.ts";
-import { filmArgs, glide, glideClick, placePointer, reelsDirArg, startReel, typeOnFilm } from "./reel.ts";
+import {
+	filmArgs,
+	glide,
+	glideClick,
+	placePointer,
+	reelsDirArg,
+	startReel,
+	themeArg,
+	themedContext,
+	typeOnFilm,
+} from "./reel.ts";
 import { ROOMS_LAYOUT, smoothLayout } from "./film-smooth.ts";
 import {
 	heldStill,
@@ -71,11 +81,16 @@ const http = await webPort(web);
 await waitForHttp(http);
 
 const errors: string[] = [];
-const viewer = await openLiveRecording(browser, dist, trace, VIEWER, SCALE, errors, VIEWER_PANES);
+const theme = themeArg();
+const viewer = await openLiveRecording(browser, dist, trace, VIEWER, SCALE, theme, errors, VIEWER_PANES);
 // Each member's tab takes the trace capability before it joins, so the
 // recording sees it from its first session.
-const mira = await joinAs(browser, http, "mira", { room: ROOM, trace, viewport: PHONE, scale: SCALE });
-const ren = await joinAs(browser, http, "ren", { room: ROOM, trace });
+const mira = await joinAs(browser, http, "mira", {
+	room: ROOM,
+	trace,
+	context: await themedContext(browser, theme, { viewport: PHONE, deviceScaleFactor: SCALE }),
+});
+const ren = await joinAs(browser, http, "ren", { room: ROOM, trace, context: await themedContext(browser, theme) });
 await mira.locator("#members li", { hasText: "ren" }).first().waitFor({ state: "attached", timeout: 30_000 });
 // The session between ren and mira opens before filming. ocapnviz lays
 // out each new set of sessions afresh, so a session opening on film would
