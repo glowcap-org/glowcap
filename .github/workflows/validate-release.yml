@@ -56,7 +56,9 @@ jobs:
           || fromJSON('["ubuntu-24.04", "ubuntu-24.04-arm"]') }}
     runs-on: ${{ matrix.runner }}
     env:
-      VERSION: ${{ needs.newest.outputs.version }}
+      # Reuse the authenticated discovery above. Shared runner IPs can exhaust
+      # GitHub's unauthenticated API limit before an installer starts.
+      GLOWCAP_VERSION: ${{ needs.newest.outputs.version }}
     steps:
       - name: Install the newest release through the site
         run: curl -fsSL https://glowcap.org/install.sh | sh
@@ -65,7 +67,7 @@ jobs:
         run: |
           export PATH="$HOME/.local/bin:$PATH"
           glowcap version | tee version.txt
-          grep -Fx "glowcap $VERSION" version.txt
+          grep -Fx "glowcap $GLOWCAP_VERSION" version.txt
           glowcap help > /dev/null
 
   registries:
