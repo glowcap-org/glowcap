@@ -1,18 +1,13 @@
 use super::*;
-use js_sys::{Promise, Reflect, Uint8Array, futures::JsFuture};
-use wasm_bindgen::{JsCast, prelude::wasm_bindgen};
-use web_sys::{AbortController, ReadableStreamDefaultReader, RequestCache, RequestInit, RequestMode, Response};
+use js_sys::{Reflect, Uint8Array, futures::JsFuture};
+use wasm_bindgen::JsCast;
+use web_sys::{AbortController, ReadableStreamDefaultReader};
 
 // Enough for every admitted field in fully JSON-escaped form plus record
 // punctuation. Whitespace does not grant an unbounded response envelope.
 const MAX_BYTES: usize =
 	LIMITS.servers * (LIMITS.urls * (6 * LIMITS.url_bytes + 3) + 12 * LIMITS.credential_bytes + 128) + 2;
 
-#[wasm_bindgen(module = "/src/server_fetch.js")]
-extern "C" {
-	#[wasm_bindgen(catch, js_name = fetchRoomsServer)]
-	fn fetch_rooms_server(input: &str, options: &RequestInit) -> Result<Promise, wasm_bindgen::JsValue>;
-}
 struct Reader(ReadableStreamDefaultReader);
 impl Drop for Reader {
 	fn drop(&mut self) {
@@ -20,16 +15,9 @@ impl Drop for Reader {
 	}
 }
 pub(super) async fn read(url: &str, abort: &AbortController) -> Result<Servers, Error> {
-	let options = RequestInit::new();
-	options.set_signal(Some(&abort.signal()));
-	options.set_mode(RequestMode::Cors);
-	options.set_cache(RequestCache::NoStore);
-	let response =
-		JsFuture::from(fetch_rooms_server(url, &options).map_err(|_| Error::Platform("starting ICE fetch failed"))?)
-			.await
-			.map_err(|_| Error::Platform("ICE fetch failed"))?
-			.dyn_into::<Response>()
-			.map_err(|_| Error::Platform("ICE fetch returned no response"))?;
+	let response = crate::server_http::get(url, &abort.signal())
+		.await
+		.map_err(|_| Error::Platform("ICE fetch failed"))?;
 	if !response.ok() {
 		return Err(Error::Http(response.status()));
 	}

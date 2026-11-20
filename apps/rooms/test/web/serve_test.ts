@@ -116,26 +116,6 @@ Deno.test("the IRC Operations stylesheet is a served asset", async () => {
 	});
 });
 
-Deno.test("only listed page origins can read credentialed directory and ICE replies", async () => {
-	const allowed = "https://pages.example";
-	const { proc, httpPort } = await startWeb(0, [`--allow-origin=${allowed}/rooms/`]);
-	try {
-		for (const route of ["locator", "ice"]) {
-			const url = `http://127.0.0.1:${httpPort}/${route}`;
-			for (const origin of [allowed, "https://other.example"]) {
-				const reply = await fetch(url, { headers: { origin } });
-				await reply.body?.cancel();
-				assertEquals(reply.status, 200);
-				assertEquals(reply.headers.get("vary"), "origin");
-				assertEquals(reply.headers.get("access-control-allow-origin"), origin === allowed ? origin : null);
-				assertEquals(reply.headers.get("access-control-allow-credentials"), origin === allowed ? "true" : null);
-			}
-		}
-	} finally {
-		await stopOwned(proc);
-	}
-});
-
 // A program handed this address reads /llms.txt (https://llmstxt.org/) and
 // learns what the server is and how to join, in the shape that site expects:
 // an H1, a blockquote summary, then sections of links.

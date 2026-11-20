@@ -13,6 +13,7 @@ mod history;
 mod js_text;
 mod nickname;
 mod operations_bundle;
+mod server_http;
 mod slash;
 mod text;
 mod trace;

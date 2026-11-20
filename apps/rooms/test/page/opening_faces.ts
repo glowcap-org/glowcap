@@ -22,9 +22,9 @@ import {
 } from "../../lib/text/session.ts";
 import {
 	serverConnected,
-	serverReplyBlocked,
+	serverNotConnected,
+	serverReplyUnavailable,
 	serverTestAnswers,
-	serverTurnsAway,
 	settingsRelayAway,
 } from "../../lib/text/settings.ts";
 
@@ -42,6 +42,42 @@ async function asStaticHost(open: Page, httpPort: number): Promise<void> {
 		const page = (await served.text()).replace("<head>", '<head><meta name="rooms-host" content="static" />');
 		await route.fulfill({ response: served, body: page });
 	});
+}
+
+export async function proveSignedInPage(browser: Browser, httpPort: number): Promise<void> {
+	const context = await browser.newContext();
+	try {
+		const page = await context.newPage();
+		const base = `http://127.0.0.1:${httpPort}/`;
+		const signIn = new URL("sign-in", base);
+		const cookie = "rooms_test_login=confirmed";
+		let readLocator = false;
+		await context.route(`${base}**`, async (route) => {
+			const request = route.request();
+			if (request.url() === signIn.href) {
+				return route.fulfill({ body: "Signed in", headers: { "set-cookie": `${cookie}; Path=/; HttpOnly` } });
+			}
+			const sent = (await request.allHeaders()).cookie?.split("; ").includes(cookie);
+			if (!sent) {
+				return route.fulfill({ status: 401, contentType: "text/html", body: '<a href="/sign-in">Sign in</a>' });
+			}
+			if (new URL(request.url()).pathname === "/locator") readLocator = true;
+			return route.continue();
+		});
+		const anonymous = await page.goto(base);
+		if (anonymous?.status() !== 401) fail("the protected Rooms page skipped sign-in");
+		await page.getByRole("link", { name: "Sign in" }).click();
+		await page.waitForURL(signIn.href);
+		await page.goto(base);
+		await establishLocalSession(page);
+		await page.fill("#nick", "signed-in");
+		await page.fill("#room", "signed-in-room");
+		await page.click("#joinBtn");
+		await page.waitForSelector("#line:not([disabled])", { timeout: 30_000 });
+		if (!readLocator) fail("the Rooms page never read its directory with the browser login");
+	} finally {
+		await context.close();
+	}
 }
 
 export async function proveOpeningFaces(browser: Browser, httpPort: number): Promise<void> {
@@ -114,7 +150,7 @@ export async function proveOpeningFaces(browser: Browser, httpPort: number): Pro
 		await open.click("#connectionTab");
 		const said = await open.waitForSelector("#relayAway .said-clamp", { timeout: 30_000 })
 			.catch(() => fail("Settings did not say that a refused relay leaves this browser unreachable"));
-		if ((await said.textContent()) !== settingsRelayAway(`127.0.0.1:${httpPort}`, `http://127.0.0.1:${httpPort}`)) {
+		if ((await said.textContent()) !== settingsRelayAway(`127.0.0.1:${httpPort}`)) {
 			fail(
 				`the unreachable relay was not described in the catalog's words: ${
 					JSON.stringify(await said.textContent())
@@ -148,8 +184,8 @@ export async function proveOpeningFaces(browser: Browser, httpPort: number): Pro
 		if (JSON.stringify(shown) !== JSON.stringify(expected)) {
 			fail(`the server card did not show the chosen server: ${JSON.stringify(shown)}`);
 		}
-		// The card and the test explain what to do when the reply can't be read.
-		const refusal = serverReplyBlocked(`http://127.0.0.1:${httpPort}`);
+		// The card and Test report that the browser couldn't read the reply.
+		const refusal = serverReplyUnavailable(`http://127.0.0.1:${httpPort}`);
 		await open.waitForFunction(
 			(text) => document.querySelector("#relayAway")?.textContent?.includes(text) ?? false,
 			refusal,
@@ -157,14 +193,14 @@ export async function proveOpeningFaces(browser: Browser, httpPort: number): Pro
 		).catch(async () =>
 			fail(`the card did not name the refusal: ${JSON.stringify(await open.textContent("#relayAway"))}`)
 		);
-		if ((await open.textContent("#serverConnection")) !== serverTurnsAway) {
+		if ((await open.textContent("#serverConnection")) !== serverNotConnected) {
 			fail(`the card's chip said ${JSON.stringify(await open.textContent("#serverConnection"))}`);
 		}
 		await open.click("#serverChange");
 		if (await open.inputValue("#serverAddress") !== away) {
 			fail("the reloaded page did not keep the server it was sent to");
 		}
-		// Only a change that answered Test is saved. A blocked reply leaves Save off.
+		// An unreadable reply leaves Save off.
 		const saveOff = async (why: string) => {
 			if (!(await open.isDisabled("#serverSave"))) fail(`Save was on ${why}`);
 		};

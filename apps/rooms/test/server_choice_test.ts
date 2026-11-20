@@ -20,7 +20,8 @@ import {
 } from "../web/ui/server_choice.ts";
 import { pageStorage } from "../web/ui/page_storage.ts";
 import { LocalRefusal } from "../lib/text/failure.ts";
-import { fetchRoomsServer } from "../rust/browser/src/server_fetch.js";
+import { locateRoomsServer, type ServerLocatorReply } from "../web/ui/application.ts";
+import { initializeApplication } from "./support/application.ts";
 
 Deno.test("a typed server address reads as a page base or is refused whole", () => {
 	assertEquals(serverBase(""), { base: null });
@@ -100,82 +101,65 @@ Deno.test("a link's server offer is asked once and leaves the address either way
 	assertEquals(serverOffer(new URL(printedLinks.pageLink), null)?.base, printedLinks.server);
 });
 
-Deno.test("a server test tells a Rooms server, another answer, a refusal of this page, and silence apart", async () => {
-	const names = (text: string) => text.startsWith("ocapn://");
+Deno.test("the Rust locator reads once with same-origin credentials", async () => {
+	await initializeApplication();
+	const saved = globalThis.fetch;
+	const savedTimeout = AbortSignal.timeout;
+	const base = "https://rooms.example/app/";
+	const cases: [Response | Error, ServerLocatorReply][] = [
+		[new Response("ocapn://dir.iroh\n"), { kind: "answers", directory: "ocapn://dir.iroh" }],
+		[new Response("<title>Rooms</title>"), { kind: "elsewhere" }],
+		[new Response("", { status: 404 }), { kind: "elsewhere" }],
+		[new Response("", { status: 503 }), { kind: "elsewhere" }],
+		[new Response("", { status: 403 }), { kind: "unavailable" }],
+		[new TypeError("browser blocked read"), { kind: "unavailable" }],
+	];
+	try {
+		for (const [response, expected] of cases) {
+			let calls = 0;
+			globalThis.fetch = (address, options) => {
+				calls++;
+				assertEquals(address, base + "locator");
+				assertEquals(options?.credentials, "same-origin");
+				assertEquals(options?.redirect, "error");
+				return response instanceof Error ? Promise.reject(response) : Promise.resolve(response);
+			};
+			assertEquals(await locateRoomsServer(base), expected);
+			assertEquals(calls, 1);
+		}
+
+		const controller = new AbortController();
+		AbortSignal.timeout = () => controller.signal;
+		globalThis.fetch = () =>
+			Promise.resolve(
+				new Response(
+					new ReadableStream({
+						start(stream) {
+							controller.signal.addEventListener("abort", () => stream.error(controller.signal.reason), {
+								once: true,
+							});
+							queueMicrotask(() => controller.abort());
+						},
+					}),
+				),
+			);
+		assertEquals(await locateRoomsServer(base), { kind: "timedOut" });
+	} finally {
+		globalThis.fetch = saved;
+		AbortSignal.timeout = savedTimeout;
+	}
+});
+
+Deno.test("a locator failure checks browser permission for a local server", async () => {
 	const base = "http://127.0.0.1:8080/rooms/";
-	const asked: string[] = [];
-	const answering = (body: string, status = 200) => (address: URL, init: RequestInit) => {
-		asked.push(`${address.href} ${init.mode ?? "cors"}`);
-		return Promise.resolve(new Response(body, { status }));
-	};
-	assertEquals(await probeServer(base, names, { read: answering("ocapn://dir.iroh\n") }), {
-		kind: "answers",
-		directory: "ocapn://dir.iroh",
-	});
-	assertEquals(asked, ["http://127.0.0.1:8080/rooms/locator cors"]);
-	assertEquals(await probeServer(base, names, { read: answering("", 404) }), { kind: "elsewhere" });
-	assertEquals(await probeServer(base, names, { read: answering("", 503) }), { kind: "elsewhere" });
-	assertEquals(await probeServer(base, names, { read: answering("not a directory") }), { kind: "elsewhere" });
-	const refusing = (_: URL, init: RequestInit) =>
-		init.mode === "no-cors" ? Promise.resolve(new Response(null)) : Promise.reject(new TypeError("cors"));
-	assertEquals(await probeServer(base, names, { read: refusing }), { kind: "refuses" });
-	const silent = () => Promise.reject(new TypeError("refused"));
-	assertEquals(await probeServer(base, names, { read: silent }), { kind: "silent" });
-	// Silence from a local server behind a browser that has not allowed the
-	// local network is the browser's doing, and says which answer it gave.
+	const unavailable = (): Promise<ServerLocatorReply> => Promise.resolve({ kind: "unavailable" });
 	const asks = () => Promise.resolve<LocalNetworkPermission>("prompt");
-	assertEquals(await probeServer(base, names, { read: silent, blocked: asks }), {
-		kind: "blocked",
-		permission: "prompt",
-	});
+	assertEquals(await probeServer(base, unavailable, asks), { kind: "blocked", permission: "prompt" });
 	const allowed = () => Promise.resolve<LocalNetworkPermission>("granted");
-	assertEquals(await probeServer(base, names, { read: silent, blocked: allowed }), { kind: "silent" });
-	assertEquals(await probeServer(base, names, { read: answering("ocapn://dir.iroh"), blocked: asks }), {
-		kind: "answers",
-		directory: "ocapn://dir.iroh",
-	});
-});
-
-Deno.test("a protected HTTPS Rooms server can answer with the browser's login", async () => {
-	const base = "https://rooms.example/";
-	const names = (text: string) => text.startsWith("ocapn://");
-	const requests: RequestInit[] = [];
-	const read = (address: URL, init: RequestInit) => {
-		assertEquals(address.href, `${base}locator`);
-		requests.push(init);
-		if (init.credentials === "include") return Promise.resolve(new Response("ocapn://dir.iroh\n"));
-		return Promise.reject(new TypeError("sign-in redirect"));
-	};
-	assertEquals(await probeServer(base, names, { read }), { kind: "answers", directory: "ocapn://dir.iroh" });
-	assertEquals(requests.map(({ credentials, redirect }) => [credentials, redirect]), [
-		["omit", "error"],
-		["include", "error"],
-	]);
-	assertEquals(requests[0].signal === requests[1].signal, true);
-});
-
-Deno.test("a public HTTPS Rooms server answers without a credentialed request", async () => {
-	const credentials: (RequestCredentials | undefined)[] = [];
-	const result = await probeServer("https://rooms.example/", (text) => text.startsWith("ocapn://"), {
-		read: (_address, init) => {
-			credentials.push(init.credentials);
-			return Promise.resolve(new Response("ocapn://dir.iroh\n"));
-		},
-	});
-	assertEquals(result, { kind: "answers", directory: "ocapn://dir.iroh" });
-	assertEquals(credentials, ["omit"]);
-});
-
-Deno.test("a blocked credentialed retry preserves a readable server refusal", async () => {
-	const refused = new Response("Origin refused", { status: 403 });
-	const reply = await fetchRoomsServer(
-		"https://rooms.example/locator",
-		{},
-		(_address, init) =>
-			init.credentials === "omit" ? Promise.resolve(refused) : Promise.reject(new TypeError("cors")),
-	);
-	assertEquals(reply.status, 403);
-	assertEquals(await reply.text(), "Origin refused");
+	assertEquals(await probeServer(base, unavailable, allowed), { kind: "unavailable" });
+	const answers = (): Promise<ServerLocatorReply> =>
+		Promise.resolve({ kind: "answers", directory: "ocapn://dir.iroh" });
+	assertEquals(await probeServer(base, answers, asks), { kind: "answers", directory: "ocapn://dir.iroh" });
 });
 
 Deno.test("a browser is asked about the local network when a page reaches a more private space", async () => {

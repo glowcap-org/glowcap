@@ -17,7 +17,6 @@ import {
 	reachServerTitle,
 	serverAddressName,
 	serverAwayBlocked,
-	serverAwaySilent,
 	serverBlockedByBrowser,
 	serverChange,
 	serverChangeAct,
@@ -31,7 +30,6 @@ import {
 	serverNoDirectory,
 	serverNone,
 	serverNoneTitle,
-	serverNotAnswering,
 	serverNotConnected,
 	serverRemoveAct,
 	serverRemoveCommit,
@@ -39,15 +37,14 @@ import {
 	serverRemoveKeep,
 	serverRemoveName,
 	serverRemoveSaid,
-	serverReplyBlocked,
-	serverTurnsAway,
+	serverReplyTimedOut,
+	serverReplyUnavailable,
 	settingsCopyDirectory,
 	settingsCopyServer,
 	settingsRelayAway,
 	settingsShareDirectory,
 } from "../../../lib/text/settings.ts";
 import { saveAndReload } from "../../../lib/text/controls.ts";
-import { namesDirectory } from "../application.ts";
 import { reloadNow } from "../boot.ts";
 import { CopyField } from "../Copy.tsx";
 import { Said } from "../Said.tsx";
@@ -60,20 +57,15 @@ import { relayAway, type RelayReach } from "../store/projection.ts";
 import { ServerChoice } from "./ServerChoice.tsx";
 import { ServerDialog } from "./ServerDialog.tsx";
 
-/** The registration's phase as a chip, toned the way the access chips are. A
- * registration that closed says why once the server has been asked: a server
- * that turns this page away answered, so it is not "not answering". */
+/** The registration's phase as a chip, with the known browser permission. */
 function phase(
 	relay: RelayReach,
 	cause: ServerProbe | null,
 ): { tone: "quiet" | "warn" | undefined; said: string } {
 	if (relay === "reached") return { tone: undefined, said: serverConnected };
 	if (relay === "connecting") return { tone: "quiet", said: serverConnecting };
-	if (cause?.kind === "refuses") return { tone: "warn", said: serverTurnsAway };
 	if (cause?.kind === "blocked") return { tone: "warn", said: serverBlockedByBrowser };
-	// Anything that answered is up, so the chip says only that this browser is
-	// not connected through it.
-	return { tone: "warn", said: cause?.kind === "silent" ? serverNotAnswering : serverNotConnected };
+	return { tone: "warn", said: serverNotConnected };
 }
 
 export function ServerCard({ relay }: { relay: RelayReach | null }) {
@@ -85,8 +77,7 @@ export function ServerCard({ relay }: { relay: RelayReach | null }) {
 	const [removeRefused, setRemoveRefused] = useState<string | null>(null);
 	const openModalFrom = useOpenModal();
 	const away = relayAway(relay);
-	// While the registration is closed, ask the server what Test would, so the
-	// card can say as much as the browser could learn.
+	// While registration is closed, check what the browser can read.
 	const [cause, setCause] = useState<ServerProbe | null>(null);
 	useEffect(() => {
 		if (!away || server == null) {
@@ -94,7 +85,7 @@ export function ServerCard({ relay }: { relay: RelayReach | null }) {
 			return;
 		}
 		let current = true;
-		void probeServer(server.base, namesDirectory).then((probe) => {
+		void probeServer(server.base).then((probe) => {
 			if (current) setCause(probe);
 		});
 		return () => {
@@ -155,13 +146,13 @@ export function ServerCard({ relay }: { relay: RelayReach | null }) {
 				)}
 				{away && server != null && (
 					<Said id="relayAway" kind="warning">
-						{cause?.kind === "refuses"
-							? serverReplyBlocked(location.origin)
+						{cause?.kind === "unavailable"
+							? serverReplyUnavailable(location.origin)
 							: cause?.kind === "blocked"
 							? serverAwayBlocked(cause.permission)
-							: cause?.kind === "silent"
-							? serverAwaySilent(serverName(server.base))
-							: settingsRelayAway(serverName(server.base), location.origin)}
+							: cause?.kind === "timedOut"
+							? serverReplyTimedOut
+							: settingsRelayAway(serverName(server.base))}
 					</Said>
 				)}
 				{server == null ? <ServerChoice /> : (

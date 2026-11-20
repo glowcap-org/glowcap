@@ -8,7 +8,7 @@
 import { pageBase, servedByRooms } from "./page_base.ts";
 import { localArea, type PageStorage } from "./page_storage.ts";
 import type { LocalRefusal } from "../../lib/text/failure.ts";
-import { fetchRoomsServer } from "../../rust/browser/src/server_fetch.js";
+import { locateRoomsServer, type ServerLocatorReply } from "./application.ts";
 
 export const SERVER_KEY = "rooms.server";
 
@@ -129,12 +129,7 @@ export function serverInUse(
 /** What a server at `base` says to this page before anything is saved, or
  * `blocked`: this browser stands between a page from the public internet and
  * a server on the person's own computer or network until they allow it. */
-export type ServerProbe =
-	| { readonly kind: "answers"; readonly directory: string }
-	| { readonly kind: "elsewhere" }
-	| { readonly kind: "refuses" }
-	| { readonly kind: "silent" }
-	| { readonly kind: "blocked"; readonly permission: LocalNetworkRefusal };
+export type ServerProbe = ServerLocatorReply | { readonly kind: "blocked"; readonly permission: LocalNetworkRefusal };
 
 /** The browser's answer on reaching the local network from this page: asked
  * on the first try, refused, allowed, or null in a browser that never asks. */
@@ -192,49 +187,15 @@ export function localNetworkBlock(
 	return permissions.query({ name: "local-network-access" }).then((status) => status.state, () => null);
 }
 
-/** What a server probe reaches through, each replaceable in a test. */
-interface ProbeEffects {
-	read?: (address: URL, init: RequestInit) => Promise<Response>;
-	timeoutMs?: number;
-	blocked?: (target: URL) => Promise<LocalNetworkPermission>;
-}
-
-/** How long a test waits for a server to answer. */
-export const PROBE_TIMEOUT_MS = 5_000;
-
-/** Ask the server at `base` for its directory the way the session will. A
- * read this page may see answers with the directory `names` accepts. A Rooms
- * server always has one, or answers 503 while it starts, so any other reply is
- * from somewhere else, or from a server still starting.
- * A browser hides why a cross-origin read failed, so an opaque read of the
- * same route tells whether something answered. It cannot tell whether the
- * server denied this origin or a proxy asked for sign-in. When neither
- * resolves, nothing answered, unless this browser is what stands in the way. */
+/** Report the application’s locator result, with browser permission advice
+ * when a failed read crossed into the local network. */
 export async function probeServer(
 	base: string,
-	names: (text: string) => boolean,
-	{ read = fetch, timeoutMs = PROBE_TIMEOUT_MS, blocked = localNetworkBlock }: ProbeEffects = {},
+	read = locateRoomsServer,
+	blocked = localNetworkBlock,
 ): Promise<ServerProbe> {
-	const locator = new URL("locator", base);
-	const signal = AbortSignal.timeout(timeoutMs);
-	try {
-		const res = await fetchRoomsServer(locator, { cache: "no-store", signal }, read);
-		if (!res.ok) {
-			await res.body?.cancel();
-			return { kind: res.status === 401 || res.status === 403 ? "refuses" : "elsewhere" };
-		}
-		const text = (await res.text()).trim();
-		return names(text) ? { kind: "answers", directory: text } : { kind: "elsewhere" };
-	} catch {
-		// tolerant: the opaque read below says which failure this was.
-	}
-	try {
-		// Browsers require redirect following for a no-CORS read. Keep it anonymous.
-		await read(locator, { cache: "no-store", mode: "no-cors", credentials: "omit", signal });
-		return { kind: "refuses" };
-	} catch {
-		// tolerant: the browser's own answer below says whether it is the cause.
-	}
-	const permission = await blocked(locator);
-	return permission === "prompt" || permission === "denied" ? { kind: "blocked", permission } : { kind: "silent" };
+	const reply = await read(base);
+	if (reply.kind !== "unavailable") return reply;
+	const permission = await blocked(new URL(base));
+	return permission === "prompt" || permission === "denied" ? { kind: "blocked", permission } : reply;
 }

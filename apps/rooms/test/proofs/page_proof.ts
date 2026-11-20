@@ -29,6 +29,7 @@ import { ROOT, SERVER } from "../support/paths.ts";
 import { nonEphemeralPort } from "../../../../bindings/ts/test/ports.ts";
 import { waitForHttp } from "../support/rooms_server.ts";
 import * as opening from "../page/opening.ts";
+import { proveSignedInPage } from "../page/opening_faces.ts";
 import { proveFocusKeepsMobileViewport } from "../page/mobile_controls.ts";
 import * as firstRail from "../page/first_rail.ts";
 import * as details from "../page/details.ts";
@@ -212,6 +213,7 @@ try {
 	await phase("registration", () => registration.run(tab));
 	await phase("member card", () => memberCard.run(tab));
 	await phase("log travel", () => logTravel.run(activeBrowser, httpPort));
+	await phase("sign-in", () => proveSignedInPage(activeBrowser, httpPort));
 	if (invalidMarkup.length !== 0) {
 		fail(`the page rendered invalid nested markup: ${invalidMarkup.join(" | ")}`);
 	}

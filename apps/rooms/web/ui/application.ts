@@ -41,16 +41,16 @@ export function directoryId(locator: string): DirId | null {
 	return authority == null ? null : dirId(authority);
 }
 
-/** Whether `text` reads as a directory address. Rust refusing a malformed one
- * means no address. A missing module or a trap is a fault and throws. */
-export function namesDirectory(text: string): boolean {
-	const application = applicationModule();
-	try {
-		return application.directoryAuthority(text) != null;
-	} catch (error) {
-		if (error instanceof WebAssembly.RuntimeError) throw error;
-		return false;
-	}
+const ServerLocatorReplySchema = z.discriminatedUnion("kind", [
+	z.object({ kind: z.literal("answers"), directory: z.string() }),
+	z.object({ kind: z.literal("elsewhere") }),
+	z.object({ kind: z.literal("unavailable") }),
+	z.object({ kind: z.literal("timedOut") }),
+]);
+export type ServerLocatorReply = z.infer<typeof ServerLocatorReplySchema>;
+export async function locateRoomsServer(base: string): Promise<ServerLocatorReply> {
+	const reply = await applicationModule().locateRoomsServer(base);
+	return projected(reply, ServerLocatorReplySchema, "locator reply");
 }
 
 export function directConversationId(directory: string, registration: string): string {

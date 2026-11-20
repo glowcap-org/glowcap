@@ -63,10 +63,8 @@ export const settingsServerExample = "https://rooms.example/";
 export const settingsServerOffer = "Server offer";
 export const settingsServerRefused =
 	"A Rooms server address starts with http:// or https://, ends with /, and has no ? or # in it.";
-/** Said while the relay this browser is reached through turns it away. A
- * browser sees only a closed socket, so both causes are named. */
-export const settingsRelayAway = (host: string, origin: string) =>
-	`People can't reach this browser right now. The Rooms server at ${host} isn't answering, or doesn't allow pages from ${origin}. Rooms keeps trying.`;
+export const settingsRelayAway = (host: string) =>
+	`People can't reach this browser through ${host} right now. Rooms keeps trying.`;
 
 /** How other people's direct lines reach this browser. Every route is
  * encrypted end to end, so the choice is about the path and who can start a
@@ -129,15 +127,11 @@ export const serverFromPage = "The server this page came from";
 export const serverChosenHere = "Chosen on this browser";
 export const serverConnected = "Connected";
 export const serverConnecting = "Connecting";
-export const serverNotAnswering = "Not answering";
 export const serverNotConnected = "Not connected";
-export const serverTurnsAway = "Reply blocked";
 export const serverBlockedByBrowser = "Blocked by this browser";
-/** The browser cannot tell whether the server or a sign-in proxy blocked this reply. */
-export const serverReplyBlocked = (origin: string) =>
-	`This page couldn't read the server's reply. Open the server address to sign in, or ask its operator to allow ${origin}.`;
-/** Said while nothing answers at the server's address. */
-export const serverAwaySilent = (host: string) => `Nothing answers at ${host}. Rooms keeps trying.`;
+export const serverReplyUnavailable = (origin: string) =>
+	`Couldn't read the server's reply. If it requires sign-in, open the server address directly. For a public server, check that it allows ${origin}.`;
+export const serverReplyTimedOut = "The server check timed out. Try again.";
 export const serverAwayBlocked = (permission: "prompt" | "denied") =>
 	`${browserBlocks(permission)}, then Rooms connects.`;
 export const serverTestBlocked = (permission: "prompt" | "denied") => `${browserBlocks(permission)}, then test again.`;
@@ -161,9 +155,7 @@ export const serverNoneTitle = "No Rooms server";
 export const serverTest = "Test";
 export const serverTestAnswers = "It answers, and hosts a directory.";
 export const serverTestElsewhere =
-	"Something answers at this address, but it serves no Rooms directory. Check the address, or try again if the server is starting.";
-export const serverTestSilent =
-	"Nothing answers at this address. Check that the server is running and the address is right.";
+	"The reply contained no Rooms directory. Check the address, or try again if the server is starting.";
 export const serverNone = serverModel;
 export const reachAboutDirectory = "About…";
 /** The home directory choice. A room joined with no directory address opens in it. */
