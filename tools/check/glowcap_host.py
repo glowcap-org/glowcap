@@ -63,7 +63,8 @@ def source_fixture(root, scratch, manifest):
     return fixture, rows
 
 
-def installation(root, scratch):
+def installation(root: Path, scratch: Path) -> Path:
+    """Verify installation and return the complete generation used by the release proof."""
     env = dict(PATH="", HOME=str(scratch))
     prefix = scratch / "installed product"
     source = root / "bin/glowcap"
@@ -85,7 +86,6 @@ def installation(root, scratch):
     run(source, "install", "--prefix", prefix, env=env)
     assert link.resolve().parent.parent == selected
     assert not list((prefix / "bin").glob(".glowcap-*"))
-    assert Path(run(link, "apps", "rooms", "skills", env=env).stdout.strip()).is_dir()
 
     fixture, rows = source_fixture(root, scratch, manifest)
     receipt = fixture / "share/glowcap/installation.manifest"
@@ -113,7 +113,11 @@ def installation(root, scratch):
     assert (foreign / "bin/glowcap").read_text() == "unrelated executable"
     run(executable, "install", "--prefix", prefix, env=env)
     assert link.resolve().parent.parent != selected
-    assert (selected / "bin/glowcap").is_file(), "upgrade removed a running generation"
+    # The upgrade fixture now owns the public link. Keep exercising the
+    # complete generation that the upgrade must leave available.
+    binary = selected / "bin/glowcap"
+    assert binary.is_file(), "upgrade removed a running generation"
+    return binary
 
 
 def docker_fixture(scratch):
@@ -572,7 +576,9 @@ def main():
             print("glowcap-host-test: timed-out Docker child diagnostics and retirement passed")
             return
         if mode == "--installation":
-            installation(root, scratch)
+            binary = installation(root, scratch)
+            skills = run(binary, "apps", "rooms", "skills", env=dict(PATH="", HOME=str(scratch)))
+            assert Path(skills.stdout.strip()).resolve() == binary.parent.parent / "share/glowcap/skills", skills.stdout
             print("glowcap-host-test: verified installation, atomic selection and damaged-inventory refusal passed")
             return
         source_fixture(root, scratch, root / "share/glowcap/installation.manifest")
