@@ -28,6 +28,7 @@ import { reserveSelectionForAddress } from "./page_bootstrap.ts";
 import { RoomsPage } from "./page.ts";
 import { bindTabVisibility, RoomsProjectionProvider } from "./hooks.ts";
 import * as prefs from "./prefs.ts";
+import { fetchRoomsServer } from "../../rust/browser/src/server_fetch.js";
 import { ManagedSessionStartupFailure, openManagedSession } from "./session/managed/open.ts";
 import { attachedSessionFailureText } from "./session/attached_failure.ts";
 import { ManagedSessionProvider } from "./session/managed/context.tsx";
@@ -288,7 +289,8 @@ async function start(): Promise<void> {
 	const directoryOf = (base: string) =>
 		prefs.servedDirectory(
 			application.namesDirectory,
-			(address) => fetch(address, { signal: AbortSignal.timeout(PROBE_TIMEOUT_MS) }),
+			(address) =>
+				fetchRoomsServer(address, { cache: "no-store", signal: AbortSignal.timeout(PROBE_TIMEOUT_MS) }),
 			new URL("locator", base),
 		);
 	const servedDirectory = server == null ? null : await directoryOf(server.base);

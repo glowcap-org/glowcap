@@ -3,6 +3,7 @@ import { LocalRefusal } from "../../lib/text/failure.ts";
 import { invariant } from "../../lib/invariant.ts";
 import { openGraphMetadata, openGraphSelection, openGraphTargets } from "./application.ts";
 import { ROOMS_FAILURES, type RoomsErrorCode, type RoomsFailureRetry } from "../../lib/failure_data.ts";
+import { fetchRoomsServer } from "../../rust/browser/src/server_fetch.js";
 
 export interface OpenGraphImage {
 	readonly url: string;
@@ -101,9 +102,8 @@ export async function fetchPreview(
 ): Promise<OpenGraphMetadata> {
 	const query = new URLSearchParams({ url });
 	if (refresh) query.set("refresh", "1");
-	const response = await fetch(new URL(`link-preview?${query}`, service), {
+	const response = await fetchRoomsServer(new URL(`link-preview?${query}`, service), {
 		signal,
-		credentials: "omit",
 		cache: "no-store",
 		headers: { accept: "application/json" },
 	});

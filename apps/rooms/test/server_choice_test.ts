@@ -20,6 +20,7 @@ import {
 } from "../web/ui/server_choice.ts";
 import { pageStorage } from "../web/ui/page_storage.ts";
 import { LocalRefusal } from "../lib/text/failure.ts";
+import { fetchRoomsServer } from "../rust/browser/src/server_fetch.js";
 
 Deno.test("a typed server address reads as a page base or is refused whole", () => {
 	assertEquals(serverBase(""), { base: null });
@@ -133,6 +134,48 @@ Deno.test("a server test tells a Rooms server, another answer, a refusal of this
 		kind: "answers",
 		directory: "ocapn://dir.iroh",
 	});
+});
+
+Deno.test("a protected HTTPS Rooms server can answer with the browser's login", async () => {
+	const base = "https://rooms.example/";
+	const names = (text: string) => text.startsWith("ocapn://");
+	const requests: RequestInit[] = [];
+	const read = (address: URL, init: RequestInit) => {
+		assertEquals(address.href, `${base}locator`);
+		requests.push(init);
+		if (init.credentials === "include") return Promise.resolve(new Response("ocapn://dir.iroh\n"));
+		return Promise.reject(new TypeError("sign-in redirect"));
+	};
+	assertEquals(await probeServer(base, names, { read }), { kind: "answers", directory: "ocapn://dir.iroh" });
+	assertEquals(requests.map(({ credentials, redirect }) => [credentials, redirect]), [
+		["omit", "error"],
+		["include", "error"],
+	]);
+	assertEquals(requests[0].signal === requests[1].signal, true);
+});
+
+Deno.test("a public HTTPS Rooms server answers without a credentialed request", async () => {
+	const credentials: (RequestCredentials | undefined)[] = [];
+	const result = await probeServer("https://rooms.example/", (text) => text.startsWith("ocapn://"), {
+		read: (_address, init) => {
+			credentials.push(init.credentials);
+			return Promise.resolve(new Response("ocapn://dir.iroh\n"));
+		},
+	});
+	assertEquals(result, { kind: "answers", directory: "ocapn://dir.iroh" });
+	assertEquals(credentials, ["omit"]);
+});
+
+Deno.test("a blocked credentialed retry preserves a readable server refusal", async () => {
+	const refused = new Response("Origin refused", { status: 403 });
+	const reply = await fetchRoomsServer(
+		"https://rooms.example/locator",
+		{},
+		(_address, init) =>
+			init.credentials === "omit" ? Promise.resolve(refused) : Promise.reject(new TypeError("cors")),
+	);
+	assertEquals(reply.status, 403);
+	assertEquals(await reply.text(), "Origin refused");
 });
 
 Deno.test("a browser is asked about the local network when a page reaches a more private space", async () => {

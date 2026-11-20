@@ -152,6 +152,10 @@ elsewhere:
 
 ### A relay behind a browser login
 
+Open the server's public address and sign in before using it from a Rooms page hosted elsewhere. List that page in
+`GLOWCAP_RELAY_ALLOW_ORIGINS` and pass the Rooms server's CORS response headers through your proxy. The browser must
+allow the server's login cookie for the page. If it blocks the cookie, use the Rooms page served by the server itself.
+
 When public ingress requires a login, such as Cloudflare Access, a shared-session server cannot use the browser's
 login cookie. When it connects for a direct message, it follows the other browser's advertised `/relay` route and
 receives a login redirect.

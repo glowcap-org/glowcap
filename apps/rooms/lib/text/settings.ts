@@ -131,10 +131,11 @@ export const serverConnected = "Connected";
 export const serverConnecting = "Connecting";
 export const serverNotAnswering = "Not answering";
 export const serverNotConnected = "Not connected";
-export const serverTurnsAway = "Turns this page away";
+export const serverTurnsAway = "Reply blocked";
 export const serverBlockedByBrowser = "Blocked by this browser";
-/** Said while the server turns this page's origin away, with the one fix. */
-export const serverAwayRefuses = (origin: string) => `Restart it with --allow-origin=${origin} to let this page in.`;
+/** The browser cannot tell whether the server or a sign-in proxy blocked this reply. */
+export const serverReplyBlocked = (origin: string) =>
+	`This page couldn't read the server's reply. Open the server address to sign in, or ask its operator to allow ${origin}.`;
 /** Said while nothing answers at the server's address. */
 export const serverAwaySilent = (host: string) => `Nothing answers at ${host}. Rooms keeps trying.`;
 export const serverAwayBlocked = (permission: "prompt" | "denied") =>
@@ -161,8 +162,6 @@ export const serverTest = "Test";
 export const serverTestAnswers = "It answers, and hosts a directory.";
 export const serverTestElsewhere =
 	"Something answers at this address, but it serves no Rooms directory. Check the address, or try again if the server is starting.";
-export const serverTestRefuses = (origin: string) =>
-	`It answers, but doesn't allow pages from ${origin}. Restart it with --allow-origin=${origin}.`;
 export const serverTestSilent =
 	"Nothing answers at this address. Check that the server is running and the address is right.";
 export const serverNone = serverModel;

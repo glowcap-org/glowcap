@@ -17,7 +17,6 @@ import {
 	reachServerTitle,
 	serverAddressName,
 	serverAwayBlocked,
-	serverAwayRefuses,
 	serverAwaySilent,
 	serverBlockedByBrowser,
 	serverChange,
@@ -40,6 +39,7 @@ import {
 	serverRemoveKeep,
 	serverRemoveName,
 	serverRemoveSaid,
+	serverReplyBlocked,
 	serverTurnsAway,
 	settingsCopyDirectory,
 	settingsCopyServer,
@@ -86,7 +86,7 @@ export function ServerCard({ relay }: { relay: RelayReach | null }) {
 	const openModalFrom = useOpenModal();
 	const away = relayAway(relay);
 	// While the registration is closed, ask the server what Test would, so the
-	// card names the one cause and its fix rather than both possibilities.
+	// card can say as much as the browser could learn.
 	const [cause, setCause] = useState<ServerProbe | null>(null);
 	useEffect(() => {
 		if (!away || server == null) {
@@ -156,7 +156,7 @@ export function ServerCard({ relay }: { relay: RelayReach | null }) {
 				{away && server != null && (
 					<Said id="relayAway" kind="warning">
 						{cause?.kind === "refuses"
-							? serverAwayRefuses(location.origin)
+							? serverReplyBlocked(location.origin)
 							: cause?.kind === "blocked"
 							? serverAwayBlocked(cause.permission)
 							: cause?.kind === "silent"

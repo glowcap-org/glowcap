@@ -339,6 +339,10 @@ fn for_listed_origin<B>(mut reply: Reply, environment: &Environment, request: &R
 		.insert("vary", hyper::header::HeaderValue::from_static("origin"));
 	if let Some(origin) = environment.relay.listed_origin(request) {
 		reply.headers_mut().insert("access-control-allow-origin", origin);
+		reply.headers_mut().insert(
+			"access-control-allow-credentials",
+			hyper::header::HeaderValue::from_static("true"),
+		);
 	}
 	reply
 }

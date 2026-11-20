@@ -8,6 +8,7 @@
 import { pageBase, servedByRooms } from "./page_base.ts";
 import { localArea, type PageStorage } from "./page_storage.ts";
 import type { LocalRefusal } from "../../lib/text/failure.ts";
+import { fetchRoomsServer } from "../../rust/browser/src/server_fetch.js";
 
 export const SERVER_KEY = "rooms.server";
 
@@ -206,8 +207,8 @@ export const PROBE_TIMEOUT_MS = 5_000;
  * server always has one, or answers 503 while it starts, so any other reply is
  * from somewhere else, or from a server still starting.
  * A browser hides why a cross-origin read failed, so an opaque read of the
- * same route tells the two causes apart: it resolves whenever something
- * answers, so the server is there and turned this page away. When neither
+ * same route tells whether something answered. It cannot tell whether the
+ * server denied this origin or a proxy asked for sign-in. When neither
  * resolves, nothing answered, unless this browser is what stands in the way. */
 export async function probeServer(
 	base: string,
@@ -215,15 +216,21 @@ export async function probeServer(
 	{ read = fetch, timeoutMs = PROBE_TIMEOUT_MS, blocked = localNetworkBlock }: ProbeEffects = {},
 ): Promise<ServerProbe> {
 	const locator = new URL("locator", base);
+	const signal = AbortSignal.timeout(timeoutMs);
 	try {
-		const res = await read(locator, { cache: "no-store", signal: AbortSignal.timeout(timeoutMs) });
-		const text = res.ok ? (await res.text()).trim() : "";
+		const res = await fetchRoomsServer(locator, { cache: "no-store", signal }, read);
+		if (!res.ok) {
+			await res.body?.cancel();
+			return { kind: res.status === 401 || res.status === 403 ? "refuses" : "elsewhere" };
+		}
+		const text = (await res.text()).trim();
 		return names(text) ? { kind: "answers", directory: text } : { kind: "elsewhere" };
 	} catch {
 		// tolerant: the opaque read below says which failure this was.
 	}
 	try {
-		await read(locator, { cache: "no-store", mode: "no-cors", signal: AbortSignal.timeout(timeoutMs) });
+		// Browsers require redirect following for a no-CORS read. Keep it anonymous.
+		await read(locator, { cache: "no-store", mode: "no-cors", credentials: "omit", signal });
 		return { kind: "refuses" };
 	} catch {
 		// tolerant: the browser's own answer below says whether it is the cause.

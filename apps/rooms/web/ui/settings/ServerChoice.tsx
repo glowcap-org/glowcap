@@ -10,11 +10,11 @@ import { useState } from "react";
 import { saveAndReload } from "../../../lib/text/controls.ts";
 import {
 	serverAddressName,
+	serverReplyBlocked,
 	serverTest,
 	serverTestAnswers,
 	serverTestBlocked,
 	serverTestElsewhere,
-	serverTestRefuses,
 	serverTestSilent,
 	settingsServerExample,
 	settingsServerHint,
@@ -148,7 +148,7 @@ export function ServerChoice(
 						: result.kind === "elsewhere"
 						? serverTestElsewhere
 						: result.kind === "refuses"
-						? serverTestRefuses(location.origin)
+						? serverReplyBlocked(location.origin)
 						: result.kind === "blocked"
 						? serverTestBlocked(result.permission)
 						: serverTestSilent}

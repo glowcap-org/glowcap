@@ -21,10 +21,9 @@ import {
 	sessionServerSaveAttach,
 } from "../../lib/text/session.ts";
 import {
-	serverAwayRefuses,
 	serverConnected,
+	serverReplyBlocked,
 	serverTestAnswers,
-	serverTestRefuses,
 	serverTurnsAway,
 	settingsRelayAway,
 } from "../../lib/text/settings.ts";
@@ -149,9 +148,8 @@ export async function proveOpeningFaces(browser: Browser, httpPort: number): Pro
 		if (JSON.stringify(shown) !== JSON.stringify(expected)) {
 			fail(`the server card did not show the chosen server: ${JSON.stringify(shown)}`);
 		}
-		// The card asks the server the question Test does, so it names the one
-		// cause and its fix rather than both possibilities.
-		const refusal = serverAwayRefuses(`http://127.0.0.1:${httpPort}`);
+		// The card and the test explain what to do when the reply can't be read.
+		const refusal = serverReplyBlocked(`http://127.0.0.1:${httpPort}`);
 		await open.waitForFunction(
 			(text) => document.querySelector("#relayAway")?.textContent?.includes(text) ?? false,
 			refusal,
@@ -166,8 +164,7 @@ export async function proveOpeningFaces(browser: Browser, httpPort: number): Pro
 		if (await open.inputValue("#serverAddress") !== away) {
 			fail("the reloaded page did not keep the server it was sent to");
 		}
-		// Only a change that answered Test is saved. A refusal names the flag
-		// that lets this page in and leaves Save off.
+		// Only a change that answered Test is saved. A blocked reply leaves Save off.
 		const saveOff = async (why: string) => {
 			if (!(await open.isDisabled("#serverSave"))) fail(`Save was on ${why}`);
 		};
@@ -179,7 +176,7 @@ export async function proveOpeningFaces(browser: Browser, httpPort: number): Pro
 		await open.click("#serverTest");
 		const tested = await open.waitForSelector("#serverTestSaid", { timeout: 15_000 })
 			.catch(() => fail("testing a server said nothing"));
-		if (!(await tested.textContent())?.includes(serverTestRefuses(`http://127.0.0.1:${httpPort}`))) {
+		if (!(await tested.textContent())?.includes(refusal)) {
 			fail(`the server test did not name the refusal: ${JSON.stringify(await tested.textContent())}`);
 		}
 		await saveOff("after a test that was turned away");
