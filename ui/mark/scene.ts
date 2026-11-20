@@ -58,8 +58,9 @@ struct Frame {
 };
 
 /** Where the light leaves from this frame: the five windows' beams and the
- * spill under the brim, in the world. */
+ * spill under the brim, in the world, and the windows themselves. */
 struct Lamps {
+	window: array<vec3f, 5>,
 	at: array<vec3f, 5>,
 	dir: array<vec3f, 5>,
 	spill: vec3f,
@@ -84,6 +85,7 @@ fn placeLamps(ro: vec3f, ww: vec3f, fr: Frame) -> Lamps {
 		let w = poreWorld(k, fr.gCap, fr.squash, fr.bob, fr.detail);
 		let depth = dot(w - ro, ww);
 		let push = select(-1.4, 0.5, k == 3);
+		lamps.window[k] = w;
 		lamps.at[k] = ro + (w - ro) * ((depth + push) / max(depth, 0.01));
 		lamps.dir[k] = poreAxis(k, fr.detail);
 	}
@@ -109,7 +111,11 @@ fn floorLight(p: vec3f, fr: Frame) -> vec3f {
 	let fall = 1.0 / (1.0 + 1.4 * side * side);
 	let facing = normalize(toward).y;
 	let soft = smoothstep(2.3, 0.5, side);
-	let strength = (fall * facing * 1.1 + 0.15) * (1.0 + 0.5 * fr.lightPage) * soft * fr.glow * fr.gCap *
+	// By day the windows stay lit after the strike, so the ground they light
+	// stays lit too, held a little higher than the strike leaves it: the
+	// light page's coverage curve takes the faint end of a pool off the page.
+	let dayLift = fr.lightPage * (0.5 + 2.0 * (1.0 - fr.flareMix));
+	let strength = (fall * facing * 1.1 + 0.15) * (1.0 + dayLift) * soft * fr.glow * fr.gCap *
 		(1.0 + fr.flareMix * 1.2);
 	// By day the pool is white where the light is strongest and the lamps'
 	// cyan as it falls off, so it reads as light on the ground and not a
@@ -119,20 +125,21 @@ fn floorLight(p: vec3f, fr: Frame) -> vec3f {
 }
 
 /** The mushroom at a surface point: two flat tones and a line, with the
- * light on it.
+ * light on it. The fourth channel is how much of the point is line.
  *
  * The drawing is flat. Everything a renderer is proud of, a
  * gradient over the dome and a sheen and ridges, is texture at two hundred
  * pixels and mud at forty-eight. So the object is a dark flesh, a flat
  * highlight, the windows, and the outline, and the device spends itself on
  * light that moves, reaches, and lands on things. */
-fn shadeBody(p: vec3f, n: vec3f, rd: vec3f, fr: Frame) -> vec3f {
+fn shadeBody(p: vec3f, n: vec3f, rd: vec3f, fr: Frame) -> vec4f {
 	let bp = toBody(p, fr.bob, fr.detail);
 	let capNear = capField(bp, fr.cap, fr.squash, fr.detail);
 	// Cap or stalk is which field owns the point, never a height: the
 	// stalk's top reaches inside the cap, and a height cut painted a collar
 	// of cap tone round it.
-	let onStem = smoothstep(0.03, -0.03, stemField(bp, fr.stem, fr.detail) - capNear);
+	let stemGap = stemField(bp, fr.stem, fr.detail) - capNear;
+	let onStem = smoothstep(0.03, -0.03, stemGap);
 	let isCap = 1.0 - onStem;
 
 	// Darker than the token, because the token was a fill for a flat drawing
@@ -217,15 +224,22 @@ fn shadeBody(p: vec3f, n: vec3f, rd: vec3f, fr: Frame) -> vec3f {
 	// flesh. By day it covers it as soon as the light is up, because the
 	// lamps' teal added to the cap's orange would sum to a flat white: a
 	// wider band than the night's, white along the lip and cyan as it fades
-	// up into the cap. The light below the brim's edge is drawn with the
-	// windows' glow, in the scene.
+	// up into the cap. Its colour is set past white so the white holds most
+	// of the band's height: the light page's output is scaled to its
+	// brightest channel, so what passes white comes back to the page's range.
 	let under = smoothstep(-0.05, -0.5, n.y) * isCap;
 	let underNight = body + fr.lamp * under * 2.4 * fr.glow;
 	if (LIGHT_PAGE) {
 		let cover = smoothstep(0.0, 0.3, fr.glow);
-		let band = smoothstep(0.3, -0.5, n.y) * isCap;
+		// The band stops short of the stalk. Where the two fields blend, the
+		// fillet faces the eye past the inner outline but turns down like the
+		// underside, and a sliver of it under a pixel lit white is a row of
+		// ticks along the stalk's top. It is the seam, so it takes the line.
+		let fillet = 1.0 - smoothstep(0.03, 0.1, stemGap);
+		let band = smoothstep(0.3, -0.5, n.y) * (1.0 - fillet);
 		let bandCol = mix(fr.lamp, vec3f(1.0), smoothstep(0.85, 1.0, band));
-		var underDay = mix(body, bandCol * 1.1, smoothstep(0.0, 0.9, band) * cover);
+		var underDay = mix(body, bandCol * 1.35, smoothstep(0.0, 0.8, band) * cover);
+		underDay = mix(underDay, fr.edge, isCap * fillet);
 		body = mix(underNight, underDay, fr.lightPage);
 	} else {
 		body = underNight;
@@ -248,8 +262,10 @@ fn shadeBody(p: vec3f, n: vec3f, rd: vec3f, fr: Frame) -> vec3f {
 	// The outline catches the light too: near a window the amber line goes
 	// teal, the rim of a lantern seen against its lamp. There is no line
 	// where the stalk enters the cap: the brim hangs in front of the stalk
-	// and its own outline is the seam.
-	let litEdge = mix(fr.edge, fr.lamp * 1.3, clamp(around * 0.9, 0.0, 1.0) * fr.glow);
+	// and its own outline is the seam. By day the line keeps most of its
+	// amber: on cream it is what draws the mark, and gone pale it reads as
+	// the light eating the edge.
+	let litEdge = mix(fr.edge, fr.lamp * 1.3, clamp(around * 0.9, 0.0, 1.0) * fr.glow * (1.0 - 0.7 * fr.lightPage));
 	// The foot's bottom edge is the one place the silhouette has no surface
 	// turning away toward it, so the inner half of the line is drawn by
 	// height instead, measured from the dipped rim so it follows the
@@ -257,7 +273,8 @@ fn shadeBody(p: vec3f, n: vec3f, rd: vec3f, fr: Frame) -> vec3f {
 	let footX = (bp.x - STEM_X) / 0.67;
 	let rim = -STEM_DIP * max(1.0 - footX * footX, 0.0);
 	let footLine = (1.0 - isCap) * (1.0 - smoothstep(fr.strokeW * 0.3, fr.strokeW * 0.45, bp.y - rim));
-	return mix(body, litEdge, clamp(max(turn, footLine), 0.0, 1.0));
+	let line = clamp(max(turn, footLine), 0.0, 1.0);
+	return vec4f(mix(body, litEdge, line), line);
 }
 
 /** The lit air along one ray, from where it enters the light's sphere to
@@ -495,9 +512,8 @@ fn fs(@builtin(position) coord: vec4f) -> @location(0) vec4f {
 
 	var col = vec3f(0.0);
 	var alpha = 0.0;
+	var line = 0.0;
 	let hit = min(dist, 18.0);
-	// How much of the brim's underside gives off light by day, for the bloom.
-	var brimLight = 0.0;
 
 	if (id >= 0.0) {
 		let p = ro + rd * hit;
@@ -507,13 +523,9 @@ fn fs(@builtin(position) coord: vec4f) -> @location(0) vec4f {
 			alpha = max(alpha, min(max(max(landed.r, landed.g), landed.b), 1.0));
 		} else {
 			let n = normalAt(p, fr.stem, fr.cap, fr.squash, fr.bob, fr.detail);
-			col = shadeBody(p, n, rd, fr);
-			if (LIGHT_PAGE) {
-				let bp = toBody(p, fr.bob, fr.detail);
-				let toCap = capField(bp, fr.cap, fr.squash, fr.detail);
-				let isCap = smoothstep(-0.03, 0.03, stemField(bp, fr.stem, fr.detail) - toCap);
-				brimLight = smoothstep(-0.6, -0.95, n.y) * isCap;
-			}
+			let shaded = shadeBody(p, n, rd, fr);
+			col = shaded.rgb;
+			line = shaded.a;
 			alpha = 1.0;
 		}
 	}
@@ -526,6 +538,7 @@ fn fs(@builtin(position) coord: vec4f) -> @location(0) vec4f {
 	if (stroke > 0.0 && id < 0.5) {
 		col = mix(col, fr.edge, stroke);
 		alpha = max(alpha, stroke);
+		line = stroke;
 	}
 
 	// The air and the dust are most of a lit frame's cost and are drawn at
@@ -571,7 +584,7 @@ fn fs(@builtin(position) coord: vec4f) -> @location(0) vec4f {
 	col = col + ink * exp(-toEye * toEye * 0.15) * 0.05 * (1.0 - lightPage) * fr.glow * (1.0 + fr.flareMix * 2.8);
 
 	// By day the light is held at the mushroom instead, in its own stage.
-	if (LIGHT_PAGE && lightPage > 0.0 && fr.glow > 0.0) { col = dayLight(col, id, ro, rd, hit, stroke, lamps, fr); }
+	if (LIGHT_PAGE && lightPage > 0.0 && fr.glow > 0.0) { col = dayLight(col, id, ro, rd, line, lamps, fr); }
 
 	// The vignette is the canvas's own edge, softened: the flat mark's plume
 	// simply ends where its box does, and this one fades over the last few
@@ -603,20 +616,6 @@ fn fs(@builtin(position) coord: vec4f) -> @location(0) vec4f {
 	if (!LIGHT_PAGE) { return vec4f(col * a, a); }
 	let aDay = pow(a, 1.35);
 	let day = col / max(max(max(col.r, col.g), col.b), max(a, 1e-4)) * aDay;
-	// The light under the brim by day is the night's: light past white that
-	// the bloom spreads, from the brim's underside and from the air at the
-	// two corners where the brim meets the stalk, measured at the depth of
-	// the stalk's axis. The corners give off light only from the air, so
-	// the body gets their glow and never their source. It keeps the air's
-	// beat, so it is gone at the strike as the night's is.
-	let axisT = -dot(ro.xz - vec2f(STEM_X, 0.0), rd.xz) / max(dot(rd.xz, rd.xz), 1e-4);
-	let atAxis = toBody(ro + rd * axisT, fr.bob, fr.detail);
-	let cornerCap = capField(atAxis, fr.cap, fr.squash, fr.detail);
-	let cornerStem = stemField(atAxis, fr.stem, fr.detail);
-	let corner = exp(-(cornerCap * cornerCap + cornerStem * cornerStem) / (0.15 * 0.15));
-	let source = brimLight * 3.0 + corner * 25.0 * select(1.0, 0.0, id >= 0.5);
-	let emit = fr.lamp * vec3f(0.0, 1.0, 1.0) * source * smoothstep(0.0, 0.3, fr.glow) * fr.gCap *
-		clamp(fr.rays / 0.6, 0.0, 1.0);
-	return vec4f(mix(col * a, day, lightPage) + emit * lightPage, mix(a, aDay, lightPage));
+	return vec4f(mix(col * a, day, lightPage), mix(a, aDay, lightPage));
 }
 `;

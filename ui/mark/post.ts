@@ -5,14 +5,14 @@
  *
  * Everything bright in the scene radiates. That is not a metaphor here, it is
  * a blur: what is above a threshold is spread out and added back on top, so
- * a glow comes off the thing instead of being drawn around it. A blur made
- * of a few taps on a ring is not a blur, it is a few faint copies of the
+ * a glow comes off the thing instead of being drawn around it. A blur whose
+ * taps step past texels is not a blur, it is a few faint copies of the
  * picture, and on a drawing that is mostly one thin bright line those copies
- * show as a dashed ghost of the line beside it. So this is a true Gaussian,
- * run once across and once down, at half the scene's size where the taps are
- * cheap and the result is smooth. The pass runs twice over: a tight blur for
- * the hot core of a fluorescent source, then a wide one over that for the
- * halo. */
+ * show as a ghost of the line beside it, or as stripes under it. So this is
+ * a true Gaussian, run once across and once down, at half the scene's size
+ * where the taps are cheap and the result is smooth. The pass runs twice
+ * over: a tight blur for the hot core of a fluorescent source, then a wide
+ * one over that for the halo. */
 export const BLUR = `
 @group(0) @binding(0) var src: texture_2d<f32>;
 @group(0) @binding(1) var samp: sampler;
@@ -40,16 +40,27 @@ fn fs(@builtin(position) coord: vec4f) -> @location(0) vec4f {
 	let uv = coord.xy / blur.size.xy;
 	let srcSize = vec2f(textureDimensions(src));
 	let sigma = max(blur.knobs.x, 0.5);
-	// Fifteen taps over three sigmas each side, which is the whole curve.
-	let spacing = sigma * 6.0 / 14.0;
-	let step = blur.size.zw * spacing / srcSize;
-	var sum = vec4f(0.0);
-	var weight = 0.0;
-	for (var i = -7; i <= 7; i = i + 1) {
-		let d = f32(i) * spacing;
-		let w = exp(-d * d / (2.0 * sigma * sigma));
-		sum = sum + bright(textureSample(src, samp, uv + step * f32(i)), blur.knobs.y) * w;
-		weight = weight + w;
+	// Taps over three sigmas each side, which is the whole curve, spaced as
+	// the renderer says: never wider than the finest detail the source
+	// holds, or a thin bright line comes out as a stack of faint copies.
+	let spacing = blur.knobs.z;
+	let unit = blur.size.zw / srcSize;
+	// Where taps are a texel apart, one sample between two of them reads
+	// both at the weights the curve gives them, so it takes two taps. A
+	// bright pass has to see each texel alone, so it takes one.
+	let per = select(1.0, 2.0, spacing == 1.0 && blur.knobs.y < 0.0);
+	let samples = i32(ceil(blur.knobs.w / per));
+	var sum = bright(textureSample(src, samp, uv), blur.knobs.y);
+	var weight = 1.0;
+	for (var i = 1; i <= samples; i = i + 1) {
+		let d = (f32(i) * per - per + 1.0) * spacing;
+		let near = exp(-d * d / (2.0 * sigma * sigma));
+		let far = exp(-(d + spacing) * (d + spacing) / (2.0 * sigma * sigma)) * (per - 1.0);
+		let w = near + far;
+		let off = unit * (d + spacing * far / w);
+		sum = sum + (bright(textureSample(src, samp, uv + off), blur.knobs.y) +
+			bright(textureSample(src, samp, uv - off), blur.knobs.y)) * w;
+		weight = weight + 2.0 * w;
 	}
 	return sum / weight;
 }
