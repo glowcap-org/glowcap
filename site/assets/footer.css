@@ -6,34 +6,75 @@
    why). A wide page with no outline widens both (navigation.css). The shell owns the
    page's width and side padding. */
 .site-footer {
+  container-type: inline-size;
   grid-column: 2;
   padding: 1rem 0 2.5rem;
   font-size: 0.9rem;
   color: var(--ink-soft);
 }
 
-/* The brand sits before this grid so it does not keep empty columns alive. */
+/* Project introductions sit above the documentation index. */
 .footer-cols {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 8rem), 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 1.5rem 2rem;
   margin-bottom: 1.5rem;
 }
 
-.footer-brand {
-  margin-bottom: 1.5rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.7rem;
-  align-items: flex-start;
+.footer-projects {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1.75rem;
+  margin: 1.5rem 0 2.5rem;
 }
 
-.footer-brand p {
-  margin: 0;
+.footer-project {
+  color: var(--ink);
+}
+
+.footer-project:hover {
+  text-decoration: none;
+}
+
+.footer-project-title {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-size: 1rem;
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+.footer-project-title :is(.icon-mark, .app-icon) {
+  width: 1.5rem;
+  height: 1.5rem;
+  flex: none;
+}
+
+.footer-project-description {
+  display: block;
+  margin-top: 0.6rem;
   font-size: 0.86rem;
   line-height: 1.55;
   color: var(--ink-soft);
   text-wrap: pretty;
+}
+
+.footer-project:hover .footer-project-title {
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+}
+
+@container (min-width: 36rem) {
+  .footer-projects {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@container (min-width: 44rem) {
+  .footer-cols {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
 }
 
 .footer-cols nav {
