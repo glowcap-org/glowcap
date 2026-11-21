@@ -192,7 +192,7 @@ pub(crate) async fn read(directory: Option<PathBuf>) -> Result<Document, Error> 
 				"not UTF-8".into(),
 			))
 		})?;
-		Document::decode(text.strip_prefix('\u{feff}').unwrap_or(text)).map_err(Error::Operations)
+		Document::decode(text.trim_prefix('\u{feff}')).map_err(Error::Operations)
 	})
 	.await
 	.map_err(|error| Error::Worker(error.to_string()))?

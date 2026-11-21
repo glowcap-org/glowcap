@@ -6,11 +6,11 @@
 
 set -euo pipefail
 
-readonly VERSION=4.2.0
+readonly VERSION=4.3.0
 readonly ARCHIVE="mbedtls-${VERSION}.tar.bz2"
 readonly ROOT="mbedtls-${VERSION}"
 readonly URL="https://github.com/Mbed-TLS/mbedtls/releases/download/mbedtls-${VERSION}/${ARCHIVE}"
-readonly SHA256=2bed9d713b4668f76553b097e72b8aa30bc8f112a940d7ae228d524bbde6ffea
+readonly SHA256=1c87cba094cb40f097ebe0eba440a74939b71dab4e1d0d566bc90749ff381d18
 readonly MAX_BYTES=33554432
 
 if [[ $# -ne 1 ]]; then
@@ -72,6 +72,7 @@ readonly prefixes=(
 	"$ROOT/tf-psa-crypto/drivers/builtin"
 	"$ROOT/tf-psa-crypto/drivers/everest"
 	"$ROOT/tf-psa-crypto/drivers/p256-m"
+	"$ROOT/tf-psa-crypto/drivers/pqcp/include"
 )
 for prefix in "${prefixes[@]}"; do
 	if ! violation=$(archive_hygiene_check_compressed "$tarball_path" "$prefix" j); then

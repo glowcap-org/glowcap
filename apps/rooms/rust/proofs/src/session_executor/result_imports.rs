@@ -173,7 +173,8 @@ pub(super) async fn membership(
 			.any(|value| {
 				custody::Coordinate::decode(value.as_list().unwrap()[0].as_str().unwrap())
 					.unwrap()
-					.role == role
+					.role
+					== role
 			});
 		assert_eq!(
 			owner

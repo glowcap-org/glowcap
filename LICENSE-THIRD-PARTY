@@ -80,7 +80,7 @@ travels beside the font as `Inter-OFL.txt`.
 
 ## Optional Mbed TLS relay build
 
-`zig build mbedtls-build` downloads the official Mbed TLS 4.2.0 release
+`zig build mbedtls-build` downloads the official Mbed TLS 4.3.0 release
 archive from the Mbed TLS project, verifies the SHA-256 digest recorded in
 `tools/deps/fetch-mbedtls.sh`, and compiles only the private TLS/X.509/crypto
 source subset. The downloaded source is not committed to this repository or
@@ -92,7 +92,7 @@ copy of Apache-2.0 is `LICENSE-APACHE`.
 ## libvaxis and uucode
 
 The product CLI's CapTP lab REPL links libvaxis, which `build.zig.zon` fetches
-at `c6c23fbda5b2fb2aa277fe4c02b4efb27bb4e376`. libvaxis in turn pins uucode at
+at `25b4bd7371cc3c32049e103ab292a525a1ecb7a7`. libvaxis in turn pins uucode at
 `1fb73433bba5d93366c57f23ff2e9d7939746500`. None of their source is in this
 repository. Their notices are below because the CLI binary carries their code.
 

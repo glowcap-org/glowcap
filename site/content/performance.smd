@@ -414,9 +414,10 @@ core-state sizes in [Per-connection footprint](#per-connection-footprint).
 
 `zig build bench-site-report` refreshes the charts from live ReleaseFast runs.
 To run one bench, use its name from the section above and add
-`-Doptimize=fast`. On a machine with a cluster of faster cores the report
-keeps every bench but the live-session run on that cluster, so a bench run by
-name there can draw a slower core and report a higher figure.
+`-Doptimize=fast`. The report keeps every bench but the live-session run on
+the fastest cores that share one cache, so a bench run by name on a machine
+with mixed cores or several caches can draw a slower placement and report a
+higher figure.
 
 The [benchmarks README](https://github.com/glowcap-org/glowcap/blob/main/bench/README.md)
 also covers primitive costs such as signing, Noise handshakes, and frame

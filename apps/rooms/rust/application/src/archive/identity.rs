@@ -60,8 +60,7 @@ impl Identity {
 			return Err(super::Error::Document);
 		}
 		let text = core::str::from_utf8(bytes).map_err(|_| super::Error::Document)?;
-		let raw: Raw =
-			serde_json::from_str(text.strip_prefix('\u{feff}').unwrap_or(text)).map_err(|_| super::Error::Document)?;
+		let raw: Raw = serde_json::from_str(crate::documents::without_bom(text)).map_err(|_| super::Error::Document)?;
 		if raw.version.get() != 1 {
 			return Err(super::Error::Document);
 		}

@@ -35,7 +35,8 @@ impl Command<'_> {
 			caption,
 			previews,
 			files,
-		} = self && !previews.is_empty()
+		} = self
+			&& !previews.is_empty()
 		{
 			return serde_json::to_string(&(
 				"sendFiles",

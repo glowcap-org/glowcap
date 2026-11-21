@@ -74,7 +74,7 @@ pub(super) async fn run(host: &Host, owner: &managed::Session<Platform>, platfor
 			let mut altered = candidate.clone();
 			let mut releases = Vec::new();
 			match attack {
-				0 => altered.keep_history = !altered.keep_history,
+				0 => altered.keep_history.toggle(),
 				1 => releases.push(coordinate(custody::Role::DirectoryAccess, 1)),
 				_ => {
 					let position = prior.unwrap_or(altered.conversations.as_slice().len() - 1);

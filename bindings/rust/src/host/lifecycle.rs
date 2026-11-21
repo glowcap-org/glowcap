@@ -30,16 +30,6 @@ struct DialTaskRegistration {
 	_owned: OwnedTaskRegistration,
 }
 
-struct AbortTaskOnDrop(Option<tokio::task::JoinHandle<()>>);
-
-impl Drop for AbortTaskOnDrop {
-	fn drop(&mut self) {
-		if let Some(task) = self.0.take() {
-			task.abort();
-		}
-	}
-}
-
 impl Drop for DialTaskRegistration {
 	fn drop(&mut self) {
 		if let Some(host) = self.host.upgrade() {
@@ -164,12 +154,10 @@ impl HostShared {
 		let Some(task) = try_spawn_local_handle(async move {
 			let _registration = registration;
 			let observer = Rc::clone(&host);
-			let mut inner = AbortTaskOnDrop(Some(tokio::task::spawn_local(run(host))));
-			let outcome = match inner.0.as_mut() {
-				Some(handle) => handle.await,
-				None => return,
-			};
-			inner.0.take();
+			let mut inner = std::mem::DropGuard::new(tokio::task::spawn_local(run(host)), |task| task.abort());
+			let outcome = (&mut *inner).await;
+			// The task has finished, so dropping its handle must not abort it.
+			drop(std::mem::DropGuard::dismiss(inner));
 			if let Err(join) = outcome {
 				let primary = if join.is_panic() {
 					Error::with_detail(

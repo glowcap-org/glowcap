@@ -8,7 +8,6 @@
 [package]
 repository.workspace = true
 homepage.workspace = true
-documentation.workspace = true
 name = "glowcap-webrtc"
 version.workspace = true
 edition.workspace = true
@@ -20,6 +19,9 @@ publish.workspace = true
 # unsafe, and Rust only warns when one has not caught up. Denied, so the
 # marking stays where the operation is instead of decaying back into a blanket
 # claim on the signature.
+[lints.cargo]
+unused_dependencies = "deny"
+
 [lints.rust]
 unsafe_op_in_unsafe_fn = "deny"
 
@@ -57,7 +59,7 @@ async-trait = "=0.1.92"
 # dep serde_json: JSON signaling messages.
 serde_json = "=1.0.154"
 # dep bytes: Byte buffers for data channel messages.
-bytes = "=1.12.1"
+bytes = "=1.12.2"
 
 [dev-dependencies]
 # The same crate with its test helpers switched on for this crate's own tests.

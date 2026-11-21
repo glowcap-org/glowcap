@@ -227,7 +227,8 @@ impl Role {
 				| Self::RoomSubject
 				| Self::RoomInbox
 				| Self::RoomFiles
-				| Self::Line | Self::PublicationLease
+				| Self::Line
+				| Self::PublicationLease
 				| Self::DirectoryName
 				| Self::DirectoryInbox
 				| Self::SourceBlob

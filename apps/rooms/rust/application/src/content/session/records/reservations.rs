@@ -168,7 +168,8 @@ pub(super) fn check_sizes<R: References, C>(
 	let growth = custody_pages + workspace_growth + outgoing_growth + effect_pages + observation_pages;
 	bytes += extra_fields * 96
 		+ custody_pages * 160
-		+ 20 + lines
+		+ 20
+		+ lines
 		+ origins
 		+ private_envelope
 		+ pending.len() * RESULT_GROWTH

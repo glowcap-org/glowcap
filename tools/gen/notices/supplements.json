@@ -21,40 +21,28 @@
   },
   {
     "packages": [
-      "cargo:crc32c@0.6.8"
+      "cargo:crc32c@0.6.9"
     ],
     "files": [
-      {
-        "file": "licenses/crc32c-README.md.txt",
-        "path": "README.md (license grant or source notice)",
-        "sha256": "cdacc34974a954ea9ddb5da1a2ad19bcefaead7dfa9df6fd9421671ea5d19300",
-        "url": "https://raw.githubusercontent.com/zowens/crc32c/254a861f7cc71bfe455e86f0e1d86e3c83c33390/README.md"
-      },
       {
         "file": "licenses/crc32c-src-combine.rs.txt",
         "path": "src/combine.rs (license grant or source notice)",
         "sha256": "c3bcdf06815ecd0518c701f59a8e8c5dc1a48fc87458a6bc4f3c90b1df3f42a6",
-        "url": "https://raw.githubusercontent.com/zowens/crc32c/254a861f7cc71bfe455e86f0e1d86e3c83c33390/src/combine.rs"
-      },
-      {
-        "file": "licenses/apache-2.0.txt",
-        "path": "Apache-2.0 terms (selected alternative)",
-        "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
-        "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        "url": "https://raw.githubusercontent.com/zowens/crc32c/3098a6edd7b1cb28198e3048889907b7160043e4/src/combine.rs"
       }
     ],
-    "revision": "254a861f7cc71bfe455e86f0e1d86e3c83c33390"
+    "revision": "3098a6edd7b1cb28198e3048889907b7160043e4"
   },
   {
     "packages": [
-      "cargo:enum-assoc@1.4.1"
+      "cargo:enum-assoc@1.4.2"
     ],
     "files": [
       {
         "file": "licenses/enum-assoc-Cargo.toml.orig.txt",
         "path": "Cargo.toml.orig (license grant or source notice)",
-        "sha256": "ac76a8e989ded142df50e3b796c8926e90c7e0f42d2428ff9ef62a359d38f582",
-        "url": "https://raw.githubusercontent.com/Eolu/enum-assoc/351b306939b150601451df752a183b077b0de85a/Cargo.toml"
+        "sha256": "3b44da589dcb0eec543a22ac562460f2c17bb79b7481d2eb3d5cd64442c92317",
+        "url": "https://raw.githubusercontent.com/Eolu/enum-assoc/5d732f47b429d382daffb0948770adbaa2de0b8c/Cargo.toml"
       },
       {
         "file": "licenses/apache-2.0.txt",
@@ -63,48 +51,48 @@
         "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
       }
     ],
-    "revision": "351b306939b150601451df752a183b077b0de85a"
+    "revision": "5d732f47b429d382daffb0948770adbaa2de0b8c"
   },
   {
     "packages": [
-      "cargo:gloo-timers@0.4.0"
+      "cargo:gloo-timers@0.4.1"
     ],
     "files": [
       {
         "file": "licenses/asn1-rs-LICENSE-APACHE.txt",
         "path": "LICENSE-APACHE",
         "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2",
-        "url": "https://raw.githubusercontent.com/rustwasm/gloo/c8feeb18bf5dde6b7aed80c749e1aef89b34fb52/LICENSE-APACHE"
+        "url": "https://raw.githubusercontent.com/rustwasm/gloo/74e5ff6cb542a1d63200d8dea77c88926b203eb7/LICENSE-APACHE"
       },
       {
         "file": "licenses/gloo-LICENSE-MIT.txt",
         "path": "LICENSE-MIT",
         "sha256": "5a6f5443ea473f130adbdcf84254761d1292bc79759b5253915d4b5e7afbef66",
-        "url": "https://raw.githubusercontent.com/rustwasm/gloo/c8feeb18bf5dde6b7aed80c749e1aef89b34fb52/LICENSE-MIT"
+        "url": "https://raw.githubusercontent.com/rustwasm/gloo/74e5ff6cb542a1d63200d8dea77c88926b203eb7/LICENSE-MIT"
       }
     ],
-    "revision": "c8feeb18bf5dde6b7aed80c749e1aef89b34fb52"
+    "revision": "74e5ff6cb542a1d63200d8dea77c88926b203eb7"
   },
   {
     "packages": [
-      "cargo:iroh-base@1.4.1",
-      "cargo:iroh-dns@1.4.1"
+      "cargo:iroh-base@1.5.0",
+      "cargo:iroh-dns@1.5.0"
     ],
     "files": [
       {
         "file": "licenses/iroh-LICENSE-APACHE.txt",
         "path": "LICENSE-APACHE",
         "sha256": "903131e2786f073a942fbf8fae122d9e576e4dad758c6da7f9f2ba58fd8611ab",
-        "url": "https://raw.githubusercontent.com/n0-computer/iroh/d6c6963b9602d1b8dd2ba53b6519e7eb19cc7940/LICENSE-APACHE"
+        "url": "https://raw.githubusercontent.com/n0-computer/iroh/ea3bbb6ab41fa23816d7f9e3220ab77d444435b2/LICENSE-APACHE"
       },
       {
         "file": "licenses/iroh-LICENSE-MIT.txt",
         "path": "LICENSE-MIT",
         "sha256": "f169adb8124d3b005416d8485d00777c9a7bdd9099982c52a4493f9732e6d050",
-        "url": "https://raw.githubusercontent.com/n0-computer/iroh/d6c6963b9602d1b8dd2ba53b6519e7eb19cc7940/LICENSE-MIT"
+        "url": "https://raw.githubusercontent.com/n0-computer/iroh/ea3bbb6ab41fa23816d7f9e3220ab77d444435b2/LICENSE-MIT"
       }
     ],
-    "revision": "d6c6963b9602d1b8dd2ba53b6519e7eb19cc7940"
+    "revision": "ea3bbb6ab41fa23816d7f9e3220ab77d444435b2"
   },
   {
     "packages": [
@@ -128,44 +116,44 @@
   },
   {
     "packages": [
-      "cargo:n0-error-macros@1.0.1"
+      "cargo:n0-error-macros@1.0.3"
     ],
     "files": [
       {
         "file": "licenses/iroh-metrics-LICENSE-APACHE.txt",
         "path": "LICENSE-APACHE",
         "sha256": "7953ad8cebf4e01199521a5faa221ef59bec5cee0a9856b179590613a8560cbc",
-        "url": "https://raw.githubusercontent.com/n0-computer/n0-error/596f4113918712d545cbb25b7fa12c7153706f54/LICENSE-APACHE"
+        "url": "https://raw.githubusercontent.com/n0-computer/n0-error/43c4be4c27ad4601b722ad2b97dc85b768756ac9/LICENSE-APACHE"
       },
       {
         "file": "licenses/iroh-metrics-LICENSE-MIT.txt",
         "path": "LICENSE-MIT",
         "sha256": "339060c99d5c80c2742cae417f765980afe6b0149a78f959bbf2a79f19ab3af5",
-        "url": "https://raw.githubusercontent.com/n0-computer/n0-error/596f4113918712d545cbb25b7fa12c7153706f54/LICENSE-MIT"
+        "url": "https://raw.githubusercontent.com/n0-computer/n0-error/43c4be4c27ad4601b722ad2b97dc85b768756ac9/LICENSE-MIT"
       }
     ],
-    "revision": "596f4113918712d545cbb25b7fa12c7153706f54"
+    "revision": "43c4be4c27ad4601b722ad2b97dc85b768756ac9"
   },
   {
     "packages": [
-      "cargo:netwatch@0.19.3",
-      "cargo:portmapper@0.19.3"
+      "cargo:netwatch@0.20.2",
+      "cargo:portmapper@0.20.2"
     ],
     "files": [
       {
         "file": "licenses/net-tools-LICENSE-APACHE.txt",
         "path": "LICENSE-APACHE",
         "sha256": "7986218ec4ea89de3511a843ae27fea2584a525036c220ff7b26589179f07888",
-        "url": "https://raw.githubusercontent.com/n0-computer/net-tools/0030e57fc70981895bb86212ff0f059cc41c8a4e/LICENSE-APACHE"
+        "url": "https://raw.githubusercontent.com/n0-computer/net-tools/334793cfdaf3487db0c721b9312179a8ae3b0dcb/LICENSE-APACHE"
       },
       {
         "file": "licenses/net-tools-LICENSE-MIT.txt",
         "path": "LICENSE-MIT",
         "sha256": "33616ec4c88b6e00de66e6c06f1a55d80bb32a9d7939f3aa83d28e673a1adcae",
-        "url": "https://raw.githubusercontent.com/n0-computer/net-tools/0030e57fc70981895bb86212ff0f059cc41c8a4e/LICENSE-MIT"
+        "url": "https://raw.githubusercontent.com/n0-computer/net-tools/334793cfdaf3487db0c721b9312179a8ae3b0dcb/LICENSE-MIT"
       }
     ],
-    "revision": "0030e57fc70981895bb86212ff0f059cc41c8a4e"
+    "revision": "334793cfdaf3487db0c721b9312179a8ae3b0dcb"
   },
   {
     "packages": [

@@ -1,7 +1,6 @@
 [package]
 repository.workspace = true
 homepage.workspace = true
-documentation.workspace = true
 name = "rooms-contract-proofs"
 version.workspace = true
 edition.workspace = true
@@ -12,6 +11,9 @@ publish.workspace = true
 # workspace's `unsafe_code = "forbid"`. What it does answer to is
 # where the unsafety is written down: at edition 2024 an `unsafe fn` body is no
 # longer implicitly unsafe, and Rust only warns when one has not caught up.
+[lints.cargo]
+unused_dependencies = "deny"
+
 [lints.rust]
 unsafe_op_in_unsafe_fn = "deny"
 

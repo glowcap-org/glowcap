@@ -174,8 +174,10 @@ fn reader_reply_bounds() -> ValueBounds {
 	let row_bytes = 3 * archive::MAX_ID_BYTES
 		+ archive::MAX_CONTEXT_BYTES
 		+ archive::MAX_CONVERSATION_BYTES
-		+ 128 + room::line::MAX_LINE_BYTES
-		+ 16 + room::line::MAX_MESSAGE_FILES * attachment_bytes
+		+ 128
+		+ room::line::MAX_LINE_BYTES
+		+ 16
+		+ room::line::MAX_MESSAGE_FILES * attachment_bytes
 		+ open_graph::MAX_PREVIEWS * open_graph::MAX_URL_BYTES;
 	ValueBounds {
 		values: (4 + archive::MAX_READ * row_values).max(1 + 5 * room::history::MAX_LINES),

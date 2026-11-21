@@ -288,7 +288,8 @@ async fn scenario() {
 			.await
 			.iter()
 			.filter(|row| int(row, 6) != 0)
-			.count() == 2
+			.count()
+			== 2
 	);
 	assert!(
 		refused(&session, &admin, "up", &[Argument::String(KEYED_TCP.into())])

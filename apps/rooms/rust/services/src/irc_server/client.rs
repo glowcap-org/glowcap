@@ -228,7 +228,8 @@ impl ClientState {
 				_ => self.raw("451", &[recipient, "You have not registered"]).await?,
 			}
 			if let Some(nick) = &nick
-				&& user && !cap
+				&& user
+				&& !cap
 			{
 				match self.context.names.claim(nick) {
 					Ok(lease) => self.nickname = Some(lease),

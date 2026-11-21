@@ -105,7 +105,8 @@ impl<P: Tasks> Event<P> {
 			+ match &self.incoming {
 				Some(Incoming::Offer(_, uri, _)) => uri.capacity(),
 				_ => 0,
-			} + self.history.borrow().bytes()
+			}
+			+ self.history.borrow().bytes()
 			+ self.files.capacity() * size_of::<Attachment<Ref>>()
 			+ self
 				.files

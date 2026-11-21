@@ -227,6 +227,23 @@
       ;; A machine that stays busy refuses after the deadline instead of hanging.
       (check-exn #px"load stayed at or above 2 for 10 minutes \\(last 9.5\\)"
                  (lambda () (wait-on '(9.5) 8))))
+    (test-case "benches keep to the fast cores of one cache"
+      ;; Two clusters of ten, each with five fast cores and its own cache, the
+      ;; shape that splits a bench's threads across caches.
+      (define two-clusters
+        (for/list ([c (in-range 20)])
+          (list c (if (memv (modulo c 10) '(5 6 7 8 9)) 3900000 2808000) (if (< c 10) "0-9" "10-19"))))
+      (check-equal? (fast-cores-sharing-a-cache two-clusters) '(5 6 7 8 9))
+      ;; The cache holding the most fast cores wins over the lower-numbered one.
+      (check-equal? (fast-cores-sharing-a-cache
+                     '((0 3 "a") (1 3 "b") (2 3 "b") (3 1 "a")))
+                    '(1 2))
+      ;; One cache, or no cache information, keeps every fast core.
+      (check-equal? (fast-cores-sharing-a-cache '((0 2 "0-3") (1 3 "0-3") (2 3 "0-3") (3 3 "0-3"))) '(1 2 3))
+      (check-equal? (fast-cores-sharing-a-cache '((1 3 #f) (0 3 #f))) '(0 1))
+      ;; Fewer than two fast cores in any cache leaves the benches unconfined.
+      (check-equal? (fast-cores-sharing-a-cache '((0 3 "a") (1 3 "b") (2 1 "a"))) '())
+      (check-equal? (fast-cores-sharing-a-cache '()) '()))
     (test-case "langs"
       (define rows (parse-langs-md langs-md))
       ;; Three data rows; the header separator (`| --- | ...`) must not parse.

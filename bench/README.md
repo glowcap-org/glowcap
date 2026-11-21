@@ -74,9 +74,10 @@ machine stays busier than that. CI checks the report code and builds the site fr
 committed snapshots. Keep numerical results in those reports instead of
 copying them into this index.
 
-The report pins a TCP row's client and server. On a machine with a cluster of
-faster cores it also keeps every bench but the live-session run on that
-cluster, because an unpinned row there reports the core it drew.
+The report pins a TCP row's client and server. It also keeps every bench but
+the live-session run on the fastest cores that share one last-level cache,
+because an unpinned row reports the core it drew, and a row whose threads span
+two caches pays for every wake between them.
 
 ## Floors
 

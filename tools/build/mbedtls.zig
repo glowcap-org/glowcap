@@ -174,6 +174,10 @@ fn addIncludes(b: *std.Build, source: std.Build.LazyPath, module: anytype) void 
         "tf-psa-crypto/drivers/everest/include/tf-psa-crypto/private/everest/kremlib",
         "tf-psa-crypto/drivers/p256-m",
         "tf-psa-crypto/drivers/p256-m/p256-m",
+        // The dispatch layer includes the ML-DSA driver's key and algorithm
+        // macros even while TF_PSA_CRYPTO_PQCP_MLDSA_ENABLED stays off, so the
+        // header directory is needed and the driver's sources are not.
+        "tf-psa-crypto/drivers/pqcp/include",
     }) |path| module.addIncludePath(source.path(b, path));
     module.addIncludePath(b.path("src/net/tls"));
 }

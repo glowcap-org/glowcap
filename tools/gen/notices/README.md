@@ -38,12 +38,12 @@ connects exact package versions and source revisions to original upstream text
 under `licenses/`. Each file has its source URL and SHA-256 digest. A changed
 version, revision, or file requires a fresh review.
 
-The crc32c supplement retains its README's license grant and the source notice
-for its Zlib-derived combine implementation. The enum-assoc supplement retains
-its published manifest's dual-license declaration. Both select the offered
-Apache-2.0 alternative and include its full terms. Their pinned repositories
-contain no standalone license files. These package-specific records do not
-establish clearance for unrelated code.
+The crc32c supplement retains the source notice for its Zlib-derived combine
+implementation, which sits in a source file rather than a license file. The
+enum-assoc supplement retains its published manifest's dual-license
+declaration, selects the offered Apache-2.0 alternative, and includes its full
+terms, because its pinned repository contains no standalone license file. These
+package-specific records do not establish clearance for unrelated code.
 
 When a new dependency has no notice text, packaging fails. Inspect its exact
 published source and upstream revision before adding a supplement. Preserve

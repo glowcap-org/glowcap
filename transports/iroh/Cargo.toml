@@ -7,12 +7,14 @@
 [package]
 repository.workspace = true
 homepage.workspace = true
-documentation.workspace = true
 name = "glowcap-iroh"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish.workspace = true
+
+[lints.cargo]
+unused_dependencies = "deny"
 
 [lints.rust]
 unsafe_op_in_unsafe_fn = "deny"
@@ -40,7 +42,7 @@ glowcap-sidecar-runtime.workspace = true
 # one private runtime per endpoint, so that shutdown path is part of our
 # ordinary endpoint lifecycle rather than an upstream implementation detail.
 # dep iroh: QUIC connections with relay fallback behind the `iroh` transport.
-iroh = "=1.4.1"
+iroh = "=1.5.0"
 tokio.workspace = true
 
 [dev-dependencies]

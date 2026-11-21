@@ -303,8 +303,10 @@ impl<C> Event<C> {
 			+ self.conversation_id.capacity()
 			+ self.from.capacity()
 			+ self.text.capacity()
-			+ history + presence
-			+ facts + self.attachments.capacity() * core::mem::size_of::<Attachment<C>>()
+			+ history
+			+ presence
+			+ facts
+			+ self.attachments.capacity() * core::mem::size_of::<Attachment<C>>()
 			+ self.previews.retained_bytes()
 			+ self
 				.attachments

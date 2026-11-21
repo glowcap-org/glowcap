@@ -361,13 +361,9 @@ fn fetch_into_cache(contract: &Contract, version: &str, target: &str, cache_lib:
 		}
 		std::thread::sleep(std::time::Duration::from_millis(100));
 	}
-	struct LockGuard(PathBuf);
-	impl Drop for LockGuard {
-		fn drop(&mut self) {
-			let _ = fs::remove_dir(&self.0);
-		}
-	}
-	let _guard = LockGuard(lock_dir);
+	let _guard = std::mem::DropGuard::new(lock_dir, |dir| {
+		let _ = fs::remove_dir(dir);
+	});
 
 	if cache_lib.join(&contract.marker_static).is_file() {
 		return Ok(());
