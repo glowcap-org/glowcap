@@ -147,7 +147,7 @@ glowcap_pins_dep_gate() {
         rust) echo "zig build check (rust-test rides it)" ;;
         rustup-init | deno | node | bun) echo "zig build check" ;;
         playwright) echo "rebuild (new baked Chromium), then zig build rooms-web-page and siblings" ;;
-        python) echo "zig build ocapn-conformance" ;;
+        python) echo "rebuild (Serena installs against it, so its requires-python bounds the pin), then zig build ocapn-conformance" ;;
         ruff | mypy) echo "rebuild, then zig build python-check bindings-fmt-check site-python-examples-check" ;;
         racket | goblins) echo "zig build check-external" ;;
         claude | codex | opencode | cursor-agent) echo "container: bash .devcontainer/test/tool-install.sh <name> (cold-seed smoke; no rebuild; adopt with tools.sh ensure)" ;;
