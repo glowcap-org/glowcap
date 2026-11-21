@@ -46,7 +46,7 @@ import { reapOwned } from "../support/children.ts";
 import { waitForHttp } from "../support/rooms_server.ts";
 import { fail } from "../support/fail.ts";
 import { awaitBubble, confirmTitleLeave, directOpened, openDmTo, openLineMenu, pathTaken } from "../page/harness.ts";
-import { namedDirectRow } from "../support/conversation_row.ts";
+import { namedDirectRow, namedRoomRow } from "../support/conversation_row.ts";
 
 const ROOT = new URL("../../../../", import.meta.url).pathname;
 const ROOM = "lobby";
@@ -413,6 +413,29 @@ try {
 	await send(bob.tab, SECOND_REPLY);
 	await awaitBubble(alice.tab, SECOND_REPLY, "Alice");
 
+	// The rail's close removes its own thread, just like confirmed Close, even
+	// while another conversation is selected. Bob keeps his remotely closed
+	// thread until he removes it too.
+	await namedRoomRow(alice.tab, ROOM).locator(".room-open").click();
+	const aliceDirect = namedDirectRow(alice.tab, "web-bob");
+	await aliceDirect.hover();
+	await aliceDirect.locator(".room-leave").click();
+	await aliceDirect.waitFor({ state: "detached", timeout: 20_000 });
+	if (await namedRoomRow(alice.tab, ROOM, true).count() !== 1) {
+		fail("closing a background DM changed the selected room");
+	}
+	// Bob also retains the earlier closed introduction to Alice. The selected
+	// row names this conversation; the peer's name alone does not.
+	const bobDirect = namedDirectRow(bob.tab, "web-alice", true);
+	await bobDirect.locator(".closed-mark").waitFor({ timeout: 20_000 });
+	await awaitBubble(bob.tab, SECOND_TEXT, "Bob's remotely closed thread");
+	await bobDirect.hover();
+	await bobDirect.locator(".room-leave").click();
+	await bobDirect.waitFor({ state: "detached", timeout: 20_000 });
+	if (await namedDirectRow(bob.tab, "web-alice").count() !== 1) {
+		fail("removing one closed DM changed another conversation with the same peer");
+	}
+
 	console.log(
 		`PASS: two browser tabs direct-messaged each other on the default Fastest route, where one ` +
 			`redeemed a room introduction, the keyed session opened tab-to-tab over ${route} with ` +
@@ -420,7 +443,8 @@ try {
 			`and crossed in both directions over the introduced line and its reply capability. ` +
 			"The reply rode back over the same arriving connection to a tab that never listens, " +
 			"then closing the conversation left the member reachable in the list and a second " +
-			"line to the same person opened, carried a message, and carried a reply back",
+			"line to the same person opened, carried a message, and carried a reply back. " +
+			"Rail close then removed both the live and remotely closed threads",
 	);
 } finally {
 	clearTimeout(deadline);

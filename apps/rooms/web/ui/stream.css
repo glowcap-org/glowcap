@@ -91,6 +91,7 @@
 }
 #dmList .closed-mark {
 	flex: none;
+	padding-inline: var(--gap-line);
 	font-size: var(--type-fine);
 	letter-spacing: .04em;
 	text-transform: uppercase;

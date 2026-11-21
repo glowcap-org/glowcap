@@ -14,14 +14,23 @@ const { createRoomsBrowserController } = await import("../../web/ui/controller/c
 const { createManagedController } = await import("../../web/ui/session/managed/controller.ts");
 const { presentationFiles } = await import("../../web/ui/session/managed/files.ts");
 const store = await import("../../web/ui/store.ts");
-for (const closed of [false, true]) {
-	Deno.test(`direct rail close ${closed ? "dismisses saved entry" : "ends live connection"}`, async () => {
+for (const line of ["introducing", "live", "closed"] as const) {
+	Deno.test(`direct rail close removes the same conversation as confirmed Close, line=${line}`, async () => {
 		const f = fixture();
 		store.openDir(f.page.projection, f.id, f.route);
-		const dm = store.restoreDm(f.page.projection, f.id, "guest-2", "peer-registration", "saved", closed)!;
+		const dm = {
+			...store.restoreDm(f.page.projection, f.id, "guest-2", "peer-registration", "saved", false)!,
+			line,
+		};
+		store.put(f.page.projection, dm);
 		try {
+			// The rail targets its own row even while another conversation is open.
+			store.switchTo(f.page.projection, store.ensureDirectory(f.page.projection, f.id).key);
 			await f.controller.closeDm(dm);
-			assertEquals(f.calls, [[closed ? "leaveConversation" : "closeDirect", ["saved"]]]);
+			assertEquals(f.calls, [["leaveConversation", ["saved"]]]);
+			store.switchTo(f.page.projection, dm.key);
+			await f.controller.endConv();
+			assertEquals(f.calls[1], f.calls[0]);
 		} finally {
 			f.close();
 		}

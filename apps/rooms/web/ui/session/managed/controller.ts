@@ -416,8 +416,7 @@ export function createManagedController(
 			if (row?.type === "directory") store.switchTo(projection, key);
 			return row != null && row.type !== "directory" ? select(row.persistId) : Promise.resolve();
 		},
-		closeDm: (row) =>
-			run(row.line === "closed" ? "leaveConversation" : "closeDirect", row.persistId).then(() => undefined),
+		closeDm: (row) => run("leaveConversation", row.persistId).then(() => undefined),
 		endConv: () => {
 			const row = current();
 			if (row?.type === "directory") store.dismissDirectoryView(projection, row.key);
