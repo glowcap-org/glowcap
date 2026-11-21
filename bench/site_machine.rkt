@@ -1,25 +1,60 @@
 #lang racket/base
-;; Where and when a site bench runs: on the fast core cluster, once the machine
-;; is quiet. site_report.rkt runs every bench through `run` or `run-command`,
-;; and site_report-test.rkt drives `quiet` with a fake load and clock.
-(require racket/string racket/format racket/system racket/file racket/future)
-(provide fast-cores run run-command quiet)
+;; Where and when a site bench runs: on the fast cores of one cache cluster,
+;; once the machine is quiet. site_report.rkt runs every bench through `run` or
+;; `run-command`, and site_report-test.rkt drives `quiet` with a fake load and
+;; clock and `fast-cores-sharing-a-cache` with fake topologies.
+(require racket/string racket/format racket/system racket/file racket/future racket/list)
+(provide fast-cores fast-cores-sharing-a-cache run run-command quiet)
 
-;; The cores that share the highest maximum clock when two or more do, lowest
-;; number first, and empty otherwise. On a mixed-core machine the scheduler may
+;; The cores a bench may use, from rows of (core max-clock cache), where cache
+;; names the core's last-level cache and #f means unknown: the cores at the
+;; highest maximum clock that share one last-level cache, the cache holding the
+;; most of them, lowest core first. Empty when fewer than two qualify.
+;;
+;; Both halves change the figures. On a mixed-core machine the scheduler may
 ;; place an unpinned bench on a slow core, and the figure follows the core it
-;; drew. One core cannot hold a two-thread row.
-(define (fast-cluster)
-  (define cpus
-    (for*/list ([d (in-list (directory-list "/sys/devices/system/cpu"))]
-                [m (in-value (regexp-match #px"^cpu(\\d+)$" (path->string d)))]
-                #:when m
-                [f (in-value (build-path "/sys/devices/system/cpu" d "cpufreq/cpuinfo_max_freq"))]
-                #:when (file-exists? f))
-      (cons (string->number (cadr m)) (string->number (string-trim (file->string f))))))
-  (define top (if (null? cpus) 0 (apply max (map cdr cpus))))
-  (define fast (sort (for/list ([c (in-list cpus)] #:when (= (cdr c) top)) (car c)) <))
-  (if (>= (length fast) 2) fast '()))
+;; drew. And when the fast cores sit in two clusters with separate caches, a
+;; bench whose threads land in both pays for every wake across them, so the
+;; figure follows which clusters its threads drew. One core cannot hold a
+;; two-thread row.
+(define (fast-cores-sharing-a-cache rows)
+  (define top (if (null? rows) 0 (apply max (map cadr rows))))
+  (define fast (filter (lambda (r) (= (cadr r) top)) rows))
+  (define groups (group-by caddr fast))
+  (define widest
+    (for/fold ([best '()]) ([g (in-list groups)])
+      (define cores (sort (map car g) <))
+      (if (or (> (length cores) (length best))
+              (and (= (length cores) (length best)) (pair? cores) (< (car cores) (car best))))
+          cores
+          best)))
+  (if (>= (length widest) 2) widest '()))
+
+;; This machine's rows for `fast-cores-sharing-a-cache`, read from sysfs. A
+;; core's last-level cache is the shared-core list of its highest cache level.
+(define (machine-cores)
+  (define root "/sys/devices/system/cpu")
+  (define (read-trimmed f) (and (file-exists? f) (string-trim (file->string f))))
+  (define (last-level-cache cpu-dir)
+    (define dir (build-path cpu-dir "cache"))
+    (define levels
+      (if (directory-exists? dir)
+          (for*/list ([d (in-list (directory-list dir))]
+                      #:when (regexp-match? #px"^index\\d+$" (path->string d))
+                      [level (in-value (read-trimmed (build-path dir d "level")))]
+                      [shared (in-value (read-trimmed (build-path dir d "shared_cpu_list")))]
+                      #:when (and level shared))
+            (cons (string->number level) shared))
+          '()))
+    (and (pair? levels) (cdr (argmax car levels))))
+  (for*/list ([d (in-list (directory-list root))]
+              [m (in-value (regexp-match #px"^cpu(\\d+)$" (path->string d)))]
+              #:when m
+              [clock (in-value (read-trimmed (build-path root d "cpufreq/cpuinfo_max_freq")))]
+              #:when clock)
+    (list (string->number (cadr m)) (string->number clock) (last-level-cache (build-path root d)))))
+
+(define (fast-cluster) (fast-cores-sharing-a-cache (machine-cores)))
 
 ;; The two cores a pinned row names: the first two of the fast cluster, or
 ;; cores 0 and 1 when there is no cluster.
