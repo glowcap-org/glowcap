@@ -93,13 +93,13 @@
 (struct drain-effects (fires resume popped?))
 (define no-drain-effects (drain-effects '() #f #f))
 
-;; A drain pass advanced close-relevant state exactly when it popped at least
-;; one action; `popped?` records that at the drain, because an action can
-;; retire state (an unwrapped session's release, for one) while leaving no
-;; fire behind. The close drivers bump host progress
-;; only for such a pass: an idle pass stays silent, which keeps two drivers
-;; parked on the progress event from waking each other in an endless idle
-;; exchange.
+;; A drain pass advanced state exactly when it popped at least one action or,
+;; on a loop-backed host, ran a driver step that observed work or a callback;
+;; `popped?` records that at the drain, because an action can retire state (an
+;; unwrapped session's release, for one) while leaving no fire behind. The
+;; close drivers and the loop-backed idle drain bump host progress only for
+;; such a pass: an idle pass stays silent, which keeps two threads parked on
+;; the progress event from waking each other in an endless idle exchange.
 (define (drain-effects-productive? fx)
   (or (drain-effects-popped? fx)
       (pair? (drain-effects-fires fx))
@@ -186,8 +186,11 @@
 ;; writes, listener fires) after the lock releases, wakes every parked pump,
 ;; and hands the extra values back to the caller. Under
 ;; `current-defer-drain-effects`, only the merge happens here; the reader
-;; after-thunk owns effects + bump.
-(define (with-host-drain m thunk #:allow-released? [allow-released? #f])
+;; after-thunk owns effects + bump. `idle-silent?` skips the bump for a pass
+;; that was not `drain-effects-productive?`; only a caller whose thunk commits
+;; nothing outside its effects record may set it.
+(define (with-host-drain m thunk #:allow-released? [allow-released? #f]
+                         #:idle-silent? [idle-silent? #f])
   (call-with-values
    (lambda ()
      ((if allow-released? call-with-host/terminal call-with-host) m thunk))
@@ -206,7 +209,9 @@
         (dynamic-wind
          void
          (lambda () (run-drain-effects! m fx))
-         (lambda () (host-bump-progress! m)))
+         (lambda ()
+           (unless (and idle-silent? (not (drain-effects-productive? fx)))
+             (host-bump-progress! m))))
         (apply values rest)]))))
 
 ;; The session-effect drain teardown paths share: unless `c` is already
@@ -226,11 +231,20 @@
 ;; releases, and wake every parked pump. A no-op inside a hosted turn: the
 ;; host refuses the driving verbs there, and everything the turn enqueued
 ;; flushes when the enclosing feed unwinds into this same drain.
+;;
+;; Every pump runs this before each wait, and a loop-backed host's park thread
+;; runs it on each wake, so an unconditional bump here would have each of them
+;; wake the other forever while a session sits idle. A loop-backed pass that
+;; released nothing, whose steps observed no work, and inside which no
+;; callback ran therefore stays silent: it changed no state a waiter can see.
+;; The byte-fed drain reports no such signal, so its pass always bumps.
 (define (drain-host! m)
   (unless (inside-turn?)
+    (define released? (positive? (host-pending-release-count m)))
     (host-drain-parked-releases! m)
     (drain-host-gc! m)
-    (with-host-drain m (lambda () (drain-host-actions! m)))))
+    (with-host-drain m (lambda () (drain-host-actions! m))
+                     #:idle-silent? (and (host-loop-of m) (not released?) #t))))
 
 ;; ── The bounded wait ──────────────────────────────────────────────────────────
 ;; How long a partner has to finish the keyed handshake once its byte channel

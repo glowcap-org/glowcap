@@ -9,10 +9,13 @@
 
 (require "finalizer-diagnostics.rkt")
 
-(provide call-latching-callbacks run-c-callback)
+(provide call-latching-callbacks call-noting-callbacks run-c-callback)
 
 ;; The latch box of the innermost FFI call that can run callbacks, or #f.
 (define current-callback-latch (make-parameter #f))
+
+;; A box every callback entry sets, or #f. `call-noting-callbacks` binds it.
+(define current-callback-ran (make-parameter #f))
 
 ;; Run `ffi-call` and return the first raised callback value (or #f) followed
 ;; by the call's own results. The caller reports the latched value: it is the
@@ -26,12 +29,25 @@
          (ffi-call))))
    (lambda results (apply values (unbox latch) results))))
 
+;; Run `thunk` and return whether any callback ran Racket code inside the FFI
+;; calls it made, followed by the thunk's own results. Code that ran there may
+;; have changed state a waiter watches even when C reports nothing observed.
+(define (call-noting-callbacks thunk)
+  (define ran (box #f))
+  (call-with-values
+   (lambda ()
+     (parameterize ([current-callback-ran ran])
+       (thunk)))
+   (lambda results (apply values (unbox ran) results))))
+
 ;; Run one callback body and return its code. Every raised value is caught,
 ;; because nothing may cross the C frame: the first one is latched for the
 ;; enclosing FFI call. A later one, and any raised with no enclosing call,
 ;; becomes a callerless runtime failure under `operation`.
 ;; Breaks are disabled so a break cannot be caught here as a failure.
 (define (run-c-callback operation refused-code body)
+  (define ran (current-callback-ran))
+  (when ran (set-box! ran #t))
   (parameterize-break #f
     (with-handlers ([(lambda (_) #t)
                      (lambda (raised)
@@ -58,4 +74,15 @@
   (check-equal? codes '(-1 -2))
   (define kept (take-runtime-failures!))
   (check-equal? (map failure-event-operation kept) '("callback.second"))
-  (check-equal? (map failure-event-primary-message kept) '("second")))
+  (check-equal? (map failure-event-primary-message kept) '("second"))
+  ;; A call that ran a callback reports so, and one that ran none does not.
+  (define-values (ran? latched-inside _codes)
+    (call-noting-callbacks
+     (lambda ()
+       (call-latching-callbacks
+        (lambda () (run-c-callback "callback.noted" -3 (lambda () 0)))))))
+  (check-true ran?)
+  (check-false latched-inside)
+  (define-values (idle? idle-result) (call-noting-callbacks (lambda () 'none)))
+  (check-false idle?)
+  (check-eq? idle-result 'none))
