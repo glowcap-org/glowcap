@@ -464,24 +464,22 @@
 ;; One reader step. The first step on an open session resumes the frames the
 ;; Host held behind the handshake hello and returns without
 ;; waiting, so the resume's deferred effects run before any park. Every later
-;; step waits on the transport and the wake event together: the host's
-;; progress, plus the deadline alarm when the pump is bounded. 'woke means
-;; another thread moved the host or the deadline passed, so the caller
-;; re-checks its predicate.
+;; step waits on the transport and `wake`, the wake event the caller
+;; snapshotted before it last checked its predicate. 'woke means another
+;; thread moved the host or the deadline passed, so the caller re-checks.
 ;;
-;; Snapshot the wake evt only before the wait. Under the reader, feed parks
-;; drain effects (no bump); bumping before the read would wake waiters while
-;; this thread still holds the gate. After effects run and the gate clears,
-;; `pump-until` bumps once.
-(define (pump-read-once! c)
+;; The snapshot must predate that check: a settle landing between the check
+;; and a later snapshot advances the generation the read would wait on, and a
+;; loop-backed transport, whose read is that wait alone, then sleeps through
+;; the answer it is waiting for. Under the reader, feed parks drain effects (no
+;; bump); after effects run and the gate clears, `pump-until` bumps once.
+(define (pump-read-once! c wake)
   (define ac (session-async c))
-  (define m (session-host c))
   (cond
     [(and (session-open? c) (not (unbox (async-connection-tail-resumed? ac))))
      (set-box! (async-connection-tail-resumed? ac) #t)
      (resume-feed! c)]
     [else
-     (define gen (pump-wake-evt m))
      (define got
        (with-handlers ([(lambda (raised) (not (exn:break? raised)))
                         (lambda (error)
@@ -496,7 +494,7 @@
                                 (set-box! (session-transport-lost? c) #t)
                                 (record-session-wire-failure! c error)
                                 (cons 'failed error))))])
-         ((async-transport-read-some! (async-connection-transport ac)) gen)))
+         ((async-transport-read-some! (async-connection-transport ac)) wake)))
      (cond
        [(eq? got 'woke) (void)]
        [(eof-object? got) (handle-session-eof! c)]
@@ -532,13 +530,13 @@
     (raise-glowcap who ERR-CLOSED "~a" (or closed-message "connection closed")))
   (define (raise-timed-out)
     (raise-glowcap who ERR-TIMEOUT "~a" (or timeout-message "the wait timed out")))
-  (define (run-reader)
+  (define (run-reader wake)
     (define deferred (box no-drain-effects))
     (dynamic-wind
      void
      (lambda ()
        (parameterize ([current-defer-drain-effects deferred])
-         (pump-read-once! c)))
+         (pump-read-once! c wake)))
      (lambda ()
        (set-box! (async-connection-reader ac) #f)
        ;; The bump advertises state already committed above (reader cleared,
@@ -555,24 +553,17 @@
   ;; True when this thread wins the single-reader gate; the CAS is the claim.
   (define (claim-reader?)
     (box-cas-strong! (async-connection-reader ac) #f (current-thread)))
+  ;; Each round snapshots the wake event before any check, so a settle or a
+  ;; released reader gate after the checks still wakes the read or the park.
   (let loop ()
     (drain-host! m)
-    (define r (done))
+    (define wake (pump-wake-evt m))
     (cond
-      [r r]
+      [(done) => values]
       [(unbox (async-connection-closed? ac)) (raise-closed)]
       [(pump-deadline-passed?) (raise-timed-out)]
-      [(claim-reader?) (run-reader) (loop)]
-      [else
-       ;; Snapshot under the host lock, then recheck before waiting so a
-       ;; released gate cannot retire the generation this waiter will sync.
-       (define gen (pump-wake-evt m))
-       (cond
-         [(done) => (lambda (v) v)]
-         [(unbox (async-connection-closed? ac)) (raise-closed)]
-         [(pump-deadline-passed?) (raise-timed-out)]
-         [(claim-reader?) (run-reader) (loop)]
-         [else (sync gen) (loop)])])))
+      [(claim-reader?) (run-reader wake) (loop)]
+      [else (sync wake) (loop)])))
 
 ;; Wait for `done` with no session to read, returning its value: a Host actor's
 ;; answer settles in a drain this thread or another runs, so each round drains

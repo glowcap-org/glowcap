@@ -20,6 +20,7 @@ Releases before 0.1.7 are in the
 - Match release image metadata to the Docker or OCI manifest format when publishing the multi-platform image.
 - Reuse the authenticated release lookup when validating installers on shared CI hosts.
 - Use the browser's login on the Rooms server's own page and explain when Settings cannot read a server reply.
+- Stop a Racket call on the driver loop from waiting forever when its answer arrives just as it starts waiting.
 
 ### Security
 
