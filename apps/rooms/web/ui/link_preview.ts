@@ -1,7 +1,7 @@
 // Browser effect state over the shared Rust Open Graph vocabulary.
 import { LocalRefusal } from "../../lib/text/failure.ts";
 import { invariant } from "../../lib/invariant.ts";
-import { openGraphMetadata, openGraphSelection, openGraphTargets } from "./application.ts";
+import { applicationModule, openGraphMetadata, openGraphSelection, openGraphTargets } from "./application.ts";
 import { ROOMS_FAILURES, type RoomsErrorCode, type RoomsFailureRetry } from "../../lib/failure_data.ts";
 
 export interface OpenGraphImage {
@@ -99,14 +99,7 @@ export async function fetchPreview(
 	signal: AbortSignal,
 	refresh = false,
 ): Promise<OpenGraphMetadata> {
-	const query = new URLSearchParams({ url });
-	if (refresh) query.set("refresh", "1");
-	const response = await fetch(new URL(`link-preview?${query}`, service), {
-		signal,
-		credentials: "omit",
-		cache: "no-store",
-		headers: { accept: "application/json" },
-	});
+	const response = await applicationModule().readRoomsLinkPreview(service, url, refresh, signal);
 	const httpFailure = response.ok ? null : { code: "link-preview-failed", ...ROOMS_FAILURES["link-preview-failed"] };
 	let result: unknown;
 	try {

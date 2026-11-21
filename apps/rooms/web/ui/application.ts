@@ -1,6 +1,5 @@
-// The page loads the production Rust application before restoring durable
-// choices. This module adapts its JSON projection to existing presentation
-// types. It owns no protocol calls, validation rules, or Host.
+// Load the Rust application and adapt its pure projections for the page.
+// Browser effects, including server HTTP reads, live in their owning modules.
 import { invariant } from "../../lib/invariant.ts";
 import * as z from "zod/mini";
 import type { InitInput } from "../../../../zig-out/wasm/rooms/rooms_browser.js";
@@ -9,7 +8,7 @@ import { type DirId, dirId } from "./directory.ts";
 /** Parse a JSON projection from the Rust application, proving its shape
  * before any consumer reads it. A wrong shape names a defect in the shared
  * build. It is never cast into place. */
-function projected<S extends z.ZodMiniType>(encoded: string, schema: S, what: string): z.infer<S> {
+export function applicationProjection<S extends z.ZodMiniType>(encoded: string, schema: S, what: string): z.infer<S> {
 	const parsed = z.safeParse(schema, JSON.parse(encoded));
 	if (!parsed.success) {
 		invariant(false, `the Rooms application answered an invalid ${what}:\n${z.prettifyError(parsed.error)}`);
@@ -41,18 +40,6 @@ export function directoryId(locator: string): DirId | null {
 	return authority == null ? null : dirId(authority);
 }
 
-/** Whether `text` reads as a directory address. Rust refusing a malformed one
- * means no address. A missing module or a trap is a fault and throws. */
-export function namesDirectory(text: string): boolean {
-	const application = applicationModule();
-	try {
-		return application.directoryAuthority(text) != null;
-	} catch (error) {
-		if (error instanceof WebAssembly.RuntimeError) throw error;
-		return false;
-	}
-}
-
 export function directConversationId(directory: string, registration: string): string {
 	return applicationModule().directConversationId(directory, registration);
 }
@@ -78,7 +65,7 @@ const RoomsAddressSchema: z.ZodMiniType<RoomsAddress> = z.object({
 
 export function inspectDirectory(value: string): RoomsAddress | null {
 	const encoded = applicationModule().inspectDirectory(value);
-	return encoded == null ? null : projected(encoded, RoomsAddressSchema, "directory address");
+	return encoded == null ? null : applicationProjection(encoded, RoomsAddressSchema, "directory address");
 }
 
 /** How this browser, with no Rooms server, would reach a typed address: the
@@ -103,7 +90,7 @@ export function capabilityDoors(link: string): BrowserDoors | null {
 
 function doorsFrom(encoded: string | undefined): BrowserDoors | null {
 	if (encoded == null) return null;
-	const doors = projected(encoded, BrowserDoorsSchema, "door list");
+	const doors = applicationProjection(encoded, BrowserDoorsSchema, "door list");
 	// The application admitted the relay as an absolute WebSocket URL.
 	return { relay: doors.relay === null ? null : new URL(doors.relay), throughServer: doors.throughServer };
 }
@@ -117,7 +104,7 @@ export function linkNeedsServer(link: string): boolean {
 
 export function inspectCapability(value: string): RoomsAddress | null {
 	const encoded = applicationModule().inspectCapability(value);
-	return encoded == null ? null : projected(encoded, RoomsAddressSchema, "capability address");
+	return encoded == null ? null : applicationProjection(encoded, RoomsAddressSchema, "capability address");
 }
 
 export function roomAuthorityToken(sturdyref: string): string {
@@ -151,7 +138,7 @@ export function nicknameAvailability(
 ): RustNicknameAvailability {
 	// wasm-bindgen types every JavaScript Array as mutable. Rust only iterates
 	// these arrays, so keep the caller's read-only contract without copying.
-	return projected(
+	return applicationProjection(
 		applicationModule().nicknameAvailability(
 			nick,
 			own != null && "granted" in own ? own.granted : undefined,

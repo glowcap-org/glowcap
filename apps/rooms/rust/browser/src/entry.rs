@@ -1,5 +1,6 @@
 //! The production browser boundary. Loading the module admits durable choices
 //! without opening a Host, so controller selection precedes runtime ownership.
+use crate::js_text::address_text;
 use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen(js_name = directConversationId)]
@@ -100,19 +101,6 @@ fn inspect(
 		})
 		.to_string(),
 	))
-}
-
-fn address_text(value: js_sys::JsString) -> Option<String> {
-	if value.length() > 65536 {
-		return None;
-	}
-	let scalar = value.as_string()?;
-	// Compare JS strings: the str comparison would itself lose surrogates.
-	let round_trip = js_sys::JsString::from(scalar.as_str());
-	if round_trip != value {
-		return None;
-	}
-	Some(scalar)
 }
 
 #[wasm_bindgen(js_name = workspaceConversationLimit)]

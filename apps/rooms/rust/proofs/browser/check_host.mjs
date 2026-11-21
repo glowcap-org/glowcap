@@ -8,7 +8,7 @@ import { checkStorage } from "./check_storage.mjs";
 import { checkSessionForeign, checkSessionGraph } from "./check_session_graph.mjs";
 import { checkSessionForeignReload } from "./check_foreign_reload.mjs";
 import { checkSessionExecutor } from "./check_session_executor.mjs";
-import { iceFixtures } from "./check_ice.mjs";
+import { rtcConfigurationProof } from "./check_rtc_configuration.mjs";
 import { snippet } from "./assets.mjs";
 import { storageWithLostAcknowledgment } from "./graph_outcome.mjs";
 
@@ -81,9 +81,9 @@ try {
 	clearTimeout(deadline);
 }
 
-const ice = iceFixtures();
+const rtcConfiguration = rtcConfigurationProof();
 const server = createServer(async (request, response) => {
-	if (ice.serve(request, response)) return;
+	if (rtcConfiguration.serve(request, response)) return;
 	const path = new URL(request.url, "http://localhost").pathname;
 	if (path.startsWith("/snippets/")) {
 		try {
@@ -113,10 +113,10 @@ const server = createServer(async (request, response) => {
 		response.end();
 	}
 });
-server.listen(0, "127.0.0.1");
-await once(server, "listening");
 let browser;
 try {
+	server.listen(0, "127.0.0.1");
+	await once(server, "listening");
 	browser = await chromium.launch({ headless: true });
 	const page = await browser.newPage();
 	page.on("pageerror", (error) => console.error(error));
@@ -154,7 +154,7 @@ try {
 		await checkChannels(page, { script, wasm, root, moduleName }, "tcp", roomsOnly ? "rooms" : "sharing");
 	}
 	if (!focused) {
-		await ice.check(page);
+		await rtcConfiguration.check(page);
 		await checkChannels(page, { script, wasm, root });
 		await checkChannels(page, { script, wasm, root }, "iroh");
 	}
@@ -176,6 +176,11 @@ try {
 			: `Rust async Host passed in Deno and Chromium; shared archive execution and revocable shares, IndexedDB contract/retention/rollback/eviction, Chromium session commands, host TCP/iroh forwarding, keyed/Noise relay, RTCDataChannel, signaling and ICE fetch passed; ${wasm.length} linked Wasm bytes.`,
 	);
 } finally {
-	await browser?.close();
-	await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+	try {
+		await browser?.close();
+	} finally {
+		if (server.listening) {
+			await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+		}
+	}
 }

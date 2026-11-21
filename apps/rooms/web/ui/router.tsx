@@ -34,7 +34,7 @@
 // Its path carries the label under `#private=1`, which reopens the held
 // conversation in this tab and degrades to the plain join card anywhere
 // else. The `dm` page-configuration parameter rides along on every
-// address the mirror writes, keeping `prefs.ts`'s bookmark contract.
+// address the mirror writes, keeping `dm_transport.ts`'s bookmark contract.
 
 import { invariant } from "../../lib/invariant.ts";
 import { errorMessage } from "../../lib/error_message.ts";

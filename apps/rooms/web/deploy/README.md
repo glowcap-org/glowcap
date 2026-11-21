@@ -152,6 +152,10 @@ elsewhere:
 
 ### A relay behind a browser login
 
+Open Rooms at the server's public address and sign in there. The page and its requests then use the same origin and
+browser session. A Rooms page hosted elsewhere reads anonymously, so give readers the server's own page link for a
+deployment that requires sign-in. Set the public address and list its page first as shown in [Host it publicly](#host-it-publicly).
+
 When public ingress requires a login, such as Cloudflare Access, a shared-session server cannot use the browser's
 login cookie. When it connects for a direct message, it follows the other browser's advertised `/relay` route and
 receives a login redirect.

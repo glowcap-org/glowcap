@@ -11,7 +11,7 @@ import type { DirId } from "../directory.ts";
 import type { DmConv, ViewerDirection } from "../conversation.ts";
 import type { OperatorCategory } from "../../../lib/room/client.ts";
 import type { OperationsCapability } from "../application_data.ts";
-import type { DmMode } from "../prefs.ts";
+import type { DmMode } from "../dm_transport.ts";
 import type { RoomDestination } from "../joining.ts";
 import type { RoomsError, RoomsErrorCode } from "../../../lib/error_codes.ts";
 

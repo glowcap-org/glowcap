@@ -10,12 +10,12 @@ import { useState } from "react";
 import { saveAndReload } from "../../../lib/text/controls.ts";
 import {
 	serverAddressName,
+	serverReplyTimedOut,
+	serverReplyUnavailable,
 	serverTest,
 	serverTestAnswers,
 	serverTestBlocked,
 	serverTestElsewhere,
-	serverTestRefuses,
-	serverTestSilent,
 	settingsServerExample,
 	settingsServerHint,
 	settingsServerRefused,
@@ -25,8 +25,8 @@ import { Button } from "../Button.tsx";
 import { Field } from "../Field.tsx";
 import { addressField } from "../field.ts";
 import { Input } from "../Input.tsx";
-import { chooseServer, chosenServer, probeServer, serverBase, type ServerProbe } from "../server_choice.ts";
-import { namesDirectory } from "../application.ts";
+import { chooseServer, chosenServer, serverBase } from "../server_choice.ts";
+import { probeServer, type ServerProbe } from "../server_probe.ts";
 import { Said } from "../Said.tsx";
 import { refusalText } from "../../../lib/text/failure.ts";
 import { pageBase, servedByRooms } from "../page_base.ts";
@@ -58,7 +58,7 @@ export function ServerChoice(
 			return;
 		}
 		setTesting(true);
-		const said = await probeServer(testBase, namesDirectory);
+		const said = await probeServer(testBase);
 		setProbe({ base: testBase, said });
 		setTesting(false);
 	};
@@ -147,11 +147,11 @@ export function ServerChoice(
 						? serverTestAnswers
 						: result.kind === "elsewhere"
 						? serverTestElsewhere
-						: result.kind === "refuses"
-						? serverTestRefuses(location.origin)
+						: result.kind === "unavailable"
+						? serverReplyUnavailable(location.origin)
 						: result.kind === "blocked"
 						? serverTestBlocked(result.permission)
-						: serverTestSilent}
+						: serverReplyTimedOut}
 				</Said>
 			)}
 			<div className="actions" data-fill>

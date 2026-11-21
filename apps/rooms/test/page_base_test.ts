@@ -1,7 +1,7 @@
 // The page base: where one build of the page is served from, and what a host
 // that serves one file per address hands over through its 404 page.
 import { assertEquals } from "./assert.ts";
-import { PATH_OFFER, pathOffer, reloadAddress } from "../web/ui/page_base.ts";
+import { PATH_OFFER, pathOffer, reloadAddress, servedByRooms } from "../web/ui/page_base.ts";
 
 Deno.test("a path a static host handed over opens inside the page base", () => {
 	const base = new URL("https://glowcap.org/rooms/app/");
@@ -38,4 +38,10 @@ Deno.test("a static page reloads at an address its host answers, and opens where
 Deno.test("a page a Rooms server sent reloads the address it stands at", () => {
 	const base = new URL("http://localhost:8080/");
 	assertEquals(reloadAddress(new URL("http://localhost:8080/room/workshop#dir="), base, true), null);
+});
+
+Deno.test("servedByRooms: only a page the static export marked has no server behind it", () => {
+	assertEquals(servedByRooms("static"), false, "static export");
+	assertEquals(servedByRooms(null), true, "served by Rooms");
+	assertEquals(servedByRooms("other"), true, "an unknown mark");
 });

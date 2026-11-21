@@ -27,7 +27,7 @@ import { refusePageScaling } from "./gestures.ts";
 import { reserveSelectionForAddress } from "./page_bootstrap.ts";
 import { RoomsPage } from "./page.ts";
 import { bindTabVisibility, RoomsProjectionProvider } from "./hooks.ts";
-import * as prefs from "./prefs.ts";
+import { dmFrom } from "./dm_transport.ts";
 import { ManagedSessionStartupFailure, openManagedSession } from "./session/managed/open.ts";
 import { attachedSessionFailureText } from "./session/attached_failure.ts";
 import { ManagedSessionProvider } from "./session/managed/context.tsx";
@@ -49,14 +49,10 @@ import { bindViewPreferences } from "./view_preferences.ts";
 import { bindGroundToConnections } from "./mycelium/link.ts";
 import { bindReloadToBuild, servedPageBuild } from "./build_link.ts";
 import { pagePath, pathOffer } from "./page_base.ts";
-import {
-	chooseServer,
-	PROBE_TIMEOUT_MS,
-	reachesLocalNetwork,
-	serverInUse,
-	serverOffer,
-	sessionOffer,
-} from "./server_choice.ts";
+import { chooseServer, serverInUse, serverOffer } from "./server_choice.ts";
+import { sessionOffer } from "./session_offer.ts";
+import { reachesLocalNetwork } from "./local_network.ts";
+import { locateRoomsServer } from "./server_probe.ts";
 import { sessionDidNotOpen } from "../../lib/text/session.ts";
 import { settingsServerOffer, settingsServerRefused } from "../../lib/text/settings.ts";
 import { NO_SERVER, roomsErrorIn } from "../../lib/error_codes.ts";
@@ -257,7 +253,7 @@ async function start(): Promise<void> {
 	if (local && managed.current != null) {
 		const search = new URLSearchParams(location.search);
 		const current = managed.current.intent;
-		const connection = prefs.dmFrom(search, current.connection);
+		const connection = dmFrom(search, current.connection);
 		if (connection !== current.connection) {
 			await managed.actions.run("chooseConnection", [connection]);
 		}
@@ -285,12 +281,10 @@ async function start(): Promise<void> {
 	// means: the one this device chose, else the one that sent this page. A
 	// static host is no server, so with no choice there is none.
 	const server = serverInUse();
-	const directoryOf = (base: string) =>
-		prefs.servedDirectory(
-			application.namesDirectory,
-			(address) => fetch(address, { signal: AbortSignal.timeout(PROBE_TIMEOUT_MS) }),
-			new URL("locator", base),
-		);
+	const directoryOf = async (base: string) => {
+		const reply = await locateRoomsServer(base);
+		return reply.kind === "answers" ? reply.directory : null;
+	};
 	const servedDirectory = server == null ? null : await directoryOf(server.base);
 	page.projection.set({ server: server == null ? null : { ...server, directory: servedDirectory } });
 	// A server that was not answering when the page opened names its directory

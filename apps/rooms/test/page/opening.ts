@@ -20,8 +20,10 @@ import { helpAboutCredit } from "../../lib/text/help.ts";
 import * as linked from "./linked.ts";
 import { proveLockupSurvivesHandoff, proveOpeningWithoutGpu, withoutOpeningGpu } from "./opening_mark.ts";
 import { proveOpeningWithoutMotion } from "./opening_motion.ts";
-import { proveOpeningFaces } from "./opening_faces.ts";
-import { establishTestSession } from "./session_establishment.ts";
+import { proveSessionOpenFailure, proveUnavailablePage } from "./opening_failures.ts";
+import { proveServerConnection, proveServerOffers } from "./server_selection.ts";
+import { proveStaticServerSetup } from "./static_server_setup.ts";
+import { establishTestSession, proveSessionOffer } from "./session_establishment.ts";
 import * as settingsForms from "./settings_forms.ts";
 
 /** Every part the catalog shows turning: the element, then the mark on it that turns. */
@@ -132,7 +134,12 @@ export async function run(tab: Page, httpPort: number, browser: Browser): Promis
 
 	await proveOpeningWithoutMotion(browser, httpPort);
 
-	await proveOpeningFaces(browser, httpPort);
+	await proveUnavailablePage(browser, httpPort);
+	await proveServerConnection(browser, httpPort);
+	await proveSessionOffer(browser, httpPort);
+	await proveStaticServerSetup(browser, httpPort);
+	await proveServerOffers(browser, httpPort);
+	await proveSessionOpenFailure(browser, httpPort);
 
 	// The Wasm peer can lose a race with the server building its asset. Hold
 	// that asset down past the slow-start mark: the opening screen must carry

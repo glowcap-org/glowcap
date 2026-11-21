@@ -15,6 +15,7 @@ Releases before 0.1.7 are in the
 
 - Match release image metadata to the Docker or OCI manifest format when publishing the multi-platform image.
 - Reuse the authenticated release lookup when validating installers on shared CI hosts.
+- Use the browser's login on the Rooms server's own page and explain when Settings cannot read a server reply.
 
 ## [0.1.8] - 2026-11-20
 

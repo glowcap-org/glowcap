@@ -53,6 +53,11 @@ pub fn scalar(value: &js_sys::JsString, max_units: usize) -> Result<String, Refu
 	value.as_string().ok_or(Refusal::Malformed)
 }
 
+/// The text admitted by the browser's directory and capability address readers.
+pub(crate) fn address_text(value: js_sys::JsString) -> Option<String> {
+	scalar(&value, 65_536).ok()
+}
+
 /// Read a bounded document, keeping isolated UTF-16 surrogates. Only a document
 /// that is not well formed takes the slow code-unit path. Ordinary text takes
 /// the one bulk transfer.
