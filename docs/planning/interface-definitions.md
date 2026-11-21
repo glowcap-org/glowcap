@@ -352,7 +352,7 @@ but its adapter still needs glowcap mappings and imported-bundle assembly.
 | Imports | Rooted loading, resolution and bounded bundle assembly implemented | Adapter accepts one requested file and refuses external references |
 | Diagnostics | Imported semantic locations preserved through shared validation | Mapping errors need source positions beyond compiler syntax diagnostics |
 | Formatting | Preserve comments, which the comparison parser discards | Qualify the annotation and formatting workflow |
-| Dependencies | Existing Zig modules | Compiler 1.1.0 and locked Rust capnp 0.27.3 |
+| Dependencies | Existing Zig modules | Compiler 1.1.0 and locked Rust capnp 0.28.1 |
 
 Both adapters reproduce the independent comparison description. Neither proves
 complete authoring support. Prefer text for its direct contract notation, and

@@ -12,7 +12,6 @@
 [package]
 repository.workspace = true
 homepage.workspace = true
-documentation.workspace = true
 name = "glowcap-sidecar-runtime"
 version.workspace = true
 edition.workspace = true

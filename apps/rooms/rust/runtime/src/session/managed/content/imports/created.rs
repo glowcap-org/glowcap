@@ -85,11 +85,13 @@ impl Request<'_> {
 				custody::Role::RoomAccess,
 				room.access
 					.map(|key| coordinate(custody::Role::RoomAccess, key.slot(), key.generation())),
-			) || !matches(
-			custody::Role::RoomControl,
-			room.control
-				.map(|key| coordinate(custody::Role::RoomControl, key.slot(), key.generation())),
-		) || room.accepted.is_some()
+			)
+			|| !matches(
+				custody::Role::RoomControl,
+				room.control
+					.map(|key| coordinate(custody::Role::RoomControl, key.slot(), key.generation())),
+			)
+			|| room.accepted.is_some()
 			|| room.public_entry.is_some()
 			|| room.publication.is_some()
 			|| room.inbox.is_some()

@@ -1,7 +1,6 @@
 [package]
 repository = "https://github.com/glowcap-org/glowcap"
 homepage = "https://glowcap.org"
-documentation = "https://glowcap.org"
 name = "capnp-echo-bench"
 version = "0.1.8"
 edition = "2024"
@@ -20,13 +19,13 @@ path = "src/main.rs"
 
 [dependencies]
 # dep capnp: The Cap'n Proto runtime the generated schema code links.
-capnp = "0.27.3"
+capnp = "0.28.1"
 # dep capnp-rpc: The Cap'n Proto RPC system under measurement.
-capnp-rpc = "0.27.5"
+capnp-rpc = "0.28.0"
 # dep futures: Splits the compat stream into the reader and writer the vat network takes.
 futures = "0.3"
 # dep nix: Safe sched_setaffinity for --pin under forbid(unsafe_code).
-nix = { version = "0.31.3", default-features = false, features = ["sched"] }
+nix = { version = "0.32.0", default-features = false, features = ["sched"] }
 # dep tokio: The current-thread runtime and TCP provider for each bench thread.
 tokio = { version = "1", default-features = false, features = ["net", "rt", "io-util", "macros"] }
 # dep tokio-util: Adapts tokio streams to the futures traits capnp-rpc uses.
@@ -34,4 +33,4 @@ tokio-util = { version = "0.7", default-features = false, features = ["compat"] 
 
 [build-dependencies]
 # dep capnpc: Compiles echo.capnp into Rust at build time.
-capnpc = "0.27.0"
+capnpc = "0.28.1"

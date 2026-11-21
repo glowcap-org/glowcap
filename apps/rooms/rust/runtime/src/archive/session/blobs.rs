@@ -80,7 +80,8 @@ impl<P: Platform> ArchivedBlob<P> {
 			Self::Peer(blob) => blob.read(offset, maximum).await,
 			Self::Local(blob) => {
 				if rooms_application::fields::SafeInteger::<false>::new(offset).is_none()
-					|| maximum == 0 || maximum > rooms_application::files::CHUNK_BYTES
+					|| maximum == 0
+					|| maximum > rooms_application::files::CHUNK_BYTES
 				{
 					return Err(Error::invalid("invalid archived file read"));
 				}

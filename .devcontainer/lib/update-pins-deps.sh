@@ -94,7 +94,7 @@ glowcap_pins_require_hex64() {
 #   manual - a generation move; bump prints the procedure instead of editing
 # ---------------------------------------------------------------------------
 
-GLOWCAP_PINS_DEPS="debian distroless zig zls bend rust rustup-init deno node npm bun playwright uv python serena claude codex cursor-agent opencode devcontainer-cli racket goblins"
+GLOWCAP_PINS_DEPS="debian distroless zig zls bend rust rustup-init deno node npm bun playwright uv python serena ruff mypy claude codex cursor-agent opencode devcontainer-cli racket goblins"
 
 glowcap_pins_dep_var() {
     case "$1" in
@@ -113,6 +113,8 @@ glowcap_pins_dep_var() {
         uv) echo UV_VERSION ;;
         python) echo PYTHON_VERSION ;;
         serena) echo SERENA_AGENT_VERSION ;;
+        ruff) echo RUFF_VERSION ;;
+        mypy) echo MYPY_VERSION ;;
         claude) echo CLAUDE_CODE_VERSION ;;
         codex) echo CODEX_VERSION ;;
         cursor-agent) echo CURSOR_AGENT_VERSION ;;
@@ -146,6 +148,7 @@ glowcap_pins_dep_gate() {
         rustup-init | deno | node | bun) echo "zig build check" ;;
         playwright) echo "rebuild (new baked Chromium), then zig build rooms-web-page and siblings" ;;
         python) echo "zig build ocapn-conformance" ;;
+        ruff | mypy) echo "rebuild, then zig build python-check bindings-fmt-check site-python-examples-check" ;;
         racket | goblins) echo "zig build check-external" ;;
         claude | codex | opencode | cursor-agent) echo "container: bash .devcontainer/test/tool-install.sh <name> (cold-seed smoke; no rebuild; adopt with tools.sh ensure)" ;;
         *) echo "rebuild + post-create.sh (verify-toolchains)" ;;
@@ -180,9 +183,12 @@ glowcap_pins_query_version() {
         # a dev build tends to outrun them.
         zig) glowcap_pins_fetch https://ziglang.org/download/index.json \
             | jq -r '[keys[] | select(test("^[0-9]+\\.[0-9]+\\.[0-9]+$"))] | max_by(split(".") | map(tonumber))' ;;
-        # The ZLS tag for the pinned Zig, or master until ZLS tags that release.
+        # ZLS master follows Zig master, so a stable Zig takes the head of its
+        # release branch (0.17.x for 0.17.1), then its exact tag. Only a Zig
+        # with neither takes master.
         zls)
-            if ! glowcap_pins_fetch "https://api.github.com/repos/zigtools/zls/commits/${ZIG_VERSION}" 2>/dev/null | jq -r .sha; then
+            if ! glowcap_pins_fetch "https://api.github.com/repos/zigtools/zls/commits/$(glowcap_devcontainer_zig_generation "${ZIG_VERSION}").x" 2>/dev/null | jq -r .sha \
+                && ! glowcap_pins_fetch "https://api.github.com/repos/zigtools/zls/commits/${ZIG_VERSION}" 2>/dev/null | jq -r .sha; then
                 glowcap_pins_fetch https://api.github.com/repos/zigtools/zls/commits/master | jq -r .sha
             fi
             ;;
@@ -209,6 +215,8 @@ glowcap_pins_query_version() {
             | grep -oE 'cpython-[0-9]+\.[0-9]+\.[0-9]+-' \
             | sed 's/^cpython-//; s/-$//' | sort -uV | tail -1 ;;
         serena) glowcap_pins_fetch https://pypi.org/pypi/serena-agent/json | jq -r .info.version ;;
+        ruff) glowcap_pins_fetch https://pypi.org/pypi/ruff/json | jq -r .info.version ;;
+        mypy) glowcap_pins_fetch https://pypi.org/pypi/mypy/json | jq -r .info.version ;;
         claude) glowcap_pins_npm_latest @anthropic-ai/claude-code ;;
         codex) glowcap_pins_npm_latest @openai/codex ;;
         # Cursor publishes no version index for the agent CLI. Its own install

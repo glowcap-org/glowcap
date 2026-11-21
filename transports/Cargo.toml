@@ -7,7 +7,6 @@ license.workspace = true
 publish.workspace = true
 repository.workspace = true
 homepage.workspace = true
-documentation.workspace = true
 
 [workspace]
 members = ["iroh", "webrtc", "sidecar-runtime"]
@@ -20,7 +19,6 @@ license = "Apache-2.0"
 publish = false
 repository = "https://github.com/glowcap-org/glowcap"
 homepage = "https://glowcap.org"
-documentation = "https://glowcap.org"
 
 [workspace.dependencies]
 # dep tokio: The async runtime shared by the Rust iroh and WebRTC transports.

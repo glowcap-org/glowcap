@@ -5,9 +5,9 @@
   "license": "Apache-2.0",
   "exports": "./src/main.tsx",
   "tasks": {
-    "dev": "deno run -A npm:vite@8.3.7",
-    "build": "deno run -A npm:vite@8.3.7 build",
-    "preview": "deno run -A npm:vite@8.3.7 preview",
+    "dev": "deno run -A npm:vite@8.3.8",
+    "build": "deno run -A npm:vite@8.3.8 build",
+    "preview": "deno run -A npm:vite@8.3.8 preview",
     "test:live-browser": "deno task build && deno run -A browser/live-mode-production-test.ts",
     "typecheck": "deno check src/main.tsx scripts/*.ts",
     "test": "deno test -A --parallel",
@@ -31,9 +31,9 @@
     // dep zod: Validates data at ocapnviz's boundaries.
     "zod": "npm:zod@4.6.7",
     // dep pixi.js: Draws the session graph on the GPU.
-    "pixi.js": "npm:pixi.js@8.22.0",
+    "pixi.js": "npm:pixi.js@8.23.0",
     // dep pixi-viewport: Pan and zoom for the graph.
-    "pixi-viewport": "npm:pixi-viewport@7.0.2",
+    "pixi-viewport": "npm:pixi-viewport@7.0.3",
     // dep miniplex: The entity store behind the graph.
     "miniplex": "npm:miniplex@2.0.0",
     // dep d3-force: Lays out the graph.
@@ -41,7 +41,7 @@
     // dep @types/d3-force: d3-force's types for the type checker.
     "@types/d3-force": "npm:@types/d3-force@3.0.10",
     // dep vite: Builds and serves ocapnviz.
-    "vite": "npm:vite@8.3.7",
+    "vite": "npm:vite@8.3.8",
     // dep @vitejs/plugin-react: Vite's React support.
     "@vitejs/plugin-react": "npm:@vitejs/plugin-react@6.3.0",
     // dep @deno/vite-plugin: Lets Vite resolve Deno imports.
@@ -68,7 +68,7 @@
     // a range here would let the library drift off the browser on disk.
     // `zig build source-check` holds the two together.
     // dep playwright: Drives ocapnviz's browser scripts.
-    "playwright": "npm:playwright@1.65.0"
+    "playwright": "npm:playwright@1.65.1"
   },
   "lock": {
     "path": "./deno.lock",

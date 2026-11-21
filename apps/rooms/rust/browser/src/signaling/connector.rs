@@ -35,7 +35,8 @@ where
 				}
 				if let DialOrigin::Pending {
 					introducer: Some(source),
-				} = &origin && directory.session().is_none_or(|session| !session.same_session(source))
+				} = &origin
+					&& directory.session().is_none_or(|session| !session.same_session(source))
 				{
 					return Err(RuntimeError::invalid(
 						"Rooms signaling directory differs from the introducing session",

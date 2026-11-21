@@ -56,6 +56,19 @@ trap cleanup EXIT
     [[ ! -s "${scratch}/query-output" ]]
 )
 
+# ZLS builds only against the Zig release line it targets. Before 1.0 that line
+# is major.minor, so a ZLS from the next minor must be refused.
+(
+    glowcap_devcontainer_source_pins "${dir}"
+    ZIG_VERSION=0.17.1 ZLS_VERSION=0.17.0 glowcap_devcontainer_validate_pins
+    ZIG_VERSION=0.18.0-dev.5+abc ZLS_VERSION=0.18.0-dev glowcap_devcontainer_validate_pins
+    if ZIG_VERSION=0.17.1 ZLS_VERSION=0.18.0-dev glowcap_devcontainer_validate_pins 2>"${scratch}/generation-error"; then
+        echo "test/host-invariants: accepted ZLS 0.18.0-dev for Zig 0.17.1" >&2
+        exit 1
+    fi
+    grep -Fq "must target the same Zig generation" "${scratch}/generation-error"
+)
+
 # Playwright's Linux archives use different inner names on x86_64 and arm64.
 # The image verifier must find one full browser and one headless shell on both,
 # and must not accept a partial installation merely because one binary exists.

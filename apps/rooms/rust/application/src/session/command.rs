@@ -180,7 +180,8 @@ impl<'a, A: ArgumentView> Request<'a, A> {
 				.ok_or(Refusal::Arguments)?
 				.encode_utf16()
 				.take(MAX_ARGUMENT_UNITS + 1)
-				.count() > MAX_ARGUMENT_UNITS
+				.count()
+				> MAX_ARGUMENT_UNITS
 			{
 				return Err(Refusal::ArgumentSize);
 			}

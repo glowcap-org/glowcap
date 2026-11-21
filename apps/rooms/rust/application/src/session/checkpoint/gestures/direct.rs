@@ -50,7 +50,8 @@ impl DirectGesture {
 			.find_map(|conversation| match conversation {
 				Conversation::Direct(direct)
 					if direct.directory == directory.id
-						&& !direct.closed && direct.peer_registration_id.text() == &member.registration_id =>
+						&& !direct.closed
+						&& direct.peer_registration_id.text() == &member.registration_id =>
 				{
 					Some(direct.as_ref())
 				}

@@ -358,7 +358,8 @@ impl Generation {
 					.into_string()
 					.map_err(|_| "asset filename is not Unicode")?;
 				if name.ends_with(suffix)
-					&& leaf(&name) && std::fs::metadata(entry.path()).map_err(|e| e.to_string())?.is_file()
+					&& leaf(&name)
+					&& std::fs::metadata(entry.path()).map_err(|e| e.to_string())?.is_file()
 				{
 					generation.insert(
 						format!("/{route}{name}"),

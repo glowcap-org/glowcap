@@ -15,6 +15,15 @@ glowcap_devcontainer_source_pins() {
     glowcap_devcontainer_validate_pins
 }
 
+# The Zig release line a version belongs to (0.17 for 0.17.1 and
+# 0.17.0-dev.5+abc). Before 1.0 a minor release breaks the language, so ZLS
+# must come from the same line as Zig.
+glowcap_devcontainer_zig_generation() {
+    local major minor rest
+    IFS=. read -r major minor rest <<<"$1"
+    printf '%s.%s\n' "${major}" "${minor%%-*}"
+}
+
 glowcap_devcontainer_validate_pins() {
     if ! [[ "${DEBIAN_BASE_DIGEST:-}" =~ ^sha256:[0-9a-f]{64}$ ]]; then
         echo "pins.sh: DEBIAN_BASE_DIGEST must be sha256:<64 hex>, got '${DEBIAN_BASE_DIGEST:-}'" >&2
@@ -24,7 +33,7 @@ glowcap_devcontainer_validate_pins() {
         echo "pins.sh: PYTHON_VERSION must be a stable version triple, got '${PYTHON_VERSION:-}'" >&2
         return 1
     fi
-    if [[ "${ZIG_VERSION%%.*}" != "${ZLS_VERSION%%.*}" ]]; then
+    if [[ "$(glowcap_devcontainer_zig_generation "${ZIG_VERSION}")" != "$(glowcap_devcontainer_zig_generation "${ZLS_VERSION}")" ]]; then
         echo "pins.sh: ZIG_VERSION (${ZIG_VERSION}) and ZLS_VERSION (${ZLS_VERSION}) must target the same Zig generation" >&2
         return 1
     fi

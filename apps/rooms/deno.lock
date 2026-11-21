@@ -5,16 +5,16 @@
     "jsr:@std/internal@^1.0.12": "1.0.14",
     "jsr:@std/json@^1.1.0": "1.1.0",
     "jsr:@std/jsonc@1.0.3": "1.0.3",
-    "npm:@deno/vite-plugin@2.0.4": "2.0.4_vite@8.3.7",
+    "npm:@deno/vite-plugin@2.0.4": "2.0.4_vite@8.3.8",
     "npm:@types/react-dom@19.3.0": "19.3.0_@types+react@19.3.0",
     "npm:@types/react@19.3.0": "19.3.0",
-    "npm:@vitejs/plugin-react@6.3.0": "6.3.0_vite@8.3.7",
-    "npm:es-module-lexer@3.0.4": "3.0.4",
-    "npm:playwright@1.65.0": "1.65.0",
+    "npm:@vitejs/plugin-react@6.3.0": "6.3.0_vite@8.3.8",
+    "npm:es-module-lexer@3.0.5": "3.0.5",
+    "npm:playwright@1.65.1": "1.65.1",
     "npm:react-dom@19.3.1": "19.3.1_react@19.3.1",
-    "npm:react-router@8.5.1": "8.5.1_@types+react@19.3.0_@types+react-dom@19.3.0_react@19.3.1_react-dom@19.3.1",
+    "npm:react-router@8.5.2": "8.5.2_@types+react@19.3.0_@types+react-dom@19.3.0_react@19.3.1_react-dom@19.3.1",
     "npm:react@19.3.1": "19.3.1",
-    "npm:vite@8.3.7": "8.3.7",
+    "npm:vite@8.3.8": "8.3.8",
     "npm:zod@4.6.7": "4.6.7",
     "npm:zustand@5.1.0": "5.1.0_@types+react@19.3.0_react@19.3.1"
   },
@@ -39,7 +39,7 @@
     }
   },
   "npm": {
-    "@deno/vite-plugin@2.0.4_vite@8.3.7": {
+    "@deno/vite-plugin@2.0.4_vite@8.3.8": {
       "integrity": "sha512-v9bm0NJx0SVPAyUeUi+iMXCByFIkaTtpWbGXwuNdDwfIdwHOVqe6sZz2wvWwulZqpA4QeGnxlJAkC4sZfoHCfQ==",
       "dependencies": [
         "@deno/loader@npm:@jsr/deno__loader@0.5.0",
@@ -172,7 +172,7 @@
         "csstype"
       ]
     },
-    "@vitejs/plugin-react@6.3.0_vite@8.3.7": {
+    "@vitejs/plugin-react@6.3.0_vite@8.3.8": {
       "integrity": "sha512-H9E955aVvD2F4zNHCw4eIZbIfF6xKldlh7MNu+hSU7xwQzh65lI/N+CJWqmfhi0PEjDXIt/H7T7J/4wU63KJiw==",
       "dependencies": [
         "@rolldown/pluginutils",
@@ -188,8 +188,8 @@
     "detect-libc@2.1.2": {
       "integrity": "sha512-Btj2BOOO83o3WyH59e8MgXsxEQVcarkUOpEYrubB0urwnN10yQ364rsiByU11nZlqWYZm05i/of7io4mzihBtQ=="
     },
-    "es-module-lexer@3.0.4": {
-      "integrity": "sha512-BldNY5mwkVu+cQ5Ymn3e6hB9Sx8XHx4ZevWbiUyZbfKxJxYO27Hf0wfzkxIaD5CAJMaGl3YspKELj0ff/7nCMA=="
+    "es-module-lexer@3.0.5": {
+      "integrity": "sha512-RNq2lKJw53c7z9QRHeiKeA6Ez0oikOqiBGdmxQhKDxEiOX1g5QJR4IoFVwicn8uCZcRWNrXC3NZaJihgK7aEbg=="
     },
     "fdir@6.5.0_picomatch@4.0.7": {
       "integrity": "sha512-tIbYtZbucOs0BRGqPJkshJUYdL+SDH7dVM8gjy+ERp3WAUjLEFJE+02kanyHtwjWOnwrKYBiwAmM0p4kLJAnXg==",
@@ -289,12 +289,12 @@
     "picomatch@4.0.7": {
       "integrity": "sha512-qcJu88Q2IWqJsDD529JKMdwGm/dvInW4HvQnRwiH9JtihJvzGOscDtHE3x1pBKeUOTysQ8kVmLnJ2kJu7yhcGA=="
     },
-    "playwright-core@1.65.0": {
-      "integrity": "sha512-vNSKgH6YqtN7cdT/L334zo0a+YwkrpicyrHJlWWPIm/Q+Nn2SWInil01oT0mbu96U4GgoRtCYQD9CzJQgju+lA==",
+    "playwright-core@1.65.1": {
+      "integrity": "sha512-hqPpz7blSMPxWVdoeE1yiBSzXsKiVOd2k+kjCvmUywD2GPO2Dd9HfcWnq9NN0GHbNZDFgZ9JfBFr+X5/BLo0qw==",
       "bin": true
     },
-    "playwright@1.65.0": {
-      "integrity": "sha512-F3AMWcR44qMBt4kq+6Kb6mX7bjGXshktKFOPULd7reED6ZJWevjbNRqysP7q+AATE9kdPEZBibex1BYsvpVoeA==",
+    "playwright@1.65.1": {
+      "integrity": "sha512-vJ1FuoOrNwOKHUIVEvSt3jT1L+wjjDpwhwIstKtfvTh8XIG4FG4bIFuvNdMxi81LGfAhUgUZleVFaOLY4RIUUw==",
       "dependencies": [
         "playwright-core"
       ],
@@ -315,8 +315,8 @@
         "scheduler"
       ]
     },
-    "react-router@8.5.1_@types+react@19.3.0_@types+react-dom@19.3.0_react@19.3.1_react-dom@19.3.1": {
-      "integrity": "sha512-5u1eQ46QjuXjNfEnLwzrnou1Bm5dquO3xjVYkkMYCudtkicD2AQHtx+fvXzPATtPJx8TW6DR1x1TDRqsfHyZBw==",
+    "react-router@8.5.2_@types+react@19.3.0_@types+react-dom@19.3.0_react@19.3.1_react-dom@19.3.1": {
+      "integrity": "sha512-luPXqNUAIZAmCHbeBysc2KO7VJjckIMZk4ByEetS7Jotit8R6lLSVVeC76UE//AYK6QD6tAnVAPGkvmqMd+b1w==",
       "dependencies": [
         "@remix-run/route-pattern",
         "@types/react",
@@ -372,8 +372,8 @@
         "picomatch"
       ]
     },
-    "vite@8.3.7": {
-      "integrity": "sha512-oxh0dMxrayBr33ScJvvBJ2HBQ2jc1TBrXKR2NyL/MJ9WPuX19mN2DXWUmywKdyw5RFVQBo8hmtb2FMC0LHrnng==",
+    "vite@8.3.8": {
+      "integrity": "sha512-LzOn3h9rG/0vhLdXrV4yJ4QFA9eEoqCl+Yx+kGJd7aB9w6nfNgVHKSYwLPZUHrz4ZGa+t+kXjV9itvcHDLQouA==",
       "dependencies": [
         "lightningcss",
         "picomatch",
@@ -409,12 +409,12 @@
       "npm:@types/react-dom@19.3.0",
       "npm:@types/react@19.3.0",
       "npm:@vitejs/plugin-react@6.3.0",
-      "npm:es-module-lexer@3.0.4",
-      "npm:playwright@1.65.0",
+      "npm:es-module-lexer@3.0.5",
+      "npm:playwright@1.65.1",
       "npm:react-dom@19.3.1",
-      "npm:react-router@8.5.1",
+      "npm:react-router@8.5.2",
       "npm:react@19.3.1",
-      "npm:vite@8.3.7",
+      "npm:vite@8.3.8",
       "npm:zod@4.6.7",
       "npm:zustand@5.1.0"
     ],

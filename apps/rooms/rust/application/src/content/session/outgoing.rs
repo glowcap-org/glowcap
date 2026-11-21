@@ -40,12 +40,13 @@ pub fn release_sources<R: custody::References, C>(record: &mut workspace::Record
 						&& origin.files.as_slice().iter().any(|file| {
 							key.key.slot() == file.source.slot() && key.key.generation() == file.source.generation()
 						}))
-			}) || record.bridges.as_slice().iter().any(|witness| {
-			(key.role == custody::Role::SessionAccess
-				&& key.key.slot() == witness.source.slot()
-				&& key.key.generation() == witness.source.generation())
-				|| witness.access == Some(*key)
-		}) {
+			})
+			|| record.bridges.as_slice().iter().any(|witness| {
+				(key.role == custody::Role::SessionAccess
+					&& key.key.slot() == witness.source.slot()
+					&& key.key.generation() == witness.source.generation())
+					|| witness.access == Some(*key)
+			}) {
 			continue;
 		}
 		record.custody.remove(*key);

@@ -1,7 +1,6 @@
 [package]
 repository.workspace = true
 homepage.workspace = true
-documentation.workspace = true
 name = "rooms-contract-proofs"
 version.workspace = true
 edition.workspace = true

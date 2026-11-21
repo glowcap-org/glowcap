@@ -26,7 +26,8 @@ fn takes_capability(verb: &str) -> bool {
 			| creation::SUBSCRIBE_PUBLICATION
 			| member::OFFER_INBOX
 			| WATCH_BASELINE
-			| WATCH | rooms_application::directory::UNWATCH
+			| WATCH
+			| rooms_application::directory::UNWATCH
 			| signal::OFFER_INBOX
 			| signal::OFFER
 	)

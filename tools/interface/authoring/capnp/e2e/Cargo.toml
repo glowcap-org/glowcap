@@ -4,7 +4,6 @@ version = "0.1.8"
 license = "Apache-2.0"
 repository = "https://github.com/glowcap-org/glowcap"
 homepage = "https://glowcap.org"
-documentation = "https://glowcap.org"
 edition = "2024"
 publish = false
 
