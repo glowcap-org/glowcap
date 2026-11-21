@@ -152,6 +152,41 @@
         "bare server did not retire its Host after the last yielded session")
 (printf "racket test OK: bare server retirement waits for yielded sessions\n")
 
+;; ── A served session at rest leaves its Host parked ──────────────────────────
+;; The loop's park thread and the serving pump each drain the Host before they
+;; wait. A drain that found no work must not bump host progress, or each wakes
+;; the other forever and an idle server spins a core. Polling the progress
+;; generation counts bumps; a stray GC release may add one or two.
+(define idle-server (listen "127.0.0.1" 0))
+(define idle-host (server-host idle-server))
+(define idle-ready (make-semaphore 0))
+(define idle-accept
+  (thread
+   (lambda ()
+     (define c (accept idle-server))
+     (session-publish c "svc" (lambda (bcom) (methods [(ping) (sym "alive")])))
+     (semaphore-post idle-ready)
+     (with-handlers ([(lambda (_) #t) void]) (session-serve c)))))
+(define idle-client
+  (open-test-session (tcp-locator "127.0.0.1" (server-port idle-server))))
+(semaphore-wait idle-ready)
+(expect (equal? (sym "alive")
+                (session-send idle-client (session-fetch idle-client "svc") 'ping))
+        "the idle-server probe did not answer")
+(sleep 0.1)
+(define idle-bumps
+  (for/fold ([seen (unbox (host-progress idle-host))] [bumps 0] #:result bumps)
+            ([_ (in-range 40)])
+    (sleep 0.005)
+    (define now (unbox (host-progress idle-host)))
+    (values now (if (eq? now seen) bumps (add1 bumps)))))
+(expect (< idle-bumps 4)
+        (format "an idle served session bumped host progress in ~a of 40 polls" idle-bumps))
+(session-close! idle-client)
+(server-close! idle-server)
+(void (sync/timeout 5 idle-accept))
+(printf "racket test OK: a served session at rest leaves its Host parked\n")
+
 ;; A supplied Host is transferred into the FFI TCP loop, and listener close
 ;; stops new admission without destroying a session already yielded to the
 ;; application. The exact wrapper identity is the authority proof.

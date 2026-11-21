@@ -287,7 +287,9 @@
 ;; zero-timeout steps plus event drains through quiescence, under the host lock
 ;; the caller already holds. Mid-turn there is no step: behaviors fire inside the
 ;; enclosing step, and everything a turn enqueued surfaces when it unwinds
-;; into this same drain. A released loop drains nothing.
+;; into this same drain. A released loop drains nothing. The pass counts as
+;; productive when a step observed work or ran a callback, even with no event:
+;; a behavior that fired inside a step may have changed what a waiter watches.
 (define (loop-drain! m lp)
   (cond
     [(or (inside-turn?) (not (loop-running? lp))) no-drain-effects]
@@ -298,30 +300,38 @@
        ;; wire the binding has already condemned.
        (host-drain-parked-releases! m)
        (define callback-failure #f)
-       (define events
-         (parameterize ([current-deliver-owner (driver-loop-host lp)])
-           (let step-loop ([acc '()])
-             ;; The step is the deliver: behaviors fire inside it, and the
-             ;; trampoline latches their turns to this loop's wrapper host
-             ;; through the carrier. A callback failure ends the drain once the
-             ;; step has finished and its events are dispatched.
-             (define-values (latched rc)
-               (call-latching-callbacks
-                (lambda () (glowcap_driver_step (driver-loop-handle lp) 0))))
-             (cond
-               [latched
-                (set! callback-failure latched)
-                (host-drain-parked-releases! m)
-                (reverse (pop-events-onto! lp acc))]
-               [(= rc WOULD-BLOCK) (reverse acc)]
-               [else
-                (check/driver rc)
-                ;; A behavior may have parked its own session release during
-                ;; this step. Retire it before another wire turn can run.
-                (host-drain-parked-releases! m)
-                (step-loop (pop-events-onto! lp acc))]))))
-       (begin0 (dispatch-events! m lp events)
-         (when callback-failure (raise callback-failure))))]))
+       (define stepped? #f)
+       (define-values (called-back? events)
+         (call-noting-callbacks
+          (lambda ()
+            (parameterize ([current-deliver-owner (driver-loop-host lp)])
+              (let step-loop ([acc '()])
+                ;; The step is the deliver: behaviors fire inside it, and
+                ;; the trampoline latches their turns to this loop's wrapper
+                ;; host through the carrier. A callback failure ends the
+                ;; drain once the step has finished and its events are
+                ;; dispatched.
+                (define-values (latched rc)
+                  (call-latching-callbacks
+                   (lambda () (glowcap_driver_step (driver-loop-handle lp) 0))))
+                (cond
+                  [latched
+                   (set! callback-failure latched)
+                   (host-drain-parked-releases! m)
+                   (reverse (pop-events-onto! lp acc))]
+                  [(= rc WOULD-BLOCK) (reverse acc)]
+                  [else
+                   (check/driver rc)
+                   (set! stepped? #t)
+                   ;; A behavior may have parked its own session release during
+                   ;; this step. Retire it before another wire turn can run.
+                   (host-drain-parked-releases! m)
+                   (step-loop (pop-events-onto! lp acc))]))))))
+       (define fx (dispatch-events! m lp events))
+       (when callback-failure (raise callback-failure))
+       (if (and (or stepped? called-back?) (not (drain-effects-popped? fx)))
+           (drain-effects (drain-effects-fires fx) (drain-effects-resume fx) #t)
+           fx))]))
 
 ;; These records give every event field a name at the binding boundary. In
 ;; particular, operation ids and listener ids are different namespaces even
