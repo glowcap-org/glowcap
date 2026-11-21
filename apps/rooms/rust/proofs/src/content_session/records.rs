@@ -52,7 +52,7 @@ fn fence<C>(mut record: workspace::Record<References, C>, stored: &[&[u8]]) {
 		record.fence.admits(1, 7),
 		"a receipt commit leaves an older gesture current"
 	);
-	record.intent.keep_history = !record.intent.keep_history;
+	record.intent.keep_history.toggle();
 	let changed = records::encode_replacement(&mut record, stored, 7).unwrap().workspace;
 	assert!(
 		!record.fence.admits(7, 8),

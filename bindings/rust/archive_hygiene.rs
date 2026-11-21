@@ -72,7 +72,7 @@ pub fn listing_violation(listing: &str, prefix: &str) -> Option<String> {
 		// `tar -czf x .` stores every member as `./lib/…`. Without this the
 		// prefix test below matches nothing and the whole archive passes
 		// unexamined, which is not the same as passing.
-		let stripped = raw.strip_prefix("./").unwrap_or(&raw);
+		let stripped = raw.trim_prefix("./");
 		// A link's printed name carries its target, and tar spells the two kinds
 		// differently: a symlink as `lib -> /etc`, a hard link as `lib link to real`.
 		// Strip whichever tail belongs to this kind, and only for that kind, so a link

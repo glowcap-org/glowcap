@@ -38,6 +38,10 @@ webrtc = ["dep:webrtc-sidecar"]
 iroh-sidecar = { package = "glowcap-iroh", path = "iroh", version = "=0.1.8", optional = true }
 webrtc-sidecar = { package = "glowcap-webrtc", path = "webrtc", version = "=0.1.8", optional = true }
 
+[lints.cargo]
+unused_dependencies = "deny"
+unused_workspace_dependencies = "deny"
+
 [lints.rust]
 unsafe_op_in_unsafe_fn = "deny"
 

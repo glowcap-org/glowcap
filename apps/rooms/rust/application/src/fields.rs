@@ -102,7 +102,7 @@ fn exact_json_u64(raw: &str) -> Option<u64> {
 		None => (false, raw),
 	};
 	let (coefficient, exponent) = raw.split_once(['e', 'E']).unwrap_or((raw, "0"));
-	let exponent_digits = exponent.strip_prefix(['+', '-']).unwrap_or(exponent);
+	let exponent_digits = exponent.trim_prefix(['+', '-']);
 	if exponent_digits.is_empty() || !exponent_digits.bytes().all(|digit| digit.is_ascii_digit()) {
 		return None;
 	}

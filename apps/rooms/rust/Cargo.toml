@@ -82,6 +82,10 @@ expect_used = "deny"
 # or use the `str` methods that find their own boundaries.
 string_slice = "deny"
 
+[workspace.lints.cargo]
+unused_dependencies = "deny"
+unused_workspace_dependencies = "deny"
+
 [profile.dev.package.miniz_oxide]
 # The web service compresses its browser bundle each time it starts. Without
 # optimization that takes seconds, and tests start it many times.

@@ -33,10 +33,8 @@ pub const Flash = @import("flash.zig").Flash;
 /// Truncation is by cell width (not bytes) so UTF-8 lines cannot spill sideways.
 pub fn printLine(win: Window, row: u16, col: u16, text: []const u8, style: vaxis.Style) void {
     if (row >= win.height or col >= win.width) return;
-    const max_w = win.width - col;
-    // vaxis wrap=.none already stops at width; pass the full slice (arena/static
-    // lifetime). Avoid byte-slicing UTF-8, which produced sideways garbage.
-    _ = max_w;
+    // vaxis wrap=.none already stops at width, so pass the full slice (arena or
+    // static lifetime). Byte-slicing UTF-8 here would split a character.
     _ = win.print(&.{.{ .text = text, .style = style }}, .{
         .row_offset = row,
         .col_offset = col,

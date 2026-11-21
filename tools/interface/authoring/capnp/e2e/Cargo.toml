@@ -7,6 +7,9 @@ homepage = "https://glowcap.org"
 edition = "2024"
 publish = false
 
+[lints.cargo]
+unused_dependencies = "deny"
+
 [lints.rust]
 unsafe_code = "forbid"
 

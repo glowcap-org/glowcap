@@ -21,6 +21,10 @@ Releases before 0.1.7 are in the
 - Reuse the authenticated release lookup when validating installers on shared CI hosts.
 - Use the browser's login on the Rooms server's own page and explain when Settings cannot read a server reply.
 
+### Security
+
+- The Python binding's `rendezvous` extra requires websockets 17.4 or later, the first release that limits how many frames one relay message may span.
+
 ## [0.1.8] - 2026-11-20
 
 This release includes the [changes prepared for 0.1.7](docs/history/0.1.7/changes/CHANGELOG.md).

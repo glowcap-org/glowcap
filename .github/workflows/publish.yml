@@ -92,6 +92,7 @@ jobs:
         with:
           version: ${{ steps.pins.outputs.uv }}
           enable-cache: false
+          require-checksums: true
 
       - name: Build the distributions
         run: uv build --sdist --wheel --out-dir dist bindings/python

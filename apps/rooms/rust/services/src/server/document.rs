@@ -58,7 +58,7 @@ fn open_blocking(path: PathBuf) -> Result<(Directory, Document), Error> {
 	let document = match storage::read(&file, document::MAX_BYTES)? {
 		Some(bytes) => std::str::from_utf8(&bytes)
 			.map_err(|_| document::Error::Json)
-			.and_then(|text| Document::decode(text.strip_prefix('\u{feff}').unwrap_or(text)))
+			.and_then(|text| Document::decode(text.trim_prefix('\u{feff}')))
 			.map_err(|cause| Error::DocumentAt { file, cause })?,
 		None => {
 			let fresh = fresh()?;

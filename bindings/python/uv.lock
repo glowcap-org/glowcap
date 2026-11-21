@@ -13,7 +13,7 @@ rendezvous = [
 ]
 
 [package.metadata]
-requires-dist = [{ name = "websockets", marker = "extra == 'rendezvous'" }]
+requires-dist = [{ name = "websockets", marker = "extra == 'rendezvous'", specifier = ">=17.4" }]
 provides-extras = ["rendezvous"]
 
 [[package]]

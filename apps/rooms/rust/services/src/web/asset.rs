@@ -56,12 +56,10 @@ impl Asset {
 			.get("if-none-match")
 			.and_then(|h| h.to_str().ok())
 			.is_some_and(|header| {
-				header.split(',').map(str::trim).any(|tag| {
-					tag == "*"
-						|| etag
-							.to_str()
-							.is_ok_and(|etag| tag.strip_prefix("W/").unwrap_or(tag) == etag)
-				})
+				header
+					.split(',')
+					.map(str::trim)
+					.any(|tag| tag == "*" || etag.to_str().is_ok_and(|etag| tag.trim_prefix("W/") == etag))
 			});
 		let mut response = super::http::response(
 			if matches {

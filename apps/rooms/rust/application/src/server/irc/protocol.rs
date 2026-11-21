@@ -333,7 +333,7 @@ pub fn ctcp_action(text: &str) -> String {
 /// missing trailing delimiter is tolerated: some clients omit it.
 pub fn ctcp_action_text(raw: &str) -> Option<&str> {
 	let inner = raw.strip_prefix("\u{1}ACTION ")?;
-	Some(inner.strip_suffix('\u{1}').unwrap_or(inner))
+	Some(inner.trim_suffix('\u{1}'))
 }
 
 #[cfg(test)]

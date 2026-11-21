@@ -141,8 +141,7 @@ impl Ledger {
 			return Err(Error::Limit);
 		}
 		let text = core::str::from_utf8(bytes).map_err(|_| Error::Document)?;
-		let doc: Document =
-			serde_json::from_str(text.strip_prefix('\u{feff}').unwrap_or(text)).map_err(|_| Error::Document)?;
+		let doc: Document = serde_json::from_str(crate::documents::without_bom(text)).map_err(|_| Error::Document)?;
 		if doc.version.get() != 1 {
 			return Err(Error::Document);
 		}

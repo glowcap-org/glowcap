@@ -13,6 +13,9 @@ raw-client = []
 generated-client = []
 allocation-metrics = []
 
+[lints.cargo]
+unused_dependencies = "deny"
+
 [lints.rust]
 unsafe_code = "deny"
 unsafe_op_in_unsafe_fn = "deny"

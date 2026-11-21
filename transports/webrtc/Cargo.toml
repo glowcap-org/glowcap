@@ -19,6 +19,9 @@ publish.workspace = true
 # unsafe, and Rust only warns when one has not caught up. Denied, so the
 # marking stays where the operation is instead of decaying back into a blanket
 # claim on the signature.
+[lints.cargo]
+unused_dependencies = "deny"
+
 [lints.rust]
 unsafe_op_in_unsafe_fn = "deny"
 
