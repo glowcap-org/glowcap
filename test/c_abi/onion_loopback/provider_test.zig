@@ -282,6 +282,8 @@ test "c-abi onion provider owns one profile and fixed, hintless locators" {
     const forward = try onion.Endpoint.parse(daemon.lastForwardTarget());
     const client = try forward.connect(io);
     defer client.close(io);
+    // The client's connect can return before the listener queues the socket.
+    try std.testing.expectEqual(c.GLOWCAP_OK, table.listener_wait_acceptable.?(table.ctx, listener_raw, 1_000, null));
     var accepted_conn: ?*anyopaque = null;
     defer if (accepted_conn) |raw| closeProviderConn(table, raw);
     try std.testing.expectEqual(
@@ -355,6 +357,7 @@ test "c-abi onion provider transfers its runtime lease through listener and acce
     var conn: ?*anyopaque = null;
     defer if (conn) |raw| closeProviderConn(table, raw);
     var readiness_fd: i32 = -1;
+    try std.testing.expectEqual(c.GLOWCAP_OK, table.listener_wait_acceptable.?(table.ctx, listener.?, 1_000, null));
     try std.testing.expectEqual(
         c.GLOWCAP_OK,
         table.accept.?(table.ctx, listener.?, &conn, &readiness_fd, null),
