@@ -11,11 +11,19 @@ Releases before 0.1.7 are in the
 
 ## [Unreleased]
 
+### Changed
+
+- Dependencies move to their current releases. The development container takes Rust 1.100, Node 26.13.1, Bun 1.4.5, Playwright 1.65.1, uv 0.13.9, and ruff 0.17.6, so rebuild it. The Rooms server image takes the current Distroless base, the relay's TLS build takes Mbed TLS 4.3.0, and the iroh transport takes iroh 1.5. The CLI's REPL takes libvaxis fixes for key parsing, wrapping, and terminal restore.
+
 ### Fixed
 
 - Match release image metadata to the Docker or OCI manifest format when publishing the multi-platform image.
 - Reuse the authenticated release lookup when validating installers on shared CI hosts.
 - Use the browser's login on the Rooms server's own page and explain when Settings cannot read a server reply.
+
+### Security
+
+- The Python binding's `rendezvous` extra requires websockets 17.4 or later, the first release that limits how many frames one relay message may span.
 
 ## [0.1.8] - 2026-11-20
 

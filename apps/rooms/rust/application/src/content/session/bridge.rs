@@ -74,7 +74,8 @@ impl Intent {
 						.as_slice()
 						.iter()
 						.any(|field| matches!(field, crate::bridge::Field::Toggle(toggle) if toggle.id.as_str() == id))
-			}) && self.declaration.encode().is_ok()
+			})
+			&& self.declaration.encode().is_ok()
 			&& self.answers.encode().is_ok()
 	}
 }

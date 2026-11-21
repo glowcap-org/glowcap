@@ -1,7 +1,6 @@
 [package]
 repository = "https://github.com/glowcap-org/glowcap"
 homepage = "https://glowcap.org"
-documentation = "https://glowcap.org"
 name = "interface-bench"
 version = "0.1.8"
 edition = "2024"
@@ -13,6 +12,9 @@ default = ["raw-client", "generated-client"]
 raw-client = []
 generated-client = []
 allocation-metrics = []
+
+[lints.cargo]
+unused_dependencies = "deny"
 
 [lints.rust]
 unsafe_code = "deny"

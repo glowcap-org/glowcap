@@ -119,7 +119,7 @@ pub(super) async fn run(
 		let mut releases = Vec::new();
 		let mut source_slot = None;
 		match attack {
-			0 => altered.keep_history = !altered.keep_history,
+			0 => altered.keep_history.toggle(),
 			1 => releases.push(custody::Coordinate {
 				role: custody::Role::DirectoryAccess,
 				key: key(),
@@ -139,7 +139,7 @@ pub(super) async fn run(
 		assert!(!command.adopted().await.unwrap());
 	}
 	let mut stale = candidate.clone();
-	stale.keep_history = !stale.keep_history;
+	stale.keep_history.toggle();
 	assert!(
 		matches!(
 			command

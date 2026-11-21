@@ -147,7 +147,8 @@ impl BridgeIntent {
 		}
 		if alloc::format!("{}/{}", self.network, self.channel)
 			.encode_utf16()
-			.count() > crate::server::rooms::MAX_ROOM
+			.count()
+			> crate::server::rooms::MAX_ROOM
 		{
 			return Err(Invalid::BridgedRoomName);
 		}

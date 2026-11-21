@@ -115,13 +115,9 @@ mod tests {
 		let leaked = scratch.to_path_buf();
 		let guard = scratch;
 		// Remove the file after the guard fails, so the test leaks nothing.
-		struct Cleanup(PathBuf);
-		impl Drop for Cleanup {
-			fn drop(&mut self) {
-				let _ = fs::remove_file(&self.0); // best-effort: test cleanup
-			}
-		}
-		let _cleanup = Cleanup(leaked);
+		let _cleanup = std::mem::DropGuard::new(leaked, |path| {
+			let _ = fs::remove_file(path); // best-effort: test cleanup
+		});
 		drop(guard);
 	}
 

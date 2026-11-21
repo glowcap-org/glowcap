@@ -1,7 +1,6 @@
 [package]
 repository = "https://github.com/glowcap-org/glowcap"
 homepage = "https://glowcap.org"
-documentation = "https://glowcap.org"
 name = "loam-browser-proof"
 version = "0.1.8"
 edition = "2024"
@@ -23,3 +22,6 @@ js-sys = "=0.3.107"
 serde_json = "1"
 # dep tokio: Async tasks inside the browser storage proof.
 tokio = { version = "1", default-features = false, features = ["rt", "io-util", "sync", "macros"] }
+
+[lints.cargo]
+unused_dependencies = "deny"

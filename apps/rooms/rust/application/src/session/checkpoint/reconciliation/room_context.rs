@@ -47,7 +47,8 @@ impl RoomContext {
 				== room.reconnect.map(|value| match value {
 					Reconnect::Manual => RoomReconnect::Manual,
 					Reconnect::Requested => RoomReconnect::Requested,
-				}) && self.link == room.link
+				})
+			&& self.link == room.link
 			&& self.manager == room.manager
 			&& self.steward == room.steward
 			&& self.publication == room.publication_id

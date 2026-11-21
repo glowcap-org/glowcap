@@ -495,6 +495,14 @@
   (when (null? files) (error 'site-report "no langs-compare-*.md under ~a" REPORTS))
   (file->string (build-path REPORTS (last (sort files string<? #:key path->string)))))
 
+;; The commit the benches measured, marked dirty only when a file other than
+;; the pages this report writes differs from it, so a second run in a clean
+;; checkout does not count the first run's figures as changed source.
+(define (source-stamp)
+  (define commit (sh1 "git describe --always --abbrev=9"))
+  (define changed (sh1 (format "git status --porcelain --untracked-files=no -- . ':!~a' ':!~a'" PERF COMPARED)))
+  (if (string=? changed "") commit (string-append commit "-dirty")))
+
 (define (stamp-region)
   (define mem-kb (n (cadr (regexp-match #px"MemTotal:\\s+(\\d+)" (file->string "/proc/meminfo")))))
   (define gib (~r (/ mem-kb 1048576.0) #:precision 0))
@@ -505,7 +513,7 @@
     (let ([m (regexp-match #px"v([0-9.]+) \\[(\\w+)\\]" (sh1 "racket --version"))])
       (if m (format "Racket v~a ~a" (list-ref m 1) (string-upcase (list-ref m 2))) "Racket")))
   (format "<p class=\"bench-stamp\">Benchmark snapshot of source <code>~a</code> on ~a: ~a, ~a logical CPUs, ~a GiB RAM, ~a, Spritely Goblins v~a, and the <code>glowcap</code> archives built by Zig ~a in ReleaseFast. <code>zig build bench-site-report</code> repeats it.</p>"
-          (sh1 "git describe --always --dirty --abbrev=9") (sh1 "date +%Y-%m-%d") (sh1 "uname -sm") (sh1 "nproc") gib
+          (source-stamp) (sh1 "date +%Y-%m-%d") (sh1 "uname -sm") (sh1 "nproc") gib
           racket-v goblins-v (sh1 "zig version")))
 
 ;; Replace the body of the `=html` block tagged with the bench marker in

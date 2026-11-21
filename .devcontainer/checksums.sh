@@ -42,14 +42,14 @@ deno_sha256() {
 
 node_sha256() {
     glowcap_pick_by_arch node_sha256 \
-        "d28a96af6c38596f6d9d97c0ee531c13d238d757742387d1928de822d959e997" \
-        "406fe3fbde1c054adff8b297c16fdb5af6659db327c1ac8acd46b56ef1af9a92"
+        "5c063e46bab0fbc1c17cc445d7ff129cbdcd0471be6ed83b6ab864f8143bc864" \
+        "89e1853138db51e8b82d3e98ba9c0d3f2956a28e5e55ea1b7e12d25aae92d5dd"
 }
 
 bun_sha256() {
     glowcap_pick_by_arch bun_sha256 \
-        "bf8ccbfb2b0b80159e0f9a6d15c55317add8077534dbc6130a3edb52fccb395c" \
-        "baa6bb36f51d6e58561e02bbea825038a9df454f673d6d776e8bbf86f8c7850e"
+        "94559b3b528995a49452f9f2404cec74f2efd7d06e0a000a8cd214b02c3666eb" \
+        "18656a3bf0ea5641f5796ae4213b75255579a70a0fded2f337933785568cdf84"
 }
 
 # Published beside each rustup-init binary as its .sha256 file, e.g.
@@ -62,20 +62,20 @@ rustup_init_sha256() {
 
 opencode_sha256() {
     glowcap_pick_by_arch opencode_sha256 \
-        "588310a336fa3b9df36b3f0225b26f679d453efaad0cf3d66c3651ef3ec1647a" \
-        "fae5be262d693b7c5e562856cc473e59e741772936db0c0600ac0d5ed5bd088b"
+        "47734e08968b30cc22a0bffb6d9feeed76ad4aa743213a12122040392d09a057" \
+        "5b68c1f4c5e75b4134e664cc8f36d634d64208d4fcfe5bcf3b48bab699c2dbac"
 }
 
 cursor_agent_sha256() {
     glowcap_pick_by_arch cursor_agent_sha256 \
-        "f39e124227aa179ae16ac0785e293cbe29218b2d1c167ba7adf68bfc8c3812a9" \
-        "5f211675d0e64e6a2f23e7c9bcb518a15855b924837145b5d2b414dc1c6dbf84"
+        "a25986eaf0c9330aeeec599a139711cb9f267c64562d073a72b751edf5161695" \
+        "5ff05be0d7c0b7754574dbcd677c35254a3ff190ed6457e71bbee0f276237e29"
 }
 
 uv_sha256() {
     glowcap_pick_by_arch uv_sha256 \
-        "c5221ff41b7892bfc223543883600125f6a47fe845093e0f5bdff4f359196d83" \
-        "71279f8d3c67241e807b9d8db872d1bf541579fb9f08b7d1eb1682196d1e57dc"
+        "a7fbaff2b9a271d85c1bdb540941090fd1ce011797b4abeb48e4dcd39c2471d5" \
+        "0797542018e541a9288855df555c8077eed06f7a47d206362030480e8ecc9f3d"
 }
 
 racket_tarball_and_sha256() {

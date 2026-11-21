@@ -12,12 +12,14 @@
 [package]
 repository.workspace = true
 homepage.workspace = true
-documentation.workspace = true
 name = "glowcap-sidecar-runtime"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish.workspace = true
+
+[lints.cargo]
+unused_dependencies = "deny"
 
 [lints.rust]
 unsafe_code = "forbid"

@@ -7,10 +7,14 @@ This does not reach GitHub.
 """
 
 import subprocess
+import tomllib
 import unittest
 from pathlib import PurePosixPath
 
 from workflows import ROOT, workflow
+
+# Days a new release waits before an update takes it.
+COOLDOWN_DAYS = 7
 
 # ecosystem: (lockfile, manifests). A Cargo or Deno manifest without a
 # committed lock is still watched, so the manifest decides a listed directory.
@@ -72,7 +76,11 @@ class Dependabot(unittest.TestCase):
         for ecosystem, rows in entries().items():
             for entry in rows:
                 with self.subTest(ecosystem=ecosystem):
-                    self.assertEqual(entry["cooldown"], {"default-days": 7})
+                    self.assertEqual(entry["cooldown"], {"default-days": COOLDOWN_DAYS})
+
+    def test_a_manual_cargo_update_waits_as_long(self):
+        config = tomllib.loads((ROOT / ".cargo/config.toml").read_text())
+        self.assertEqual(config["registry"]["global-min-publish-age"], f"{COOLDOWN_DAYS} days")
 
 
 if __name__ == "__main__":

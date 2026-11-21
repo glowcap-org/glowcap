@@ -101,7 +101,8 @@ impl DocumentText {
 					// serde_json decodes escaped lone surrogates as WTF-8 when
 					// asked for bytes. No other invalid UTF-8 sequence is text.
 					if rest.len() < 3
-						|| rest[0] != 0xed || !(0xa0..=0xbf).contains(&rest[1])
+						|| rest[0] != 0xed
+						|| !(0xa0..=0xbf).contains(&rest[1])
 						|| !(0x80..=0xbf).contains(&rest[2])
 					{
 						return Err("invalid document text");

@@ -330,7 +330,8 @@ async fn pipelined_projections_reach_a_field() {
 			let uninstall_trace = crate::enable_trace(
 				Box::new(move |event| {
 					if event.kind == crate::TraceKind::MessageDecoded
-						&& event.outbound && event.op.as_deref() == Some("pipeline-sentinel")
+						&& event.outbound
+						&& event.op.as_deref() == Some("pipeline-sentinel")
 					{
 						let _ = trace_tx.send(());
 					}

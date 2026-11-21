@@ -18,8 +18,10 @@ classifiers = ["Development Status :: 3 - Alpha"]
 dependencies = []
 
 [project.optional-dependencies]
+# 17.4 is the first websockets release whose recv() bounds how many frames one
+# message may span, which `max_size` alone does not.
 # dep websockets: The optional WebSocket client for relay rendezvous.
-rendezvous = ["websockets"]
+rendezvous = ["websockets>=17.4"]
 
 [tool.setuptools.packages.find]
 # The binding is the `glowcap` package: the core plus one submodule per transport

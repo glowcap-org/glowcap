@@ -5,3 +5,9 @@ linker = ".devcontainer/bin/rust-linker.sh"
 
 [target.x86_64-unknown-linux-gnu]
 linker = ".devcontainer/bin/rust-linker.sh"
+
+# Cargo ignores a crate version younger than this unless the lockfile already
+# holds it, so a manual `cargo update` waits as long as Dependabot does
+# (`ci/dependabot_test.py` keeps the two equal).
+[registry]
+global-min-publish-age = "7 days"

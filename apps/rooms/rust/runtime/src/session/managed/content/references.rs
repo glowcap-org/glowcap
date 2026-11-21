@@ -26,7 +26,8 @@ impl<P: Tasks + Deadline + Clone + 'static> SessionContent<P> {
 				| "initialize"
 				| "retire-host-registrations"
 				| "replaceWorkspace"
-				| "release" | "forget-bridge"
+				| "release"
+				| "forget-bridge"
 				| "settle-history-erasure"
 				| "retention-intent"
 		) {

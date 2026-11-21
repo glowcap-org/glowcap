@@ -4,7 +4,7 @@ version = "0.0.0"
 requires-python = ">=3.11"
 dependencies = [
     # dep pyyaml: Reads the workflow files in the CI tests.
-    "pyyaml==6.0.3",
+    "pyyaml==6.0.4",
 ]
 
 [tool.uv]

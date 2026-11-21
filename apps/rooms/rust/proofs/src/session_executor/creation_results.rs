@@ -132,7 +132,8 @@ async fn disclosed(host: &Host, source: &Ref, intent: &str) -> (String, [Ref; 2]
 			.find(|field| {
 				custody::Coordinate::decode(field.as_list().unwrap()[0].as_str().unwrap())
 					.unwrap()
-					.role == role
+					.role
+					== role
 			})
 			.unwrap();
 		Ref::try_from(&value.as_list().unwrap()[1]).unwrap()

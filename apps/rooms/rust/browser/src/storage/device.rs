@@ -41,7 +41,8 @@ impl Plan {
 				};
 				if name.strip_prefix("rooms-session-").is_some_and(|tab| {
 					!tab.is_empty()
-						&& tab.len() <= 64 && tab.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+						&& tab.len() <= 64
+						&& tab.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
 				}) {
 					if selected.len() >= 512 {
 						return Err(Error::Platform(

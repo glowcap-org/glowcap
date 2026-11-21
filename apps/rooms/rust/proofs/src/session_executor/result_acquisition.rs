@@ -46,7 +46,8 @@ pub(super) async fn membership(
 		let exists = fields.iter().any(|entry| {
 			custody::Coordinate::decode(entry.as_list().unwrap()[0].as_str().unwrap())
 				.unwrap()
-				.role == role
+				.role
+				== role
 		});
 		let selected = exists.then(|| field(role, 9).key);
 		match role {

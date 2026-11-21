@@ -42,12 +42,12 @@ runtime corpus runs once per emitter.
 
 ## Dependencies and measurements
 
-The sole active adapter dependency is exact locked `capnp` 0.27.3. Its optional
+The sole active adapter dependency is exact locked `capnp` 0.28.1. Its optional
 `embedded-io` 0.7.1 appears in the lockfile but is disabled. The separate proof
 crate uses the existing glowcap/Tokio stack. Both lockfiles are retained.
 
 Requests must report compiler version 1.1.0. The reader uses the schema bundled
-with Rust capnp 0.27.3. The container installs compiler 1.1.0 through Debian's
+with Rust capnp 0.28.1. The container installs compiler 1.1.0 through Debian's
 `capnproto` package, rather than an independent `pins.sh` entry.
 
 | Measurement | Result |

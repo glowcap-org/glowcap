@@ -27,8 +27,13 @@ impl SessionDocument {
 			return Err(DocumentError::TooLarge);
 		}
 		let text = str::from_utf8(bytes).map_err(|_| DocumentError::Utf8)?;
-		Ok(text.strip_prefix('\u{feff}').unwrap_or(text))
+		Ok(without_bom(text))
 	}
+}
+
+/// Drops one leading UTF-8 byte-order mark, as the TextDecoder does.
+pub(crate) fn without_bom(text: &str) -> &str {
+	text.trim_prefix('\u{feff}')
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
