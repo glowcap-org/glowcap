@@ -108,7 +108,7 @@
 (drain-host! rf-host)
 (define rf-read-failure
   (with-handlers ([(lambda (_) #t) values])
-    (pump-read-once! rf-session)
+    (pump-read-once! rf-session never-evt)
     'no-error))
 (define rf-close-failure
   (with-handlers ([(lambda (_) #t) values])
@@ -123,6 +123,45 @@
 (host-close! rf-host)
 
 (printf "racket test OK: a transport read exception stays exact through retirement\n")
+
+;; A settle that lands after the pump checks its predicate still wakes the
+;; reader. A loop-backed read is only a wait on the wake event, so a reader
+;; that snapshots that event after the check sleeps through the bump that
+;; announced the answer. Here the predicate itself settles and bumps right
+;; after its own check fails, which is that window held open. The flush
+;; first lets the writer finish the hello, so no other bump can rescue the
+;; reader.
+(define lw-host (make-fresh-host))
+(define lw-session
+  (open-dialed-over
+   lw-host
+   "tcp"
+   (tcp-address-designator "127.0.0.1" 9)
+   (async-transport
+    (lambda (_frame) (void))
+    void
+    (lambda (wake) (sync wake) 'woke)
+    void)))
+(session-flush! lw-session)
+(define lw-settled? (box #f))
+(define lw-pump
+  (thread
+   (lambda ()
+     (pump-until lw-session
+                 (lambda ()
+                   (or (unbox lw-settled?)
+                       (begin
+                         (set-box! lw-settled? 'settled)
+                         (host-bump-progress! lw-host)
+                         #f)))
+                 'lost-wake-test))))
+(define lw-woke? (sync/timeout 5 (thread-dead-evt lw-pump)))
+(kill-thread lw-pump)
+(expect lw-woke? "lost wake: the reader slept through a settle that followed its check")
+(session-close! lw-session)
+(host-close! lw-host)
+
+(printf "racket test OK: a settle after the pump's check wakes the reader\n")
 
 ;; ── Bounded tail: an over-cap frame is a typed refusal, not "read more" ──────
 ;; The core's stream delimiter (`glowcap_host_session_feed_bytes`) buffers a
