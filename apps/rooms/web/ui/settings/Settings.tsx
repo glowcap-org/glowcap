@@ -36,7 +36,7 @@ import { serverNeedDm } from "../../../lib/text/session.ts";
 import { useRoomsBrowser } from "../controller/browser.ts";
 import { useRoomsSession } from "../controller/session.ts";
 import { LocalRefusal, refusalText } from "../../../lib/text/failure.ts";
-import { current, type DmMode } from "../prefs.ts";
+import { type DmMode, dmMode } from "../dm_transport.ts";
 import { useManagedSession } from "../session/managed/context.tsx";
 import { Button } from "../Button.tsx";
 import { EntryAct, EntryActs } from "../EntryAct.tsx";
@@ -134,7 +134,7 @@ function SettingsDialog(
 	// The chosen tab receives focus when the dialog opens.
 	const chosenTab = useRef<HTMLButtonElement>(null);
 	const managed = useManagedSession();
-	const [live] = useState(() => current(managed.current?.intent));
+	const [savedDm] = useState(() => dmMode(managed.current?.intent.connection));
 	const tabs: readonly TabFace<RoomsSettingsTab>[] = [
 		{ id: "session", domId: "sessionTab", label: settingsSessionTab, panelId: "sessionPanel" },
 		...(canAdminister
@@ -152,7 +152,7 @@ function SettingsDialog(
 	const [pane, setPane] = useState<RoomsSettingsTab>(
 		tabs.some((candidate) => candidate.id === tab) ? tab : "session",
 	);
-	const [dm, setDm] = useState<DmMode>(live.dm);
+	const [dm, setDm] = useState<DmMode>(savedDm);
 	const [dmError, setDmError] = useState("");
 	const serverGate = useServerGate();
 	const dirs = useRoomsState((state) => state.dirs);
@@ -186,12 +186,12 @@ function SettingsDialog(
 		retain,
 	);
 
-	const dirty = dm !== live.dm;
+	const dirty = dm !== savedDm;
 	useChangeGroup("settings-direct-message", {
 		dirty,
 		discard: () => {
 			if (dmSaving.current) throw new LocalRefusal("connection-setting-busy");
-			setDm(live.dm);
+			setDm(savedDm);
 			setDmError("");
 		},
 	});
@@ -206,7 +206,7 @@ function SettingsDialog(
 	requestCloseRef.current = requestClose;
 	const save = async (next: DmMode) => {
 		if (dmSaving.current) return;
-		if (next === live.dm) {
+		if (next === savedDm) {
 			browser.closeSettings();
 			return;
 		}
@@ -419,7 +419,7 @@ function SettingsDialog(
 											// says what it is and what a server adds. A saved choice of the
 											// server's relay is kept as it is, with one way back.
 											<div className="group well" role="group" aria-labelledby="dmLegend">
-												{live.dm === "relay"
+												{savedDm === "relay"
 													? (
 														<>
 															<Said id="dmNeedsServer" kind="warning">

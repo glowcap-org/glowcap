@@ -1,9 +1,9 @@
-// The server's own page uses its browser login for directory and preview reads.
+// A sign-in proxy protects the page, directory lookup, and link-preview reads.
 import type { Browser } from "playwright";
 import { fail } from "../support/fail.ts";
 import { establishLocalSession } from "../support/session_setup.ts";
 
-export async function proveSignedInPage(browser: Browser, httpPort: number): Promise<void> {
+export async function proveProxySignIn(browser: Browser, httpPort: number): Promise<void> {
 	const context = await browser.newContext();
 	try {
 		const page = await context.newPage();

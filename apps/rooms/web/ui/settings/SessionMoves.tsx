@@ -60,7 +60,7 @@ import { actionRefusal, sessionCapabilityRefusal } from "../error_text.ts";
 import { useOpenModal } from "../modal.ts";
 import { useServerGate } from "../hooks.ts";
 import { linkNeedsServer } from "../application.ts";
-import { withSessionOffer } from "../server_choice.ts";
+import { withSessionOffer } from "../session_offer.ts";
 import { serverNeedAddress, serverNeedLink } from "../../../lib/text/session.ts";
 import { Said } from "../Said.tsx";
 import { useRoomsBrowser } from "../controller/browser.ts";

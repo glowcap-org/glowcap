@@ -1,6 +1,6 @@
 // Establishing the controller that owns a Rooms workspace before interaction.
 
-import type { Page } from "playwright";
+import type { Browser, Page } from "playwright";
 import { establishLocalSession } from "../support/session_setup.ts";
 import { fail } from "../support/fail.ts";
 
@@ -33,4 +33,22 @@ export async function establishTestSession(tab: Page): Promise<void> {
 	await tab.waitForSelector("#sessionSetup");
 	await establishLocalSession(tab);
 	await tab.waitForSelector("#joinBtn", { timeout: 60_000 });
+}
+
+export async function proveSessionOffer(browser: Browser, httpPort: number): Promise<void> {
+	// A link that offers a shared session opens session choice with it filled
+	// in, and takes it out of the address before anything else can read it.
+	// Attach is the answer, so the link attaches nothing by itself.
+	{
+		const linked = await browser.newContext();
+		const open = await linked.newPage();
+		const capability = "ocapn://offered.example/s/workspace";
+		await open.goto(`http://127.0.0.1:${httpPort}/#attach=${encodeURIComponent(capability)}`);
+		await open.waitForSelector("#sessionSetupCapability", { timeout: 60_000 })
+			.catch(() => fail("a link that offers a shared session did not open session choice"));
+		if (new URL(open.url()).hash !== "") fail("the session offer stayed in the address");
+		const filled = await open.inputValue("#sessionSetupCapability");
+		if (filled !== capability) fail(`the offered session filled ${JSON.stringify(filled)}`);
+		await linked.close();
+	}
 }

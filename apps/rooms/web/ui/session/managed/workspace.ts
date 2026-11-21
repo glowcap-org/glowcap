@@ -6,7 +6,7 @@ import type { RoomsWorkspaceController } from "../../controller/session.ts";
 import { type Coordinate, fieldKey, type WorkspaceIntent } from "./model.ts";
 import { LocalRefusal, refusalText } from "../../../../lib/text/failure.ts";
 import { coverForReload, finishCommittedMove, uncoverReload } from "../../boot.ts";
-import { writeSearch } from "../../prefs.ts";
+import { writeDmMode } from "../../dm_transport.ts";
 import { viewPreferences } from "../../view_preferences.ts";
 import { parseRoomsViewState } from "../../../../lib/view_state.ts";
 
@@ -42,7 +42,7 @@ export function managedWorkspaceActions(
 				const dm = next.dm ?? current.intent.connection;
 				await session.actions.run("chooseConnection", [dm]);
 				const url = new URL(location.href);
-				writeSearch(url, { dm });
+				writeDmMode(url, dm);
 				history.replaceState(null, "", url);
 			} catch (error) {
 				uncoverReload();

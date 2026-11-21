@@ -14,7 +14,7 @@
 import { useRef, useState } from "react";
 import { reloadNow } from "../boot.ts";
 import { useOpenModal } from "../modal.ts";
-import { withSessionOffer } from "../server_choice.ts";
+import { withSessionOffer } from "../session_offer.ts";
 import { type ServerChoosing, SessionServer } from "./SessionServer.tsx";
 import { Button } from "../Button.tsx";
 import { Confirm } from "../Confirm.tsx";

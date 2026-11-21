@@ -8,7 +8,7 @@ import { checkStorage } from "./check_storage.mjs";
 import { checkSessionForeign, checkSessionGraph } from "./check_session_graph.mjs";
 import { checkSessionForeignReload } from "./check_foreign_reload.mjs";
 import { checkSessionExecutor } from "./check_session_executor.mjs";
-import { iceFixtures } from "./check_ice.mjs";
+import { rtcConfigurationProof } from "./check_rtc_configuration.mjs";
 import { snippet } from "./assets.mjs";
 import { storageWithLostAcknowledgment } from "./graph_outcome.mjs";
 
@@ -81,9 +81,9 @@ try {
 	clearTimeout(deadline);
 }
 
-const ice = iceFixtures();
+const rtcConfiguration = rtcConfigurationProof();
 const server = createServer(async (request, response) => {
-	if (ice.serve(request, response)) return;
+	if (rtcConfiguration.serve(request, response)) return;
 	const path = new URL(request.url, "http://localhost").pathname;
 	if (path.startsWith("/snippets/")) {
 		try {
@@ -113,19 +113,10 @@ const server = createServer(async (request, response) => {
 		response.end();
 	}
 });
-const foreign = focused ? null : createServer((request, response) => {
-	if (ice.serve(request, response)) return;
-	response.writeHead(404);
-	response.end();
-});
 let browser;
 try {
 	server.listen(0, "127.0.0.1");
 	await once(server, "listening");
-	if (foreign != null) {
-		foreign.listen(0, "127.0.0.1");
-		await once(foreign, "listening");
-	}
 	browser = await chromium.launch({ headless: true });
 	const page = await browser.newPage();
 	page.on("pageerror", (error) => console.error(error));
@@ -162,8 +153,8 @@ try {
 	if (sharingOnly || roomsOnly) {
 		await checkChannels(page, { script, wasm, root, moduleName }, "tcp", roomsOnly ? "rooms" : "sharing");
 	}
-	if (foreign != null) {
-		await ice.check(page, `http://127.0.0.1:${foreign.address().port}`);
+	if (!focused) {
+		await rtcConfiguration.check(page);
 		await checkChannels(page, { script, wasm, root });
 		await checkChannels(page, { script, wasm, root }, "iroh");
 	}
@@ -188,9 +179,8 @@ try {
 	try {
 		await browser?.close();
 	} finally {
-		await Promise.all([server, foreign].map(async (listener) => {
-			if (listener == null || !listener.listening) return;
-			await new Promise((resolve, reject) => listener.close((error) => error ? reject(error) : resolve()));
-		}));
+		if (server.listening) {
+			await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+		}
 	}
 }

@@ -1,18 +1,14 @@
 //! Deployment-owned ICE configuration. One source coalesces concurrent reads
 //! but never caches credentials across completed attempts. Own and close it
 //! with the browser application, before retiring its LocalSet.
-mod fetch;
 mod request;
+mod response;
 
 use rooms_application::{
 	ice::{Limits, Servers},
 	signaling as policy,
 };
-use std::{
-	cell::{Cell, RefCell},
-	rc::Rc,
-	sync::Arc,
-};
+use std::{cell::RefCell, rc::Rc, sync::Arc};
 use tokio::sync::{Semaphore, watch};
 use wasm_bindgen::{JsCast, JsValue};
 use wasm_bindgen_futures::{JsFuture, future_to_promise};

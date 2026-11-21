@@ -1,4 +1,10 @@
-use super::*;
+//! One shared ICE request attempt, from HTTP dispatch through body retirement.
+use super::{Error, FETCH_TIMEOUT_MS, MAX_OBSERVERS, response};
+use rooms_application::ice::Servers;
+use std::{
+	cell::{Cell, RefCell},
+	rc::Rc,
+};
 use tokio::sync::Notify;
 use web_sys::AbortController;
 
@@ -49,7 +55,12 @@ impl Attempt {
 		// if every current request observer disappears.
 		tokio::task::spawn_local(async move {
 			let worker = worker;
-			let work = fetch::read(&url, &worker.0.abort);
+			let work = async {
+				let response = crate::server_http::get(&url, &worker.0.abort.signal())
+					.await
+					.map_err(|_| Error::Platform("ICE fetch failed"))?;
+				response::read(response).await
+			};
 			tokio::pin!(work);
 			let result = tokio::select! {
 				result = &mut work => result,

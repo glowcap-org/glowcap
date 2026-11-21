@@ -20,12 +20,8 @@ export function dmMode(stored: DmMode = "fastest"): DmMode {
 	return dmFrom(new URLSearchParams(location.search), stored);
 }
 
-export function current(intent?: { connection: DmMode }): { dm: DmMode } {
-	return { dm: dmMode(intent?.connection) };
-}
-
 /** Persist the DM route choice, preserving unrelated query parameters. */
-export function writeSearch(url: URL, next: { dm: DmMode }): void {
-	if (next.dm === "fastest") url.searchParams.delete("dm");
-	else url.searchParams.set("dm", next.dm);
+export function writeDmMode(url: URL, mode: DmMode): void {
+	if (mode === "fastest") url.searchParams.delete("dm");
+	else url.searchParams.set("dm", mode);
 }

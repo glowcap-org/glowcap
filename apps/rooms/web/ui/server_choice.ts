@@ -8,7 +8,6 @@
 import { pageBase, servedByRooms } from "./page_base.ts";
 import { localArea, type PageStorage } from "./page_storage.ts";
 import type { LocalRefusal } from "../../lib/text/failure.ts";
-import { locateRoomsServer, type ServerLocatorReply } from "./application.ts";
 
 export const SERVER_KEY = "rooms.server";
 
@@ -69,39 +68,6 @@ export function serverOffer(
 	return { base: read.base !== chosen ? read.base : null, unreadable: null, rest };
 }
 
-/** The fragment key a link uses to offer a shared session's use link. The
- * link is a capability, so it rides in the fragment, which a browser never
- * sends to the page's host, and never in the query. */
-const SESSION_OFFER = "attach";
-
-/** The fragment's `&`-separated fields as written, split into the offer and
- * the rest. Fields beside the offer are another address's to read, so they
- * pass through byte for byte and are never parsed and written again. */
-function offerAndRest(page: URL): { offer: string | null; rest: string[] } {
-	const fields = page.hash.slice(1).split("&").filter((field) => field !== "");
-	const isOffer = (field: string) => field.startsWith(`${SESSION_OFFER}=`);
-	return { offer: fields.find(isOffer) ?? null, rest: fields.filter((field) => !isOffer(field)) };
-}
-
-/** A shared session a link offers, read from `page` and taken out of it, the
- * way `serverOffer` takes the server. Only `attach` is consumed, and what an
- * address names beside it stays. Null when the link offers none. */
-export function sessionOffer(page: URL): { capability: string; rest: URL } | null {
-	const { offer, rest: kept } = offerAndRest(page);
-	if (offer === null) return null;
-	const rest = new URL(page);
-	rest.hash = kept.join("&");
-	return { capability: (new URLSearchParams(offer).get(SESSION_OFFER) ?? "").trim(), rest };
-}
-
-/** `page` offering `capability` the way `sessionOffer` reads it. */
-export function withSessionOffer(page: URL, capability: string): URL {
-	const offered = new URL(page);
-	const offer = new URLSearchParams({ [SESSION_OFFER]: capability }).toString();
-	offered.hash = [...offerAndRest(page).rest, offer].join("&");
-	return offered;
-}
-
 /** A server named the way a person typed it: its host, and its path when it
  * lives below the root. */
 export function serverName(base: string): string {
@@ -124,78 +90,4 @@ export function serverInUse(
 ): ServerInUse | null {
 	if (chosen != null) return { base: chosen, chosen: true };
 	return served ? { base: page.href, chosen: false } : null;
-}
-
-/** What a server at `base` says to this page before anything is saved, or
- * `blocked`: this browser stands between a page from the public internet and
- * a server on the person's own computer or network until they allow it. */
-export type ServerProbe = ServerLocatorReply | { readonly kind: "blocked"; readonly permission: LocalNetworkRefusal };
-
-/** The browser's answer on reaching the local network from this page: asked
- * on the first try, refused, allowed, or null in a browser that never asks. */
-export type LocalNetworkPermission = LocalNetworkRefusal | "granted" | null;
-/** The two answers under which the browser lets nothing through. */
-type LocalNetworkRefusal = "prompt" | "denied";
-
-/** The one question asked of the browser's permissions. The name is a
- * string because lib.dom lags the names browsers answer to. */
-export interface PermissionsQuery {
-	query(descriptor: { name: string }): Promise<{ state: PermissionState }>;
-}
-
-/** Where a host stands to the browser: this computer, the person's own
- * network, or the public internet, by the host name or address alone. */
-export type AddressSpace = "loopback" | "local" | "public";
-
-export function addressSpace(hostname: string): AddressSpace {
-	const host = hostname.toLowerCase().replace(/^\[|\]$/g, "");
-	if (host === "localhost" || host.endsWith(".localhost") || host === "::1") return "loopback";
-	const v4 = host.match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)$/);
-	if (v4 != null) {
-		const [a, b] = [Number(v4[1]), Number(v4[2])];
-		if (a === 127) return "loopback";
-		const local = a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) ||
-			(a === 169 && b === 254);
-		return local ? "local" : "public";
-	}
-	return /^f[cd][0-9a-f]{2}:/.test(host) || /^fe[89ab][0-9a-f]:/.test(host) ? "local" : "public";
-}
-
-/** Nearer to the person is more private. */
-const PRIVACY: Record<AddressSpace, number> = { loopback: 0, local: 1, public: 2 };
-
-/** Whether reaching `target` from this page crosses into a more private
- * space (a public page to the person's network or computer, or a page on the
- * network to this computer), which a browser may guard. */
-export function reachesLocalNetwork(target: URL, page: string | undefined = globalThis.location?.hostname): boolean {
-	return page != null && PRIVACY[addressSpace(target.hostname)] < PRIVACY[addressSpace(page)];
-}
-
-/** Why a browser on a page from the public internet may be the reason a local
- * server does not answer: its local network permission, when reaching
- * `target` crosses into the local network, else null. Chrome asks the person
- * on the first read and refuses in silence until they allow it; a browser
- * without the permission answers null. */
-export function localNetworkBlock(
-	target: URL,
-	{ page = globalThis.location?.hostname, permissions = globalThis.navigator?.permissions }: {
-		page?: string;
-		permissions?: PermissionsQuery;
-	} = {},
-): Promise<LocalNetworkPermission> {
-	if (permissions == null || !reachesLocalNetwork(target, page)) return Promise.resolve(null);
-	return permissions.query({ name: "local-network-access" }).then((status) => status.state, () => null);
-}
-
-/** Report the application’s locator result, with browser permission advice
- * when a failed read crossed into the local network. */
-export async function probeServer(
-	base: string,
-	read = locateRoomsServer,
-	blocked = localNetworkBlock,
-): Promise<ServerProbe> {
-	const reply = await read(base);
-	if (reply.kind !== "unavailable" && reply.kind !== "timedOut") return reply;
-	const permission = await blocked(new URL(base));
-	return permission === "prompt" || permission === "denied" ? { kind: "blocked", permission } : reply;
 }

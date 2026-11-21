@@ -27,7 +27,7 @@ import {
 	renderFailure,
 	transportBreak,
 } from "../../../../lib/text/failure.ts";
-import { localNetworkBlock } from "../../server_choice.ts";
+import { localNetworkBlock } from "../../local_network.ts";
 import { NO_SERVER, ROOM_EXISTS, RoomsError, roomsErrorIn } from "../../../../lib/error_codes.ts";
 import { dmAddress, joinAddress, roomAddress } from "../../route_address.ts";
 import {
