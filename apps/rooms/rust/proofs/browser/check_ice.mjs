@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 
+const LOGIN_COOKIE = { name: "rooms_http_contract", value: "confirmed" };
+
 // Real HTTP bodies: Fetch and stream cancellation remain browser operations.
 export function iceFixtures() {
 	let rotating = 0, retry = 0;
@@ -12,6 +14,11 @@ export function iceFixtures() {
 	return {
 		serve(request, response) {
 			if (!request.url.startsWith("/ice/")) return false;
+			assert.equal(
+				request.headers.cookie,
+				request.url === "/ice/elsewhere" ? undefined : `${LOGIN_COOKIE.name}=${LOGIN_COOKIE.value}`,
+				"ICE reads must use the login only on the page's own origin",
+			);
 			response.setHeader("Content-Type", "application/json");
 			switch (request.url) {
 				case "/ice/elsewhere":
@@ -62,11 +69,14 @@ export function iceFixtures() {
 			}
 			return true;
 		},
-		async check(page) {
-			// The same server by its other loopback name is another origin to the page.
+		async check(page, otherOrigin) {
+			// Another port on the same host is cross-origin but still same-site:
+			// SameSite cookies cannot conceal accidentally included credentials.
 			const origin = new URL(page.url()).origin;
-			const across = new URL("/ice/elsewhere", origin);
-			across.hostname = across.hostname === "localhost" ? "127.0.0.1" : "localhost";
+			const across = new URL("/ice/elsewhere", otherOrigin);
+			assert.notEqual(across.origin, origin);
+			assert.equal(across.hostname, new URL(origin).hostname);
+			await page.context().addCookies([{ ...LOGIN_COOKIE, url: origin }]);
 			let deadline;
 			try {
 				await Promise.race([

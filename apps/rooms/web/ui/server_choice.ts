@@ -195,7 +195,7 @@ export async function probeServer(
 	blocked = localNetworkBlock,
 ): Promise<ServerProbe> {
 	const reply = await read(base);
-	if (reply.kind !== "unavailable") return reply;
+	if (reply.kind !== "unavailable" && reply.kind !== "timedOut") return reply;
 	const permission = await blocked(new URL(base));
 	return permission === "prompt" || permission === "denied" ? { kind: "blocked", permission } : reply;
 }

@@ -44,42 +44,6 @@ async function asStaticHost(open: Page, httpPort: number): Promise<void> {
 	});
 }
 
-export async function proveSignedInPage(browser: Browser, httpPort: number): Promise<void> {
-	const context = await browser.newContext();
-	try {
-		const page = await context.newPage();
-		const base = `http://127.0.0.1:${httpPort}/`;
-		const signIn = new URL("sign-in", base);
-		const cookie = "rooms_test_login=confirmed";
-		let readLocator = false;
-		await context.route(`${base}**`, async (route) => {
-			const request = route.request();
-			if (request.url() === signIn.href) {
-				return route.fulfill({ body: "Signed in", headers: { "set-cookie": `${cookie}; Path=/; HttpOnly` } });
-			}
-			const sent = (await request.allHeaders()).cookie?.split("; ").includes(cookie);
-			if (!sent) {
-				return route.fulfill({ status: 401, contentType: "text/html", body: '<a href="/sign-in">Sign in</a>' });
-			}
-			if (new URL(request.url()).pathname === "/locator") readLocator = true;
-			return route.continue();
-		});
-		const anonymous = await page.goto(base);
-		if (anonymous?.status() !== 401) fail("the protected Rooms page skipped sign-in");
-		await page.getByRole("link", { name: "Sign in" }).click();
-		await page.waitForURL(signIn.href);
-		await page.goto(base);
-		await establishLocalSession(page);
-		await page.fill("#nick", "signed-in");
-		await page.fill("#room", "signed-in-room");
-		await page.click("#joinBtn");
-		await page.waitForSelector("#line:not([disabled])", { timeout: 30_000 });
-		if (!readLocator) fail("the Rooms page never read its directory with the browser login");
-	} finally {
-		await context.close();
-	}
-}
-
 export async function proveOpeningFaces(browser: Browser, httpPort: number): Promise<void> {
 	// The other two: a browser with scripting off is told why there is nothing
 	// here, and so is one whose bundle never arrived, the case nobody sees until

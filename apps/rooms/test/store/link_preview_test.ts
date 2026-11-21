@@ -226,6 +226,44 @@ Deno.test("malformed preview replies give a catalog refusal without granting ret
 	}
 });
 
+Deno.test("cancelling a preview after headers aborts its pending body across Wasm", async () => {
+	const { fetchPreview } = await import("../../web/ui/link_preview.ts");
+	const saved = globalThis.fetch;
+	const controller = new AbortController();
+	const reading = Promise.withResolvers<void>();
+	let requests = 0;
+	globalThis.fetch = (_address, options) => {
+		requests++;
+		const signal = options?.signal;
+		assert(signal != null, "the browser request lost its cancellation signal");
+		return Promise.resolve(
+			new Response(
+				new ReadableStream<Uint8Array>({
+					start(stream) {
+						signal.addEventListener("abort", () => stream.error(signal.reason), { once: true });
+					},
+					pull() {
+						reading.resolve();
+					},
+				}, { highWaterMark: 0 }),
+			),
+		);
+	};
+	try {
+		const settled = Promise.allSettled([
+			fetchPreview("https://rooms.example/", "https://example.com/", controller.signal),
+		]);
+		await reading.promise;
+		controller.abort();
+		const [result] = await settled;
+		assert(result.status === "rejected" && result.reason === controller.signal.reason, "cancellation was replaced");
+		assert(requests === 1, "cancellation started another request");
+	} finally {
+		controller.abort();
+		globalThis.fetch = saved;
+	}
+});
+
 Deno.test("a proxy HTTP failure keeps preview retry even when its body is HTML", async () => {
 	const { fetchPreview } = await import("../../web/ui/link_preview.ts");
 	const saved = globalThis.fetch;

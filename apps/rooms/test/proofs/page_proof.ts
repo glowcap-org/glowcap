@@ -29,7 +29,7 @@ import { ROOT, SERVER } from "../support/paths.ts";
 import { nonEphemeralPort } from "../../../../bindings/ts/test/ports.ts";
 import { waitForHttp } from "../support/rooms_server.ts";
 import * as opening from "../page/opening.ts";
-import { proveSignedInPage } from "../page/opening_faces.ts";
+import { proveSignedInPage } from "../page/server_sign_in.ts";
 import { proveFocusKeepsMobileViewport } from "../page/mobile_controls.ts";
 import * as firstRail from "../page/first_rail.ts";
 import * as details from "../page/details.ts";

@@ -113,10 +113,19 @@ const server = createServer(async (request, response) => {
 		response.end();
 	}
 });
-server.listen(0, "127.0.0.1");
-await once(server, "listening");
+const foreign = focused ? null : createServer((request, response) => {
+	if (ice.serve(request, response)) return;
+	response.writeHead(404);
+	response.end();
+});
 let browser;
 try {
+	server.listen(0, "127.0.0.1");
+	await once(server, "listening");
+	if (foreign != null) {
+		foreign.listen(0, "127.0.0.1");
+		await once(foreign, "listening");
+	}
 	browser = await chromium.launch({ headless: true });
 	const page = await browser.newPage();
 	page.on("pageerror", (error) => console.error(error));
@@ -153,8 +162,8 @@ try {
 	if (sharingOnly || roomsOnly) {
 		await checkChannels(page, { script, wasm, root, moduleName }, "tcp", roomsOnly ? "rooms" : "sharing");
 	}
-	if (!focused) {
-		await ice.check(page);
+	if (foreign != null) {
+		await ice.check(page, `http://127.0.0.1:${foreign.address().port}`);
 		await checkChannels(page, { script, wasm, root });
 		await checkChannels(page, { script, wasm, root }, "iroh");
 	}
@@ -176,6 +185,12 @@ try {
 			: `Rust async Host passed in Deno and Chromium; shared archive execution and revocable shares, IndexedDB contract/retention/rollback/eviction, Chromium session commands, host TCP/iroh forwarding, keyed/Noise relay, RTCDataChannel, signaling and ICE fetch passed; ${wasm.length} linked Wasm bytes.`,
 	);
 } finally {
-	await browser?.close();
-	await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+	try {
+		await browser?.close();
+	} finally {
+		await Promise.all([server, foreign].map(async (listener) => {
+			if (listener == null || !listener.listening) return;
+			await new Promise((resolve, reject) => listener.close((error) => error ? reject(error) : resolve()));
+		}));
+	}
 }

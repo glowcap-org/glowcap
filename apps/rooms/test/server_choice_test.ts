@@ -108,6 +108,7 @@ Deno.test("the Rust locator reads once with same-origin credentials", async () =
 	const base = "https://rooms.example/app/";
 	const cases: [Response | Error, ServerLocatorReply][] = [
 		[new Response("ocapn://dir.iroh\n"), { kind: "answers", directory: "ocapn://dir.iroh" }],
+		[new Response("\n"), { kind: "elsewhere" }],
 		[new Response("<title>Rooms</title>"), { kind: "elsewhere" }],
 		[new Response("", { status: 404 }), { kind: "elsewhere" }],
 		[new Response("", { status: 503 }), { kind: "elsewhere" }],
@@ -160,6 +161,20 @@ Deno.test("a locator failure checks browser permission for a local server", asyn
 	const answers = (): Promise<ServerLocatorReply> =>
 		Promise.resolve({ kind: "answers", directory: "ocapn://dir.iroh" });
 	assertEquals(await probeServer(base, answers, asks), { kind: "answers", directory: "ocapn://dir.iroh" });
+});
+
+Deno.test("a timed-out server check still checks local-network permission", async () => {
+	const base = "http://127.0.0.1:8080/rooms/";
+	const timedOut = (): Promise<ServerLocatorReply> => Promise.resolve({ kind: "timedOut" });
+	for (const permission of ["prompt", "denied"] as const) {
+		assertEquals(await probeServer(base, timedOut, () => Promise.resolve(permission)), {
+			kind: "blocked",
+			permission,
+		});
+	}
+	for (const permission of ["granted", null] as const) {
+		assertEquals(await probeServer(base, timedOut, () => Promise.resolve(permission)), { kind: "timedOut" });
+	}
 });
 
 Deno.test("a browser is asked about the local network when a page reaches a more private space", async () => {
