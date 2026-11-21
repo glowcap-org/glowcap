@@ -13,7 +13,9 @@ if (appsMenu instanceof HTMLDetailsElement) {
 		}
 	});
 	appsMenu.addEventListener("focusout", (event) => {
-		if (!(event.relatedTarget instanceof Node) || !appsMenu.contains(event.relatedTarget)) {
+		// Safari can blur the summary without focusing a tapped link. Keep it
+		// visible until the click, unless focus has a known outside destination.
+		if (event.relatedTarget instanceof Node && !appsMenu.contains(event.relatedTarget)) {
 			appsMenu.open = false;
 		}
 	});
