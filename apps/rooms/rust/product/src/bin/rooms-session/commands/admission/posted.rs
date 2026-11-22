@@ -2,12 +2,14 @@
 //! authority: a send's exact live line occurrence, or the route a
 //! `startDirect` introduced. The saved acquisition owns recovery. Replay never
 //! remints a destination. The plans are the shared `adopt_line` and
-//! `adopt_direct`, which attached views also use.
+//! `adopt_direct`, which attached views also use. A route to a member an open
+//! conversation already reaches is given back, and that conversation is the
+//! answer.
 use super::{Failure, Options, Value, json, request};
 use rooms_application::content::session::{
 	custody::FieldKey,
 	results,
-	workspace::{Adoption, Intent, LineReceipt, adopt_direct, adopt_line},
+	workspace::{Adoption, DirectRefusal, Intent, LineReceipt, adopt_direct, adopt_line},
 };
 use rooms_application::failure::Retry;
 
@@ -58,8 +60,18 @@ pub(super) async fn acquire(
 			let operation = submitted["operation"]
 				.as_str()
 				.ok_or_else(|| Failure::invalid("session returned no operation"))?;
-			let plan = adopt_direct(&before, &current, operation, &start, &receipt, fresh()?, fresh()?)
-				.map_err(Failure::invalid)?;
+			let plan = match adopt_direct(&before, &current, operation, &start, &receipt, fresh()?, fresh()?) {
+				Ok(plan) => plan,
+				Err(DirectRefusal::Open(_)) => {
+					return super::super::acquisition::submit(
+						options,
+						json!({"kind":"release-result", "operation":operation, "command_base":submitted["base"],
+							"name":name, "args":args}),
+					)
+					.await;
+				}
+				Err(refusal) => return Err(Failure::invalid(refusal)),
+			};
 			(plan.mappings, Vec::new(), plan.intent, Some(plan.source))
 		}
 	};

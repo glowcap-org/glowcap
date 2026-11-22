@@ -39,10 +39,11 @@ reported with "kept": false posted but cannot be edited or withdrawn.
 Do not post it again.
 
   {glowcap} apps rooms bot say --text <text> [--conversation <id> | --dm <nickname>]
-      Post a line here, in another conversation, or privately to the `from`
-      nickname of the line you answer. --text - reads standard input.
+      Post a line here, in another conversation, or privately to someone in
+      this conversation: the `from` of a line shown here, or the other person
+      of this direct conversation. --text - reads standard input.
   {glowcap} apps rooms bot send --text <caption> --file <path> [--dm <nickname>]
-      Post files from your working directory here, or privately to a member,
+      Post files from your working directory here, or privately as say does,
       with a caption. Repeat --file for each file, up to eight.
   {glowcap} apps rooms bot workspace
       The conversations you can post to with their ids and kinds, the people
@@ -55,4 +56,4 @@ Do not post it again.
   and never send it a second time. An uncertain send names neither, and its
   files must never be sent again. A failure marked "opening": true posted
   nothing. If it is uncertain, run the same verb with its --operation and
-  --base, so the conversation opens at most once.
+  --base in this turn, so the conversation opens at most once.

@@ -4,8 +4,10 @@
 //! row that already reaches a peer's registration, and plans the one row the
 //! session admits for a new route: the last closed row introduced under the
 //! same registration, reopened under its own id and draft, or else a new row
-//! whose id is the command's operation. The session's participation check
-//! (`imports/participation.rs` in the runtime) is the rule this plan meets.
+//! whose id is the command's operation. A registration holds at most one open
+//! row, so a route that arrives while another row is open is given back. The
+//! session's participation check (`imports/participation.rs` in the runtime)
+//! is the rule this plan meets, and it reads rows through [`introduced_to`].
 //! The terminal front and attached views use it, and the page plans the same
 //! row in its own completion recipe.
 use super::{Conversation, Direct, DirectKind, Directory, Field, Id, Intent, Introduction, custody};
@@ -50,6 +52,16 @@ impl<'a> StartDirect<'a> {
 	}
 }
 
+/// Whether `row` was introduced from the directory row `directory` to the
+/// peer that holds `registration`, under any contact that directory held.
+pub fn introduced_to(row: &Direct, directory: &str, registration: &str) -> bool {
+	row.directory.text().as_str() == Some(directory)
+		&& row
+			.introduction
+			.as_ref()
+			.is_some_and(|introduction| introduction.registration.text().as_str() == Some(registration))
+}
+
 /// Whether `row` was introduced from `directory`'s current contact to the
 /// peer that holds `registration`.
 fn introduces(row: &Direct, directory: &Directory, registration: &str) -> bool {
@@ -90,9 +102,12 @@ pub struct DirectAdoption {
 	pub source: custody::FieldKey<custody::SessionAccess>,
 }
 
-/// Why a route cannot be kept. Each leaves the receipt intact.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// Why a route cannot be kept. Each but `Open` leaves the receipt intact.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum DirectRefusal {
+	/// An open conversation, this one, already reaches the peer's
+	/// registration. It keeps its own route, so this receipt is given back.
+	Open(Id),
 	/// The directory was not part of the workspace the command saw.
 	Unknown,
 	/// The directory left the workspace after the command.
@@ -109,6 +124,7 @@ pub enum DirectRefusal {
 impl fmt::Display for DirectRefusal {
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
 		f.write_str(match self {
+			Self::Open(_) => "an open direct conversation already reaches this member, release this receipt",
 			Self::Unknown => "the initiating directory is unavailable",
 			Self::Removed => "the initiating directory was removed, retain its receipt",
 			Self::Changed => "the initiating registration changed, retain its receipt",
@@ -123,7 +139,8 @@ impl core::error::Error for DirectRefusal {}
 /// Plan keeping `receipt`'s route. `original` is the workspace the command
 /// was prepared against and `current` the one the acquisition is checked at.
 /// `operation` is the command's operation. `access` and `source` are fresh
-/// keys for the route and the initiating access.
+/// keys for the route and the initiating access. An open row that already
+/// reaches the registration is `Open`, whoever opened it.
 pub fn adopt_direct(
 	original: &Intent,
 	current: &Intent,
@@ -156,25 +173,23 @@ pub fn adopt_direct(
 		registration: Text::new(start.registration.into()).ok_or(DirectRefusal::Arguments)?,
 		opening: Text::new(start.opening.into()).ok_or(DirectRefusal::Arguments)?,
 	};
-	let reopened = current
-		.conversations
-		.as_slice()
-		.iter()
-		.enumerate()
-		.rev()
-		.find_map(|(at, row)| match row {
-			Conversation::Direct(row)
-				if row.closed
-					&& row.directory == before.id
-					&& row
-						.introduction
-						.as_ref()
-						.is_some_and(|previous| previous.registration.text().as_str() == Some(start.registration)) =>
-			{
-				Some((at, row.id.clone(), row.draft.clone()))
-			}
-			_ => None,
-		});
+	let rows = || {
+		current
+			.conversations
+			.as_slice()
+			.iter()
+			.enumerate()
+			.filter_map(|(at, row)| match row {
+				Conversation::Direct(row) if introduced_to(row, start.directory, start.registration) => Some((at, row)),
+				_ => None,
+			})
+	};
+	if let Some((_, open)) = rows().find(|(_, row)| !row.closed) {
+		return Err(DirectRefusal::Open(open.id.clone()));
+	}
+	let reopened = rows()
+		.next_back()
+		.map(|(at, row)| (at, row.id.clone(), row.draft.clone()));
 	let (id, draft) = match &reopened {
 		Some((_, id, draft)) => (id.clone(), draft.clone()),
 		None => (

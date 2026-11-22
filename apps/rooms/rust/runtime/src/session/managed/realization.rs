@@ -287,10 +287,14 @@ impl<P: Deadline + Clone> Source<P> {
 	pub(super) fn workspace(&self) -> &Workspace<P> {
 		&self.workspace
 	}
-	/// Prepare installation through the original source. A full candidate is
+	/// Prepare installation through the original source on the session's
+	/// private channel, witnessed by `owner`, the session root. Installing the
+	/// callback is the session's own write, so it needs the source's
+	/// participation right and not custody management. A full candidate is
 	/// retained only through this atomic acquisition, not in the live worker.
 	pub(super) async fn prepare_inbox(
 		&self,
+		owner: &glowcap::Ref,
 		selected: &workspace::InboxSelection,
 		inbox: &glowcap::Ref,
 	) -> Result<(rooms_glowcap::client::workspace::Acquisition<P>, Self)> {
@@ -364,7 +368,8 @@ impl<P: Deadline + Clone> Source<P> {
 		let retired = retired.filter(|old| !snapshot.intent.coordinates().any(|field| field == *old));
 		let request = self
 			.workspace
-			.prepare_acquisition(
+			.prepare_owner_acquisition(
+				owner,
 				snapshot.revision,
 				vec![rooms_glowcap::client::workspace::Import {
 					coordinate: selected.coordinate(),

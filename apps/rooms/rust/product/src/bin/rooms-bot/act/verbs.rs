@@ -106,7 +106,8 @@ pub async fn say(request: &Request, turn: &Turn) -> Result<Value, Error> {
 			return posted(live.view.say(&operation, conversation, &text).await, &operation);
 		};
 		let (conversation, opened) = direct::reach(&live, turn, &dm).await?;
-		let line = posted(live.view.say(&operation, &conversation, &text).await, &operation)?;
+		let line = posted(live.view.say(&operation, &conversation, &text).await, &operation)
+			.map_err(|error| failure::after_reaching(error, &conversation, &opened))?;
 		Ok(reached(line, &conversation, opened))
 	})
 	.await
@@ -145,6 +146,10 @@ pub async fn send(request: &Request, turn: &Turn) -> Result<Value, Error> {
 			// operation or base to check. It must not be sent again.
 			Err(cause @ ViewError::Uncertain { .. }) => Err(failure::unobservable(&cause)),
 			result => posted(result, &operation),
+		};
+		let line = match &opened {
+			Some(opened) => line.map_err(|error| failure::after_reaching(error, &conversation, opened)),
+			None => line,
 		}?;
 		Ok(match opened {
 			Some(opened) => reached(line, &conversation, opened),

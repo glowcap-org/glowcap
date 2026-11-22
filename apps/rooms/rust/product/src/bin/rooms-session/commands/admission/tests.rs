@@ -250,3 +250,80 @@ async fn automatic_conflict_reprepares_only_unchanged_selection() {
 		}
 	}
 }
+
+/// A committed `startDirect` to a member an open conversation already reaches
+/// gives its result back through a saved acquisition, and adds no second open
+/// conversation.
+#[tokio::test]
+async fn a_route_to_a_member_an_open_conversation_reaches_is_given_back() {
+	let state = rooms_testing::scratch::Scratch::create("reused");
+	let listener = UnixListener::bind(state.join("control.sock")).unwrap();
+	let options = Options {
+		verb: "direct".into(),
+		state: state.to_path_buf(),
+		named: Default::default(),
+		arguments: Vec::new(),
+	};
+	let key = |slot: u64| format!("{slot:016x}{:016x}", 1);
+	let registration = "00000000-0000-4000-8000-000000000001";
+	let workspace = json!({"version":1,"directories":[{"id":"d","access":key(1),"name":key(2),"source":key(3),
+		"inbox":key(4),"home":true,"nick":"bot","nickAllocation":"exact","standing":null}],
+		"conversations":[{"kind":"direct","id":"open","directory":"d","peer":"Ann","access":key(9),
+			"introduction":{"access":key(1),"name":key(2),"callback":key(4),"registration":registration,"opening":"o"},
+			"closed":false,"draft":""}],
+		"invitations":[],"active":null,"standing":"","ignored":[],"keepHistory":false,"connection":"fastest",
+		"archive":null,"archiveControl":null,"operators":[],"peering":[]});
+	let reply = workspace.clone();
+	let server = tokio::spawn(async move {
+		let mut requests = Vec::new();
+		for verb in ["status", "acquire", "release-acquisition"] {
+			let (stream, _) = listener.accept().await.unwrap();
+			let mut reader = BufReader::new(stream);
+			let mut line = String::new();
+			reader.read_line(&mut line).await.unwrap();
+			let request: Value = serde_json::from_str(&line).unwrap();
+			assert_eq!(request["verb"], verb);
+			let response = if verb == "status" {
+				json!({"ok": true, "revision": "9", "workspace": reply})
+			} else {
+				json!({"ok": true})
+			};
+			reader
+				.get_mut()
+				.write_all(format!("{response}\n").as_bytes())
+				.await
+				.unwrap();
+			requests.push(request);
+		}
+		assert!(
+			tokio::time::timeout(Duration::from_millis(100), listener.accept())
+				.await
+				.is_err(),
+			"nothing is acquired after the result goes back"
+		);
+		requests
+	});
+	let args = ["d", "ann", registration, "opening"].map(String::from);
+	let submitted = json!({"status":"committed", "operation":"operation", "base":7, "adopted":false,
+		"result":{"inbox":key(20)}});
+	posted::acquire(
+		&options,
+		&json!({"workspace": workspace}),
+		&submitted,
+		"startDirect",
+		&args,
+	)
+	.await
+	.unwrap();
+	let requests = server.await.unwrap();
+	assert_eq!(
+		requests[1]["request"],
+		json!({"kind":"release-result", "operation":"operation", "command_base":7, "name":"startDirect", "args":args})
+	);
+	assert_eq!(requests[1]["id"], requests[2]["id"]);
+	assert_eq!(
+		std::fs::read_dir(state.join("recovery")).unwrap().count(),
+		0,
+		"the saved acquisition is removed once it completes"
+	);
+}

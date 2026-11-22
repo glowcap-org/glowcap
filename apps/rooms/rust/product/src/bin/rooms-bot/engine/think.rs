@@ -237,6 +237,8 @@ async fn fix_reply<R: Rooms>(
 /// Everything one invocation needs, so a failed resume can run again fresh.
 struct Inputs<'a> {
 	conversation: &'a ConversationId,
+	/// [`act::TURN_MEMBERS`] for this turn.
+	members: &'a str,
 	prompt: &'a str,
 	system: &'a str,
 	place: Place<'a>,
@@ -264,6 +266,7 @@ async fn invoke<R: Rooms>(
 	invocation.env.extend([
 		(act::TURN_BOT.into(), env.store.root().into()),
 		(act::TURN_CONVERSATION.into(), inputs.conversation.as_str().into()),
+		(act::TURN_MEMBERS.into(), inputs.members.into()),
 		(home::TURN_HOME.into(), inputs.home.into()),
 	]);
 	runner::run(env.harness, invocation, &inputs.place, inputs.deadline, stop).await
@@ -349,8 +352,14 @@ async fn attempt<R: Rooms>(
 		kind: asked.kind,
 		instructions: instructions.as_deref(),
 	});
+	let members = act::members(
+		ring.iter()
+			.map(|line| line.from.as_deref())
+			.chain(triggers.iter().map(|trigger| trigger.from.as_deref())),
+	);
 	let inputs = Inputs {
 		conversation,
+		members: &members,
 		prompt: &turn_prompt,
 		system: &system,
 		place: Place {

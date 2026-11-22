@@ -156,21 +156,19 @@ impl Request<'_> {
 		{
 			return Ok(false);
 		}
-		let previous = record
-			.intent
-			.conversations
-			.as_slice()
-			.iter()
-			.rposition(|row| match row {
-				workspace::Conversation::Direct(row) => {
-					row.closed
-						&& row.directory.text().as_str() == Some(reopening.directory.as_str())
-						&& row.introduction.as_ref().is_some_and(|intro| {
-							intro.registration.text().as_str() == Some(reopening.registration.as_str())
-						})
-				}
-				_ => false,
-			});
+		// One registration holds at most one open row, so a route that finds one
+		// open is given back. Otherwise it reopens the last closed row.
+		let reaches = |row: &workspace::Conversation| match row {
+			workspace::Conversation::Direct(row) => {
+				workspace::introduced_to(row, &reopening.directory, &reopening.registration).then_some(row.closed)
+			}
+			_ => None,
+		};
+		let rows = record.intent.conversations.as_slice();
+		if rows.iter().any(|row| reaches(row) == Some(false)) {
+			return Ok(false);
+		}
+		let previous = rows.iter().rposition(|row| reaches(row) == Some(true));
 		let position = previous.unwrap_or(record.intent.conversations.as_slice().len());
 		let Some(workspace::Conversation::Direct(next)) = candidate.conversations.as_slice().get(position) else {
 			return Ok(false);

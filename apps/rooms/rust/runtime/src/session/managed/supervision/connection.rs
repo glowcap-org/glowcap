@@ -97,9 +97,13 @@ impl<P: Tasks + Deadline + Clone + 'static> Worker<P> {
 			// Configuration replacement retires every now-unselected coordinate
 			// without a second field inventory. Durable entrance, control, source,
 			// history and explicit reconnect choice stay in their existing rows.
-			let acquisition =
-				self.workspace
-					.prepare_owner_acquisition(&self.writer.root()?, snapshot.revision, &snapshot.intent)?;
+			let acquisition = self.workspace.prepare_owner_acquisition(
+				&self.writer.root()?,
+				snapshot.revision,
+				Vec::new(),
+				&[],
+				&snapshot.intent,
+			)?;
 			drop(snapshot);
 			loop {
 				match acquisition.submit().await {

@@ -73,6 +73,17 @@ pub fn opening(error: Error) -> Error {
 	with(error, "opening", json!(true))
 }
 
+/// A failed post to the direct conversation a `--dm` reached. It names that
+/// conversation and the open that made it, which stand whether or not the
+/// line posted.
+pub fn after_reaching(error: Error, conversation: &str, opened: &Value) -> Error {
+	with(
+		with(error, "conversation", json!(conversation)),
+		"opened",
+		opened.clone(),
+	)
+}
+
 fn with(error: Error, name: &str, value: Value) -> Error {
 	match error {
 		Error::Action { mut response, message } => {

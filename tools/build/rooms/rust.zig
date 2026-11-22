@@ -120,13 +120,15 @@ pub fn register(b: *std.Build, check_step: *std.Build.Step, runtime_gate: *execu
     commands.setLibDir(lint, .host);
     const lint_step = b.step("rooms-rust-lint", "Lint the Rooms Rust workspace with clippy, warnings denied (needs cargo)");
     lint_step.dependOn(&lint.step);
-    // The pass above builds the product with `test-support`, which carries
-    // the fault points and stand-ins, so the shipped binaries' own cfg arms
-    // are read again without it. Only the product's binaries are linted,
-    // because they are what ships.
+    // The pass above builds the product and the services with
+    // `test-support`, which carries the fault points and stand-ins, so the
+    // shipped cfg arms of both are read again without it: the product's
+    // binaries and the services library they link, with the feature they
+    // ship with.
     const shipped_lint = commands.addRootedSystemCommand(b, .build_tool, &.{
-        "cargo", "clippy",        "--quiet", "--locked", "--manifest-path", "apps/rooms/rust/Cargo.toml",
-        "-p",    "rooms-product", "--bins",  "--",       "-D",              "warnings",
+        "cargo",      "clippy",                   "--quiet", "--locked", "--manifest-path", "apps/rooms/rust/Cargo.toml",
+        "-p",         "rooms-product",            "--bins",  "-p",       "rooms-services",  "--lib",
+        "--features", "rooms-services/processes", "--",      "-D",       "warnings",
     });
     commands.setLibDir(shipped_lint, .host);
     shipped_lint.step.dependOn(&lint.step);

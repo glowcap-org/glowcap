@@ -1,6 +1,7 @@
-//! The direct plan against the session's participation rule: append under
-//! the operation, reopen the last closed row of a registration in place, and
-//! refuse a directory whose contact moved.
+//! The direct plan on its own: append under the operation, reopen the last
+//! closed row of a registration in place, give a route back while a row is
+//! open, and refuse a directory whose contact moved. The runtime proofs hold
+//! the session's participation rule to the same plan.
 use super::*;
 use alloc::string::ToString;
 use serde_json::{Value, json};
@@ -156,4 +157,23 @@ fn start_direct_reads_exactly_four_arguments_and_writes_them_back() {
 	let read = StartDirect::read(&args).unwrap();
 	assert_eq!(read.arguments(), args);
 	assert!(StartDirect::read(&args[..3]).is_none());
+}
+
+#[test]
+fn a_route_for_a_registration_with_an_open_row_is_given_back_whoever_opened_it() {
+	// Two opens of one peer race: the second route finds the first's row open,
+	// even one introduced under the directory's earlier inbox.
+	for inbox in [4, 5] {
+		let workspace = intent(
+			directory(inbox),
+			json!([direct("closed", "r1", true, ""), direct("open", "r1", false, "")]),
+		);
+		let refused = plan(&workspace, "r1").unwrap_err();
+		assert_eq!(refused, DirectRefusal::Open(Id::new("open".into()).unwrap()), "{inbox}");
+	}
+	let other = intent(directory(4), json!([direct("open", "r2", false, "")]));
+	assert_eq!(
+		plan(&other, "r1").unwrap().conversation.text().as_str(),
+		Some("operation")
+	);
 }

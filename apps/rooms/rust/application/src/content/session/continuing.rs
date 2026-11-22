@@ -1,5 +1,6 @@
 //! Closed methods for an owner's private continuation channel. The caller
-//! must also present the exact root witness. These tags grant no authority.
+//! must also present the exact root witness. A tag only names the verb. The
+//! grant the call travels through still admits it.
 #[derive(Clone, Copy)]
 #[repr(i64)]
 pub enum Method {

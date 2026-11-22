@@ -101,6 +101,7 @@ impl<P: Tasks + Deadline + Clone + 'static> SessionContent<P> {
 	}
 	fn declared_requirement(&self, input: Invocation<'_>) -> Result<Requirement> {
 		let owner = self.owner(input.verb)?;
+		let private = continuing::private(input);
 		let input = continuing::input(self, input)?;
 		// Forwarding bypasses invoke; application lifetime belongs to admission
 		// too, including the fresh source check after every upstream wait.
@@ -207,6 +208,7 @@ impl<P: Tasks + Deadline + Clone + 'static> SessionContent<P> {
 			}
 			"replaceWorkspace" => Requirement::new(&[ReplaceWorkspace.key()], &[]),
 			"release" => Requirement::new(&[ManageCustody.key(), ReplaceWorkspace.key()], &[]),
+			"acquire-workspace" if private => continuing::acquisition_requirement(),
 			"acquire-workspace" => Requirement::new(&[ManageCustody.key(), ReplaceWorkspace.key()], &[]),
 			"import" | "import-bundle" | "initialize" | "retire-host-registrations" | "settle-effect" => {
 				Requirement::new(&[ManageCustody.key()], &[])

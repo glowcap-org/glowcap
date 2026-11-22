@@ -40,6 +40,7 @@ pub(super) enum Request, kind = "kind" {
 		intent: workspace::Intent,
 		source: Option<custody::FieldKey<custody::SessionAccess>>,
 	},
+	ReleaseResult => "release-result" { operation: String, command_base: u64, name: String, args: Vec<String> },
 }
 }
 struct Pending {
@@ -157,6 +158,15 @@ impl Request {
 				releases,
 				vector(imports).saturating_add(imports.iter().map(|input| input.uri.capacity()).sum()),
 			),
+			Self::ReleaseResult {
+				operation, name, args, ..
+			} => {
+				return size_of::<Self>()
+					.saturating_add(operation.capacity())
+					.saturating_add(name.capacity())
+					.saturating_add(vector(args))
+					.saturating_add(args.iter().map(String::capacity).sum());
+			}
 			Self::Result {
 				operation,
 				name,
@@ -272,6 +282,21 @@ impl Request {
 					request
 				};
 				request.start_submission()
+			}
+			// A result the plan will not adopt goes back, so its receipt
+			// place is free and the operation is settled.
+			Self::ReleaseResult {
+				operation,
+				command_base,
+				name,
+				args,
+			} => {
+				let command = app
+					.workspace
+					.prepare_command(&operation, command_base, &name, &args)
+					.await
+					.map_err(peer_failure)?;
+				return command.release().await.map_err(peer_failure);
 			}
 		};
 		submission.completed().await.map_err(peer_failure)

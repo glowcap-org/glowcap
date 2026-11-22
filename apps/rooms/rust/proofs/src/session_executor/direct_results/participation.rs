@@ -1,7 +1,10 @@
-//! Collaborators acquire only their exact introduction, including reopening.
+//! Collaborators acquire only their exact introduction, including reopening,
+//! and never a second open row for one registration.
 use super::*;
 use rooms_application::fields::Text;
 use rooms_glowcap::client::workspace::{ResultImport, Workspace};
+
+const OTHER_REGISTRATION: &str = "00000000-0000-4000-8000-000000000002";
 
 pub(super) async fn run(host: &Host, owner: &managed::Session<Platform>, platform: &Platform) {
 	let policy = rooms_glowcap::policy::descriptor().unwrap();
@@ -14,6 +17,17 @@ pub(super) async fn run(host: &Host, owner: &managed::Session<Platform>, platfor
 		.unwrap();
 	let (source, _) = owner.derive(terms, 1, ControlPowers::default()).await.unwrap();
 	let workspace = Workspace::local(host.clone(), platform.clone(), source.clone());
+	// The owner's open row reaches another member, so the collaborator's
+	// introductions below open and reopen rows of their own.
+	let mut intent = workspace.snapshot().await.unwrap().intent;
+	for row in intent.conversations.as_mut_slice() {
+		if let workspace::Conversation::Direct(row) = row
+			&& let Some(introduction) = row.introduction.as_mut()
+		{
+			introduction.registration = Text::new(OTHER_REGISTRATION.into()).unwrap();
+		}
+	}
+	owner.replace_workspace(&intent).await.unwrap();
 	let start = workspace::StartDirect {
 		directory: "directory",
 		peer: "peer",
@@ -114,6 +128,7 @@ pub(super) async fn run(host: &Host, owner: &managed::Session<Platform>, platfor
 		assert!(command.adopted().await.unwrap());
 		assert_eq!(workspace.snapshot().await.unwrap().intent, candidate);
 		if !reopened {
+			second_open(host, &workspace, &source, &start, &plan.conversation).await;
 			let workspace::Conversation::Direct(row) = &mut candidate.conversations.as_mut_slice()[position] else {
 				unreachable!()
 			};
@@ -124,4 +139,78 @@ pub(super) async fn run(host: &Host, owner: &managed::Session<Platform>, platfor
 			owner.replace_workspace(&candidate).await.unwrap();
 		}
 	}
+}
+
+/// A second introduction of a peer whose row is open commits, but its route
+/// never lands in a second open row: the plan gives it back and the session
+/// refuses the row the plan would not make.
+async fn second_open(
+	host: &Host,
+	workspace: &Workspace<Platform>,
+	source: &Ref,
+	start: &workspace::StartDirect<'_>,
+	open: &workspace::Id,
+) {
+	let id = "collaborator-twice";
+	let snapshot = workspace.snapshot().await.unwrap();
+	let command = workspace
+		.prepare_command(id, snapshot.revision, "startDirect", &start.arguments())
+		.await
+		.unwrap();
+	command.submit().await.unwrap();
+	assert_eq!(finished(host, source, id, source).await.as_str(), Some("committed"));
+	let snapshot = workspace.snapshot().await.unwrap();
+	let destination = coordinate(custody::Role::DirectAccess, 42);
+	let initiating = coordinate(custody::Role::SessionAccess, 42);
+	let receipt = rooms_application::content::session::results::Direct {
+		inbox: coordinate(custody::Role::DirectAccess, 1).key.retag(),
+	};
+	let current = &snapshot.intent;
+	let planned = workspace::adopt_direct(
+		current,
+		current,
+		id,
+		start,
+		&receipt,
+		destination.key.retag(),
+		initiating.key.retag(),
+	);
+	assert_eq!(planned, Err(workspace::DirectRefusal::Open(open.clone())));
+	let mut twice = current.clone();
+	let row = twice
+		.conversations
+		.as_slice()
+		.iter()
+		.find_map(|row| match row {
+			workspace::Conversation::Direct(row) if row.id == *open => Some(row.clone()),
+			_ => None,
+		})
+		.unwrap();
+	let mut row = *row;
+	row.id = workspace::Id::new(id.into()).unwrap();
+	row.access = Some(destination.key.retag());
+	row.source = Some(initiating.key.retag());
+	row.inbox = None;
+	row.lines = Default::default();
+	row.draft = Default::default();
+	twice
+		.conversations
+		.try_push(workspace::Conversation::Direct(Box::new(row)))
+		.unwrap();
+	let mappings = [ResultImport {
+		result: coordinate(custody::Role::DirectAccess, 1),
+		destination,
+	}];
+	let refused = command
+		.prepare_result_acquisition_with_source(snapshot.revision, &mappings, &[], &twice, Some(initiating.key.retag()))
+		.unwrap()
+		.submit()
+		.await
+		.expect_err("a second open row for one registration is refused");
+	assert!(
+		!matches!(refused, rooms_glowcap::client::Error::WorkspaceConflict),
+		"refused by the rule, not by a moved workspace"
+	);
+	assert_eq!(workspace.snapshot().await.unwrap().revision, snapshot.revision);
+	command.release().await.unwrap();
 }

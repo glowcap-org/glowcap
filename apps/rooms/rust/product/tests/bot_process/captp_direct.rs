@@ -48,10 +48,11 @@ fn opens(world: &World) -> usize {
 	world.rig.log().matches(&opened).count()
 }
 
-/// The bot serves through a link its owner issued, so it is not the access
-/// that joined the room. It shows typing there while the agent runs, opens one
-/// direct conversation for its first private answer, and reuses it for the
-/// next, whatever case the nickname is written in.
+/// The bot serves through a collaborator link its owner issued, so it is not
+/// the access that joined the room. It shows typing there while the agent
+/// runs, opens one direct conversation for its first private answer, answers
+/// the member's reply there once, and reuses the conversation for its next
+/// private answer, whatever case the nickname is written in.
 #[test]
 fn a_member_answered_privately_from_a_room_gets_one_direct_conversation() {
 	let world = World::new("bot-live-dm");
@@ -70,6 +71,9 @@ fn a_member_answered_privately_from_a_room_gets_one_direct_conversation() {
 	assert_eq!(first["ok"], true, "{first}");
 	assert!(first["opened"]["operation"].is_string(), "{first}");
 	world.await_line("direct", "answered privately");
+	// The member's answer reaches the bot through the same access.
+	world.dm_again("reply:heard privately");
+	world.await_line("direct", "heard privately");
 	assert_eq!(turn(&world, &[say("Bot-Friend", "again privately")]), "exit=0");
 	let second = output(&world, 0);
 	assert_eq!(second["opened"], Value::Null, "{second}");
@@ -84,12 +88,13 @@ fn a_member_answered_privately_from_a_room_gets_one_direct_conversation() {
 	world.stopped(bot);
 	assert_eq!(world.count("direct", "answered privately"), 1);
 	assert_eq!(world.count("direct", "again privately"), 1);
+	assert_eq!(world.count("direct", "heard privately"), 1);
 	world.fixture.finish();
 }
 
 /// The member can answer in a direct conversation the bot opened. Once the
-/// bot closes it, it is opened again under the same id, and a nickname no
-/// member holds is refused before anything is sent.
+/// bot closes it, it is opened again under the same id, and a nickname nobody
+/// in the room wrote under is refused before anything is sent.
 #[test]
 fn a_closed_direct_conversation_is_reopened_and_an_unknown_member_is_refused() {
 	let world = World::new("bot-live-dm-reopen");
@@ -120,10 +125,8 @@ fn a_closed_direct_conversation_is_reopened_and_an_unknown_member_is_refused() {
 		(&json!(false), &json!(true)),
 		"{refused}"
 	);
-	assert!(
-		refused["error"]["message"].as_str().unwrap().contains("nobody-here"),
-		"{refused}"
-	);
+	let message = refused["error"]["message"].as_str().unwrap();
+	assert!(message.contains("nobody-here has not written in it"), "{refused}");
 	world.await_line("direct", "after reopening");
 	assert_eq!(opens(&world), 2, "{}", world.rig.log());
 	world.stopped(bot);

@@ -8,10 +8,13 @@
 //! outside every agent's working directory. Its `turn` file names the turn
 //! that opened it, and each place taken is a file named by its number, made
 //! with an exclusive create, so verbs running at once never take one place
-//! twice.
+//! twice. An `open-<operation>.json` file keeps the introduction a `--dm`
+//! open sent, so looking again at that open in the same turn sends the same
+//! one.
 use super::{error::Error, ledger::TurnId, rooms::ConversationId, store};
+use rooms_services::session::attached::Introduction;
 use std::{
-	io::ErrorKind,
+	io::{ErrorKind, Write},
 	path::{Path, PathBuf},
 };
 
@@ -71,6 +74,49 @@ pub fn spend(root: &Path, conversation: &ConversationId) -> Result<(), Error> {
 	)))
 }
 
+/// Where the turn keeps the introduction sent under `operation`. Only an
+/// operation the bot mints, 32 hexadecimal digits, names one.
+fn open_file(root: &Path, conversation: &ConversationId, operation: &str) -> Option<PathBuf> {
+	(operation.len() == 32 && operation.bytes().all(|byte| byte.is_ascii_hexdigit()))
+		.then(|| budget(root, conversation).join(format!("open-{operation}.json")))
+}
+
+/// Keep the introduction an open under `operation` is about to send, in the
+/// running turn's budget, before it is sent.
+pub fn note_open(
+	root: &Path,
+	conversation: &ConversationId,
+	operation: &str,
+	introduction: &Introduction,
+) -> Result<(), Error> {
+	let path = open_file(root, conversation, operation)
+		.ok_or_else(|| Error::Usage(format!("operation {operation} is not one the bot made")))?;
+	let bytes = serde_json::to_vec(introduction).map_err(|cause| Error::state("an open's introduction", cause))?;
+	std::fs::OpenOptions::new()
+		.write(true)
+		.create_new(true)
+		.open(path)
+		.and_then(|mut file| file.write_all(&bytes))
+		.map_err(Error::io("keeping an open's introduction in the turn's action budget"))
+}
+
+/// The introduction this turn sent under `operation`, or none when this turn
+/// sent no open under it.
+pub fn noted_open(root: &Path, conversation: &ConversationId, operation: &str) -> Result<Option<Introduction>, Error> {
+	let Some(path) = open_file(root, conversation, operation) else {
+		return Ok(None);
+	};
+	match std::fs::read(&path) {
+		Ok(bytes) => serde_json::from_slice(&bytes)
+			.map(Some)
+			.map_err(|cause| Error::state("an open's introduction", cause)),
+		Err(error) if error.kind() == ErrorKind::NotFound => Ok(None),
+		Err(error) => Err(Error::io(
+			"reading an open's introduction from the turn's action budget",
+		)(error)),
+	}
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;
@@ -101,5 +147,41 @@ mod tests {
 		spend(&dir, &conversation).unwrap();
 		close(&dir, &conversation).unwrap();
 		assert!(spend(&dir, &conversation).is_err(), "a closed budget took a place");
+	}
+
+	#[test]
+	fn an_open_is_kept_once_for_its_turn_under_an_operation_the_bot_made() {
+		let dir = Scratch::create("bot-actions-open");
+		let conversation = ConversationId::new("c");
+		let operation = "0123456789abcdef0123456789abcdef";
+		let introduction = Introduction {
+			directory: "d".into(),
+			peer: "ann".into(),
+			registration: "r".into(),
+		};
+		open(&dir, &conversation, TurnId(1)).unwrap();
+		assert_eq!(noted_open(&dir, &conversation, operation).unwrap(), None);
+		note_open(&dir, &conversation, operation, &introduction).unwrap();
+		assert_eq!(
+			noted_open(&dir, &conversation, operation).unwrap(),
+			Some(introduction.clone())
+		);
+		assert!(
+			note_open(&dir, &conversation, operation, &introduction).is_err(),
+			"kept twice"
+		);
+		for refused in ["../escape", "not-hex-but-thirty-two-bytes-long", ""] {
+			assert!(
+				note_open(&dir, &conversation, refused, &introduction).is_err(),
+				"{refused}"
+			);
+			assert_eq!(noted_open(&dir, &conversation, refused).unwrap(), None, "{refused}");
+		}
+		open(&dir, &conversation, TurnId(2)).unwrap();
+		assert_eq!(
+			noted_open(&dir, &conversation, operation).unwrap(),
+			None,
+			"a new turn starts over"
+		);
 	}
 }

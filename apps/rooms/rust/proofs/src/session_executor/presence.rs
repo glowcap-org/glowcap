@@ -1,5 +1,6 @@
 //! Typing uses the exact room/direct selection on every send, through any
-//! access whose rights admit it, and stops with that access's pause.
+//! access whose rights admit it, and stops with that access's pause or
+//! revocation. An access that may only read shows none.
 use super::*;
 use rooms_glowcap::client::workspace::Workspace;
 
@@ -81,6 +82,12 @@ pub(super) async fn run() {
 				assert!(shared.set(false).await.is_err(), "a sender stops with its own access's pause");
 				publication_results::lifecycle(&host, &sibling_control, "resume").await;
 				assert_eq!(calls.get(), 2);
+				publication_results::lifecycle(&host, &sibling_control, "revoke").await;
+				assert!(shared.set(false).await.is_err(), "a sender ends with its own access's revocation");
+				let observing = policy.value_for_kind(session::KIND, &[rooms_application::content::permissions::Permission::ObserveWorkspace.key()], &[]).unwrap();
+				let (observer, _) = owner.derive(observing, 0, ControlPowers::default()).await.unwrap();
+				assert!(Workspace::local(host.clone(), platform.clone(), observer.clone()).typing_sender("conversation", selected).await.is_err(), "an access that may only read shows no typing");
+				assert_eq!(calls.get(), 2);
 				let raw = Ref::try_from(&host.send(&source, "typing-sender", &["conversation".into(), serde_json::to_string(&selected).unwrap().into(), serde_json::to_string(&requests::coordinate(custody::Role::SessionAccess, 1)).unwrap().into()]).await.unwrap()).unwrap();
 				assert!(host.send(&raw, "post", &["forbidden".into()]).await.is_err());
 				publication_results::lifecycle(&host, &control, "pause").await;
@@ -141,7 +148,7 @@ pub(super) async fn run() {
 					assert!(startup.await.is_err(), "startup cannot create consumers after close begins");
 					assert_eq!(platform.tasks.borrow().len(), tasks, "no change feed or membership is spawned during close");
 					owner.close().await.unwrap();
-				drop((sender, shared, next_sender, raw, workspace, target, replacement, root, source, control, sibling, sibling_control, owner));
+				drop((sender, shared, next_sender, raw, workspace, target, replacement, root, source, control, sibling, sibling_control, observer, owner));
 				attachment.close().await.unwrap();
 				host.close(PendingWork::Cancel).await.unwrap();
 				environment::close(&mut store).await;

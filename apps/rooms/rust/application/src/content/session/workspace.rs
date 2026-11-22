@@ -23,7 +23,7 @@ mod nickname;
 mod references;
 mod rows;
 pub use adoption::{Adoption, LineAdoption, LineReceipt, Refusal as AdoptionRefusal, adopt_line};
-pub use direct::{DirectAdoption, DirectRefusal, StartDirect, adopt_direct, open_direct};
+pub use direct::{DirectAdoption, DirectRefusal, StartDirect, adopt_direct, introduced_to, open_direct};
 pub use inbox::InboxSelection;
 pub use nickname::RoomNickname;
 pub use rows::{Directory, PostedLine, PublicEntry, Room};

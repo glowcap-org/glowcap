@@ -24,7 +24,7 @@ use rooms_glowcap::client::{
 };
 use std::path::Path;
 
-pub use direct::Opened;
+pub use direct::{Introduction, Opened, Reach};
 pub use error::Error;
 pub use events::{Attachment, Batch, Change, Conversation, Event, Kind, Line, Notice, Step};
 pub use files::Outgoing;
