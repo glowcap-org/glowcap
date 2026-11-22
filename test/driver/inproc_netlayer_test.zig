@@ -175,6 +175,28 @@ fn untilOperationParked(io: std.Io, listener: net.netlayer.Listener) !void {
     }
 }
 
+test "inproc netlayer: a refused readiness poll names the listener refused, not closed" {
+    const allocator = std.testing.allocator;
+    var threaded = std.Io.Threaded.init(allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    var network = inproc.Network.init(allocator, io);
+    defer network.deinit();
+
+    const listener = try netlayer_test.listenBlocking(network.netlayer(), allocator, .{ .designator = "refused-poll" });
+    defer netlayer_test.close(listener);
+    {
+        var script: net.poll.testing.Script = .{ .errnos = &.{.NOMEM} };
+        const guard = net.poll.testing.inject(&script);
+        defer guard.deinit();
+        try std.testing.expectError(error.AcceptRefused, listener.waitAcceptable(0));
+        try std.testing.expectEqual(@as(usize, 1), script.calls);
+    }
+    // The listener is still open, so the next wait reports no arrival.
+    try std.testing.expect(!try listener.waitAcceptable(0));
+}
+
 fn waitFiniteUntilClosed(listener: net.netlayer.Listener) anyerror!void {
     try std.testing.expectError(error.ConnectionLost, listener.waitAcceptable(10_000));
 }
