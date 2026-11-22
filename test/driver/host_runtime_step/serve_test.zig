@@ -78,6 +78,7 @@ test "Zig operation failures classify at the I/O-owning driver" {
     try std.testing.expectEqual(Failure.Kind.would_block, Failure.classify(error.PendingOpenLimitReached));
     try std.testing.expectEqual(Failure.Kind.timeout, Failure.classify(error.HandshakeTimedOut));
     try std.testing.expectEqual(Failure.Kind.closed, Failure.classify(error.Canceled));
+    try std.testing.expectEqual(Failure.Kind.closed, Failure.classify(error.ServerClosed));
     try std.testing.expectEqual(Failure.Kind.io, Failure.classify(error.ConnectionLost));
     try std.testing.expectEqual(Failure.Kind.malformed, Failure.classify(error.TruncatedFrame));
     try std.testing.expectEqual(Failure.Kind.malformed, Failure.classify(error.MalformedFrame));
