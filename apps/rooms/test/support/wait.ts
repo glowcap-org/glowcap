@@ -10,11 +10,11 @@
 export const delay = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
 /** Poll `ready` until it holds, or fail after `ms` naming `what`. `ready` may
- * look something up, so it may answer late: each answer is awaited before the
- * deadline is read again. */
+ * look something up, so it may answer late, and the deadline bounds an answer
+ * that never comes too. */
 export async function until(ready: () => boolean | Promise<boolean>, what: string, ms = 30_000): Promise<void> {
 	const deadline = Date.now() + ms;
-	while (!(await ready())) {
+	while (!(await within(Promise.resolve(ready()), what, Math.max(0, deadline - Date.now())))) {
 		if (Date.now() > deadline) throw new Error(`timed out waiting for ${what}`);
 		await delay(50);
 	}

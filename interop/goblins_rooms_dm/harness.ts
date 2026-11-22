@@ -63,6 +63,7 @@ const IROH = Deno.args.includes("--iroh");
 const GATE = IROH ? "goblins-rooms-dm-iroh" : "goblins-rooms-dm";
 const ROOT = new URL("../../", import.meta.url).pathname;
 import { WEB } from "../../apps/rooms/test/support/paths.ts";
+import { roomLocator as servedLocator } from "../../apps/rooms/test/support/rooms_server.ts";
 import { fail } from "../../apps/rooms/test/support/fail.ts";
 const VAT = new URL("../../conformance/goblins-peer/racket/rooms-dm-member.rkt", import.meta.url)
 	.pathname;
@@ -93,21 +94,6 @@ const until = (ready: () => boolean, what: string, ms = WAIT_MS) => untilWithin(
 /** How long an iroh endpoint may take to learn a direct address of its own.
  * Shorter than `WAIT_MS`, because nothing here is starting up cold. */
 const IROH_DIRECT_ADDRESSES_MS = 20_000;
-
-async function waitForLocator(port: number): Promise<string> {
-	const deadline = Date.now() + WAIT_MS;
-	while (Date.now() < deadline) {
-		try {
-			const res = await fetch(`http://127.0.0.1:${port}/locator`);
-			const text = (await res.text()).trim();
-			if (res.status === 200 && text.length > 0) return text;
-		} catch {
-			// the front is not up, or the room has not announced yet
-		}
-		await new Promise((r) => setTimeout(r, 50));
-	}
-	fail("serve.ts did not answer with a room locator");
-}
 
 /** Every line the vat has printed. It narrates what it hears one line at a time,
  * so its stdout is where this harness reads what a Goblins vat saw. */
@@ -226,7 +212,7 @@ try {
 
 	const httpPort = await webPort(web);
 	const traceRef = await webAnnouncements(web).line("ROOMS-TRACE-LISTENING", "rooms-web");
-	const roomLocator = await waitForLocator(httpPort);
+	const roomLocator = await servedLocator(httpPort, "serve.ts", WAIT_MS);
 	const viewer = await watchTimeline(traceRef);
 	closeViewer = viewer.close;
 	const timeline = viewer.seen;

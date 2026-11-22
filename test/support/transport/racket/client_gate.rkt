@@ -16,19 +16,25 @@
   (read-readiness-field in "sturdyref-path" miss))
 
 (define (read-readiness-field in field miss)
-  (let loop ()
-    (define line (read-line in))
-    (cond
-      [(eof-object? line) (fail "interop" miss)]
-      [(regexp-match (pregexp (format "\"~a\":\"([^\"]+)\"" field)) line) => cadr]
-      [else (loop)])))
+  (cadr (read-ready-line in (pregexp (format "\"~a\":\"([^\"]+)\"" (regexp-quote field))) miss)))
 
 (define (await-greeter-ready in [miss "never saw the exporter's greeter readiness line"])
+  (void (read-ready-line in #rx"\"name\":\"greeter\"" miss)))
+
+;; How long a partner has to print its readiness line: under the step's 30 s process deadline, so the gate names the miss before the build stops it.
+(define ready-seconds 20)
+
+;; Read the partner's stdout until a line matches `rx`. The deadline bounds the
+;; whole wait, including a read the partner never answers.
+(define (read-ready-line in rx miss)
+  (define deadline (+ (current-inexact-milliseconds) (* 1000 ready-seconds)))
   (let loop ()
-    (define line (read-line in))
+    (define left (/ (max 0 (- deadline (current-inexact-milliseconds))) 1000.0))
+    (define line (sync/timeout left (read-line-evt in)))
     (cond
-      [(eof-object? line) (fail "interop" miss)]
-      [(regexp-match? #rx"\"name\":\"greeter\"" line) (void)]
+      [(not line) (fail "interop" (format "~a within ~a s" miss ready-seconds))]
+      [(eof-object? line) (fail "interop" (format "~a: its output closed" miss))]
+      [(regexp-match rx line) => values]
       [else (loop)])))
 
 (define (ignore-port-args gate)

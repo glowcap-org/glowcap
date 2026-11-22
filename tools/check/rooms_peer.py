@@ -7,6 +7,7 @@ acknowledgement into start: it failed on the missing unanswered garden line.
 """
 
 import json
+import os
 import selectors
 import subprocess
 import sys
@@ -24,6 +25,23 @@ FRONT = ROOT / "zig-out/bin/glowcap"
 # (20.7s measured), and a team composes two such starts.
 COMMAND_SECONDS = 30
 START_SECONDS = 2 * COMMAND_SECONDS
+
+
+def read_line_within(stream, seconds, what):
+    """Read one line from a child's pipe, failing after `seconds` even when the
+    child prints part of a line and then stalls."""
+    deadline = time.monotonic() + seconds
+    fd = stream.fileno()
+    data = b""
+    with selectors.DefaultSelector() as selector:
+        selector.register(fd, selectors.EVENT_READ)
+        while b"\n" not in data:
+            left = deadline - time.monotonic()
+            assert left > 0 and selector.select(left), f"{what} within {seconds} s: {data!r}"
+            chunk = os.read(fd, 4096)
+            assert chunk, f"{what}: its output closed: {data!r}"
+            data += chunk
+    return data.split(b"\n", 1)[0].decode().strip()
 
 
 def failure_logs(root):
@@ -232,10 +250,7 @@ def main(bin_dir=ROOT / "zig-out/bin", transport="tcp"):
             )
             assert server.stdout is not None
             try:
-                with selectors.DefaultSelector() as selector:
-                    selector.register(server.stdout, selectors.EVENT_READ)
-                    assert selector.select(5), "server readiness deadline"
-                    line = server.stdout.readline().strip()
+                line = read_line_within(server.stdout, 5, "the server's readiness line")
                 assert line.startswith("ROOMS-SERVER-LISTENING "), line
                 locator = line.split(" ", 1)[1]
                 if locator.isdecimal():

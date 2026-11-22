@@ -32,7 +32,7 @@
 // collection on PATH.
 
 import { readAnnouncedLocator } from "../../apps/rooms/lib/locator.ts";
-import { runChild, stopSpawnedServer } from "../../apps/_demo/orchestrator.ts";
+import { readAnnouncement, runChild, stopSpawnedServer } from "../../apps/_demo/orchestrator.ts";
 import { CAPTP_VERSION_WIRE, type TraceEvent } from "@glowcap/runtime";
 import { connectTraceViewer, vatTraceEnv } from "../../apps/rooms/test/trace/viewer.ts";
 import { fail } from "../../apps/rooms/test/support/fail.ts";
@@ -63,32 +63,6 @@ const GLOWCAP_LINE = "hello from a glowcap peer";
 const ANNOUNCE_MS = 30_000;
 
 const DENO_FLAGS = ["run", "--allow-ffi", "--allow-read", "--allow-net", "--allow-env"];
-
-/** Read the server's stderr until it announces its trace capability, then keep
- * draining it to the log so anything the server says afterwards is visible when
- * a member fails. The room's own locator comes off stdout through
- * `readAnnouncedLocator`. This is the other announcement, and it is a sturdyref
- * rather than an address: a viewer enlivens it, and it names where the endpoint
- * listens for the producers that write to it. */
-async function awaitTraceSturdyref(stream: ReadableStream<Uint8Array>): Promise<string> {
-	const reader = stream.getReader();
-	const decoder = new TextDecoder();
-	let buf = "";
-	const deadline = Date.now() + ANNOUNCE_MS;
-	while (Date.now() < deadline) {
-		const { value, done } = await reader.read();
-		if (done) break;
-		buf += decoder.decode(value, { stream: true });
-		const m = buf.match(/ROOMS-TRACE-LISTENING (\S+)/);
-		if (m) {
-			// best-effort: the log drain ends when the server's pipe closes, and only trailing diagnostics are lost.
-			drainToLog(reader, decoder).catch(() => {});
-			return m[1];
-		}
-	}
-	reader.releaseLock();
-	fail(`the rooms server never announced its trace broadcast\n${buf}`);
-}
 
 /** Keep printing what the server says for the rest of the run. Both of its
  * pipes get one of these once the announcements are read: a server left with a
@@ -239,8 +213,15 @@ let failed = false;
 let trace: { rows: Map<string, SessionRow>; close: () => void } | null = null;
 try {
 	// Both announcements come out before the first member dials: the trace URL on
-	// stderr, the room's own locator on stdout.
-	const traceRef = await awaitTraceSturdyref(server.stderr);
+	// stderr, the room's own locator on stdout. The trace announcement is a
+	// sturdyref rather than an address, because a viewer enlivens it.
+	const [, traceRef] = await readAnnouncement(
+		server.stderr,
+		/ROOMS-TRACE-LISTENING (\S+)/,
+		"the rooms server never announced its trace broadcast",
+		ANNOUNCE_MS,
+	);
+	drainRest(server.stderr);
 	const locator = await readAnnouncedLocator(server, ANNOUNCE_MS);
 	drainRest(server.stdout);
 	console.log(`${GATE}: rooms server at ${locator}, live trace at ${traceRef}`);
