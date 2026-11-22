@@ -8,6 +8,7 @@ const Ctx = cli.ctx.Ctx;
 const tcp = glowcap.net.tcp;
 const model = glowcap.ocapn.model;
 const ip = std.Io.net;
+const descriptor_quota = @import("descriptor_quota");
 
 fn testSecret() glowcap.foundation.crypto.SecretKey {
     return glowcap.foundation.crypto.SecretKey.fromSeed(@as([32]u8, @splat(7)));
@@ -569,13 +570,8 @@ test "a background listener the kernel refuses stops, and info names the cause" 
     {
         // Leave one free descriptor: the dial takes it, so the listener's
         // accept is over the quota.
-        const saved = try std.posix.getrlimit(.NOFILE);
-        defer std.posix.setrlimit(.NOFILE, saved) catch unreachable; // raising back to the saved soft limit stays under its own hard limit
-        const rc = std.posix.system.dup(0);
-        if (std.posix.errno(rc) != .SUCCESS) return error.DupFailed;
-        const lowest_free: std.posix.fd_t = @intCast(rc);
-        _ = std.posix.system.close(lowest_free);
-        try std.posix.setrlimit(.NOFILE, .{ .cur = @intCast(lowest_free + 1), .max = saved.max });
+        const quota = try descriptor_quota.Lowered.begin(1);
+        defer quota.end();
         const dialed = try address.connect(runtime.io(), .{ .mode = .stream });
         defer dialed.close(runtime.io());
         var waited: usize = 0;
