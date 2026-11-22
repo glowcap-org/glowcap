@@ -49,9 +49,10 @@
 
 ;; The peer's first line names its key designator.
 (define (read-identity who p)
-  (unless (sync/timeout WAIT-SECONDS (peer-from p))
+  ;; The event takes a whole line, so a partial line cannot park the read.
+  (define line (sync/timeout WAIT-SECONDS (read-line-evt (peer-from p))))
+  (unless line
     (fail GATE (format "no identity line from the ~a within ~a seconds" who WAIT-SECONDS)))
-  (define line (read-line (peer-from p)))
   (define message
     (and (string? line) (with-handlers ([exn:fail? (lambda (_) #f)]) (string->jsexpr line))))
   (unless (and (hash? message) (equal? (hash-ref message 'type #f) "identity"))
