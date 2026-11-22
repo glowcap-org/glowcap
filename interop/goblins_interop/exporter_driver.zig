@@ -112,8 +112,8 @@ fn serveExporter(
 
     while (!done.load(.acquire)) {
         if (count < sessions.len and try server.waitAcceptable(20)) {
-            // tolerant: a failed accept costs one dial, which the peer's own timeout reports, and the next loop iteration accepts again.
-            const session = server.accept() catch continue;
+            // tolerant: while the listener listens, a failed accept costs one dial, which the peer's own timeout reports.
+            const session = server.accept() catch |err| if (server.listening()) continue else return err;
             sessions[count] = session;
             count += 1;
         }

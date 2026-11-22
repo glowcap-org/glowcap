@@ -94,6 +94,7 @@ pub fn add(b: *std.Build, in: Inputs) void {
     test_root.addImport("cli", api);
     test_root.addImport("glowcap", in.glowcap);
     test_root.addImport("vaxis", vaxis);
+    test_root.addImport("descriptor_quota", b.createModule(.{ .root_source_file = b.path("test/support/descriptor_quota.zig"), .target = in.target, .optimize = in.optimize }));
     const registry_tests = b.addTest(.{
         .root_module = test_root,
         .name = "cli-registry-test",

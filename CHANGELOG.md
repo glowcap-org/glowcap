@@ -37,6 +37,9 @@ Releases before 0.1.7 are in the
 - Highlight a Rooms line that mentions you from the one reading the session uses. A mention inside IRC bold or colour from the IRC bridge now counts, and your own line, including one read back from an archive, never highlights.
 - Report a refused `poll` from `Connection.runUntil` and `Connection.closeGracefully` as its own cause, such as `SystemResources`, instead of `ConnectionLost`. A Zig switch over `runUntil`'s errors needs arms for `SystemResources`, `InvalidWait`, and `Unexpected`.
 - Report an accept the kernel refuses on a TCP or onion listener, such as for a full descriptor table, as `AcceptRefused` with the kernel's cause, as the driver loop's listeners already do. It was reported as `ConnectionLost`, which means the listener shut down. A refused readiness poll on the listener or in the WebRTC transport keeps its own cause too.
+- Stop a `listen` started from the MCP server or the REPL when its listener fails, such as when the kernel refuses an accept for a full descriptor table, and name that cause in `info`. It kept reporting a live listener while spinning a core.
+- Keep `glowcap listen` serving when one partner fails its handshake or its session, as a `listen` from the MCP server or the REPL already does. It exited with an internal error.
+- Classify a closed `driver.Server`'s `ServerClosed` as `closed` rather than `io`, so a caller choosing by `OperationFailure.classify` reads a stopped listener as stopped.
 
 ### Security
 

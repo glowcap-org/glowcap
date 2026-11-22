@@ -8,6 +8,7 @@ const Ctx = cli.ctx.Ctx;
 const tcp = glowcap.net.tcp;
 const model = glowcap.ocapn.model;
 const ip = std.Io.net;
+const descriptor_quota = @import("descriptor_quota");
 
 fn testSecret() glowcap.foundation.crypto.SecretKey {
     return glowcap.foundation.crypto.SecretKey.fromSeed(@as([32]u8, @splat(7)));
@@ -542,4 +543,55 @@ test "close keeps accept-thread listener failure as the command outcome" {
     var again = cli.cmd_types.Parsed{ .gpa = gpa };
     defer again.deinit();
     try std.testing.expectEqual(cli.exit_codes.ok, try cli.ocapn.cmdClose(&c, &again));
+}
+
+test "a background listener the kernel refuses stops, and info names the cause" {
+    const gpa = std.testing.allocator;
+    var runtime: Runtime = undefined;
+    runtime.init(gpa);
+    defer runtime.deinit();
+    var c = makeCtx(runtime.io(), gpa, &runtime.environ);
+    defer c.deinit();
+    c.front = .mcp;
+    var capture: std.ArrayList(u8) = .empty;
+    defer capture.deinit(gpa);
+    c.sink = .{ .buffer = &capture };
+
+    var parsed = cli.cmd_types.Parsed{ .gpa = gpa };
+    defer parsed.deinit();
+    try parsed.setString("bind", "127.0.0.1:0");
+    try std.testing.expectEqual(cli.exit_codes.ok, try cli.ocapn.cmdListen(&c, &parsed));
+    const listener = c.background_listener.?;
+    var arena_state = std.heap.ArenaAllocator.init(gpa);
+    defer arena_state.deinit();
+    const peer = try model.uri.parsePeer(arena_state.allocator(), listener.locator);
+    const address = try tcp.parseDesignator(peer.designator);
+
+    {
+        // Leave one free descriptor: the dial takes it, so the listener's
+        // accept is over the quota.
+        const quota = try descriptor_quota.Lowered.begin(1);
+        defer quota.end();
+        const dialed = try address.connect(runtime.io(), .{ .mode = .stream });
+        defer dialed.close(runtime.io());
+        var waited: usize = 0;
+        while (listener.stop_reason.load(.acquire) == null) : (waited += 1) {
+            if (waited == 500) return error.ListenerKeptReportingLive;
+            try std.Io.sleep(runtime.io(), .fromMilliseconds(10), .awake);
+        }
+    }
+
+    var info_parsed = cli.cmd_types.Parsed{ .gpa = gpa };
+    defer info_parsed.deinit();
+    capture.clearRetainingCapacity();
+    try std.testing.expectEqual(cli.exit_codes.ok, try cli.ocapn.cmdInfo(&c, &info_parsed));
+    try std.testing.expect(std.mem.find(u8, capture.items, "\"listening\":false") != null);
+    try std.testing.expect(std.mem.find(u8, capture.items, "ProcessFdQuotaExceeded") != null);
+
+    capture.clearRetainingCapacity();
+    var close_parsed = cli.cmd_types.Parsed{ .gpa = gpa };
+    defer close_parsed.deinit();
+    _ = try cli.ocapn.cmdClose(&c, &close_parsed);
+    try std.testing.expect(c.background_listener == null);
+    try std.testing.expect(std.mem.find(u8, capture.items, "ProcessFdQuotaExceeded") != null);
 }

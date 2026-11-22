@@ -16,6 +16,7 @@ const tcp = glowcap.net.tcp;
 const fetch_pump = @import("../support/fetch_pump.zig");
 const wait = @import("../support/wait.zig");
 const handshake = @import("../support/handshake.zig");
+const descriptor_quota = @import("../support/descriptor_quota.zig");
 
 const ip = std.Io.net;
 
@@ -221,26 +222,6 @@ test "a nonblocking accept keeps an aborted arrival or an empty queue pending" {
     try std.testing.expect(!pending(.MFILE));
 }
 
-/// The process descriptor quota, lowered to the lowest free descriptor so the
-/// next one the kernel would hand out is over it.
-const ExhaustedQuota = struct {
-    saved: std.posix.rlimit,
-
-    fn begin() !ExhaustedQuota {
-        const saved = try std.posix.getrlimit(.NOFILE);
-        const rc = std.posix.system.dup(0);
-        if (std.posix.errno(rc) != .SUCCESS) return error.DupFailed;
-        const lowest_free: std.posix.fd_t = @intCast(rc);
-        _ = std.posix.system.close(lowest_free);
-        try std.posix.setrlimit(.NOFILE, .{ .cur = @intCast(lowest_free), .max = saved.max });
-        return .{ .saved = saved };
-    }
-
-    fn end(self: ExhaustedQuota) void {
-        std.posix.setrlimit(.NOFILE, self.saved) catch unreachable; // raising back to the saved soft limit stays under its own hard limit
-    }
-};
-
 test "a full descriptor table refuses the accept and leaves the listener open" {
     const allocator = std.testing.allocator;
     var threaded = std.Io.Threaded.init(allocator, .{});
@@ -259,7 +240,7 @@ test "a full descriptor table refuses the accept and leaves the listener open" {
     var read_buf: [64]u8 = undefined;
     var write_buf: [64]u8 = undefined;
     {
-        const quota = try ExhaustedQuota.begin();
+        const quota = try descriptor_quota.Lowered.begin(0);
         defer quota.end();
         // The blocking accept, then the event-driven one: each names the
         // quota, and neither reports the listener as shut down.

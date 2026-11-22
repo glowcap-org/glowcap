@@ -158,6 +158,7 @@ pub const OperationFailure = struct {
         } },
         .{ .kind = .closed, .causes = &.{
             error.ConnectionClosed,
+            error.ServerClosed,
             error.Canceled,
         } },
         .{ .kind = .session, .causes = &.{error.ProtocolAbort} },
