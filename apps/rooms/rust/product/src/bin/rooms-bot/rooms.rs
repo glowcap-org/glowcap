@@ -237,8 +237,11 @@ pub enum Settled {
 	/// It committed, but its route could not be kept and was given back, so
 	/// no conversation reaches the member through it.
 	Released,
-	/// It may still commit.
-	Uncertain,
+	/// It is still running in the session, and may still commit.
+	Pending,
+	/// The session cannot say whether it committed, because the work that
+	/// would settle it ended. Looking again never settles it.
+	Unknown,
 }
 
 /// Whether a line reached activity, read from the activity after a cursor.

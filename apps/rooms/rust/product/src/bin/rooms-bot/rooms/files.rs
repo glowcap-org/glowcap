@@ -39,7 +39,7 @@
 //!   fetch copies them.
 //! - `open-answers` holds how each direct-message open settles when it is
 //!   looked at again, one per line: `opened`, `reused`, `unapplied`,
-//!   `released`, `uncertain`, or a failure as in `send-faults`. Each look takes the first
+//!   `released`, `pending`, `unknown`, or a failure as in `send-faults`. Each look takes the first
 //!   and is logged in `calls.jsonl` as `settle-open`, and with none left a
 //!   look is refused.
 //!
@@ -547,7 +547,8 @@ impl Rooms for Files {
 			Some("reused") => Ok(Settled::Reused(conversation)),
 			Some("unapplied") => Ok(Settled::Unapplied),
 			Some("released") => Ok(Settled::Released),
-			Some("uncertain") => Ok(Settled::Uncertain),
+			Some("pending") => Ok(Settled::Pending),
+			Some("unknown") => Ok(Settled::Unknown),
 			_ => Err(RoomsError::new(
 				RoomsErrorKind::Refused,
 				"the stand-in has no answer for this open",

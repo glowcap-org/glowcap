@@ -74,9 +74,10 @@ pub struct Facts {
 	/// Lines given up on since this serve started, neither confirmed nor sent
 	/// again, because the session could no longer say whether they posted.
 	pub unconfirmed: u64,
-	/// Direct-message opens given up on since this serve started, neither
-	/// kept nor given back, whose receipts the session keeps until the access
-	/// is revoked.
+	/// Direct-message opens the bot gave up on, or whose note it could not
+	/// read, neither kept nor given back, as their notes set aside in the bot
+	/// directory count them. The session keeps their receipts until the
+	/// access that sent them is revoked.
 	pub unsettled_opens: u64,
 	/// The last failure, until the same activity next succeeds.
 	pub last_error: Option<Problem>,

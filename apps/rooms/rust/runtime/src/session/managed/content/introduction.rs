@@ -1,5 +1,7 @@
 //! Incoming direct intent is admitted by the original directory callback.
 //! Pending receivers need no invented upstream route or nickname-based recovery.
+//! A fresh opening lands where [`workspace::receive_direct`] says, the plan
+//! the opening side uses, and the route it replaces is released here.
 use super::*;
 use rooms_application::fields::{List, Text};
 
@@ -177,17 +179,9 @@ pub(super) fn invoke(call: &mut Call<'_>, input: Invocation<'_>) -> Result<Argum
 			}
 		}
 	}
-	// A fresh opening owns new callback custody and preserves the retired
-	// witness for replay refusal. Follow it only when the selected closed row
-	// names these exact registrations; a reused nickname cannot move the view.
-	let follows_selected = record.intent.conversations.as_slice().iter().any(|row| {
-		matches!(row, workspace::Conversation::Direct(row) if row.closed
-			&& record.intent.active.as_ref() == Some(&row.id)
-			&& row.directory == directory && row.peer.text().as_str() == Some(peer)
-			&& row.introduction.as_ref().is_some_and(|previous|
-				previous.access == witness.access && previous.name == witness.name
-				&& previous.callback == witness.callback && previous.registration == witness.registration))
-	});
+	// A fresh opening lands where the shared plan says, so one registration
+	// holds one open row on this side too. A row it lands in keeps its id,
+	// and the identity of the opening it held refuses that opening's replay.
 	let row = workspace::Direct {
 		kind: workspace::DirectKind::Direct,
 		id: id.clone(),
@@ -201,15 +195,18 @@ pub(super) fn invoke(call: &mut Call<'_>, input: Invocation<'_>) -> Result<Argum
 		closed: false,
 		draft: Text::new("".into()).ok_or_else(|| refuse("invalid empty draft"))?,
 	};
-	let mut conversations = record.intent.conversations.as_slice().to_vec();
-	conversations.push(workspace::Conversation::Direct(Box::new(row)));
-	record.intent.conversations =
-		List::new(conversations).ok_or_else(|| refuse("direct conversation capacity is full"))?;
-	if follows_selected {
-		record.intent.active = Some(id.clone());
+	let (landed, released) = workspace::receive_direct(&mut record.intent, row).map_err(|refusal| match refusal {
+		workspace::DirectRefusal::Full => refuse("direct conversation capacity is full"),
+		_ => refuse("invalid direct introduction"),
+	})?;
+	if let Some(route) = released {
+		record
+			.custody
+			.remove(custody::Coordinate::new(custody::Role::DirectAccess, route))
+			.ok_or_else(|| refuse("direct route custody is absent"))?;
 	}
 	records::replace(call, input, &mut record)?;
-	Ok(id
+	Ok(landed
 		.text()
 		.as_str()
 		.ok_or_else(|| refuse("invalid direct identity"))?

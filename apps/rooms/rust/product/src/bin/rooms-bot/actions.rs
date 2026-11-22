@@ -9,20 +9,10 @@
 //! that opened it, and each place taken is a file named by its number, made
 //! with an exclusive create, so verbs running at once never take one place
 //! twice. Its `members` file names, one per line, the members whose room
-//! lines the turn was shown, the only ones `--dm` reaches from a room. An
-//! `open-<operation>.json` file keeps the base and introduction a `--dm` open
-//! sent, so looking again at that open in the same turn sends the same one.
-//! The note is dropped once the open settles, and closing the budget hands a
-//! note still there to the serving bot to settle (`opens`).
-use super::{
-	error::Error,
-	ledger::TurnId,
-	opens::{self, Open},
-	rooms::ConversationId,
-	store,
-};
+//! lines the turn was shown, the only ones `--dm` reaches from a room.
+use super::{error::Error, ledger::TurnId, rooms::ConversationId, store};
 use std::{
-	io::{ErrorKind, Write},
+	io::ErrorKind,
 	path::{Path, PathBuf},
 };
 
@@ -72,26 +62,9 @@ pub fn members(root: &Path, conversation: &ConversationId) -> Result<Vec<String>
 }
 
 /// Close the conversation's budget, so no verb acts for it until a turn
-/// opens one again. Every open still noted in it moves to the opens the
-/// serving bot settles first, and a budget whose note cannot move stays.
+/// opens one again.
 pub fn close(root: &Path, conversation: &ConversationId) -> Result<(), Error> {
-	let path = budget(root, conversation);
-	let entries = match std::fs::read_dir(&path) {
-		Ok(entries) => entries,
-		Err(error) if error.kind() == ErrorKind::NotFound => return Ok(()),
-		Err(error) => return Err(Error::io("closing a turn's action budget")(error)),
-	};
-	for entry in entries {
-		let entry = entry.map_err(Error::io("closing a turn's action budget"))?;
-		let name = entry.file_name();
-		let noted = name
-			.to_str()
-			.and_then(|name| name.strip_prefix("open-")?.strip_suffix(".json"));
-		if let Some(operation) = noted {
-			opens::keep(root, operation, &entry.path())?;
-		}
-	}
-	match std::fs::remove_dir_all(path) {
+	match std::fs::remove_dir_all(budget(root, conversation)) {
 		Err(error) if error.kind() != ErrorKind::NotFound => Err(Error::io("closing a turn's action budget")(error)),
 		_ => Ok(()),
 	}
@@ -119,54 +92,6 @@ pub fn spend(root: &Path, conversation: &ConversationId) -> Result<(), Error> {
 	Err(Error::Usage(format!(
 		"a turn may run say, send, and command at most {MAX_ACTIONS_PER_TURN} times in all, and this turn has"
 	)))
-}
-
-/// Where the turn keeps the open sent under `operation`. Only an operation
-/// the bot mints names one.
-fn open_file(root: &Path, conversation: &ConversationId, operation: &str) -> Option<PathBuf> {
-	opens::minted(operation).then(|| budget(root, conversation).join(format!("open-{operation}.json")))
-}
-
-/// Keep the open under `operation` that is about to be sent, in the running
-/// turn's budget, before it is sent.
-pub fn note_open(root: &Path, conversation: &ConversationId, operation: &str, open: &Open) -> Result<(), Error> {
-	let path = open_file(root, conversation, operation)
-		.ok_or_else(|| Error::Usage(format!("operation {operation} is not one the bot made")))?;
-	let bytes = serde_json::to_vec(open).map_err(|cause| Error::state("an open's introduction", cause))?;
-	std::fs::OpenOptions::new()
-		.write(true)
-		.create_new(true)
-		.open(path)
-		.and_then(|mut file| file.write_all(&bytes))
-		.map_err(Error::io("keeping an open's introduction in the turn's action budget"))
-}
-
-/// The open this turn sent under `operation`, or none when this turn sent
-/// none under it or it settled.
-pub fn noted_open(root: &Path, conversation: &ConversationId, operation: &str) -> Result<Option<Open>, Error> {
-	let Some(path) = open_file(root, conversation, operation) else {
-		return Ok(None);
-	};
-	match std::fs::read(&path) {
-		Ok(bytes) => serde_json::from_slice(&bytes)
-			.map(Some)
-			.map_err(|cause| Error::state("an open's introduction", cause)),
-		Err(error) if error.kind() == ErrorKind::NotFound => Ok(None),
-		Err(error) => Err(Error::io(
-			"reading an open's introduction from the turn's action budget",
-		)(error)),
-	}
-}
-
-/// Drop the note of the open under `operation`, which settled.
-pub fn settled_open(root: &Path, conversation: &ConversationId, operation: &str) -> Result<(), Error> {
-	let Some(path) = open_file(root, conversation, operation) else {
-		return Ok(());
-	};
-	match std::fs::remove_file(path) {
-		Err(error) if error.kind() != ErrorKind::NotFound => Err(Error::io("dropping a settled open's note")(error)),
-		_ => Ok(()),
-	}
 }
 
 #[cfg(test)]
@@ -224,50 +149,5 @@ mod tests {
 		assert!(members(&dir, &conversation).unwrap().is_empty());
 		close(&dir, &conversation).unwrap();
 		assert!(members(&dir, &conversation).is_err());
-	}
-
-	#[test]
-	fn an_open_is_kept_once_for_its_turn_and_a_closing_budget_hands_an_unsettled_one_on() {
-		let dir = Scratch::create("bot-actions-open");
-		let conversation = ConversationId::new("c");
-		let [first, second] = ["0123456789abcdef0123456789abcdef", "fedcba9876543210fedcba9876543210"];
-		let noted = Open {
-			base: crate::bot::rooms::Base(7),
-			introduction: rooms_services::session::attached::Introduction {
-				directory: "d".into(),
-				peer: "ann".into(),
-				registration: "r".into(),
-			},
-			looks: 0,
-		};
-		open(&dir, &conversation, TurnId(1), []).unwrap();
-		assert_eq!(noted_open(&dir, &conversation, first).unwrap(), None);
-		note_open(&dir, &conversation, first, &noted).unwrap();
-		assert_eq!(noted_open(&dir, &conversation, first).unwrap(), Some(noted.clone()));
-		assert!(note_open(&dir, &conversation, first, &noted).is_err(), "kept twice");
-		for refused in ["../escape", "not-hex-but-thirty-two-bytes-long", ""] {
-			assert!(note_open(&dir, &conversation, refused, &noted).is_err(), "{refused}");
-			assert_eq!(noted_open(&dir, &conversation, refused).unwrap(), None, "{refused}");
-		}
-		note_open(&dir, &conversation, second, &noted).unwrap();
-		settled_open(&dir, &conversation, second).unwrap();
-		assert_eq!(
-			noted_open(&dir, &conversation, second).unwrap(),
-			None,
-			"a settled open is dropped"
-		);
-		open(&dir, &conversation, TurnId(2), []).unwrap();
-		assert_eq!(
-			noted_open(&dir, &conversation, first).unwrap(),
-			None,
-			"a new turn starts over"
-		);
-		let kept: Vec<_> = std::fs::read_dir(dir.join("opens"))
-			.unwrap()
-			.map(|entry| entry.unwrap().file_name().into_string().unwrap())
-			.collect();
-		assert_eq!(kept, [format!("{first}.json")], "only the unsettled open is handed on");
-		let handed: Open = serde_json::from_slice(&std::fs::read(dir.join("opens").join(&kept[0])).unwrap()).unwrap();
-		assert_eq!(handed, noted);
 	}
 }

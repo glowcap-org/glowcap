@@ -23,6 +23,8 @@ mod crashes;
 mod gating;
 #[path = "bot_process/home.rs"]
 mod home;
+#[path = "bot_process/opens.rs"]
+mod opens;
 #[path = "bot_process/rig.rs"]
 mod rig;
 #[path = "bot_process/sending.rs"]

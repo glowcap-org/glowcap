@@ -1,8 +1,9 @@
 //! The direct plan on its own: append under the operation, reopen the last
 //! closed row of a registration in place, give a route back while a row is
-//! open under any contact the directory held, and refuse a directory whose
-//! contact moved between the command and its acquisition. The runtime proofs
-//! hold the session's participation rule to the same plan.
+//! open under any contact the directory held, land a member's introduction
+//! in the row that reaches them, and refuse a directory whose contact moved
+//! between the command and its acquisition. The runtime proofs hold the
+//! session's participation rule to the same plan.
 use super::*;
 use crate::content::session::workspace::InvalidIntent;
 use alloc::string::ToString;
@@ -235,11 +236,77 @@ fn a_replacement_opens_no_second_row_for_a_registration() {
 	current
 		.replace_configuration(intent(directory(4), json!([reopened.clone(), closing])))
 		.unwrap();
-	// Two rows the receiving side already holds open stay as they are.
+	// Two rows a workspace saved before the rule holds open stay as they are,
+	// whether the session holds them or an import brings them together.
 	let mut theirs = open.clone();
 	theirs["id"] = "theirs".into();
 	theirs["access"] = Value::Null;
-	let mut both = intent(directory(4), json!([open.clone(), theirs.clone()]));
-	both.replace_configuration(intent(directory(4), json!([open, theirs])))
-		.unwrap();
+	let pair = || intent(directory(4), json!([open.clone(), theirs.clone()]));
+	pair().replace_configuration(pair()).unwrap();
+	intent(directory(4), json!([])).replace_configuration(pair()).unwrap();
+}
+
+#[test]
+fn an_introduction_lands_in_the_row_that_reaches_its_registration() {
+	let incoming = |id: &str| {
+		let mut row = direct(id, "r1", false, "");
+		row["access"] = Value::Null;
+		row["peer"] = "Ann2".into();
+		row["source"] = key(11).into();
+		row["introduction"]["opening"] = "the member's new opening".into();
+		match intent(directory(4), json!([row])).conversations.as_slice() {
+			[Conversation::Direct(row)] => row.as_ref().clone(),
+			_ => panic!("one direct row"),
+		}
+	};
+	let landed = |workspace: &Intent, at: usize| match &workspace.conversations.as_slice()[at] {
+		Conversation::Direct(row) => row.as_ref().clone(),
+		Conversation::Room(_) => panic!("a room at {at}"),
+	};
+	// The open row continues under its id and draft with the new opening, and
+	// gives up the route that reached the member's old one. A workspace saved
+	// with two open rows lands it in the first, as every post reaches.
+	let rows = json!([
+		direct("closed", "r1", true, ""),
+		direct("open", "r1", false, "kept"),
+		direct("twin", "r1", false, "")
+	]);
+	let mut workspace = intent(directory(4), rows);
+	let (id, released) = receive_direct(&mut workspace, incoming("fresh")).unwrap();
+	assert_eq!((id.text().as_str(), released), (Some("open"), Some(typed(9))));
+	let open = landed(&workspace, 1);
+	let fresh = incoming("fresh");
+	assert_eq!(
+		(
+			open.closed,
+			open.access,
+			open.draft.text().as_str(),
+			&open.peer,
+			open.source,
+			&open.introduction
+		),
+		(
+			false,
+			None,
+			Some("kept"),
+			&fresh.peer,
+			fresh.source,
+			&fresh.introduction
+		)
+	);
+	assert_eq!(workspace.conversations.as_slice().len(), 3);
+	// With none open, the last closed row reopens. With none at all, it is new.
+	let mut workspace = intent(
+		directory(4),
+		json!([direct("old", "r1", true, ""), direct("last", "r1", true, "")]),
+	);
+	let (id, released) = receive_direct(&mut workspace, incoming("fresh")).unwrap();
+	assert_eq!((id.text().as_str(), released), (Some("last"), None));
+	assert!(!landed(&workspace, 1).closed && landed(&workspace, 0).closed);
+	let mut workspace = intent(directory(4), json!([direct("other", "r2", false, "")]));
+	let (id, _) = receive_direct(&mut workspace, incoming("fresh")).unwrap();
+	assert_eq!(
+		(id.text().as_str(), landed(&workspace, 1)),
+		(Some("fresh"), incoming("fresh"))
+	);
 }

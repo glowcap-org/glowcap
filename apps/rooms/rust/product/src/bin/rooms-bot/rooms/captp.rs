@@ -271,7 +271,10 @@ impl Rooms for Attached {
 			Ok(attached::Opened::Opened { conversation, .. }) => Ok(Settled::Opened(conversation)),
 			Ok(attached::Opened::Reused { conversation, .. }) => Ok(Settled::Reused(conversation)),
 			Ok(attached::Opened::Unapplied(_)) => Ok(Settled::Unapplied),
-			Ok(attached::Opened::Uncertain(_)) => Ok(Settled::Uncertain),
+			Ok(attached::Opened::Uncertain(sent)) => Ok(match sent.status {
+				rooms_glowcap::client::workspace::EffectStatus::Unknown => Settled::Unknown,
+				_ => Settled::Pending,
+			}),
 			Err(attached::Error::Unopened { released: true, .. }) => Ok(Settled::Released),
 			Err(cause) => Err(self.failed(&live, cause, true).await),
 		}

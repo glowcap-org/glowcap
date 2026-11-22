@@ -16,7 +16,7 @@ use crate::bot::{
 	harness::{FailureKind, Turn},
 	home, inbox,
 	ledger::{Asked, Content, Ledger, MAX_RUNS, Part, Phase, Progress, Started, TurnId},
-	opens, prompt, reply,
+	prompt, reply,
 	rooms::{ConversationId, Rooms, RoomsError},
 	runner::{self, Finish, Heard, Place, Ran},
 	status::Activity,
@@ -50,14 +50,9 @@ pub async fn run<R: Rooms>(env: &Env<'_, R>, id: TurnId, stop: &mut watch::Recei
 	if let Some(conversation) = conversation
 		&& !matches!(step, Step::Stopped)
 	{
-		let settled = match actions::close(env.store.root(), &conversation) {
-			Ok(()) => opens::settle(env).await,
-			Err(error) => Err(error),
-		};
-		if let Err(error) = settled {
-			// tolerant: the budget stays bounded, a note that could not move
-			// stays in it, and the conversation's next turn closes it again.
-			// A kept open is looked at again after the next turn or start.
+		if let Err(error) = actions::close(env.store.root(), &conversation) {
+			// tolerant: the budget stays bounded, and the conversation's next
+			// turn closes it again.
 			env.store.log(&format!("turn {}: {error}", id.0));
 		}
 		if let Err(error) = notice(env, &conversation, false).await {

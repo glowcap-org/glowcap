@@ -5,16 +5,22 @@
 //! then: its route and its inbox are its own custody, so a directory that
 //! registers again later leaves the row carrying lines both ways.
 //!
-//! [`open_direct`] is the one rule for which open row reaches a member. The
-//! plan here, the session's participation check (`imports/participation.rs`
-//! in the runtime), the terminal front, attached views, and the page (through
-//! the browser module's `directReach`) all ask it. A registration holds at
-//! most one open row, so a route that arrives while one is open is given
-//! back. Otherwise the plan reopens [`reopened_direct`], the last closed row
-//! of the same registration, under its own id and draft, or else adds a new
-//! row whose id is the command's operation. The session refuses a workspace
-//! replacement or a local gesture that opens a second row
-//! (`Intent::reaches_another`).
+//! [`direct_reach`] is the one rule for which row reaches a member. The
+//! opener's plan here, the receiving side's [`receive_direct`], the session's
+//! participation check (`imports/participation.rs` in the runtime), the
+//! terminal front, attached views, and the page (through the browser module's
+//! `directReach`) all ask it. A registration holds at most one open row. A
+//! route this session's `startDirect` returns while one is open is given
+//! back, and an introduction the member sends lands in that row. Otherwise
+//! both reopen the last closed row of the registration under its own id, or
+//! else add a new row. The session refuses a workspace replacement or a
+//! local gesture that opens a second row (`Intent::reaches_another`).
+//!
+//! A workspace saved before this rule may hold two open rows for one
+//! registration, and keeps working: each row keeps its own route and the
+//! lines that arrive on it, [`open_direct`] and so every post and every new
+//! route reach the first, a replacement keeps both, and closing either
+//! leaves the other open.
 use super::{Conversation, Direct, DirectKind, Field, Id, Intent, Introduction, custody};
 use crate::{
 	content::session::results,
@@ -179,6 +185,44 @@ impl Intent {
 				&& introduced_to(other, directory, registration))
 		})
 	}
+}
+
+/// Land an introduction the member sent in the row that reaches their
+/// registration: the open row, else the last closed one, else `row` as a
+/// new row. `row` is the receiving row the introduction names. A row it
+/// lands in keeps its id, lines, draft, and inbox, which the session's next
+/// install replaces, and takes `row`'s peer, source, and introduction, so
+/// the conversation continues under its id. Returns that id and the route
+/// the row held before, which reaches the member's old opening and which the
+/// caller releases.
+pub fn receive_direct(
+	intent: &mut Intent,
+	row: Direct,
+) -> Result<(Id, Option<custody::FieldKey<custody::DirectAccess>>), DirectRefusal> {
+	let reach = match Reaching::of(&row) {
+		Some(Reaching {
+			directory,
+			registration: Some(registration),
+			..
+		}) => reach(intent, directory, registration),
+		_ => return Err(DirectRefusal::Arguments),
+	};
+	let Some(at) = reach.open.or(reach.reopened) else {
+		let id = row.id.clone();
+		intent
+			.conversations
+			.try_push(Conversation::Direct(Box::new(row)))
+			.map_err(|_| DirectRefusal::Full)?;
+		return Ok((id, None));
+	};
+	let Some(Conversation::Direct(landed)) = intent.conversations.as_mut_slice().get_mut(at) else {
+		unreachable!("direct_reach names only direct rows");
+	};
+	landed.peer = row.peer;
+	landed.source = row.source;
+	landed.introduction = row.introduction;
+	landed.closed = false;
+	Ok((landed.id.clone(), landed.access.take()))
 }
 
 /// The complete acquisition candidate that keeps one introduced route.

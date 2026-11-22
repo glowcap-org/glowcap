@@ -25,7 +25,7 @@ mod rows;
 pub use adoption::{Adoption, LineAdoption, LineReceipt, Refusal as AdoptionRefusal, adopt_line};
 pub use direct::{
 	DirectAdoption, DirectReach, DirectRefusal, Reaching, StartDirect, adopt_direct, direct_reach, introduced_to,
-	open_direct, reopened_direct,
+	open_direct, receive_direct, reopened_direct,
 };
 pub use inbox::InboxSelection;
 pub use nickname::RoomNickname;
@@ -425,9 +425,14 @@ impl Intent {
 			}) {
 				return Err(InvalidIntent::Custody);
 			}
-			// A replacement keeps two open rows the receiving side already
-			// holds, but opens no second one.
-			if !candidate.closed && previous.is_none_or(|row| row.closed) && next.reaches_another(candidate) {
+			// A replacement opens no row for a registration an open row of the
+			// current workspace reaches. Rows it carries open together, as a
+			// workspace saved before that rule may, are kept as a loaded one is.
+			if !candidate.closed
+				&& previous.is_none_or(|row| row.closed)
+				&& self.reaches_another(candidate)
+				&& next.reaches_another(candidate)
+			{
 				return Err(InvalidIntent::DirectOpen);
 			}
 		}

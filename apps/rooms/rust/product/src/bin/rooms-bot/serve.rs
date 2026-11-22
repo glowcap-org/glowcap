@@ -89,11 +89,12 @@ pub async fn run(request: &Request) -> Result<(), Error> {
 	served
 }
 
-/// What a replaced link's access gave up on, for `status` to count.
+/// What a replaced link's access gave up on, for `status` to count. The
+/// opens it gave up on stay set aside in the bot directory, which `status`
+/// counts.
 #[derive(Default)]
 struct Carried {
 	unconfirmed: u64,
-	unsettled_opens: u64,
 }
 
 /// Let the replaced link's access settle the lines and the direct-message
@@ -113,14 +114,15 @@ async fn hand_over(
 	let env = environment(&rooms, store, config, harness, ledger)?;
 	let handed = engine::hand_over(&env, shutdown).await;
 	let opens = match &handed {
-		Ok(_) if !*shutdown.borrow() => opens::look(&rooms, store, true).await,
-		_ => Ok(0),
+		Ok(_) if !*shutdown.borrow() => opens::look(&rooms, store, &opens::Look::Last, &mut Default::default())
+			.await
+			.map(drop),
+		_ => Ok(()),
 	};
 	rooms.close().await;
-	Ok(Carried {
-		unconfirmed: handed?,
-		unsettled_opens: opens?,
-	})
+	let unconfirmed = handed?;
+	opens?;
+	Ok(Carried { unconfirmed })
 }
 
 fn environment<'a, R: Rooms>(
@@ -192,16 +194,16 @@ async fn serve<R: Rooms>(
 	}
 	home::create(store.root())?;
 	let env = environment(rooms, store, config, harness, ledger)?;
-	{
-		let mut facts = env.facts.borrow_mut();
-		facts.unconfirmed = carried.unconfirmed;
-		facts.unsettled_opens = carried.unsettled_opens;
-	}
+	env.facts.borrow_mut().unconfirmed = carried.unconfirmed;
 	inbox::sweep(store, &env.ledger.borrow().open());
-	opens::settle(&env).await?;
 	let name = harness.name();
-	engine::serve(&env, shutdown, || {
+	let served = engine::serve(&env, shutdown, || {
 		crate::announce::announce(&format!("ROOMS-BOT-SERVING {name}"));
-	})
-	.await
+	});
+	// The opens' owner runs beside the loop and ends with it.
+	tokio::select! {
+		biased;
+		served = served => served,
+		never = opens::settle(&env) => match never {},
+	}
 }

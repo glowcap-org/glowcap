@@ -17,6 +17,7 @@
 //! | `work/<conversation>/` | the harness's working directory, with `inbox/<turn>/` holding the files a turn was sent |
 //! | `harness/<adapter>/<conversation>/` | an adapter's own state, out of the model's reach |
 //! | `groups/<conversation>` | the process group of a running harness |
+//! | `opens/<operation>.json` | a `--dm` open sent and not yet settled, set aside as `.json.unsettled` once given up |
 //! | `home/` | the agent's own place, shared by every conversation, with `memory/` holding its memories. The bot creates it and never changes it |
 //! | `bot.log` | diagnostics |
 //!
@@ -121,11 +122,7 @@ impl Store {
 
 	/// Write a document in a subdirectory of the bot directory, creating it.
 	pub fn write_in<T: Serialize>(&self, subdirectory: &str, name: &str, value: &T) -> Result<(), Error> {
-		let directory = self.root().join(subdirectory);
-		let bytes = encode(name, value, MAX_DOCUMENT_BYTES)?;
-		std::fs::create_dir_all(&directory).map_err(Error::io("creating a bot state directory"))?;
-		atomic::replace_at(&directory, name, [&bytes[..]])?;
-		Ok(())
+		write_unleased(self.root(), subdirectory, name, value)
 	}
 
 	pub fn read_in<T: DeserializeOwned>(&self, subdirectory: &str, name: &str) -> Result<Option<T>, Error> {
@@ -247,6 +244,18 @@ fn single_line(text: &str) -> String {
 /// new one, never a torn file.
 pub fn read_unleased<T: DeserializeOwned>(directory: &Path, name: &str) -> Result<Option<T>, Error> {
 	read_document(directory, name)
+}
+
+/// Replace a document in a subdirectory of the bot directory at `directory`,
+/// creating it, without holding its lease, for a turn verb that writes beside
+/// `serve`. The replace is atomic, so a reader finds the whole document or
+/// none.
+pub fn write_unleased<T: Serialize>(directory: &Path, subdirectory: &str, name: &str, value: &T) -> Result<(), Error> {
+	let directory = directory.join(subdirectory);
+	let bytes = encode(name, value, MAX_DOCUMENT_BYTES)?;
+	std::fs::create_dir_all(&directory).map_err(Error::io("creating a bot state directory"))?;
+	atomic::replace_at(&directory, name, [&bytes[..]])?;
+	Ok(())
 }
 
 fn read_document<T: DeserializeOwned>(directory: &Path, name: &str) -> Result<Option<T>, Error> {

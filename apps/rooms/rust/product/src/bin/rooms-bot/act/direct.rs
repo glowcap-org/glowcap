@@ -2,22 +2,23 @@
 //! It reaches only someone taking part in the turn's conversation: a member
 //! whose room line the turn was shown, or the other person of the turn's
 //! direct conversation. The bot names those members in the turn's action
-//! budget when the turn opens (`actions::members`), outside the agent's reach.
-//! A room line names its sender only by nickname, so the nickname must also
-//! hold a registration in the directory of the turn's conversation now. The
-//! session reuses the open conversation with that registration or opens one
-//! (`View::reach_direct` and `View::introduce`). The
-//! base and introduction an open sends are noted in the turn's action budget
-//! first, so looking again at an uncertain open sends that same one, and the
-//! note is dropped once the open settles. One still uncertain when the turn
-//! ends is settled by the serving bot (`opens`). The bot's
-//! log names the peer and the conversation before every post `--dm` reaches,
-//! and says "opened" only once the open committed.
+//! budget when the turn opens (`actions::members`), in the bot directory,
+//! which only `claude` under `--permission safe` keeps out of the agent's
+//! reach. A room line names its sender only by nickname, so the nickname must
+//! also hold a registration in the directory of the turn's conversation now.
+//! The session reuses the open conversation with that registration or opens
+//! one (`View::reach_direct` and `View::introduce`). An open is noted
+//! (`opens::note`) before it is sent, so looking again at an uncertain open
+//! from this conversation sends that same one, and its note goes once it
+//! settles. One still uncertain when the turn ends is settled by the serving
+//! bot (`opens::settle`). The bot's log names the peer and the conversation
+//! before every post `--dm` reaches, and says "opened" only once the open
+//! committed.
 use super::{Turn, failure};
 use crate::bot::{
 	actions, engine,
 	error::Error,
-	opens::Open,
+	opens::{self, Open},
 	request::Request,
 	rooms::{Base, ConversationId, captp::Live},
 	store,
@@ -124,11 +125,15 @@ async fn reached(live: &Live, turn: &Turn, ask: &Ask) -> Result<(String, Value),
 		.ok_or(Error::Usage("the turn's conversation names no directory".into()))?;
 	let (operation, base, introduction) = match &ask.again {
 		Some((operation, base)) => {
-			let noted = actions::noted_open(&root, &budget, operation)?
-				.filter(|noted| same_nick(&noted.introduction.peer, &ask.peer) && noted.base == Base(*base))
+			let noted = opens::noted(&root, operation)?
+				.filter(|noted| {
+					noted.conversation == budget
+						&& same_nick(&noted.introduction.peer, &ask.peer)
+						&& noted.base == Base(*base)
+				})
 				.ok_or_else(|| {
 					Error::Usage(format!(
-						"this turn has no uncertain --dm open to {} under operation {operation} at base {base}: run the verb without --operation and --base",
+						"this conversation has no uncertain --dm open to {} under operation {operation} at base {base}: run the verb without --operation and --base",
 						ask.peer
 					))
 				})?;
@@ -148,9 +153,9 @@ async fn reached(live: &Live, turn: &Turn, ask: &Ask) -> Result<(String, Value),
 				let noted = Open {
 					base: Base(base),
 					introduction,
-					looks: 0,
+					conversation: budget.clone(),
 				};
-				actions::note_open(&root, &budget, &operation, &noted)?;
+				opens::note(&root, &operation, &noted)?;
 				(operation, base, noted.introduction)
 			}
 			Err(ViewError::Peer(cause)) if cause.failure_code() == Some(FailureCode::PeerOffline) => {
@@ -166,19 +171,7 @@ async fn reached(live: &Live, turn: &Turn, ask: &Ask) -> Result<(String, Value),
 			Err(cause) => return Err(failure::call(&cause)),
 		},
 	};
-	let noted = Noted {
-		root: &root,
-		budget: &budget,
-		operation: &operation,
-	};
-	introduce(live, turn, &log, &noted, base, &introduction).await
-}
-
-/// Where the open under `operation` is noted.
-struct Noted<'a> {
-	root: &'a std::path::Path,
-	budget: &'a ConversationId,
-	operation: &'a str,
+	introduce(live, turn, &log, (&root, &operation), base, &introduction).await
 }
 
 /// Send the open and log what it did before anything posts through it. An
@@ -187,12 +180,11 @@ async fn introduce(
 	live: &Live,
 	turn: &Turn,
 	log: &store::Log,
-	noted: &Noted<'_>,
+	(root, operation): (&std::path::Path, &str),
 	base: u64,
 	introduction: &Introduction,
 ) -> Result<(String, Value), Error> {
-	let operation = noted.operation;
-	let settled = || actions::settled_open(noted.root, noted.budget, operation);
+	let settled = || opens::forget(root, operation);
 	let line = |what: &str, landed: &str| {
 		log.line(&format!(
 			"a turn in conversation {} {what} a direct conversation with {} under operation {operation}{landed}",

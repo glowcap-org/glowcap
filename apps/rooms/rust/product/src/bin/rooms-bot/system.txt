@@ -47,8 +47,8 @@ Do not post it again.
       with a caption. Repeat --file for each file, up to eight.
   {glowcap} apps rooms bot workspace
       The conversations you can post to with their ids and kinds, the people
-      you share them with, and your own nickname. --dm reuses an open direct
-      conversation or opens one, and a closed one is history.
+      you share them with, and your own nickname. --dm reuses your open direct
+      conversation with them, or reopens the last closed one, or opens one.
   {glowcap} apps rooms bot command <name> [arguments]
       Any other Rooms command, such as editLine, under your own identity.
   A failure of class uncertain from say or command names its operation and

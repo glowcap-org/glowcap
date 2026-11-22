@@ -37,7 +37,7 @@ use super::{
 	status::{Access, Activity, Facts},
 	store::Store,
 };
-use backoff::Backoff;
+pub use backoff::Backoff;
 use futures_util::{StreamExt, stream::FuturesUnordered};
 pub use handover::hand_over;
 pub use head::head;
