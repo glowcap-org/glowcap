@@ -16,6 +16,7 @@ const session_opts = @import("session_opts.zig");
 const listen_close = @import("listen_close.zig");
 const builtins = @import("builtins.zig");
 const partner_failure = @import("partner_failure.zig");
+const ocapn = @import("mod.zig");
 
 const driver = glowcap.driver;
 const model = glowcap.ocapn.model;
@@ -124,9 +125,14 @@ fn acceptLoop(ctx: *Ctx, server: *driver.Server, publish_name: ?[]const u8, once
             };
             ctx.logInfo("published {s}", .{name});
         }
-        try serveUntilStop(ctx, session);
+        const failure = try serveUntilStop(session);
         if (signals.stopRequested()) return exit_codes.ok;
-        if (once or publish_name != null) break;
+        if (once or publish_name != null) {
+            const err = failure orelse break;
+            ctx.logErr("listen session: {s}", .{@errorName(err)});
+            return ocapn.mapActErr(err);
+        }
+        if (failure) |err| ctx.logInfo("a partner's session failed: {s}", .{@errorName(err)});
     }
     return exit_codes.ok;
 }
@@ -134,17 +140,21 @@ fn acceptLoop(ctx: *Ctx, server: *driver.Server, publish_name: ?[]const u8, once
 /// Serve until the partner leaves or SIGINT/SIGTERM sets the stop latch.
 /// `Session.serve` parks in an unbounded read. Chunked `stepReadable` lets the
 /// latch end a published peer without closing the socket from another thread.
-/// A failure that belongs to the partner ends only its session.
-fn serveUntilStop(ctx: *Ctx, session: *driver.Session) !void {
+/// A failure that belongs to the partner ends only its session and returns
+/// as its cause. A partner that hangs up returns none.
+fn serveUntilStop(session: *driver.Session) !?anyerror {
     while (!signals.stopRequested()) {
         const progress = session.stepReadable(signals.poll_ms) catch |err| {
             if (!partner_failure.isSessionFailure(err)) return err;
-            if (err != error.ConnectionLost and err != error.TruncatedFrame)
-                ctx.logInfo("a partner's session failed: {s}", .{@errorName(err)});
-            return;
+            if (partner_failure.partnerLeft(err)) return null;
+            // An optional payload, so the cause returns as a value rather than
+            // as this function's own error.
+            const cause: ?anyerror = err;
+            return cause;
         };
-        if (progress) |p| if (p == .closed) return;
+        if (progress) |p| if (p == .closed) return null;
     }
+    return null;
 }
 
 fn finishListen(

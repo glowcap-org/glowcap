@@ -8,30 +8,11 @@ const cli = @import("cli");
 const glowcap = @import("glowcap");
 
 const Ctx = cli.ctx.Ctx;
-
-fn testSecret(seed: u8) glowcap.foundation.crypto.SecretKey {
-    return glowcap.foundation.crypto.SecretKey.fromSeed(@as([32]u8, @splat(seed)));
-}
-
-fn makeCtx(io: std.Io, gpa: std.mem.Allocator, environ: *const std.process.Environ.Map, seed: u8) Ctx {
-    return .{
-        .io = io,
-        .gpa = gpa,
-        .environ = environ,
-        .front = .argv,
-        .json = .json,
-        .secret = testSecret(seed),
-    };
-}
-
-const ListenArgs = struct {
-    ctx: *Ctx,
-    parsed: *cli.cmd_types.Parsed,
-};
-
-fn runListen(args: *ListenArgs) !u8 {
-    return cli.ocapn.cmdListen(args.ctx, args.parsed);
-}
+const listen_fixture = @import("listen_fixture.zig");
+const makeCtx = listen_fixture.makeCtx;
+const ListenArgs = listen_fixture.ListenArgs;
+const runListen = listen_fixture.runListen;
+const waitListenLocator = listen_fixture.waitListenLocator;
 
 /// Publish `greeter` on a one-shot listener, dial it, call `verb arg`, and
 /// assert exit 0 plus every needle in the client output (and that the host
@@ -251,20 +232,6 @@ test "listen publish greeter once then goblinsay round-trips through cli.ocapn" 
 
 test "listen publish greeter once then cowsay round-trips through cli.ocapn" {
     try expectPublishedCallRoundTrip(13, 23, "cowsay", "moo", &.{ "< moo >", "^__^" });
-}
-
-fn waitListenLocator(host: *Ctx, host_future: anytype, io: std.Io) ![]const u8 {
-    var spins: usize = 0;
-    while (true) : (spins += 1) {
-        if (host.publishedLocator()) |loc| return loc;
-        if (spins > 50_000) {
-            cli.signals.requestStop();
-            // tolerant: the host's own error is replaced by the timeout error returned next, which names the failure.
-            _ = host_future.await(io) catch {};
-            return error.ListenLocatorTimeout;
-        }
-        std.Thread.yield() catch {};
-    }
 }
 
 fn drainCaptpQueue(
