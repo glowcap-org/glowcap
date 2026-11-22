@@ -162,7 +162,7 @@ pub fn Profile(comptime transport: model.transport.Known) type {
             }
 
             pub fn waitAcceptable(box: *ListenerBox, timeout_ms: i32) netlayer.AcceptError!bool {
-                return box.listener.waitAcceptable(timeout_ms);
+                return box.listener.waitAcceptable(timeout_ms) catch |err| accept_gate.classify(err);
             }
 
             pub fn localLocator(box: *ListenerBox, allocator: std.mem.Allocator) netlayer.ListenError!model.PeerLocator {

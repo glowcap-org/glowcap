@@ -36,6 +36,7 @@ Releases before 0.1.7 are in the
 - Stop a Racket server on the driver loop from spinning a core while a session sits idle.
 - Highlight a Rooms line that mentions you from the one reading the session uses. A mention inside IRC bold or colour from the IRC bridge now counts, and your own line, including one read back from an archive, never highlights.
 - Report a refused `poll` from `Connection.runUntil` and `Connection.closeGracefully` as its own cause, such as `SystemResources`, instead of `ConnectionLost`. A Zig switch over `runUntil`'s errors needs arms for `SystemResources`, `InvalidWait`, and `Unexpected`.
+- Report an accept the kernel refuses on a TCP or onion listener, such as for a full descriptor table, as `AcceptRefused` with the kernel's cause, as the driver loop's listeners already do. It was reported as `ConnectionLost`, which means the listener shut down. A refused readiness poll on the listener or in the WebRTC transport keeps its own cause too.
 
 ### Security
 

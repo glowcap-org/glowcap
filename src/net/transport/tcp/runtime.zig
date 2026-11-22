@@ -19,7 +19,7 @@ const Server = std.Io.net.Server;
 pub const Keepalive = socket.Keepalive;
 pub const ConfigurationError = socket.ConfigurationError;
 pub const WaitError = accept_gate.WaitError;
-pub const AcceptError = WaitError || ConfigurationError || error{SocketConfigurationFailed};
+pub const AcceptError = accept_gate.AcceptError || ConfigurationError || error{SocketConfigurationFailed};
 
 pub const StreamOptions = struct {
     keepalive: ?Keepalive = null,
