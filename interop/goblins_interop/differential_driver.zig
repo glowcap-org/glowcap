@@ -206,8 +206,8 @@ fn serveEchoLoop(allocator: std.mem.Allocator, server: *driver.Server, done: *st
         }
         const acceptable = try server.waitAcceptable(10);
         if (acceptable) {
-            // tolerant: a failed accept costs one dial, which the peer's own timeout reports, and the next loop iteration accepts again.
-            const session = server.accept() catch continue;
+            // tolerant: while the listener listens, a failed accept costs one dial, which the peer's own timeout reports.
+            const session = server.accept() catch |err| if (server.listening()) continue else return err;
             sessions.append(allocator, session) catch {
                 session.deinit();
                 continue;

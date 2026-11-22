@@ -15,6 +15,7 @@ const listen_target = @import("listen_target.zig");
 const session_opts = @import("session_opts.zig");
 const listen_close = @import("listen_close.zig");
 const builtins = @import("builtins.zig");
+const partner_failure = @import("partner_failure.zig");
 
 const driver = glowcap.driver;
 const model = glowcap.ocapn.model;
@@ -105,6 +106,10 @@ fn acceptLoop(ctx: *Ctx, server: *driver.Server, publish_name: ?[]const u8, once
         if (signals.stopRequested()) return exit_codes.ok;
         var session = server.accept() catch |err| {
             if (signals.stopRequested()) return exit_codes.ok;
+            if (partner_failure.acceptAgain(server.listening(), err)) {
+                ctx.logInfo("a partner failed to connect: {s}", .{@errorName(err)});
+                continue;
+            }
             ctx.logErr("listen accept: {s}", .{@errorName(err)});
             return exit_codes.internal;
         };
@@ -119,7 +124,7 @@ fn acceptLoop(ctx: *Ctx, server: *driver.Server, publish_name: ?[]const u8, once
             };
             ctx.logInfo("published {s}", .{name});
         }
-        try serveUntilStop(session);
+        try serveUntilStop(ctx, session);
         if (signals.stopRequested()) return exit_codes.ok;
         if (once or publish_name != null) break;
     }
@@ -129,11 +134,14 @@ fn acceptLoop(ctx: *Ctx, server: *driver.Server, publish_name: ?[]const u8, once
 /// Serve until the partner leaves or SIGINT/SIGTERM sets the stop latch.
 /// `Session.serve` parks in an unbounded read. Chunked `stepReadable` lets the
 /// latch end a published peer without closing the socket from another thread.
-fn serveUntilStop(session: *driver.Session) !void {
+/// A failure that belongs to the partner ends only its session.
+fn serveUntilStop(ctx: *Ctx, session: *driver.Session) !void {
     while (!signals.stopRequested()) {
-        const progress = session.stepReadable(signals.poll_ms) catch |err| switch (err) {
-            error.ConnectionLost, error.TruncatedFrame => return,
-            else => return err,
+        const progress = session.stepReadable(signals.poll_ms) catch |err| {
+            if (!partner_failure.isSessionFailure(err)) return err;
+            if (err != error.ConnectionLost and err != error.TruncatedFrame)
+                ctx.logInfo("a partner's session failed: {s}", .{@errorName(err)});
+            return;
         };
         if (progress) |p| if (p == .closed) return;
     }

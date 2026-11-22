@@ -28,6 +28,7 @@ const model = glowcap.ocapn.model;
 const Ctx = ctx_mod.Ctx;
 const FailureChain = glowcap.foundation.FailureChain;
 const session_opts = @import("session_opts.zig");
+const partner_failure = @import("partner_failure.zig");
 const listen_close = @import("listen_close.zig");
 
 const TestControl = if (zig_builtin.is_test) struct {
@@ -127,28 +128,6 @@ pub const Handle = struct {
         return .{ .failure = failure, .consumed = true };
     }
 };
-
-fn isSessionFailure(err: anyerror) bool {
-    // Once accept has yielded a session, transport, protocol, and timeout
-    // failures belong to that partner. Reuse the driver's classification so
-    // a new pump error cannot silently become listener-fatal here.
-    return switch (driver.OperationFailure.classify(err)) {
-        .timeout, .closed, .session, .malformed, .frame_too_large, .io => true,
-        .invalid_argument, .not_found, .would_block, .internal => false,
-    };
-}
-
-fn isAcceptedPeerFailure(err: anyerror) bool {
-    return switch (err) {
-        // These are failures of the listener's own socket/runtime machinery,
-        // not bytes supplied by the connection being accepted.
-        error.SocketConfigurationFailed,
-        error.WakeNudgeFailed,
-        error.WakeDrainFailed,
-        => false,
-        else => isSessionFailure(err),
-    };
-}
 
 const ServeOutcome = enum { peer_ended, terminal, stopped };
 
@@ -289,7 +268,7 @@ fn acceptLoop(handle: *Handle) void {
         if (!ready) continue;
         if (handle.stop.load(.acquire)) return;
         var session = handle.server.accept() catch |err| {
-            if (isAcceptedPeerFailure(err)) continue;
+            if (partner_failure.acceptAgain(handle.server.listening(), err)) continue;
             handle.stop_reason.store(@errorName(err), .release);
             handle.terminal_failure = .init(err);
             return;
@@ -322,7 +301,7 @@ fn acceptLoop(handle: *Handle) void {
 fn serveUntilStop(session: *driver.Session, handle: *Handle) ServeOutcome {
     while (!handle.stop.load(.acquire)) {
         const progress = session.stepReadable(signals.poll_ms) catch |err| {
-            if (isSessionFailure(err)) return .peer_ended;
+            if (partner_failure.isSessionFailure(err)) return .peer_ended;
             handle.stop_reason.store(@errorName(err), .release);
             handle.terminal_failure = .init(err);
             return .terminal;
@@ -330,17 +309,6 @@ fn serveUntilStop(session: *driver.Session, handle: *Handle) ServeOutcome {
         if (progress) |p| if (p == .closed) return .peer_ended;
     }
     return .stopped;
-}
-
-test "background listener keeps peer failures local" {
-    try std.testing.expect(isAcceptedPeerFailure(error.ConnectionLost));
-    try std.testing.expect(isAcceptedPeerFailure(error.HandshakeTimedOut));
-    try std.testing.expect(isSessionFailure(error.MalformedFrame));
-    try std.testing.expect(isSessionFailure(error.ProtocolAbort));
-    try std.testing.expect(isSessionFailure(error.AbortFlushFailed));
-    try std.testing.expect(!isSessionFailure(error.OutOfMemory));
-    try std.testing.expect(!isAcceptedPeerFailure(error.SocketConfigurationFailed));
-    try std.testing.expect(!isAcceptedPeerFailure(error.WakeDrainFailed));
 }
 
 test "background listener exits after terminal serving failure" {

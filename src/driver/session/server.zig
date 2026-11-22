@@ -222,6 +222,13 @@ pub const Server = struct {
         return ready(self);
     }
 
+    /// Whether the listener still admits arrivals. Once it stops, `accept`
+    /// returns the listener's failure once and `ServerClosed` after it, and
+    /// `waitAcceptable` answers ready at once.
+    pub fn listening(self: *const Server) bool {
+        return self.listener_active;
+    }
+
     /// Stop admission, join listener retirement and discard unclaimed accepts.
     /// Yielded Sessions retain independent runtime leases. A callback or wrong
     /// thread refusal preserves Server ownership so the caller can retry.
