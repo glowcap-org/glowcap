@@ -29,38 +29,9 @@ import {
 import type { Ref } from "@glowcap/runtime";
 import { roomsHostOptions, type RoomsHostPosture } from "./profile.ts";
 import { isUriLocator } from "./doors.ts";
-import { readAnnouncement } from "../../_demo/orchestrator.ts";
-
-/** The token the server prints after `ROOMS-SERVER-LISTENING`. */
-const ANNOUNCE_RE = /ROOMS-SERVER-LISTENING (\S+)/;
-
 /** A loopback TCP designator for an ephemeral/bound port. */
 export function loopbackTcpDesignator(port: number): string {
 	return addressDesignator("127.0.0.1", port);
-}
-
-/** Turn the server's announce token into a dial locator: a bare port becomes a
- * `127.0.0.1:<port>` TCP locator. An `ocapn://` URI passes through unchanged. */
-function announceToLocator(token: string): string {
-	return /^\d+$/.test(token) ? loopbackTcpDesignator(Number(token)) : token;
-}
-
-/** Read a rooms server child's first `ROOMS-SERVER-LISTENING <token>` line from
- * its stdout and resolve it to a dial locator (a TCP `host:port`, or an iroh
- * `ocapn://` URI), giving up after `deadlineMs`. The Rooms demo and the Goblins
- * Rooms harness both spawn a server and wait for this line, so the reader lives
- * here beside the announce vocabulary it parses. */
-export async function readAnnouncedLocator(
-	proc: Deno.ChildProcess,
-	deadlineMs = 10_000,
-): Promise<string> {
-	const [, token] = await readAnnouncement(
-		proc.stdout,
-		ANNOUNCE_RE,
-		"rooms server never announced its locator",
-		deadlineMs,
-	);
-	return announceToLocator(token);
 }
 
 export interface RoomsRuntime {

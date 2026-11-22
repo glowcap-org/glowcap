@@ -3,7 +3,7 @@
 // bounded as a whole, so a child that stays up and says nothing fails at the
 // deadline, like one that exits.
 
-import { readAnnouncement } from "../../_demo/orchestrator.ts";
+import { OutputClosed, readAnnouncement } from "../../_demo/orchestrator.ts";
 import { assert, assertEquals } from "./assert.ts";
 import { roomLocator } from "./support/rooms_server.ts";
 import { until } from "./support/wait.ts";
@@ -51,9 +51,21 @@ Deno.test("A server that stays up without announcing fails at the deadline", asy
 	assert(!stream.locked, "the stream stayed locked after the deadline");
 });
 
+Deno.test("A chunk that ends inside the announced value reads on to the line's end", async () => {
+	const [, token] = await readAnnouncement(
+		pipe(["ROOMS-SERVER-LISTENING 42", "42\n"], false),
+		PATTERN,
+		MISS,
+		1_000,
+	);
+	assertEquals(token, "4242");
+});
+
 Deno.test("A server that closes its output before announcing says so", async () => {
-	const message = await refusal(readAnnouncement(pipe(["panic\n"], true), PATTERN, MISS, 1_000));
-	assertEquals(message, `${MISS}: its output closed\npanic\n`);
+	const read = readAnnouncement(pipe(["panic\n"], true), PATTERN, MISS, 1_000);
+	const closed = await read.then(() => null, (error: unknown) => error);
+	assert(closed instanceof OutputClosed, "an ended output is not OutputClosed");
+	assertEquals(closed.message, `${MISS}: its output closed\npanic\n`);
 });
 
 Deno.test("A condition whose check never answers fails at the deadline", async () => {

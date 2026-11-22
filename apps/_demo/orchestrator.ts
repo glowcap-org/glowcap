@@ -100,12 +100,19 @@ export async function buildRust(
 	return true;
 }
 
-/** Read `reader` until its text matches `pattern`, and return the match.
+/** The child's output ended before the line a reader waited for. */
+export class OutputClosed extends Error {}
+
+/** Read `reader` until its complete lines match `pattern`, and return the
+ * match.
  *
+ * Only text through the last newline is matched, because a chunk can end
+ * inside the value a pattern captures and `\S+` would match its first half.
  * The deadline bounds the whole wait, including a read the child never
  * answers, so a child that stays up without printing the line fails as fast as
  * one that exits. Either failure starts with `miss` and carries what the child
- * printed. The caller keeps the reader. */
+ * printed, and an ended output is `OutputClosed`. The caller keeps the
+ * reader. */
 export async function readUntil(
 	reader: ReadableStreamDefaultReader<Uint8Array>,
 	pattern: RegExp,
@@ -123,9 +130,9 @@ export async function readUntil(
 			// A read still pending at the deadline stays observed by this race.
 			const next = await Promise.race([reader.read(), expired]);
 			if (next === null) throw new Error(`${miss} within ${deadlineMs} ms\n${buf}`);
-			if (next.done) throw new Error(`${miss}: its output closed\n${buf}`);
+			if (next.done) throw new OutputClosed(`${miss}: its output closed\n${buf}`);
 			buf += decoder.decode(next.value, { stream: true });
-			const m = buf.match(pattern);
+			const m = buf.slice(0, buf.lastIndexOf("\n") + 1).match(pattern);
 			if (m) return m;
 		}
 	} finally {
