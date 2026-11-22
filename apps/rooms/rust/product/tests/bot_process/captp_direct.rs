@@ -1,7 +1,7 @@
 //! `say --dm` against a real session: a member who addressed the bot in a
 //! room is answered privately, in one direct conversation that later turns
 //! reuse, reopen once it is closed, and open at most once, and that the
-//! member's own new opening continues.
+//! member's own new opening arrives as a new one beside the closed one.
 use super::captp::{ROOM, World, action};
 use super::rig::eventually;
 use super::session_rig::{call, call_when_paced, host, run_within};
@@ -54,8 +54,9 @@ fn opens(world: &World) -> usize {
 /// runs, opens one direct conversation for its first private answer, answers
 /// the member's reply there once, and reuses the conversation for its next
 /// private answer, whatever case the nickname is written in. When the member
-/// closes their side and writes again, their new opening lands in the bot's
-/// open conversation, which answers them and is reused once more.
+/// closes their side, the bot's side closes too, and when they write again
+/// their new opening is a new conversation the bot answers and reuses. The
+/// closed one stays closed beside it.
 #[test]
 fn a_member_answered_privately_from_a_room_gets_one_direct_conversation() {
 	let world = World::new("bot-live-dm");
@@ -84,25 +85,33 @@ fn a_member_answered_privately_from_a_room_gets_one_direct_conversation() {
 	world.await_line("direct", "again privately");
 	let left = call(world.friend(), "leave", json!({"conversation": [world.direct()]}));
 	assert_eq!(left["status"], "committed", "{left}");
+	let directs = || -> Vec<(Value, Value)> {
+		let session = call(&world.fixture.peers[0].state, "status", json!({}));
+		session["workspace"]["conversations"]
+			.as_array()
+			.unwrap()
+			.iter()
+			.filter(|row| row["kind"] == "direct")
+			.map(|row| (row["id"].clone(), row["closed"].clone()))
+			.collect()
+	};
+	eventually("the bot's side of the closed conversation to close", || {
+		(directs() == [(first["conversation"].clone(), json!(true))]).then_some(())
+	});
 	world.dm_again("reply:heard after reopening");
 	world.await_line("direct", "heard after reopening");
 	assert_eq!(turn(&world, &[say(FRIEND, "still one conversation")]), "exit=0");
 	let third = output(&world, 0);
-	assert_eq!(
-		(&third["opened"], &third["conversation"]),
-		(&Value::Null, &first["conversation"]),
-		"{third}"
-	);
+	assert_eq!(third["opened"], Value::Null, "{third}");
+	assert_ne!(third["conversation"], first["conversation"], "{third}");
 	world.await_line("direct", "still one conversation");
-	let session = call(&world.fixture.peers[0].state, "status", json!({}));
-	let directs: Vec<_> = session["workspace"]["conversations"]
-		.as_array()
-		.unwrap()
-		.iter()
-		.filter(|row| row["kind"] == "direct")
-		.map(|row| (&row["id"], &row["closed"]))
-		.collect();
-	assert_eq!(directs, [(&first["conversation"], &json!(false))], "{session}");
+	assert_eq!(
+		directs(),
+		[
+			(first["conversation"].clone(), json!(true)),
+			(third["conversation"].clone(), json!(false))
+		]
+	);
 	let log = world.rig.log();
 	assert_eq!(opens(&world), 1, "{log}");
 	assert!(

@@ -74,6 +74,8 @@ export interface DirectIntent {
 	inbox?: FieldKey;
 	access: FieldKey | null;
 	introduction?: { access: FieldKey; name: FieldKey; callback: FieldKey; registration: string; opening: string };
+	/** The openings of the introductions this row took, which a reopening keeps. */
+	openings?: string[];
 	lines?: PostedLine[];
 	closed: boolean;
 	draft: string;

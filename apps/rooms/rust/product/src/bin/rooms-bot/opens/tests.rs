@@ -1,15 +1,11 @@
 //! Noted opens settle through the stand-in session: a settled answer removes
 //! its note, a pending one is looked at again and never given up, evidence
-//! sets a note aside, an unreadable note is set aside, a note of a thinking
-//! conversation waits for its turn, a replaced link's last look sets aside
-//! what it cannot settle, and a note past the bound is refused.
+//! sets a note aside, an unreadable note is set aside, a replaced link's last
+//! look sets aside what it cannot settle, and a note past the bound, half the
+//! session's receipt places, is refused.
 #![cfg(feature = "test-support")]
 use super::*;
-use crate::bot::{
-	classify::{Seq, Trigger},
-	ledger::Asked,
-	rooms::{Cursor, Kind, files::Files},
-};
+use crate::bot::rooms::files::Files;
 use rooms_testing::scratch::Scratch;
 
 fn operation(index: usize) -> String {
@@ -26,6 +22,18 @@ fn open(conversation: &str) -> Open {
 		},
 		conversation: ConversationId::new(conversation),
 	}
+}
+
+/// Write the note under `index` as `note` does, without its bound, since a
+/// look reads every note there is.
+fn put(store: &Store, index: usize) {
+	store::write_unleased(
+		store.root(),
+		DIRECTORY,
+		&format!("{}{NOTE}", operation(index)),
+		&open("c"),
+	)
+	.unwrap();
 }
 
 fn answer(rooms: &Path, answers: &str) {
@@ -65,15 +73,14 @@ fn rig(label: &str) -> (Scratch, std::path::PathBuf, Files, Store) {
 #[tokio::test]
 async fn a_pending_open_is_looked_at_again_and_only_evidence_gives_one_up() {
 	let (_scratch, session, rooms, store) = rig("bot-opens");
-	let ledger = RefCell::new(Ledger::start(&store, Cursor::start()).unwrap());
-	let serving = Look::Serving(&ledger);
+	let serving = Look::Serving;
 	let mut waiting = BTreeSet::new();
 	assert_eq!(
 		look(&rooms, &store, &serving, &mut waiting).await.unwrap(),
 		Looked::default()
 	);
 	for index in 1..=5 {
-		note(store.root(), &operation(index), &open("c")).unwrap();
+		put(&store, index);
 	}
 	std::fs::write(
 		store.root().join(DIRECTORY).join(format!("{}{NOTE}", operation(6))),
@@ -100,23 +107,9 @@ async fn a_pending_open_is_looked_at_again_and_only_evidence_gives_one_up() {
 		assert_eq!((looked.pending, looked.set_aside, looked.unsettled), (true, 0, 3));
 	}
 	assert_eq!(notes(&store).0, ["2", "4"], "no number of pending looks gives one up");
-	// A conversation with a turn thinking holds its note for that turn.
-	let thinking = Asked {
-		conversation: ConversationId::new("c"),
-		kind: Kind::Direct,
-		triggers: vec![Trigger {
-			seq: Seq(1),
-			event: Cursor::new("e1").unwrap(),
-			line: "l1".into(),
-			from: None,
-			text: "hi".into(),
-			files: Vec::new(),
-		}],
-	};
-	let id = ledger.borrow_mut().begin(&store, thinking).unwrap();
-	ledger.borrow_mut().start_run(&store, id, 0).unwrap();
-	answer(&session, "");
+	answer(&session, "opened\nreused\n");
 	assert!(!look(&rooms, &store, &serving, &mut waiting).await.unwrap().pending);
+	assert!(notes(&store).0.is_empty(), "each settled note goes");
 	let log = std::fs::read_to_string(store.root().join("bot.log")).unwrap();
 	assert_eq!(
 		log.matches("has not settled").count(),
@@ -132,7 +125,7 @@ async fn a_pending_open_is_looked_at_again_and_only_evidence_gives_one_up() {
 async fn a_last_look_settles_what_it_can_and_sets_aside_the_rest() {
 	let (_scratch, session, rooms, store) = rig("bot-opens-last");
 	for index in 1..=5 {
-		note(store.root(), &operation(index), &open("c")).unwrap();
+		put(&store, index);
 	}
 	answer(&session, "revoked\nunapplied\nreleased\nunreachable\npending\n");
 	let looked = look(&rooms, &store, &Look::Last, &mut BTreeSet::new()).await.unwrap();
@@ -150,6 +143,7 @@ async fn a_last_look_settles_what_it_can_and_sets_aside_the_rest() {
 #[test]
 fn a_note_past_the_bound_is_refused_and_a_settled_one_goes() {
 	let scratch = Scratch::create("bot-opens-bound");
+	assert_eq!(MAX_OPENS * 2, MAX_EFFECTS, "opens hold at most half the receipt places");
 	let sent = open("c");
 	for index in 1..=MAX_OPENS {
 		note(&scratch, &operation(index), &sent).unwrap();

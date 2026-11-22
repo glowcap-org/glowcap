@@ -1,9 +1,9 @@
 //! The direct plan on its own: append under the operation, reopen the last
 //! closed row of a registration in place, give a route back while a row is
 //! open under any contact the directory held, land a member's introduction
-//! in the row that reaches them, and refuse a directory whose contact moved
-//! between the command and its acquisition. The runtime proofs hold the
-//! session's participation rule to the same plan.
+//! in their open row, which keeps the openings it took, and refuse
+//! a directory whose contact moved between the command and its acquisition.
+//! The runtime proofs hold the session's participation rule to the same plan.
 use super::*;
 use crate::content::session::workspace::InvalidIntent;
 use alloc::string::ToString;
@@ -246,67 +246,139 @@ fn a_replacement_opens_no_second_row_for_a_registration() {
 	intent(directory(4), json!([])).replace_configuration(pair()).unwrap();
 }
 
-#[test]
-fn an_introduction_lands_in_the_row_that_reaches_its_registration() {
-	let incoming = |id: &str| {
-		let mut row = direct(id, "r1", false, "");
-		row["access"] = Value::Null;
-		row["peer"] = "Ann2".into();
-		row["source"] = key(11).into();
-		row["introduction"]["opening"] = "the member's new opening".into();
-		match intent(directory(4), json!([row])).conversations.as_slice() {
-			[Conversation::Direct(row)] => row.as_ref().clone(),
-			_ => panic!("one direct row"),
-		}
-	};
-	let landed = |workspace: &Intent, at: usize| match &workspace.conversations.as_slice()[at] {
+/// The receiving row the session makes from a member's introduction under
+/// `opening`, which holds that opening as the one it took.
+fn incoming(id: &str, opening: &str) -> Direct {
+	let mut row = direct(id, "r1", false, "");
+	row["access"] = Value::Null;
+	row["peer"] = "Ann2".into();
+	row["source"] = key(11).into();
+	row["introduction"]["opening"] = opening.into();
+	row["openings"] = json!([opening]);
+	match intent(directory(4), json!([row])).conversations.as_slice() {
+		[Conversation::Direct(row)] => row.as_ref().clone(),
+		_ => panic!("one direct row"),
+	}
+}
+fn landed(workspace: &Intent, at: usize) -> Direct {
+	match &workspace.conversations.as_slice()[at] {
 		Conversation::Direct(row) => row.as_ref().clone(),
 		Conversation::Room(_) => panic!("a room at {at}"),
-	};
-	// The open row continues under its id and draft with the new opening, and
-	// gives up the route that reached the member's old one. A workspace saved
-	// with two open rows lands it in the first, as every post reaches.
-	let rows = json!([
-		direct("closed", "r1", true, ""),
-		direct("open", "r1", false, "kept"),
-		direct("twin", "r1", false, "")
-	]);
+	}
+}
+fn openings(row: &Direct) -> Vec<&str> {
+	row.openings
+		.as_slice()
+		.iter()
+		.filter_map(|opening| opening.text().as_str())
+		.collect()
+}
+
+#[test]
+fn an_introduction_lands_in_the_row_that_reaches_its_registration() {
+	// The open row continues under its id, draft, and lines with the new
+	// opening, and gives up the route that reached the member's old one. A
+	// workspace saved with two open rows lands it in the first, as every post
+	// reaches.
+	let mut open = direct("open", "r1", false, "kept");
+	open["lines"] = json!([{"id":1,"handle":key(14)}]);
+	let mut twin = direct("twin", "r1", false, "");
+	twin["access"] = key(12).into();
+	let rows = json!([direct("closed", "r1", true, ""), open, twin]);
 	let mut workspace = intent(directory(4), rows);
-	let (id, released) = receive_direct(&mut workspace, incoming("fresh")).unwrap();
-	assert_eq!((id.text().as_str(), released), (Some("open"), Some(typed(9))));
+	let (id, released) = receive_direct(&mut workspace, incoming("fresh", "new")).unwrap();
+	let route = custody::Coordinate::new(custody::Role::DirectAccess, typed::<custody::DirectAccess>(9));
+	assert_eq!((id.text().as_str(), released), (Some("open"), Vec::from([route])));
 	let open = landed(&workspace, 1);
-	let fresh = incoming("fresh");
+	let fresh = incoming("fresh", "new");
 	assert_eq!(
 		(
 			open.closed,
 			open.access,
 			open.draft.text().as_str(),
+			open.lines.as_slice().len(),
 			&open.peer,
 			open.source,
-			&open.introduction
+			&open.introduction,
+			openings(&open)
 		),
 		(
 			false,
 			None,
 			Some("kept"),
+			1,
 			&fresh.peer,
 			fresh.source,
-			&fresh.introduction
+			&fresh.introduction,
+			Vec::from(["new"])
 		)
 	);
 	assert_eq!(workspace.conversations.as_slice().len(), 3);
-	// With none open, the last closed row reopens. With none at all, it is new.
-	let mut workspace = intent(
-		directory(4),
-		json!([direct("old", "r1", true, ""), direct("last", "r1", true, "")]),
+	// With none open, it is a new row, and the closed rows stay as they were:
+	// a member never reopens a conversation this side holds closed.
+	let closed = json!([direct("old", "r1", true, ""), direct("last", "r1", true, "")]);
+	let mut workspace = intent(directory(4), closed.clone());
+	let (id, released) = receive_direct(&mut workspace, incoming("fresh", "new")).unwrap();
+	assert_eq!((id.text().as_str(), released), (Some("fresh"), Vec::new()));
+	let before = intent(directory(4), closed);
+	assert_eq!(
+		(landed(&workspace, 0), landed(&workspace, 1), landed(&workspace, 2)),
+		(landed(&before, 0), landed(&before, 1), incoming("fresh", "new"))
 	);
-	let (id, released) = receive_direct(&mut workspace, incoming("fresh")).unwrap();
-	assert_eq!((id.text().as_str(), released), (Some("last"), None));
-	assert!(!landed(&workspace, 1).closed && landed(&workspace, 0).closed);
 	let mut workspace = intent(directory(4), json!([direct("other", "r2", false, "")]));
-	let (id, _) = receive_direct(&mut workspace, incoming("fresh")).unwrap();
+	let (id, _) = receive_direct(&mut workspace, incoming("fresh", "new")).unwrap();
 	assert_eq!(
 		(id.text().as_str(), landed(&workspace, 1)),
-		(Some("fresh"), incoming("fresh"))
+		(Some("fresh"), incoming("fresh", "new"))
+	);
+}
+
+#[test]
+fn a_row_keeps_the_last_openings_it_took_and_names_what_it_dropped() {
+	// Openings X, Y, and Z land in one row, which keeps all three, so the
+	// session refuses a late replay of Y or X. Past the bound the oldest goes.
+	let mut workspace = intent(directory(4), json!([]));
+	for opening in ["X", "Y", "Z"] {
+		receive_direct(&mut workspace, incoming(opening, opening)).unwrap();
+	}
+	assert_eq!(workspace.conversations.as_slice().len(), 1);
+	let one = landed(&workspace, 0);
+	assert_eq!(
+		(one.id.text().as_str(), openings(&one)),
+		(Some("X"), Vec::from(["X", "Y", "Z"]))
+	);
+	assert_eq!(one.introduction.unwrap().opening.text().as_str(), Some("Z"));
+	let names: Vec<String> = (0..MAX_TAKEN_OPENINGS + 2).map(|n| alloc::format!("o{n}")).collect();
+	for name in &names {
+		receive_direct(&mut workspace, incoming(name, name)).unwrap();
+	}
+	let kept: Vec<&str> = names[2..].iter().map(String::as_str).collect();
+	assert_eq!(openings(&landed(&workspace, 0)), kept);
+	// An open row names for release every coordinate only it held: the route
+	// and the source the new opening replaced. The directory's custody stays.
+	let mut open = direct("open", "r1", false, "");
+	open["source"] = key(13).into();
+	let mut workspace = intent(directory(4), json!([open]));
+	let (_, released) = receive_direct(&mut workspace, incoming("fresh", "new")).unwrap();
+	let role = |role, slot| custody::Coordinate::new(role, typed::<custody::DirectAccess>(slot));
+	let (access, source) = (custody::Role::DirectAccess, custody::Role::SessionAccess);
+	assert_eq!(released, [role(access, 9), role(source, 13)]);
+	// The opener's own plan lands by the same rule in the row it closed, which
+	// reopens under its id with no lines, keeps the openings it took, and holds
+	// this session's route and source.
+	let mut closed = serde_json::to_value(landed(&workspace, 0)).unwrap();
+	closed["closed"] = true.into();
+	closed["lines"] = json!([{"id":1,"handle":key(14)}]);
+	let adoption = plan(&intent(directory(4), json!([closed])), "r1").unwrap();
+	let reopened = row(&adoption, 0);
+	assert_eq!(
+		(
+			reopened.id.text().as_str(),
+			reopened.lines.as_slice().len(),
+			reopened.access,
+			reopened.source,
+			openings(reopened)
+		),
+		(Some("open"), 0, Some(typed(30)), Some(typed(40)), Vec::from(["new"]))
 	);
 }

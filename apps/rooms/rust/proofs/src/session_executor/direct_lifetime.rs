@@ -178,6 +178,7 @@ async fn run(boundary: Boundary) {
 								NonZeroU64::new(slot).unwrap(),
 								NonZeroU64::new(1).unwrap(),
 							)),
+							openings: Default::default(),
 							inbox: None,
 							introduction: None,
 							closed: false,

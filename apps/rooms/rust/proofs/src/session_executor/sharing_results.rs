@@ -108,6 +108,7 @@ pub(super) async fn run() {
 				conversations.push(session::workspace::Conversation::Direct(Box::new(
 					session::workspace::Direct {
 						introduction: None,
+						openings: Default::default(),
 						inbox: None,
 						source: None,
 						kind: session::workspace::DirectKind::Direct,

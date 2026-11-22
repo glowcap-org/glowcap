@@ -188,12 +188,13 @@ impl Request<'_> {
 			return Ok(false);
 		}
 		if let Some((at, old)) = previous {
-			if next.draft != old.draft {
+			// The row keeps its draft and the openings it took, by `land`.
+			if next.draft != old.draft || next.openings != old.openings {
 				return Ok(false);
 			}
 			candidate.conversations.as_mut_slice()[at] = record.intent.conversations.as_slice()[at].clone();
 		} else {
-			if next.draft.text().as_str() != Some("") {
+			if next.draft.text().as_str() != Some("") || !next.openings.is_empty() {
 				return Ok(false);
 			}
 			candidate.conversations.remove(position);

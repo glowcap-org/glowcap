@@ -24,8 +24,8 @@ mod references;
 mod rows;
 pub use adoption::{Adoption, LineAdoption, LineReceipt, Refusal as AdoptionRefusal, adopt_line};
 pub use direct::{
-	DirectAdoption, DirectReach, DirectRefusal, Reaching, StartDirect, adopt_direct, direct_reach, introduced_to,
-	open_direct, receive_direct, reopened_direct,
+	DirectAdoption, DirectReach, DirectRefusal, MAX_TAKEN_OPENINGS, Openings, Reaching, StartDirect, adopt_direct,
+	direct_reach, introduced_to, open_direct, receive_direct, reopened_direct,
 };
 pub use inbox::InboxSelection;
 pub use nickname::RoomNickname;
@@ -60,6 +60,8 @@ pub struct Direct {
 	/// A nickname cannot renew either occurrence.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub introduction: Option<Introduction>,
+	#[serde(default, skip_serializing_if = "List::is_empty")]
+	pub openings: Openings,
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub inbox: Option<FieldKey<custody::DirectInbox>>,
 	#[serde(

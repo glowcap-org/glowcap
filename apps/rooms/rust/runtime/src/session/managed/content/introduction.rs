@@ -1,7 +1,8 @@
 //! Incoming direct intent is admitted by the original directory callback.
 //! Pending receivers need no invented upstream route or nickname-based recovery.
-//! A fresh opening lands where [`workspace::receive_direct`] says, the plan
-//! the opening side uses, and the route it replaces is released here.
+//! A fresh opening lands where [`workspace::receive_direct`] says, in the
+//! open row the opening side's plan names or a new one, and the custody the
+//! open row drops is released here.
 use super::*;
 use rooms_application::fields::{List, Text};
 
@@ -174,14 +175,36 @@ pub(super) fn invoke(call: &mut Call<'_>, input: Invocation<'_>) -> Result<Argum
 					.ok_or_else(|| refuse("invalid direct identity"))?
 					.into());
 			}
+			// A row keeps the openings it took, so a replay of one a later
+			// opening replaced is refused, never landed over that one again.
+			if row.directory == directory
+				&& row.openings.as_slice().contains(&witness.opening)
+				&& row
+					.introduction
+					.as_ref()
+					.is_some_and(|held| held.registration == witness.registration)
+			{
+				return Err(refuse("this direct opening already landed"));
+			}
 			if row.id == id {
 				return Err(refuse("direct identity already names another conversation"));
 			}
 		}
 	}
-	// A fresh opening lands where the shared plan says, so one registration
-	// holds one open row on this side too. A row it lands in keeps its id,
-	// and the identity of the opening it held refuses that opening's replay.
+	// A fresh opening lands in the open row the shared plan names, so one
+	// registration holds one open row on this side too. That row keeps its id
+	// and adds this opening to the ones it took, which refuse their replays.
+	// With none open, it is a new row, which the view follows only when the
+	// selected closed row names these exact registrations, so a reused nickname
+	// cannot move the view. A closed row keeps its witness for replay refusal.
+	let follows_selected = record.intent.conversations.as_slice().iter().any(|row| {
+		matches!(row, workspace::Conversation::Direct(row) if row.closed
+			&& record.intent.active.as_ref() == Some(&row.id)
+			&& row.directory == directory && row.peer.text().as_str() == Some(peer)
+			&& row.introduction.as_ref().is_some_and(|previous|
+				previous.access == witness.access && previous.name == witness.name
+				&& previous.callback == witness.callback && previous.registration == witness.registration))
+	});
 	let row = workspace::Direct {
 		kind: workspace::DirectKind::Direct,
 		id: id.clone(),
@@ -189,6 +212,8 @@ pub(super) fn invoke(call: &mut Call<'_>, input: Invocation<'_>) -> Result<Argum
 		peer: Text::new(peer.into()).ok_or_else(|| refuse("invalid peer"))?,
 		source: Some(source),
 		access: None,
+		openings: workspace::Openings::new(vec![witness.opening.clone()])
+			.ok_or_else(|| refuse("invalid direct opening"))?,
 		introduction: Some(witness),
 		inbox: None,
 		lines: List::default(),
@@ -199,11 +224,14 @@ pub(super) fn invoke(call: &mut Call<'_>, input: Invocation<'_>) -> Result<Argum
 		workspace::DirectRefusal::Full => refuse("direct conversation capacity is full"),
 		_ => refuse("invalid direct introduction"),
 	})?;
-	if let Some(route) = released {
+	if follows_selected && landed == id {
+		record.intent.active = Some(id.clone());
+	}
+	for coordinate in released {
 		record
 			.custody
-			.remove(custody::Coordinate::new(custody::Role::DirectAccess, route))
-			.ok_or_else(|| refuse("direct route custody is absent"))?;
+			.remove(coordinate)
+			.ok_or_else(|| refuse("released direct custody is absent"))?;
 	}
 	records::replace(call, input, &mut record)?;
 	Ok(landed

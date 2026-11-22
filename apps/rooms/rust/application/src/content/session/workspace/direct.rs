@@ -12,9 +12,15 @@
 //! `directReach`) all ask it. A registration holds at most one open row. A
 //! route this session's `startDirect` returns while one is open is given
 //! back, and an introduction the member sends lands in that row. Otherwise
-//! both reopen the last closed row of the registration under its own id, or
-//! else add a new row. The session refuses a workspace replacement or a
-//! local gesture that opens a second row (`Intent::reaches_another`).
+//! `startDirect` reopens the last closed row of the registration under its
+//! own id, or else adds a new row, and an introduction adds a new row, so a
+//! member never reopens a row this side holds closed. The session refuses a
+//! workspace replacement or a local gesture that opens a second row
+//! (`Intent::reaches_another`).
+//!
+//! A route lands in a row by one rule, [`land`], whoever opened it. A row
+//! keeps the openings of the last [`MAX_TAKEN_OPENINGS`] introductions it
+//! took, so a replay of one it replaced is refused, not landed again.
 //!
 //! A workspace saved before this rule may hold two open rows for one
 //! registration, and keeps working: each row keeps its own route and the
@@ -28,6 +34,13 @@ use crate::{
 };
 use alloc::{boxed::Box, string::String, vec::Vec};
 use core::fmt;
+
+/// The most openings a direct row remembers taking. A replay of an opening
+/// older than these lands as a fresh one.
+pub const MAX_TAKEN_OPENINGS: usize = 8;
+/// The openings of the introductions a row took from the member, oldest
+/// first. A row this session opened took none.
+pub type Openings = List<Text<128, true>, MAX_TAKEN_OPENINGS>;
 
 /// The arguments of one `startDirect` command, in its order.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -97,7 +110,8 @@ impl<'a> Reaching<'a> {
 pub struct DirectReach {
 	/// The first open row. A new route is given back while one is open.
 	pub open: Option<usize>,
-	/// The last closed row, which a new route reopens when none is open.
+	/// The last closed row, which this session's own `startDirect` reopens
+	/// when none is open.
 	pub reopened: Option<usize>,
 }
 
@@ -187,18 +201,57 @@ impl Intent {
 	}
 }
 
-/// Land an introduction the member sent in the row that reaches their
-/// registration: the open row, else the last closed one, else `row` as a
-/// new row. `row` is the receiving row the introduction names. A row it
-/// lands in keeps its id, lines, draft, and inbox, which the session's next
-/// install replaces, and takes `row`'s peer, source, and introduction, so
-/// the conversation continues under its id. Returns that id and the route
-/// the row held before, which reaches the member's old opening and which the
-/// caller releases.
-pub fn receive_direct(
-	intent: &mut Intent,
-	row: Direct,
-) -> Result<(Id, Option<custody::FieldKey<custody::DirectAccess>>), DirectRefusal> {
+/// Land `arriving` in the direct row at `at`, the one rule for a route that
+/// reaches a row already there, whoever opened it. The row keeps its id and
+/// draft, and adds `arriving`'s openings to its own. An open row also keeps
+/// its lines and inbox, which the session's next install replaces. A closed
+/// row, which only this session's own `startDirect` reopens, takes
+/// `arriving`'s, so it reopens with no lines, as a new row starts.
+/// Everything else, the peer, source, route, and introduction, is
+/// `arriving`'s, and the row is open.
+///
+/// Returns the row's id and the coordinates it held that nothing in `intent`
+/// refers to now: the route it replaced, and the source, inbox, line
+/// handles, and introduction custody it dropped. The caller releases them.
+fn land(intent: &mut Intent, at: usize, arriving: Direct) -> (Id, Vec<custody::Coordinate>) {
+	let Some(Conversation::Direct(row)) = intent.conversations.as_mut_slice().get_mut(at) else {
+		unreachable!("direct_reach names only direct rows");
+	};
+	// What the row keeps is swapped back in, so `previous` ends holding only
+	// what the row dropped.
+	let mut previous = core::mem::replace(row.as_mut(), arriving);
+	core::mem::swap(&mut row.id, &mut previous.id);
+	core::mem::swap(&mut row.draft, &mut previous.draft);
+	if !previous.closed {
+		core::mem::swap(&mut row.lines, &mut previous.lines);
+		core::mem::swap(&mut row.inbox, &mut previous.inbox);
+	}
+	let taken = core::mem::replace(&mut row.openings, core::mem::take(&mut previous.openings));
+	for opening in taken.as_slice() {
+		if row.openings.as_slice().len() == MAX_TAKEN_OPENINGS {
+			row.openings.remove(0);
+		}
+		// tolerant: a full list gave up its oldest opening above, so this fits.
+		let _ = row.openings.try_push(opening.clone());
+	}
+	row.closed = false;
+	let id = row.id.clone();
+	let held = Conversation::Direct(Box::new(previous));
+	let mut released = Vec::new();
+	for coordinate in held.coordinates() {
+		if !released.contains(&coordinate) && !intent.coordinates().any(|kept| kept == coordinate) {
+			released.push(coordinate);
+		}
+	}
+	(id, released)
+}
+
+/// Land an introduction the member sent in the open row that reaches their
+/// registration, by [`land`], else add `row` as a new row. A closed row stays
+/// as this side left it. `row` is the receiving row the introduction names,
+/// holding its opening. Returns the id the conversation continues under, and
+/// what the open row dropped, which the caller releases.
+pub fn receive_direct(intent: &mut Intent, row: Direct) -> Result<(Id, Vec<custody::Coordinate>), DirectRefusal> {
 	let reach = match Reaching::of(&row) {
 		Some(Reaching {
 			directory,
@@ -207,22 +260,15 @@ pub fn receive_direct(
 		}) => reach(intent, directory, registration),
 		_ => return Err(DirectRefusal::Arguments),
 	};
-	let Some(at) = reach.open.or(reach.reopened) else {
+	let Some(at) = reach.open else {
 		let id = row.id.clone();
 		intent
 			.conversations
 			.try_push(Conversation::Direct(Box::new(row)))
 			.map_err(|_| DirectRefusal::Full)?;
-		return Ok((id, None));
+		return Ok((id, Vec::new()));
 	};
-	let Some(Conversation::Direct(landed)) = intent.conversations.as_mut_slice().get_mut(at) else {
-		unreachable!("direct_reach names only direct rows");
-	};
-	landed.peer = row.peer;
-	landed.source = row.source;
-	landed.introduction = row.introduction;
-	landed.closed = false;
-	Ok((landed.id.clone(), landed.access.take()))
+	Ok(land(intent, at, row))
 }
 
 /// The complete acquisition candidate that keeps one introduced route.
@@ -313,16 +359,12 @@ pub fn adopt_direct(
 	if let Some(open) = open_direct(current, start.directory, start.registration) {
 		return Err(DirectRefusal::Open(open.id.clone()));
 	}
-	let reopened = reopened_direct(current, start.directory, start.registration)
-		.map(|(at, row)| (at, row.id.clone(), row.draft.clone()));
-	let (id, draft) = match &reopened {
-		Some((_, id, draft)) => (id.clone(), draft.clone()),
-		None => (
-			Id::new(operation.into()).ok_or(DirectRefusal::Arguments)?,
-			Field::default(),
-		),
+	let reopened = reopened_direct(current, start.directory, start.registration).map(|(at, row)| (at, row.id.clone()));
+	let id = match &reopened {
+		Some((_, id)) => id.clone(),
+		None => Id::new(operation.into()).ok_or(DirectRefusal::Arguments)?,
 	};
-	let row = Conversation::Direct(Box::new(Direct {
+	let row = Direct {
 		kind: DirectKind::Direct,
 		id: id.clone(),
 		directory: before.id.clone(),
@@ -330,15 +372,25 @@ pub fn adopt_direct(
 		source: Some(source),
 		access: Some(access),
 		introduction: Some(introduction),
+		openings: Openings::default(),
 		inbox: None,
 		lines: List::default(),
 		closed: false,
-		draft,
-	}));
+		draft: Field::default(),
+	};
 	let mut intent = current.clone();
 	match reopened {
-		Some((at, ..)) => intent.conversations.as_mut_slice()[at] = row,
-		None => intent.conversations.try_push(row).map_err(|_| DirectRefusal::Full)?,
+		// The acquisition retires every coordinate its candidate no longer
+		// refers to (`Intent::replace_configuration_retiring`), the same set
+		// `land` names, so the plan releases nothing itself. The session's
+		// participation check holds the plan's releases empty.
+		Some((at, _)) => {
+			land(&mut intent, at, row);
+		}
+		None => intent
+			.conversations
+			.try_push(Conversation::Direct(Box::new(row)))
+			.map_err(|_| DirectRefusal::Full)?,
 	}
 	let role = custody::Role::DirectAccess;
 	Ok(DirectAdoption {

@@ -377,6 +377,7 @@ pub(super) async fn run() {
 							.unwrap();
 						let direct = workspace::Direct {
 							introduction: None,
+							openings: Default::default(),
 							inbox: None,
 							source: None,
 							kind: workspace::DirectKind::Direct,

@@ -29,7 +29,7 @@ const text = value("text", "The text to post, or - to read it from standard inpu
 const operation = @import("session_commands.zig").operation;
 const base = @import("session_commands.zig").base;
 const dm = value("dm", "The nickname of someone in the turn's conversation, a member whose room line the turn was shown or the other person of its direct conversation, to post to directly: opens a direct conversation with them or reuses the open one");
-const dm_operation = value("operation", "With --dm and --base, the operation of an earlier open in this turn whose outcome was uncertain, to open again at most once");
+const dm_operation = value("operation", "With --dm and --base, the operation of an earlier open from this conversation whose outcome was uncertain, to look at it again without opening twice");
 const dm_base = value("base", "With --dm and --operation, the revision of an earlier open whose outcome was uncertain");
 pub const commands = [_]types.Command{
     .{ .name = "serve", .short_help = "Keep a coding agent present in Rooms, answering in the foreground until stopped", .flags = &.{

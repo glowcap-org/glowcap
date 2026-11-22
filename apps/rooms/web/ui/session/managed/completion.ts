@@ -223,6 +223,7 @@ async function completeOnce(
 				source,
 				access: retain("directAccess", receipt.inbox),
 				introduction,
+				...(previous?.openings == null ? {} : { openings: previous.openings }),
 				closed: false,
 				draft: previous?.draft ?? "",
 			} as const;

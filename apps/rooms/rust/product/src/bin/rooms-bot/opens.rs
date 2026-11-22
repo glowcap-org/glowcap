@@ -4,36 +4,47 @@
 //! removes it once the open settles. The note holds the base and
 //! introduction the open sent, so a look again sends that same one, and the
 //! conversation of the turn that sent it. At most [`MAX_OPENS`] notes are
-//! live, and a `--dm` that would open past that is refused.
+//! live, half the session's receipt places, so pending opens leave the rest
+//! to the bot's replies, and a `--dm` that would open past that is refused.
 //!
 //! While the bot serves, [`settle`] alone looks at the notes, one look at a
-//! time on a timer of its own, and skips a note whose conversation has a
-//! turn thinking, because that turn's agent is settling it. An open still
-//! pending, or a session that is paused or unreachable, is looked at again
-//! later, less often while it stays so. A note is given up only on evidence
-//! that this access can never settle it: the session cannot say whether it
-//! committed, because the work that would settle it ended, or it refuses the
-//! open. A note given up, and one that cannot be read, is set aside as
-//! `<operation>.json.unsettled`, logged once, and counted in
-//! `status.unsettled_opens`. The session keeps the receipt of a given-up open
-//! until the access that sent it is revoked. A replaced link's access takes
+//! time on a timer of its own. It looks at a note even while the turn that
+//! sent it is thinking: a look sends the same open under the same operation
+//! and base, which the session answers from that open's first receipt, so
+//! the look and the turn settle it once, and either one removing the note is
+//! right. A look that read the note just before the turn removed it may send
+//! the open once more after its receipt is given back. The session takes
+//! that as a new open, whose route it gives back while the member's
+//! conversation is open and keeps otherwise, as the turn's next `--dm` would.
+//!
+//! An open still pending, or a session that is paused or unreachable, is
+//! looked at again later, less often while it stays so. A note is given up
+//! only on evidence that this access can never settle it: the session cannot
+//! say whether it committed, because the work that would settle it ended, or
+//! it refuses the open. A note given up, and one that cannot be read, is set
+//! aside as `<operation>.json.unsettled`, logged once, and counted in
+//! `status.unsettled_opens`. The bot never reads or removes a note set aside:
+//! the session keeps a given-up open's receipt until the access that sent it
+//! is revoked, which the bot cannot see, so the operator removes the note
+//! (`docs/rooms/bot.md`). A replaced link's access takes
 //! [`Look::Last`] at every note before the new link serves, because only the
 //! access that sent an open can settle it, and sets aside what that look
 //! leaves.
 use super::{
 	engine::Env,
 	error::Error,
-	ledger::{Ledger, Phase},
 	rooms::{Base, ConversationId, Rooms, RoomsError, RoomsErrorKind, Settled},
 	store::{self, Store},
 };
 use crate::bot::engine::Backoff;
+use rooms_application::content::session::custody::MAX_EFFECTS;
 use rooms_services::session::attached::Introduction;
 use serde::{Deserialize, Serialize};
-use std::{cell::RefCell, collections::BTreeSet, convert::Infallible, io::ErrorKind, path::Path, time::Duration};
+use std::{collections::BTreeSet, convert::Infallible, io::ErrorKind, path::Path, time::Duration};
 
-/// The most opens the bot keeps unsettled at once.
-pub const MAX_OPENS: usize = 8;
+/// The most opens the bot keeps unsettled at once: half the session's
+/// receipt places, since each pending open holds one.
+pub const MAX_OPENS: usize = MAX_EFFECTS / 2;
 /// How long the owner waits between looks while no open is pending.
 const IDLE: Duration = Duration::from_secs(1);
 
@@ -128,10 +139,9 @@ fn listed(root: &Path) -> Result<(Vec<String>, u64), Error> {
 }
 
 /// Which look the bot takes.
-pub enum Look<'a> {
-	/// The serving bot's, which skips a note whose conversation has a turn
-	/// thinking in this ledger.
-	Serving(&'a RefCell<Ledger>),
+pub enum Look {
+	/// The serving bot's, which looks again later at a note still pending.
+	Serving,
 	/// A replaced link's access's, which sets aside every note it does not
 	/// settle.
 	Last,
@@ -177,19 +187,12 @@ fn verdict(answer: Result<Settled, RoomsError>) -> Verdict {
 	}
 }
 
-fn thinking(ledger: &Ledger, conversation: &ConversationId) -> bool {
-	ledger
-		.open()
-		.into_iter()
-		.any(|id| matches!(ledger.phase(id), Some(Phase::Running { asked, .. }) if asked.conversation == *conversation))
-}
-
 /// Look once at every note. `waiting` holds the operations already logged
 /// as pending, so a pending open is logged once.
 pub async fn look<R: Rooms>(
 	rooms: &R,
 	store: &Store,
-	kind: &Look<'_>,
+	kind: &Look,
 	waiting: &mut BTreeSet<String>,
 ) -> Result<Looked, Error> {
 	let root = store.root();
@@ -207,11 +210,6 @@ pub async fn look<R: Rooms>(
 				continue;
 			}
 		};
-		if let Look::Serving(ledger) = kind
-			&& thinking(&ledger.borrow(), &open.conversation)
-		{
-			continue;
-		}
 		let peer = &open.introduction.peer;
 		match verdict(rooms.settle_open(&operation, open.base, &open.introduction).await) {
 			Verdict::Settled(what) => {
@@ -219,7 +217,7 @@ pub async fn look<R: Rooms>(
 				forget(root, &operation)?;
 				waiting.remove(&operation);
 			}
-			Verdict::Later(why) if matches!(kind, Look::Serving(_)) => {
+			Verdict::Later(why) if matches!(kind, Look::Serving) => {
 				looked.pending = true;
 				if waiting.insert(operation.clone()) {
 					said(&format!("to {peer} has not settled ({why}). Looking again later"));
@@ -248,7 +246,7 @@ pub async fn settle<R: Rooms>(env: &Env<'_, R>) -> Infallible {
 	let mut waiting = BTreeSet::new();
 	let mut failing = None;
 	loop {
-		let pending = match look(env.rooms, env.store, &Look::Serving(&env.ledger), &mut waiting).await {
+		let pending = match look(env.rooms, env.store, &Look::Serving, &mut waiting).await {
 			Ok(looked) => {
 				failing = None;
 				let mut facts = env.facts.borrow_mut();
