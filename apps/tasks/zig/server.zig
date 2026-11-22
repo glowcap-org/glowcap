@@ -80,7 +80,7 @@ pub fn serve(server: *driver.Server, storage: *Storage, stop: ?*const std.atomic
             };
         } else if (try server.waitAcceptable(wait)) {
             // A client that fails to connect costs only its own session.
-            if (admit(server)) |session| {
+            if (try admit(server)) |session| {
                 sessions[open] = session;
                 open += 1;
             }
@@ -106,8 +106,11 @@ fn listenCleartext(allocator: std.mem.Allocator, io: std.Io, port: u16) !*driver
     return driver.listen(allocator, io, .{ .symbols = &.{.tcp} }, glowcap.ocapn.model.transport.tcp, .{ .designator = bind }, .ephemeral, session_opts);
 }
 
-fn admit(server: *driver.Server) ?*driver.Session {
+/// Accept one client, or null when that client failed to connect. Once the
+/// listener stops, its failure ends the board's serve loop instead.
+fn admit(server: *driver.Server) !?*driver.Session {
     const session = server.accept() catch |err| {
+        if (!server.listening()) return err;
         std.debug.print("tasks-server: a client failed to connect: {s}\n", .{@errorName(err)});
         return null;
     };
