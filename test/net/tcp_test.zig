@@ -269,9 +269,15 @@ test "a full descriptor table refuses the accept and leaves the listener open" {
             else => return error.TestUnexpectedResult,
         }
     }
-    // Both arrivals waited in the backlog, and the same listener takes them.
+    // Linux keeps a refused arrival queued, and macOS closes it, so dial
+    // fresh ones: the same listener takes them on either kernel.
+    const third = try ip.IpAddress.connect(&address, io, .{ .mode = .stream });
+    defer third.close(io);
+    const fourth = try ip.IpAddress.connect(&address, io, .{ .mode = .stream });
+    defer fourth.close(io);
     const served = try listener.acceptStream();
     served.close(io);
+    try std.testing.expect(try listener.waitAcceptable(5_000));
     switch (raw.acceptOutcome(&read_buf, &write_buf, .{}, .ready)) {
         .connection => |accepted| {
             var conn = accepted;
