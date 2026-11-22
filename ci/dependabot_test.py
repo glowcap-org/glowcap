@@ -6,6 +6,7 @@ ecosystem's manifest, and the Actions entry reaches every composite action.
 This does not reach GitHub.
 """
 
+import re
 import subprocess
 import tomllib
 import unittest
@@ -81,6 +82,17 @@ class Dependabot(unittest.TestCase):
     def test_a_manual_cargo_update_waits_as_long(self):
         config = tomllib.loads((ROOT / ".cargo/config.toml").read_text())
         self.assertEqual(config["registry"]["global-min-publish-age"], f"{COOLDOWN_DAYS} days")
+
+    def test_a_manual_deno_update_waits_as_long(self):
+        # Every committed deno.lock resolves through the deno.json beside it,
+        # which may hold comments, so read the one key rather than parse JSONC.
+        locks = tracked("*deno.lock")
+        self.assertTrue(locks)
+        for lock in locks:
+            with self.subTest(lock=str(lock)):
+                manifest = (ROOT / lock.parent / "deno.json").read_text()
+                ages = re.findall(r'^\s*"minimumDependencyAge": "([^"]*)",?$', manifest, re.MULTILINE)
+                self.assertEqual(ages, [f"P{COOLDOWN_DAYS}D"])
 
 
 if __name__ == "__main__":
