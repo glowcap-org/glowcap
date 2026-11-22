@@ -247,7 +247,8 @@ pub const Connection = struct {
     /// Join an optional transport-level close transaction. Ordinary byte
     /// streams have no protocol below CapTP and complete immediately. Framed
     /// carriers such as WebSocket advance without allocation, waiting only on
-    /// their one pollable descriptor and one caller-owned deadline.
+    /// their one pollable descriptor and one caller-owned deadline. A refused
+    /// wait is the failure's cause unless the transport latched its own.
     pub fn closeGracefully(self: *Connection, timeout_ms: i32) ?foundation.FailureChain {
         std.debug.assert(timeout_ms >= 0);
         const deadline = clock.nowMs(self.io) +| timeout_ms;
@@ -266,7 +267,7 @@ pub const Connection = struct {
                         .wait_read => self.waitReadable(remaining),
                         .wait_write => self.waitWritable(remaining),
                         else => unreachable,
-                    } catch return self.takeFailure() orelse .init(error.ConnectionLost);
+                    } catch |err| return self.takeFailure() orelse .init(err);
                     if (!ready) return .init(error.CloseTimedOut);
                 },
             }
@@ -335,20 +336,18 @@ pub const Connection = struct {
     /// the bound is the net layer's job. A transport with no pollable fd (a
     /// userspace stream that multiplexes in its own loop) is unbounded even with
     /// a deadline, exactly as `waitReadable` reports: the timeout binds fd-backed
-    /// transports (tcp, keyed-tcp).
+    /// transports (tcp, keyed-tcp). A refused wait returns its raw cause, as
+    /// `waitReadable` does.
     pub fn runUntil(
         self: *Connection,
         pred: *const fn (*engine.Peer) bool,
         timeout_ms: i32,
-    ) (PumpError || error{Timeout})!Progress {
+    ) (PumpError || WaitError || error{Timeout})!Progress {
         if (pred(self.peer)) return .idle;
         while (true) {
             if (timeout_ms != 0) {
                 try self.flush();
-                // A refused poll ends this convenience as a lost connection,
-                // as it always has. `waitReadable` carries the raw cause.
-                const ready = self.waitReadable(timeout_ms) catch return error.ConnectionLost;
-                if (!ready) return error.Timeout;
+                if (!try self.waitReadable(timeout_ms)) return error.Timeout;
             }
             const progress = try self.pump();
             if (progress == .closed) return .closed;
