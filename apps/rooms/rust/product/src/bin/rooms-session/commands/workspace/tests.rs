@@ -1,4 +1,5 @@
-//! Named contact selection refuses local registration replacement during lookup.
+//! Named contact selection refuses local registration replacement during
+//! lookup, and reuses an open conversation by the registration it names.
 use super::*;
 use tokio::{
 	io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
@@ -18,11 +19,16 @@ async fn named_contact_fences_lookup_before_reusing_route() {
 		};
 		let server = tokio::spawn(async move {
 			let key = "00000000000000010000000000000001";
-			let directory = json!({"id":"directory", "home":true, "access":key, "source":key, "name":key, "inbox":key});
-			let mut workspace = json!({"directories":[directory], "conversations":[{
-				"kind":"direct", "id":"direct", "directory":"directory", "peer":"Bob", "closed":false,
-				"introduction":{"access":key, "name":key, "callback":key, "registration":"peer"}
-			}]});
+			let directory = json!({"id":"directory", "home":true, "access":key, "source":key, "name":key, "inbox":key,
+				"nick":"me", "nickAllocation":"exact", "standing":null});
+			// The open row is held under another nickname case, and reuse
+			// still finds it by registration.
+			let mut workspace = json!({"version":1, "directories":[directory], "conversations":[{
+				"kind":"direct", "id":"direct", "directory":"directory", "peer":"bob", "closed":false,
+				"access":key, "source":key, "draft":"",
+				"introduction":{"access":key, "name":key, "callback":key, "registration":"peer", "opening":"o"}
+			}], "invitations":[], "active":null, "standing":"", "ignored":[], "keepHistory":false,
+				"connection":"fastest", "archive":null, "archiveControl":null, "operators":[], "peering":[]});
 			for verb in ["status", "status", "status", "directory-read", "status"] {
 				let (stream, _) = listener.accept().await.unwrap();
 				let mut reader = BufReader::new(stream);
@@ -34,7 +40,7 @@ async fn named_contact_fences_lookup_before_reusing_route() {
 					if change == "removed" {
 						workspace["directories"] = json!([]);
 					} else if change != "none" {
-						workspace["directories"][0][change] = "replacement".into();
+						workspace["directories"][0][change] = "00000000000000020000000000000001".into();
 					}
 					json!({"ok":true, "registration":"peer"})
 				} else {

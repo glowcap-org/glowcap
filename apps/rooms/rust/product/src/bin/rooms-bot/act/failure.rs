@@ -41,6 +41,21 @@ pub fn attach(cause: &Dialing) -> Error {
 	}
 }
 
+/// A failure the verb names itself.
+pub fn refused(failure: &Failure) -> Error {
+	action(failure, None)
+}
+
+/// A write the session had not settled by the bound, which may still apply.
+/// It names its base so the same operation can be sent again there.
+pub fn unsettled(sent: &attached::Sent) -> Error {
+	let message = format!("the session had not settled the command: {}", sent.status.wire());
+	action(
+		&Failure::new("uncertain", Retry::AfterStateChange, message),
+		Some(("base", sent.base)),
+	)
+}
+
 /// A write the session settled without applying it.
 pub fn unapplied(status: &str) -> Error {
 	let message = format!("the session did not apply the command: {status}");
@@ -49,10 +64,20 @@ pub fn unapplied(status: &str) -> Error {
 
 /// An uncertain write's operation, added to the failure so it can be observed.
 pub fn with_operation(error: Error, operation: &str) -> Error {
+	with(error, "operation", json!(operation))
+}
+
+/// A failure of the open a `--dm` needed, marked so an agent can tell it
+/// from a failure of the line that follows, which the open precedes.
+pub fn opening(error: Error) -> Error {
+	with(error, "opening", json!(true))
+}
+
+fn with(error: Error, name: &str, value: Value) -> Error {
 	match error {
 		Error::Action { mut response, message } => {
 			if let Some(object) = response.get_mut("error").and_then(Value::as_object_mut) {
-				object.insert("operation".into(), json!(operation));
+				object.insert(name.into(), value);
 			}
 			Error::Action { response, message }
 		}

@@ -134,11 +134,17 @@ async fn unsent_command_preserves_refusal_and_retains_uncertain_observation() {
 
 #[test]
 fn direct_contact_retry_fences_registration_and_allows_standing_updates() {
-	let original = json!({"directories":[{"id":"directory", "access":"access", "source":"source", "name":"name", "inbox":"inbox", "standing":"here"}]});
+	let key = "00000000000000010000000000000001";
+	let original = json!({"directories":[{"id":"directory", "access":key, "source":key, "name":key, "inbox":key,
+		"home":true, "nick":"bot", "nickAllocation":"exact", "standing":"here"}]});
 	let args = vec!["directory".into(), "peer".into(), "registration".into()];
 	for field in ["id", "access", "source", "name", "inbox", "standing"] {
 		let mut current = original.clone();
-		current["directories"][0][field] = "replacement".into();
+		current["directories"][0][field] = match field {
+			"id" | "standing" => "replacement",
+			_ => "00000000000000020000000000000001",
+		}
+		.into();
 		assert_eq!(
 			selection::unchanged("startDirect", &args, &original, &current),
 			field == "standing",

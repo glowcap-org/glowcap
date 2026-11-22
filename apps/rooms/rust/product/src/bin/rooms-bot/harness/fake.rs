@@ -1,5 +1,6 @@
 //! The scripted adapter for process tests. It drives `rooms-bot-fake-harness`,
-//! which obeys directives in its prompt. Debug builds only.
+//! which obeys directives in its prompt. Only a build with the `test-support`
+//! feature, or a test build, has it.
 use super::{FailureKind, Harness, Invocation, Signal, Turn};
 use serde_json::Value;
 

@@ -258,6 +258,7 @@ pub fn register(b: *std.Build, runtime_gate: *execution.RuntimeGate, iroh_abi: *
         .{ .targets = bot_process, .filter = &.{ "--", "captp::" } },
         .{ .targets = bot_process, .filter = &.{ "--", "captp_actions::" } },
         .{ .targets = bot_process, .filter = &.{ "--", "captp_crashes::" } },
+        .{ .targets = bot_process, .filter = &.{ "--", "captp_direct::" } },
         .{ .targets = bot_process, .filter = &.{ "--", "captp_handover::" } },
         .{ .targets = bot_process, .filter = &.{ "--", "captp_recovery::" } },
         .{ .targets = bot_process, .filter = &.{ "--", "captp_session::" } },

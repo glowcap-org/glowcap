@@ -5,16 +5,17 @@
 //! the caller owns policy, cursors, and operation identities. A line the view
 //! says stays editable and withdrawable through the session's ordinary
 //! commands, because the session keeps the authority the posting returned.
+mod direct;
 mod error;
 mod events;
 mod files;
 mod grant;
-mod line;
+mod keep;
 mod link;
 
 use glowcap::{Ref, Runtime, loam::UseDescription};
 use rooms_application::{
-	content::session::workspace::posted_conversation, files::receiving::Budget, room::authority::REQUEST_TIMEOUT_MS,
+	content::session::workspace::Adoption, files::receiving::Budget, room::authority::REQUEST_TIMEOUT_MS,
 };
 use rooms_glowcap::client::{
 	Client, Deadline, Tasks,
@@ -23,6 +24,7 @@ use rooms_glowcap::client::{
 };
 use std::path::Path;
 
+pub use direct::Opened;
 pub use error::Error;
 pub use events::{Attachment, Batch, Change, Conversation, Event, Kind, Line, Notice, Step};
 pub use files::Outgoing;
@@ -167,7 +169,7 @@ impl<D: Deadline + Tasks + Clone + 'static> View<D> {
 			.prepared(operation, base, "say", &[conversation.into(), text.into()])
 			.await?;
 		let now = self.snapshot().await?;
-		self.keep(&command, conversation, &now.intent).await
+		self.keep_line_result(&command, conversation, &now.intent).await
 	}
 	/// Give up the receipt of a `say_at` the caller will not keep, so it no
 	/// longer holds one of the session's receipt places. The line stays as it
@@ -239,7 +241,9 @@ impl<D: Deadline + Tasks + Clone + 'static> View<D> {
 	/// Send any session command under the caller's identity and base. The
 	/// session still decides rights and grammar. A committed posting command
 	/// (`say`, `sendFiles`, `refileLine`) has its line kept the way `say`
-	/// keeps one, and reports `Unkept` the same way.
+	/// keeps one, and reports `Unkept` the same way. A committed `startDirect`
+	/// has its route kept the way `open_direct` keeps one, and reports
+	/// `Unopened` the same way.
 	pub async fn command(
 		&self,
 		operation: &str,
@@ -254,9 +258,9 @@ impl<D: Deadline + Tasks + Clone + 'static> View<D> {
 		}
 		Ok(status)
 	}
-	/// Keep the line an earlier posting `command` committed under `operation`
-	/// at `base`, the way `command` keeps it. A command that posts no line
-	/// keeps nothing.
+	/// Keep the line or route an earlier `command` committed under
+	/// `operation` at `base`, the way `command` keeps it. A command that
+	/// returns neither keeps nothing.
 	pub async fn keep_command(
 		&self,
 		operation: &str,
@@ -267,10 +271,11 @@ impl<D: Deadline + Tasks + Clone + 'static> View<D> {
 		let command = self.prepared(operation, base, name, arguments).await?;
 		self.keep_posted(&command, base, name, arguments).await
 	}
-	/// Keep the line a committed posting `command` posted, or give its receipt
-	/// back. The workspace is read now and stands for the one the command was
-	/// sent against, as `keep_line` does. A read that fails reports `Unkept`
-	/// too, because the line posted either way.
+	/// Keep the line or route a committed `command` returned, or give its
+	/// receipt back. The workspace is read now and stands for the one the
+	/// command was sent against, as `keep_line` does. A read that fails
+	/// reports `Unkept` or `Unopened` too, because the command committed
+	/// either way.
 	async fn keep_posted(
 		&self,
 		command: &Command<D>,
@@ -278,16 +283,16 @@ impl<D: Deadline + Tasks + Clone + 'static> View<D> {
 		name: &str,
 		arguments: &[String],
 	) -> Result<(), Error> {
-		let Some(conversation) = posted_conversation(name, arguments) else {
+		let Some(adoption) = Adoption::of(name, arguments) else {
 			return Ok(());
 		};
-		let now = match keep_read_fault() {
+		let now = match fault("keep-read") {
 			Ok(()) => self.snapshot().await,
 			Err(fault) => Err(fault),
 		};
 		match now {
-			Ok(now) => self.kept(command, base, conversation, &now.intent).await,
-			Err(cause) => Err(self.unkept(command, base, cause).await),
+			Ok(now) => self.kept(command, base, adoption, Ok(&now.intent)).await,
+			Err(cause) => self.kept(command, base, adoption, Err(cause)).await,
 		}
 	}
 	/// Read the status of an earlier `command` or `say` without sending it
@@ -343,7 +348,8 @@ impl<D: Deadline + Tasks + Clone + 'static> View<D> {
 		let base = before.revision;
 		let status = self.submit(command, base).await?;
 		if status == EffectStatus::Committed {
-			self.kept(command, base, conversation, &before.intent).await?;
+			self.kept(command, base, Adoption::Line(conversation), Ok(&before.intent))
+				.await?;
 		}
 		Ok(Sent {
 			operation: command.operation().into(),
@@ -452,15 +458,21 @@ impl<D: Deadline + Tasks + Clone + 'static> View<D> {
 	}
 }
 
-/// Test-only: with the `test-support` feature,
-/// `GLOWCAP_ROOMS_VIEW_FAULT=keep-read` fails the
-/// workspace read that keeping a committed command's line starts with, as a
-/// lost connection would, so a process test can prove the post is still
-/// reported. A build without the feature contains no trace of this.
-fn keep_read_fault() -> Result<(), Error> {
+/// Test-only: with the `test-support` feature, `GLOWCAP_ROOMS_VIEW_FAULT`
+/// names one point to fail as a lost connection would, so a process test can
+/// prove a committed command is still reported and its receipt given back.
+/// `keep-read` fails the workspace read that keeping a committed command's
+/// result starts with, and `adopt-direct` fails keeping an introduced route.
+/// A build without the feature fails nothing here.
+fn fault(point: &'static str) -> Result<(), Error> {
 	#[cfg(feature = "test-support")]
-	if std::env::var_os("GLOWCAP_ROOMS_VIEW_FAULT").is_some_and(|point| point == "keep-read") {
-		return Err(Error::Unreachable(ClientError::Timeout("the injected keep-read fault")));
+	if std::env::var_os("GLOWCAP_ROOMS_VIEW_FAULT").is_some_and(|named| named == point) {
+		return Err(Error::Unreachable(ClientError::Timeout(match point {
+			"keep-read" => "the injected keep-read fault",
+			_ => "the injected adopt-direct fault",
+		})));
 	}
+	#[cfg(not(feature = "test-support"))]
+	let _ = point;
 	Ok(())
 }

@@ -41,6 +41,16 @@ pub enum Error {
 		cause: Box<Error>,
 		released: bool,
 	},
+	/// `startDirect` committed under `operation` at `base`, so the peer was
+	/// introduced, but the session did not take the route it returned, so no
+	/// conversation reaches the peer. The cause names why. `released` says the
+	/// command's receipt was given back. Opening again introduces again.
+	Unopened {
+		operation: String,
+		base: u64,
+		cause: Box<Error>,
+		released: bool,
+	},
 	/// The request was refused locally before any effect.
 	Input(String),
 	/// The session answered in a shape this client does not read: activity
@@ -76,6 +86,15 @@ impl fmt::Display for Error {
 			} => write!(
 				f,
 				"the line posted but its authority was not kept, and its receipt is still held: {cause}"
+			),
+			Self::Unopened {
+				cause, released: true, ..
+			} => write!(f, "the peer was introduced but no conversation took its route: {cause}"),
+			Self::Unopened {
+				cause, released: false, ..
+			} => write!(
+				f,
+				"the peer was introduced but no conversation took its route, and its receipt is still held: {cause}"
 			),
 			Self::Input(reason) => write!(f, "invalid request: {reason}"),
 			Self::Malformed(reason) => write!(f, "the session's answer did not decode: {reason}"),

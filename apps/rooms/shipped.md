@@ -79,7 +79,9 @@ the way in, and [operating Rooms](operating.md) covers its grants, services, and
   back-to-back limit keeps a turned-away line as context only, that paused access ends a thinking agent and reruns its turn once access returns,
   that `/reset` starts a new agent conversation, and that the agent's commands act only for their own turn. A memory
   the agent saves in the bot's home in one conversation is listed in another, after a restart, a `/reset`, and the
-  conversation being let go. The [bot guide](../../docs/rooms/bot.md) is the operator's guide.
+  conversation being let go. A bot asked in a room answers privately with `say --dm`, which opens one direct
+  message with that member, reuses it on the next turn, and reopens it after a close, and its typing shows
+  through an issued link. The [bot guide](../../docs/rooms/bot.md) is the operator's guide.
 - *Session WebRTC.* Started with `--dial-transports=webrtc`, the session process reaches a WebRTC browser member
   directly, signaling through the room that introduced it, and answers a member's offer that a room it belongs to
   delivers. It gathers candidates through `--ice-servers`.

@@ -35,41 +35,26 @@ pub async fn hand_over<R: Rooms>(env: &Env<'_, R>, shutdown: &watch::Receiver<bo
 	let mut cut: Option<&str> = None;
 	let open = env.ledger.borrow().open();
 	for id in open {
-		if cut.is_none() && deliver::sent_unsettled(env, id) {
-			cut = tokio::select! {
-				biased;
-				() = stopping(&mut shutdown) => return Ok(env.facts.borrow().unconfirmed),
-				() = env.halted.notified() => Some(HALTED),
-				() = sleep_until(ends) => Some(LATE),
-				step = deliver::settle_sent(env, id, &mut stop) => {
-					step?;
-					None
-				}
-			};
-		}
 		if !deliver::sent_unsettled(env, id) {
 			continue;
 		}
-		let handed = match cut {
-			Some(why) => deliver::hand(env, id, Some(why)).await?,
-			None => {
-				let handed = tokio::select! {
-					biased;
-					() = stopping(&mut shutdown) => return Ok(env.facts.borrow().unconfirmed),
-					() = env.halted.notified() => Err(HALTED),
-					() = sleep_until(ends) => Err(LATE),
-					handed = deliver::hand(env, id, None) => Ok(handed?),
-				};
-				match handed {
-					Ok(handed) => handed,
-					Err(why) => {
-						cut = Some(why);
-						deliver::hand(env, id, cut).await?
-					}
+		let why = match cut {
+			Some(why) => why,
+			// `settle_sent` returns once the line is settled, so only a stop,
+			// a halt, or the limit leaves a line to hand over.
+			None => tokio::select! {
+				biased;
+				() = stopping(&mut shutdown) => return Ok(env.facts.borrow().unconfirmed),
+				() = env.halted.notified() => HALTED,
+				() = sleep_until(ends) => LATE,
+				step = deliver::settle_sent(env, id, &mut stop) => {
+					step?;
+					continue;
 				}
-			}
+			},
 		};
-		if let Some(said) = said(&handed) {
+		cut = Some(why);
+		if let Some(said) = said(&deliver::hand(env, id, why)?) {
 			env.store.log(&format!("turn {}: {said}", id.0));
 		}
 	}
@@ -84,18 +69,6 @@ fn said(handed: &Handed) -> Option<String> {
 		Handed::ToEcho { operation } => format!(
 			"the old access had not settled operation {operation}. The new link decides it by its echo and never \
 			 sends it again. {REVOKED}"
-		),
-		Handed::Kept { operation } => format!("the old access kept the line operation {operation} posted"),
-		Handed::Released {
-			operation,
-			unkept: None,
-		} => format!("the old access released the receipt of operation {operation}"),
-		Handed::Released {
-			operation,
-			unkept: Some(error),
-		} => format!(
-			"the old access could not keep the line operation {operation} posted ({error}), so it released its \
-			 receipt"
 		),
 		Handed::Held { operation, why } => {
 			format!("the old access left the receipt of operation {operation}, because {why}. {REVOKED}")

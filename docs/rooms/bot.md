@@ -98,12 +98,14 @@ Each reply is the agent's final message. During a turn the agent can also use th
 
 | Command | What the agent can do with it |
 | --- | --- |
-| `say` | Post a line in the turn's conversation, or in another conversation the session lets the bot post in. |
-| `send` | Send files from its working directory to the turn's own conversation, up to eight at a time. |
+| `say` | Post a line in the turn's conversation, in another conversation the session lets the bot post in, or with `--dm <nickname>` privately to a member. |
+| `send` | Send files from its working directory to the turn's own conversation, or with `--dm <nickname>` privately to a member, up to eight at a time. |
 | `workspace` | List the conversations the bot can post to, the people in them, and its own nickname. |
-| `command` | Run any other session command the access's rights allow, such as editing or withdrawing a line, joining or leaving a room, or opening or closing a direct message. |
+| `command` | Run any other session command the access's rights allow, such as editing or withdrawing a line, joining or leaving a room, or closing a direct message. |
 
-These commands act for the turn that runs them: the bot tells them its directory and the turn's conversation, so they take no `--dir`, and they work only while the turn runs. One turn may run `say`, `send`, and `command` at most <!-- value ../../apps/rooms/rust/product/src/bin/rooms-bot/actions.rs MAX_ACTIONS_PER_TURN -->12<!-- /value --> times in all, and past that they are refused with a message naming the bound. The bound holds however the agent is prompted only while the agent cannot write to the bot's directory outside its home or start a process that outlives its turn, as under `claude` with `--permission safe`. Looking again at an earlier `command` with its operation and base does not count. The bot's log records each line posted to another conversation and each `command` run.
+These commands act for the turn that runs them: the bot tells them its directory and the turn's conversation, so they take no `--dir`, and they work only while the turn runs. One turn may run `say`, `send`, and `command` at most <!-- value ../../apps/rooms/rust/product/src/bin/rooms-bot/actions.rs MAX_ACTIONS_PER_TURN -->12<!-- /value --> times in all, and past that they are refused with a message naming the bound. The bound holds however the agent is prompted only while the agent cannot write to the bot's directory outside its home or start a process that outlives its turn, as under `claude` with `--permission safe`. Looking again at an earlier `command` with its operation and base does not count. The bot's log records each line posted to another conversation, each direct message the bot opens, and each `command` run.
+
+`--dm` looks the nickname up in the directory of the turn's conversation, so it reaches the member the agent saw there. The bot posts to the open direct message with that member when there is one. Otherwise it reopens the last one it closed with them, or opens a new one, and then posts. A nickname nobody holds there now, or the bot's own, is refused before anything is sent. Under `collaborator` rights the member cannot answer in a direct message the bot opened, because the session sets up the bot's side of it only for an access with `administrator` rights.
 
 The session decides what the bot may do, so the rights you issue limit what the bot can do through Rooms.
 
@@ -188,7 +190,7 @@ The session saves an access's row before it creates the access. If the session s
 
 To give the bot a new link, stop the bot, issue a new access, run `serve` once more with the link and `--replace-link`, and revoke the old access once the bot serves. Without that flag `serve` refuses a link other than the stored one, because the bot's saved position belongs to the session the old link reached. Before it saves the new link, `serve` waits up to a minute in all for the replies that were going out under the old one to settle, so the old access's own record decides whether each posted. A bot stopped during that wait keeps the old link. A reply still unsettled then is left to the new link, which looks for it in the session's activity and never sends it again.
 
-Within that minute, and while the old access still works, a reply that posted gets one more try at being kept, or its record given back. The log says what became of each reply. Only the old access can give that record back, so the session holds any record still left until the old access is revoked, and then releases it. Until then each such record keeps one of the session's few receipt places.
+The log says what became of each reply. Only the old access can give a reply's record back, so a record it left when the minute ran out or the old access stopped working stays with the session until the old access is revoked, and the session then releases it. Until then each such record keeps one of the session's few receipt places.
 
 ```sh
 glowcap apps rooms session access issue \

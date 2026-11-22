@@ -6,6 +6,7 @@ use crate::session::{
 	command::{Effect, Route},
 };
 use alloc::string::String;
+use serde::Deserialize;
 use serde_json::Value;
 
 fn row<'a>(intent: &'a Value, collection: &str, id: &str) -> Option<&'a Value> {
@@ -120,10 +121,12 @@ fn same_manager_recovery(before: &Value, after: &Value, args: &[String]) -> bool
 		.into_iter()
 		.all(|key| original[key] == current[key] && (key == "control" || original[key] == witness[key]))
 }
+/// `Directory::same_contact` over two directory rows a terminal front read.
+/// A row that does not decode is no proof of the same contact.
 pub fn same_directory_contact(before: &Value, after: &Value) -> bool {
-	["id", "access", "source", "name", "inbox"]
-		.into_iter()
-		.all(|key| before[key] == after[key])
+	use crate::content::session::workspace::Directory;
+	let decode = |row: &Value| Directory::deserialize(row).ok();
+	matches!((decode(before), decode(after)), (Some(before), Some(after)) if before.same_contact(&after))
 }
 fn same_operations(before: &Value, after: &Value, args: &[String]) -> bool {
 	let Some(coordinate) = args.first().and_then(|raw| serde_json::from_str::<Value>(raw).ok()) else {

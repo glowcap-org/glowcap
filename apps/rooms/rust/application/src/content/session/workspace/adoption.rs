@@ -4,17 +4,31 @@
 //! conversation's `lines` row, and editing or withdrawing the line needs it.
 //! This module plans that acquisition for the terminal front and attached
 //! views. The page plans the same acquisition in its own completion recipe.
-use super::{Conversation, Intent, PostedLine, custody};
+//! `Adoption` names what any committed command leaves to adopt, so each
+//! keeper dispatches on one reading of the command.
+use super::{Conversation, Intent, PostedLine, StartDirect, custody};
 use alloc::{string::String, vec::Vec};
 use core::fmt;
 use serde::Deserialize;
 
-/// The conversation a posting command's line lands in, its first argument,
-/// or `None` for a command that posts no line to keep.
-pub fn posted_conversation<'a>(name: &str, arguments: &'a [String]) -> Option<&'a str> {
-	match name {
-		"say" | "sendFiles" | "refileLine" => arguments.first().map(String::as_str),
-		_ => None,
+/// What a committed command's result must be adopted into before the
+/// workspace holds its authority.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Adoption<'a> {
+	/// A posted line, kept in this conversation.
+	Line(&'a str),
+	/// A route to the introduced peer, kept in a direct conversation.
+	Direct(StartDirect<'a>),
+}
+impl<'a> Adoption<'a> {
+	/// The adoption `name` with `arguments` leaves, or `None` for a command
+	/// whose result needs none.
+	pub fn of(name: &str, arguments: &'a [String]) -> Option<Self> {
+		match name {
+			"say" | "sendFiles" | "refileLine" => arguments.first().map(|first| Self::Line(first.as_str())),
+			"startDirect" => StartDirect::read(arguments).map(Self::Direct),
+			_ => None,
+		}
 	}
 }
 
@@ -265,6 +279,24 @@ mod tests {
 			adopt_line(&before, &gone, "c", &receipt(), key(50)),
 			Err(Refusal::Removed)
 		);
+	}
+	#[test]
+	fn posting_commands_keep_lines_and_start_direct_keeps_a_route() {
+		let args = |items: &[&str]| items.iter().map(|item| String::from(*item)).collect::<Vec<_>>();
+		let said = args(&["c", "hello"]);
+		assert_eq!(Adoption::of("say", &said), Some(Adoption::Line("c")));
+		assert_eq!(Adoption::of("refileLine", &said), Some(Adoption::Line("c")));
+		let start = args(&["d", "ann", "registration", "opening"]);
+		let Some(Adoption::Direct(direct)) = Adoption::of("startDirect", &start) else {
+			panic!("startDirect adopts a route");
+		};
+		assert_eq!(
+			(direct.directory, direct.peer, direct.registration, direct.opening),
+			("d", "ann", "registration", "opening")
+		);
+		assert_eq!(Adoption::of("startDirect", &start[..3]), None);
+		assert_eq!(Adoption::of("editLine", &said), None);
+		assert_eq!(Adoption::of("say", &[]), None);
 	}
 	#[test]
 	fn entropy_with_a_zero_half_is_no_key() {

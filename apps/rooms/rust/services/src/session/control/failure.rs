@@ -78,7 +78,7 @@ impl From<&crate::session::attached::Error> for Failure {
 	fn from(error: &crate::session::attached::Error) -> Self {
 		use crate::session::attached::Error::{
 			Budget, Conflict, Exists, Input, Io, Malformed, Paused, Peer, Refused, Revoked, Stale, Uncertain, Unkept,
-			Unreachable,
+			Unopened, Unreachable,
 		};
 		let (class, retry) = match error {
 			Refused => ("refused", Retry::AfterRequestChange),
@@ -90,6 +90,7 @@ impl From<&crate::session::attached::Error> for Failure {
 			Conflict => ("conflict", Retry::Soon),
 			Stale => ("restarted", Retry::AfterRequestChange),
 			Unkept { .. } => ("unkept", Retry::Never),
+			Unopened { .. } => ("unopened", Retry::AfterStateChange),
 			Input(_) => ("invalid", Retry::AfterRequestChange),
 			Malformed(_) => ("system", Retry::Never),
 			Budget => ("exhausted", Retry::AfterStateChange),

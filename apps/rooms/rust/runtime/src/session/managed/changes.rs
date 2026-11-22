@@ -15,8 +15,8 @@ use tokio::sync::watch;
 pub(super) struct Owner<P: Tasks> {
 	budget: Rc<supervision::Budget<P>>,
 	worker: RefCell<Option<[Membership<P>; 2]>>,
-	/// Releases the receipts revoked accesses leave. It starts and closes with
-	/// the feeds, so every host that opens a session runs it.
+	/// Releases the receipts revoked accesses leave. It starts with the feeds,
+	/// so every host that opens a session runs it, and closes first.
 	sweeper: RefCell<Option<Membership<P>>>,
 	updates: watch::Sender<[Option<Result<()>>; 2]>,
 	inspection: Rc<tokio::sync::Mutex<()>>,
@@ -40,6 +40,19 @@ impl<P: Tasks> Owner<P> {
 	}
 	pub fn started(&self) -> bool {
 		self.worker.borrow().is_some()
+	}
+	/// Close the revoked-receipt owner ahead of the feeds, so it cannot sweep
+	/// while the session closes what it sweeps against. A failed close keeps
+	/// it for the next close to try again.
+	pub(super) async fn close_sweeper(&self) -> Result<()> {
+		let Some(mut sweeper) = self.sweeper.borrow_mut().take() else {
+			return Ok(());
+		};
+		let closed = sweeper.close().await;
+		if closed.is_err() {
+			*self.sweeper.borrow_mut() = Some(sweeper);
+		}
+		closed
 	}
 }
 /// Two parked Loam receives cover content and all child grant changes, regardless

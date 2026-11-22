@@ -1,4 +1,9 @@
-//! Ephemeral typing retains the selected conversation's exact source and target.
+//! Ephemeral typing retains the selected conversation's exact target. The
+//! caller names the conversation's initiating source too, so a sender opened
+//! before that source was replaced stops. Any access whose rights admit
+//! typing may open one, as any such access may say a line there, and the
+//! sender is re-admitted through the caller's own access on every send, so
+//! that access's pause or revocation stops it.
 use super::{MetadataRecord, records, refuse, text};
 use glowcap::{
 	Argument, Result,
@@ -33,11 +38,11 @@ fn request(input: Invocation<'_>) -> Result<(&str, custody::Coordinate, custody:
 pub(super) fn requirement(input: Invocation<'_>) -> Result<Requirement> {
 	request(input)?;
 	if input.delivery == Delivery::Forwarding {
-		locations(&records::metadata(input)?, input)?;
+		location(&records::metadata(input)?, input)?;
 	}
 	Requirement::new(&[Permission::InteractWorkspace.key()], &[])
 }
-fn locations(record: &MetadataRecord, input: Invocation<'_>) -> Result<[records::Location; 2]> {
+fn location(record: &MetadataRecord, input: Invocation<'_>) -> Result<records::Location> {
 	let (id, target, expected_source) = request(input)?;
 	let row = record
 		.intent
@@ -63,60 +68,41 @@ fn locations(record: &MetadataRecord, input: Invocation<'_>) -> Result<[records:
 	if source.slot() != expected_source.key.slot() || source.generation() != expected_source.key.generation() {
 		return Err(refuse("typing initiating source has been replaced"));
 	}
-	let locate = |coordinate| {
-		record
-			.custody
-			.get(coordinate)
-			.map(|held| records::location(&held))
-			.ok_or_else(|| refuse("typing custody is absent"))
-	};
-	Ok([
-		locate(custody::Coordinate {
-			role: custody::Role::SessionAccess,
-			key: source.retag(),
-		})?,
-		locate(target)?,
-	])
+	record
+		.custody
+		.get(target)
+		.map(|held| records::location(&held))
+		.ok_or_else(|| refuse("typing custody is absent"))
 }
 pub(super) fn references(input: Invocation<'_>, record: &MetadataRecord) -> Result<Vec<ReferenceRequest>> {
-	let locations = locations(record, input)?;
-	// Fresh acquisition validates and restores only the exact source/target.
-	// Forwarding keeps those held references and rechecks current scalar intent.
+	let location = location(record, input)?;
+	// Fresh acquisition validates and restores only the exact target.
+	// Forwarding keeps that held reference and rechecks current scalar intent.
 	if input.delivery == Delivery::Forwarding {
 		return Ok(Vec::new());
 	}
-	locations
-		.into_iter()
-		.map(|location| {
-			Ok(ReferenceRequest::RestorePage {
-				page: location
-					.page
-					.checked_sub(1)
-					.ok_or_else(|| refuse("invalid typing custody page"))?,
-				field: location.field,
-			})
-		})
-		.collect()
+	Ok(vec![ReferenceRequest::RestorePage {
+		page: location
+			.page
+			.checked_sub(1)
+			.ok_or_else(|| refuse("invalid typing custody page"))?,
+		field: location.field,
+	}])
 }
 /// The shared read scope copies three bounded source arguments and one method
-/// declaration, retaining the exact source and target until facade retirement.
-/// Its existing continuation count/byte budget owns this cost. A raw upstream
-/// sender would let typing survive source revocation and selection replacement.
+/// declaration, retaining the exact target until facade retirement. Its
+/// existing continuation count/byte budget owns this cost. The scope is the
+/// caller's own access, so each send is admitted through it again. A raw
+/// upstream sender would let typing survive that access's revocation and a
+/// replaced selection.
 pub(super) fn invoke(call: &mut Call<'_>, input: Invocation<'_>) -> Result<Argument> {
 	let record = records::metadata(input)?;
-	let [source, target] = locations(&record, input)?;
-	let mut held = |location: records::Location| {
-		let page = input
-			.graph
-			.and_then(|pages| pages.get(location.page.checked_sub(1)?))
-			.ok_or_else(|| refuse("invalid typing custody page"))?;
-		call.page_reference(page, location.field)
-	};
-	let source = held(source)?;
-	let target = held(target)?;
-	if source != call.source()? {
-		return Err(refuse("original conversation source capability required"));
-	}
+	let target = location(&record, input)?;
+	let page = input
+		.graph
+		.and_then(|pages| pages.get(target.page.checked_sub(1)?))
+		.ok_or_else(|| refuse("invalid typing custody page"))?;
+	let target = call.page_reference(page, target.field)?;
 	let methods = [ReadMethod {
 		verb: rooms_application::protocol_data::TYPING,
 		results: &[],

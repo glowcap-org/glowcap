@@ -9,6 +9,8 @@ mod captp;
 mod captp_actions;
 #[path = "bot_process/captp_crashes.rs"]
 mod captp_crashes;
+#[path = "bot_process/captp_direct.rs"]
+mod captp_direct;
 #[path = "bot_process/captp_handover.rs"]
 mod captp_handover;
 #[path = "bot_process/captp_recovery.rs"]

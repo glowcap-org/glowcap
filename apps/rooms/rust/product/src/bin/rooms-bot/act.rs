@@ -9,9 +9,11 @@
 //! for the harness, and never from a flag the agent chooses.
 //!
 //! `say`, `send`, and a new `command` each take one place in the turn's
-//! action budget first, so one turn acts at most
+//! action budget first, whatever conversation they post to and whether a
+//! `--dm` opens one, so one turn acts at most
 //! [`MAX_ACTIONS_PER_TURN`](super::actions::MAX_ACTIONS_PER_TURN) times
 //! however its agent is prompted.
+mod direct;
 mod failure;
 mod verbs;
 

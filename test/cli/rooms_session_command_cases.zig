@@ -235,8 +235,8 @@ test "Rooms bot rows offer exactly the flags rooms-bot reads" {
         .{ .verb = "serve", .flags = &.{ "dir", "link", "replace-link", "harness", "model", "permission", "deadline", "glowcap", "allow", "sender-limit", "conversation-limit", "streak-limit", "instructions" }, .positionals = 0 },
         .{ .verb = "status", .flags = &.{"dir"}, .positionals = 0 },
         .{ .verb = "ready", .flags = &.{"dir"}, .positionals = 0 },
-        .{ .verb = "say", .flags = &.{ "text", "conversation" }, .positionals = 0 },
-        .{ .verb = "send", .flags = &.{ "text", "file" }, .positionals = 0 },
+        .{ .verb = "say", .flags = &.{ "text", "conversation", "dm", "operation", "base" }, .positionals = 0 },
+        .{ .verb = "send", .flags = &.{ "text", "file", "dm", "operation", "base" }, .positionals = 0 },
         .{ .verb = "command", .flags = &.{ "operation", "base" }, .positionals = 1 },
         .{ .verb = "workspace", .flags = &.{}, .positionals = 0 },
     };

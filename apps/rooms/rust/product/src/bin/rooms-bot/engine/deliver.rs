@@ -37,7 +37,7 @@ use crate::bot::{
 		Base, ConversationId, Cursor, Echo, Outcome, Outgoing, READ_DEADLINE, Rooms, RoomsError, RoomsErrorKind,
 		SEND_DEADLINE,
 	},
-	status::{Access, Activity},
+	status::Activity,
 };
 use std::{future::Future, time::Duration};
 use tokio::{sync::watch, time::timeout};
@@ -78,6 +78,22 @@ struct Tries {
 }
 
 impl Tries {
+	fn new() -> Self {
+		Self {
+			standard: Backoff::standard(),
+			slow: Backoff::slow(),
+			reissues: 0,
+			refusals: 0,
+			again: None,
+		}
+	}
+	/// The call `again` repeats belongs to one operation of one line. A line
+	/// abandoned for a failure line, or reissued under a new operation, owes
+	/// no repeat, because a repeat would send the next call as a first send
+	/// and skip the echo check that keeps a line from posting twice.
+	fn ended(&mut self) {
+		self.again = None;
+	}
 	fn settled(&mut self) {
 		self.standard.reset();
 		self.slow.reset();
@@ -122,89 +138,44 @@ pub enum Handed {
 	/// The send had not settled, so the new link decides the line by its
 	/// echo alone. The old access holds its receipt.
 	ToEcho { operation: String },
-	/// The line posted and the old access kept it.
-	Kept { operation: String },
-	/// The old access released the receipt of a line it did not keep, and
-	/// `unkept` says why keeping failed when it was tried.
-	Released {
-		operation: String,
-		unkept: Option<RoomsError>,
-	},
-	/// The receipt stays with the session, which releases it once the old
-	/// access is revoked.
+	/// The line posted, or its receipt's release was owed, and the receipt
+	/// stays with the session, which releases it once the old access is
+	/// revoked.
 	Held { operation: String, why: String },
 }
 
-/// Leave the unsettled line of turn `id` to the link that replaces this one.
-/// Only this link's access can keep or release the line's receipt, so a line
-/// still being sent is left to be settled by its echo alone. A line that
-/// posted, or whose release is owed, is settled now. Unless `skip` names why
-/// the session must not be called, an active access gets one more try at
-/// keeping the line, or else releasing its receipt. Both calls are
-/// idempotent, so a caller may cut this short and call again with `skip`.
-pub async fn hand<R: Rooms>(env: &Env<'_, R>, id: TurnId, skip: Option<&str>) -> Result<Handed, Error> {
-	let (conversation, part, attempt) = match env.ledger.borrow().phase(id) {
+/// Leave the unsettled line of turn `id` to the link that replaces this one,
+/// because `why` keeps the old access from settling it. A line still being
+/// sent is left to be settled by its echo alone. A line that posted, or
+/// whose release is owed, is marked sent with its receipt left to the
+/// session. Only the ledger changes, so the call is idempotent.
+pub fn hand<R: Rooms>(env: &Env<'_, R>, id: TurnId, why: &str) -> Result<Handed, Error> {
+	let (part, attempt) = match env.ledger.borrow().phase(id) {
 		Some(Phase::Sending {
-			conversation,
-			parts,
-			sent,
-			attempt,
-			..
-		}) => (conversation.clone(), parts.get(*sent).cloned(), attempt.clone()),
+			parts, sent, attempt, ..
+		}) => (parts.get(*sent).cloned(), attempt.clone()),
 		_ => return Ok(Handed::Nothing),
 	};
 	let Some(part) = part else {
 		return Ok(Handed::Nothing);
 	};
-	let operation = part.operation.clone();
-	let base = match attempt {
+	let operation = part.operation;
+	match attempt {
 		Attempt::Sent { base, after, .. } => {
 			env.ledger
 				.borrow_mut()
 				.attempt(env.store, id, Attempt::Handed { base, after })?;
-			return Ok(Handed::ToEcho { operation });
+			Ok(Handed::ToEcho { operation })
 		}
-		Attempt::Committed { base } | Attempt::Releasing { base } => base,
-		Attempt::Unsent | Attempt::Handed { .. } => return Ok(Handed::Nothing),
-	};
-	let inactive = env.facts.borrow().access != Access::Active;
-	let handed = match skip.or(inactive.then_some("the old access is not active")) {
-		Some(why) => Handed::Held {
-			operation,
-			why: why.into(),
-		},
-		None => {
-			let line = Outgoing {
-				conversation: &conversation,
-				text: &part.text,
-				operation: &part.operation,
-			};
-			let kept = match attempt {
-				Attempt::Committed { .. } => Some(within(SEND_DEADLINE, env.rooms.keep(&line, base)).await),
-				_ => None,
-			};
-			match kept {
-				Some(Ok(())) => Handed::Kept { operation },
-				kept => {
-					let unkept = kept.and_then(Result::err);
-					match within(SEND_DEADLINE, env.rooms.release(&line, base)).await {
-						Ok(()) => Handed::Released { operation, unkept },
-						Err(error) => Handed::Held {
-							operation,
-							why: match unkept {
-								Some(unkept) => {
-									format!("keeping the line failed ({unkept}) and so did releasing it ({error})")
-								}
-								None => format!("releasing it failed ({error})"),
-							},
-						},
-					}
-				}
-			}
+		Attempt::Committed { .. } | Attempt::Releasing { .. } => {
+			env.ledger.borrow_mut().part_sent(env.store, id)?;
+			Ok(Handed::Held {
+				operation,
+				why: why.into(),
+			})
 		}
-	};
-	env.ledger.borrow_mut().part_sent(env.store, id)?;
-	Ok(handed)
+		Attempt::Unsent | Attempt::Handed { .. } => Ok(Handed::Nothing),
+	}
 }
 
 async fn drive<R: Rooms>(
@@ -213,13 +184,7 @@ async fn drive<R: Rooms>(
 	stop: &mut watch::Receiver<bool>,
 	sent_only: bool,
 ) -> Result<Step, Error> {
-	let mut tries = Tries {
-		standard: Backoff::standard(),
-		slow: Backoff::slow(),
-		reissues: 0,
-		refusals: 0,
-		again: None,
-	};
+	let mut tries = Tries::new();
 	loop {
 		if *stop.borrow() {
 			return Ok(Step::Stopped);
@@ -555,6 +520,7 @@ impl<R: Rooms> Turn<'_, '_, R> {
 	}
 
 	fn conflict(&self, tries: &mut Tries) -> Result<Next, Error> {
+		tries.ended();
 		tries.reissues = tries.reissues.saturating_add(1);
 		self.log(&format!(
 			"the session committed nothing for operation {}. Sending it under a new one",
@@ -582,7 +548,7 @@ impl<R: Rooms> Turn<'_, '_, R> {
 		self.env.publish();
 		Ok(match error.kind {
 			RoomsErrorKind::Refused => {
-				return self.abandon(&format!("the session refused my reply ({})", error.message));
+				return self.abandon(&format!("the session refused my reply ({})", error.message), tries);
 			}
 			RoomsErrorKind::Paused | RoomsErrorKind::Revoked => Next::After(tries.slow.next()),
 			RoomsErrorKind::Unreachable | RoomsErrorKind::Uncertain | RoomsErrorKind::Exists => {
@@ -594,7 +560,8 @@ impl<R: Rooms> Turn<'_, '_, R> {
 
 	/// Replace the lines not yet sent with one failure line. When the lines
 	/// were the failure line already, close the turn instead.
-	fn abandon(&self, reason: &str) -> Result<Next, Error> {
+	fn abandon(&self, reason: &str, tries: &mut Tries) -> Result<Next, Error> {
+		tries.ended();
 		match self.content {
 			Content::Answer => {
 				let part = failure_part(reason)?;
@@ -624,4 +591,22 @@ fn finish<R: Rooms>(env: &Env<'_, R>, id: TurnId, conversation: &ConversationId)
 	env.ledger.borrow_mut().done(env.store, id)?;
 	inbox::remove(env.store, conversation, id);
 	Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn an_ended_line_owes_no_repeat_of_its_call() {
+		for asked in [Asked::FirstSend, Asked::Resend] {
+			let mut tries = Tries::new();
+			tries.again = Some(asked);
+			tries.ended();
+			assert!(
+				tries.again.is_none(),
+				"the next line's call is observed, never sent blind"
+			);
+		}
+	}
 }

@@ -1,20 +1,21 @@
-//! Adopt a send's exact live line occurrence before reporting usable authority.
-//! The saved acquisition owns recovery. Replay never remints a destination.
-//! The plan itself is the shared `adopt_line`, which attached views also use.
+//! Adopt what a committed command returned before reporting usable
+//! authority: a send's exact live line occurrence, or the route a
+//! `startDirect` introduced. The saved acquisition owns recovery. Replay never
+//! remints a destination. The plans are the shared `adopt_line` and
+//! `adopt_direct`, which attached views also use.
 use super::{Failure, Options, Value, json, request};
 use rooms_application::content::session::{
 	custody::FieldKey,
-	workspace::{Intent, LineReceipt, adopt_line, posted_conversation},
+	results,
+	workspace::{Adoption, Intent, LineReceipt, adopt_direct, adopt_line},
 };
 use rooms_application::failure::Retry;
 
 fn intent(workspace: &Value) -> Result<Intent, Failure> {
 	Intent::decode(&workspace.to_string()).map_err(|_| Failure::invalid("session returned an invalid workspace"))
 }
-fn destination() -> Result<
-	rooms_application::content::session::custody::FieldKey<rooms_application::content::session::custody::Line>,
-	Failure,
-> {
+/// A key no held custody uses, from platform entropy.
+fn fresh<K>() -> Result<FieldKey<K>, Failure> {
 	let mut entropy = [0; 16];
 	rooms_platform::entropy::fill(&mut entropy)
 		.map_err(|error| Failure::new("entropy", Retry::AfterStateChange, error))?;
@@ -28,7 +29,7 @@ pub(super) async fn acquire(
 	name: &str,
 	args: &[String],
 ) -> Result<(), Failure> {
-	let Some(target) = posted_conversation(name, args) else {
+	let Some(adoption) = Adoption::of(name, args) else {
 		return Ok(());
 	};
 	if submitted["adopted"] == true {
@@ -38,20 +39,30 @@ pub(super) async fn acquire(
 	if !result.is_object() {
 		return Ok(());
 	}
-	let Some(receipt) = LineReceipt::read(&result.to_string())
-		.map_err(|_| Failure::invalid("the command returned an invalid line receipt"))?
-	else {
-		return Ok(());
-	};
+	let before = intent(&original["workspace"])?;
 	let status = request(&options.state, json!({"verb":"status"})).await?;
-	let plan = adopt_line(
-		&intent(&original["workspace"])?,
-		&intent(&status["workspace"])?,
-		target,
-		&receipt,
-		destination()?,
-	)
-	.map_err(Failure::invalid)?;
+	let current = intent(&status["workspace"])?;
+	let (mappings, releases, planned, source) = match adoption {
+		Adoption::Line(target) => {
+			let Some(receipt) = LineReceipt::read(&result.to_string())
+				.map_err(|_| Failure::invalid("the command returned an invalid line receipt"))?
+			else {
+				return Ok(());
+			};
+			let plan = adopt_line(&before, &current, target, &receipt, fresh()?).map_err(Failure::invalid)?;
+			(plan.mappings, plan.releases, plan.intent, None)
+		}
+		Adoption::Direct(start) => {
+			let receipt = serde_json::from_value::<results::Direct>(result.clone())
+				.map_err(|_| Failure::uncertain("peer has not supplied a direct inbox"))?;
+			let operation = submitted["operation"]
+				.as_str()
+				.ok_or_else(|| Failure::invalid("session returned no operation"))?;
+			let plan = adopt_direct(&before, &current, operation, &start, &receipt, fresh()?, fresh()?)
+				.map_err(Failure::invalid)?;
+			(plan.mappings, Vec::new(), plan.intent, Some(plan.source))
+		}
+	};
 	let base = status["revision"]
 		.as_str()
 		.and_then(|base| base.parse::<u64>().ok())
@@ -61,7 +72,7 @@ pub(super) async fn acquire(
 		json!({
 			"kind":"result", "operation":submitted["operation"], "command_base":submitted["base"],
 			"name":name, "args":args, "base":base,
-			"mappings":plan.mappings, "releases":plan.releases, "intent":plan.intent, "source":null,
+			"mappings":mappings, "releases":releases, "intent":planned, "source":source,
 		}),
 	)
 	.await

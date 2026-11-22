@@ -1,6 +1,7 @@
 //! The bot directory, which `serve`, `status`, and `ready` name with `--dir`
-//! and a turn verb takes from its turn. It belongs to the bot alone and says nothing about where the session runs. Holding the
-//! lease makes `serve` the only writer, and every document is replaced
+//! and a turn verb takes from its turn. It belongs to the bot alone and says
+//! nothing about where the session runs. Holding the lease makes `serve` the
+//! only writer, and every document is replaced
 //! atomically so a crash leaves the old or the new one, never a torn file.
 //!
 //! | Path | Holds |

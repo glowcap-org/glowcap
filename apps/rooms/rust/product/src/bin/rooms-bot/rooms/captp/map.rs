@@ -22,10 +22,10 @@ fn error(kind: RoomsErrorKind, cause: impl ToString) -> RoomsError {
 pub fn failure(cause: attached::Error, sending: bool) -> RoomsError {
 	use attached::Error::{
 		Budget, Conflict, Exists, Input, Io, Malformed, Paused, Peer, Refused, Revoked, Stale, Uncertain, Unkept,
-		Unreachable,
+		Unopened, Unreachable,
 	};
 	let kind = match &cause {
-		Refused | Input(_) | Budget | Unkept { .. } => RoomsErrorKind::Refused,
+		Refused | Input(_) | Budget | Unkept { .. } | Unopened { .. } => RoomsErrorKind::Refused,
 		Peer(peer) if sending && peer.retry() != Retry::Soon => RoomsErrorKind::Refused,
 		Exists(_) => RoomsErrorKind::Exists,
 		Paused => RoomsErrorKind::Paused,

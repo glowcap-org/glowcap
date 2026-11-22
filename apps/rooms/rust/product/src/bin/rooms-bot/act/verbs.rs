@@ -1,13 +1,19 @@
 //! One function per action verb, each returning the JSON line it prints.
-use super::{Turn, failure, with_view};
+use super::{Turn, direct, failure, with_view};
 use crate::bot::{engine, error::Error, request::Request, rooms::ConversationId, store};
 use rooms_services::session::attached::{EffectStatus, Error as ViewError, Outgoing, Sent};
 use serde_json::{Value, json};
 use std::io::Read;
 use std::path::{Component, Path};
 
-pub const SAY: &[&str] = &["conversation", "text"];
-pub const SEND: &[&str] = &["text", "file"];
+pub const SAY: &[&str] = &[
+	"conversation",
+	"text",
+	direct::FLAGS[0],
+	direct::FLAGS[1],
+	direct::FLAGS[2],
+];
+pub const SEND: &[&str] = &["text", "file", direct::FLAGS[0], direct::FLAGS[1], direct::FLAGS[2]];
 pub const COMMAND: &[&str] = &["operation", "base"];
 
 /// The most bytes `--text -` reads from standard input, one line's limit.
@@ -70,30 +76,47 @@ fn posted(result: Result<Sent, ViewError>, operation: &str) -> Result<Value, Err
 	}
 }
 
+/// A post to a direct conversation `--dm` reached names that conversation
+/// and the open that made it, or null when an open one was reused.
+fn reached(mut line: Value, conversation: &str, opened: Value) -> Value {
+	if let Some(object) = line.as_object_mut() {
+		object.insert("conversation".into(), json!(conversation));
+		object.insert("opened".into(), opened);
+	}
+	line
+}
+
 /// Post a line, in the turn's conversation unless `--conversation` names
-/// another. A line elsewhere is written to the bot's log, and the session's
-/// rights decide whether it posts.
+/// another or `--dm` a member to reach directly. A line elsewhere is written
+/// to the bot's log, and the session's rights decide whether it posts.
 pub async fn say(request: &Request, turn: &Turn) -> Result<Value, Error> {
 	let text = text(request)?.ok_or_else(|| Error::Usage("say needs --text".into()))?;
+	let dm = direct::ask(request)?;
 	let conversation = request.single("conversation")?.unwrap_or(&turn.conversation);
 	turn.spend()?;
 	let operation = engine::operation()?;
-	if conversation != turn.conversation {
+	if dm.is_none() && conversation != turn.conversation {
 		store::Log::in_directory(&store::directory(&turn.bot)?).line(&format!(
 			"a turn in conversation {} posted to conversation {conversation} under operation {operation}",
 			turn.conversation
 		));
 	}
 	with_view(turn, |live| async move {
-		posted(live.view.say(&operation, conversation, &text).await, &operation)
+		let Some(dm) = dm else {
+			return posted(live.view.say(&operation, conversation, &text).await, &operation);
+		};
+		let (conversation, opened) = direct::reach(&live, turn, &dm).await?;
+		let line = posted(live.view.say(&operation, &conversation, &text).await, &operation)?;
+		Ok(reached(line, &conversation, opened))
 	})
 	.await
 }
 
 /// Send files from the turn's own working directory to the turn's
-/// conversation.
+/// conversation, or to the member `--dm` names.
 pub async fn send(request: &Request, turn: &Turn) -> Result<Value, Error> {
 	let conversation = turn.conversation.as_str();
+	let dm = direct::ask(request)?;
 	let caption = text(request)?.unwrap_or_default();
 	let work = store::work_dir(&store::directory(&turn.bot)?, &ConversationId::new(conversation));
 	let files = request
@@ -110,12 +133,23 @@ pub async fn send(request: &Request, turn: &Turn) -> Result<Value, Error> {
 	turn.spend()?;
 	let operation = engine::operation()?;
 	with_view(turn, |live| async move {
-		match live.view.send_files(&operation, conversation, &caption, &files).await {
+		let (conversation, opened) = match &dm {
+			Some(dm) => {
+				let (conversation, opened) = direct::reach(&live, turn, dm).await?;
+				(conversation, Some(opened))
+			}
+			None => (conversation.to_owned(), None),
+		};
+		let line = match live.view.send_files(&operation, &conversation, &caption, &files).await {
 			// No verb looks at a send again, so an uncertain one names no
 			// operation or base to check. It must not be sent again.
 			Err(cause @ ViewError::Uncertain { .. }) => Err(failure::unobservable(&cause)),
 			result => posted(result, &operation),
-		}
+		}?;
+		Ok(match opened {
+			Some(opened) => reached(line, &conversation, opened),
+			None => line,
+		})
 	})
 	.await
 }

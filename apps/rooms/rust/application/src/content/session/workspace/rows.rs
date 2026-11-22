@@ -77,6 +77,16 @@ impl Directory {
 	pub fn registers(&self) -> bool {
 		self.source.is_some() && self.nick.text().as_str().is_some_and(|nick| !nick.is_empty())
 	}
+	/// Whether two views of one directory introduce under the same contact: the
+	/// row, its access, its initiating source, and its registered name and
+	/// inbox. Standing and nickname choices may change freely between them.
+	pub fn same_contact(&self, other: &Self) -> bool {
+		self.id == other.id
+			&& self.access == other.access
+			&& self.source == other.source
+			&& self.name == other.name
+			&& self.inbox == other.inbox
+	}
 }
 impl Intent {
 	/// The room row named by a conversation id.
