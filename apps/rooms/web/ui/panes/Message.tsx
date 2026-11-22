@@ -27,7 +27,7 @@ import type { Group } from "../log_blocks.ts";
 import { Avatar } from "../Avatar.tsx";
 import { foreignName } from "../member_identity.ts";
 import { fmtTime } from "../text.ts";
-import { readRichText, richTextMentions } from "../markdown.ts";
+import { lineMentions, readRichText } from "../markdown.ts";
 
 import { RichText } from "./RichText.tsx";
 import { MessageLinkPreviews } from "./LinkPreviews.tsx";
@@ -205,7 +205,13 @@ function Bubble(
 	const displayed = item.pendingEdit?.text ?? item.text;
 	const editing = useProgress(item.pendingEdit != null, PRESENTATION.busy, item.pendingEdit?.operation);
 	const reading = useMemo(() => readRichText(displayed), [displayed]);
-	const highlight = !item.mine && richTextMentions(reading, nick);
+	// Whom the line addresses is the application's answer. A line this reader
+	// sent is never highlighted, even one sent under an earlier nick.
+	const highlight = useMemo(() => {
+		if (item.mine) return false;
+		const addressed = lineMentions(item.from, displayed, nick);
+		return addressed.member || addressed.room;
+	}, [item.mine, item.from, displayed, nick]);
 	const layouts = item.attachments === undefined ? undefined : mediaLayouts(item.attachments);
 	// A withdrawn line shows nothing of what it said. Keeping the text and
 	// striking it through would be a worse lie than deleting it: it would leave

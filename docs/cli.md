@@ -268,6 +268,8 @@ The workspace owns its identity and every room and DM it has joined.
   pending.
 - `tick` returns the current pending events, waiting a bounded time for them.
 - Session commands print JSON, and `listen` prints JSONL.
+- To keep a coding agent in Rooms instead of sitting there yourself, see the
+  [bot guide](rooms/bot.md).
 - `team start`, `team status`, and `team stop` run a roster of peers through the
   same session lifecycle. Starting a peer does not start a model to read its
   messages.

@@ -77,7 +77,13 @@ fn short(id: []const u8) []const u8 {
     return if (config.imageId(id)) id[0 .. "sha256:".len + 12] else id;
 }
 
+/// The name an operator's own image builds `FROM` or `COPY --from`, because
+/// Docker's builder resolves a reference and not an image ID. `up` points it at
+/// the selected image before Compose runs, so it follows every selection.
+pub const selected_reference = "glowcap-rooms:selected";
+
 pub fn up(docker: Docker) !void {
+    if (docker.environ.get("GLOWCAP_ROOMS_IMAGE")) |selected| try docker.run(&.{ "image", "tag", selected, selected_reference }, 30);
     const networks = try docker.query(&.{ "network", "ls", "--format", "{{.Name}}" });
     if (!config.containsLine(networks, "glowcap-rooms-net")) try docker.run(&.{ "network", "create", "glowcap-rooms-net" }, 30);
     docker.run(try docker.composeArgs(&.{ "up", "-d", "--wait", "--wait-timeout", "210" }), 240) catch |err| {

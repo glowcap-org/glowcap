@@ -1,5 +1,6 @@
 //! Process composition for one managed Rooms workspace. Loam owns
 //! authority, the runtime owns callbacks and effects, and adapters own I/O.
+pub mod attached;
 mod config;
 pub mod control;
 mod error;

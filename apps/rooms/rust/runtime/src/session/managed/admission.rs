@@ -38,6 +38,8 @@ pub(super) fn invocation_class(verb: &str) -> Option<Class> {
 		"initialize"
 		| "restore-custody"
 		| "settle-effect"
+		| "unadopted-effects"
+		| "release-unadopted-effect"
 		| "settle-history-erasure"
 		| "retention-intent"
 		| "retire-host-registrations"
@@ -261,6 +263,51 @@ mod tests {
 		assert!(admission.path_work(&GRANT, &[(class, 1)], 4_999).is_err());
 		admission.path_work(&GRANT, &[(class, 1)], 5_000).unwrap();
 		assert!(admission.path_work(&GRANT, &[(class, 1)], 5_000).is_err());
+	}
+	/// A refused attempt charges nothing, for a delegated collaborator and for
+	/// the owner alike. A client that waits exactly the advised time gets
+	/// through on that attempt, and one that retries every 400 ms, faster than
+	/// any advice, is never refused twice in a row once its first advised wait
+	/// has passed.
+	#[test]
+	fn a_refused_retry_charges_nothing_however_soon_it_comes() {
+		use rooms_application::admission::RetryAdvice;
+		let message = [(Class::Message, 1)];
+		let advised = |error: Error| {
+			let text = error.to_string();
+			let advice = text.strip_prefix("rate-limited: ").and_then(RetryAdvice::parse);
+			advice.unwrap_or_else(|| panic!("{text}")).retry_ms
+		};
+		for path in [&GRANT[..], &GRANT[1..]] {
+			let drained = || {
+				let mut admission = Admission::default();
+				while admission.path_work(path, &message, 0).is_ok() {}
+				admission
+			};
+			let mut exact = drained();
+			let mut now = 0;
+			for _ in 0..40 {
+				now += advised(exact.path_work(path, &message, now).unwrap_err());
+				exact.path_work(path, &message, now).unwrap();
+			}
+			let mut fast = drained();
+			let first = advised(fast.path_work(path, &message, 0).unwrap_err());
+			let (mut refused_in_a_row, mut admitted) = (0, 0);
+			for attempt in 1..=75u64 {
+				let now = attempt * 400;
+				if fast.path_work(path, &message, now).is_ok() {
+					refused_in_a_row = 0;
+					admitted += 1;
+				} else {
+					refused_in_a_row += 1;
+					assert!(
+						now < first || refused_in_a_row < 2,
+						"refused twice in a row at {now} ms"
+					);
+				}
+			}
+			assert!(admitted > 50, "{admitted} of 75 attempts got through");
+		}
 	}
 	#[test]
 	fn delegated_siblings_share_parent_debt_without_spending_other_roots() {

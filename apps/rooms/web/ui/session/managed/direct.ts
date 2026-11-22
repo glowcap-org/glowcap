@@ -1,10 +1,12 @@
 // Directory registration and exact introduction receipts own direct admission.
+// The application's rule (`directReach`) names the one open row a member has.
 import { invariant } from "../../../../lib/invariant.ts";
 import { LocalRefusal } from "../../../../lib/text/failure.ts";
 import type { ManagedRoomsSession } from "./session.ts";
 import type { ConversationOpening } from "./openings.ts";
 import type { WorkspaceSnapshot } from "./model.ts";
 import { readDirectReceipt } from "./direct_receipt.ts";
+import { directReach } from "../../application.ts";
 
 export async function acquireDirect(
 	session: ManagedRoomsSession,
@@ -45,14 +47,12 @@ export async function acquireDirect(
 		return origin;
 	};
 	const current = await session.refresh();
-	const origin = checkOrigin(current);
-	const existing = current.intent.conversations.find((row) =>
-		row.kind === "direct" && row.directory === directory && row.peer === peer && !row.closed &&
-		row.introduction?.access === origin.access && row.introduction.name === origin.name &&
-		row.introduction.callback === origin.inbox && row.introduction.registration === registration
-	);
+	checkOrigin(current);
+	// The open row that reaches this registration is the conversation, under
+	// any contact the directory held and whoever opened it.
+	const existing = directReach(current.intent, directory, registration).open;
 	if (existing != null) {
-		return existing.id;
+		return existing;
 	}
 	const closed = new Set(
 		current.intent.conversations.filter((row) => row.kind === "direct" && row.closed).map((row) => row.id),
@@ -73,13 +73,16 @@ export async function acquireDirect(
 	}, {
 		signal,
 		settled: async () => {
-			const adopted = (await session.refresh()).intent.conversations.find((row) =>
-				row.kind === "direct" && row.directory === directory && !row.closed &&
-				row.introduction?.registration === registration && row.introduction.opening === introduction
-			);
-			if (adopted == null) throw new LocalRefusal("direct-not-opened");
-			id = adopted.id;
-			await opening?.acquired(adopted.id, closed.has(adopted.id) ? "closeDirect" : "leaveConversation");
+			const settled = await session.refresh();
+			const open = directReach(settled.intent, directory, registration).open;
+			const row = settled.intent.conversations.find((row) => row.kind === "direct" && row.id === open);
+			if (row?.kind !== "direct") throw new LocalRefusal("direct-not-opened");
+			id = row.id;
+			// Only an opening that landed its own route made the row. A route given
+			// back left a row someone else opened, which the opening does not own.
+			if (row.introduction?.opening === introduction) {
+				await opening?.acquired(row.id, closed.has(row.id) ? "closeDirect" : "leaveConversation");
+			}
 		},
 	});
 	invariant(id != null, "the original direct introduction has no ready route");

@@ -54,8 +54,12 @@ pub(super) fn admit<P: Tasks + Deadline + Clone + 'static>(
 				"history erasure is still pending; recover its original operation",
 			));
 		}
-		local::apply(&request, &mut record.intent, &mut record.custody)
-			.map_err(|_| refuse("invalid workspace gesture"))?;
+		local::apply(&request, &mut record.intent, &mut record.custody).map_err(|refusal| {
+			refuse(match refusal {
+				local::Refusal::DirectOpen => super::DIRECT_OPEN,
+				_ => "invalid workspace gesture",
+			})
+		})?;
 		let erasing = retention && !record.intent.keep_history;
 		if erasing && owner.recording.borrow().is_none() {
 			return Err(refuse("session recording owner is not installed"));

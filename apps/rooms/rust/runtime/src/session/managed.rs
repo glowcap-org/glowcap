@@ -4,7 +4,7 @@ mod activity;
 mod admission;
 mod bootstrap;
 mod incoming;
-pub use activity::{Activity, ActivityDelivery, Event};
+pub use activity::{Activity, ActivityDelivery, Event, MAX_EVENTS as MAX_ACTIVITY_EVENTS, MAX_TOKEN_BYTES};
 mod bundle;
 mod content;
 mod coordination;
@@ -34,6 +34,8 @@ mod opening;
 mod profile;
 pub mod realization;
 mod retained;
+pub use retained::Custody;
+mod revoked_receipts;
 mod supervision;
 mod watching;
 pub use profile::{production_limits, reader_limits, storage_limits};
@@ -291,6 +293,8 @@ impl<P: Tasks + Deadline + Clone + 'static> Session<P> {
 	/// Failure leaves the owner open for recovery. Callers must not close storage.
 	pub async fn close(&self) -> core::result::Result<(), crate::Error> {
 		self.state.closing.set(true);
+		// Closing blocks a new subscription, so no sweeper starts after this.
+		self.state.changes.close_sweeper().await?;
 		let drained = async {
 			loop {
 				let changed = self.state.changed.notified();

@@ -1,6 +1,7 @@
 //! Supervise only the process this start creates. Workspace and lifecycle leases
 //! make concurrent starts explicit. Settings are durable before process launch.
 use super::{Failure, Options, request, workspace};
+use rooms_application::failure::Retry;
 use rooms_application::server::operations::listeners;
 use rooms_platform::serving::{Family, Transport};
 use serde_json::{Value, json};
@@ -86,7 +87,7 @@ pub async fn start(options: &Options) -> Result<Value, Failure> {
 		}
 		let path = state.join("peer-options.json");
 		let raw = rooms_platform::storage::read(&path, 16 * 1024)
-			.map_err(|e| Failure::new("storage", "after-state-change", e))?;
+			.map_err(|e| Failure::new("storage", Retry::AfterStateChange, e))?;
 		let mut settings: BTreeMap<String, String> = raw
 			.map(|raw| serde_json::from_slice(&raw))
 			.transpose()?
@@ -152,7 +153,7 @@ pub async fn start(options: &Options) -> Result<Value, Failure> {
 					if let Some(status) = child.try_wait()? {
 						return Err(Failure::new(
 							"closed",
-							"after-state-change",
+							Retry::AfterStateChange,
 							format!("session exited ({status}); inspect control.log"),
 						));
 					}
@@ -166,7 +167,7 @@ pub async fn start(options: &Options) -> Result<Value, Failure> {
 					if tokio::time::Instant::now() >= deadline {
 						return Err(Failure::new(
 							"timeout",
-							"after-state-change",
+							Retry::AfterStateChange,
 							"startup timed out; inspect control.log",
 						));
 					}
@@ -190,7 +191,9 @@ pub async fn start(options: &Options) -> Result<Value, Failure> {
 	if !options.values("room").is_empty() {
 		workspace::join(&joining).await
 	} else {
-		if options.get("locator").is_some() {
+		// `--nick` alone names the home directory's nickname, which is checked
+		// there like any other.
+		if options.get("locator").is_some() || options.get("nick").is_some() {
 			workspace::directory(&joining).await?;
 		}
 		request(&options.state, json!({"verb":"status"})).await

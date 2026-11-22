@@ -8,6 +8,8 @@ const log = @import("../../operability/log.zig");
 pub const commands = @import("session_commands.zig").commands;
 pub const team_commands = @import("session_commands.zig").team_commands;
 
+/// The parsed request a private Rooms executable receives. `state` is the
+/// `--dir` value, and empty for a command that takes none.
 pub fn envelope(gpa: std.mem.Allocator, verb: []const u8, parsed: *const Parsed) ![]u8 {
     var arena = std.heap.ArenaAllocator.init(gpa);
     defer arena.deinit();
@@ -30,22 +32,31 @@ pub fn envelope(gpa: std.mem.Allocator, verb: []const u8, parsed: *const Parsed)
     }
     return std.json.Stringify.valueAlloc(gpa, .{
         .verb = verb,
-        .state = parsed.flagString("dir") orelse return error.Usage,
+        .state = parsed.flagString("dir") orelse "",
         .named = std.json.Value{ .object = named },
         .arguments = parsed.positionals,
     }, .{});
 }
 
-pub fn run(comptime verb: []const u8) *const fn (*Ctx, *Parsed) anyerror!u8 {
+/// A command for a private Rooms executable that takes its parsed request as
+/// `<program> control <json>`. `needs_dir` is what the person is told when
+/// `--dir` is missing, and null for a command that takes no `--dir`.
+pub fn front(comptime program: []const u8, comptime needs_dir: ?[]const u8, comptime verb: []const u8) *const fn (*Ctx, *Parsed) anyerror!u8 {
     return struct {
         fn execute(ctx: *Ctx, parsed: *Parsed) anyerror!u8 {
-            if (parsed.flagString("dir") == null) {
-                log.err(ctx.io, "--dir is required. Reuse the same private workspace on every Rooms command", .{});
-                return error.Usage;
+            if (needs_dir) |message| {
+                if (parsed.flagString("dir") == null) {
+                    log.err(ctx.io, message, .{});
+                    return error.Usage;
+                }
             }
             const body = try envelope(ctx.gpa, verb, parsed);
             defer ctx.gpa.free(body);
-            return @import("../../operability/installation.zig").replace(ctx, "rooms-session", &.{ "control", body });
+            return @import("../../operability/installation.zig").replace(ctx, program, &.{ "control", body });
         }
     }.execute;
+}
+
+pub fn run(comptime verb: []const u8) *const fn (*Ctx, *Parsed) anyerror!u8 {
+    return front("rooms-session", "--dir is required. Reuse the same private workspace on every Rooms command", verb);
 }

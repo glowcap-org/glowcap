@@ -1,6 +1,11 @@
 use super::*;
 use alloc::format;
 
+/// Whether `document` names `nick`, the member fact a session event carries.
+fn names(document: &Document, nick: &str) -> bool {
+	crate::room::mentions::Mentions::of_document(document, nick).member
+}
+
 fn kinds(source: &str) -> Vec<Node> {
 	Document::read(source).blocks
 }
@@ -140,7 +145,7 @@ fn html_is_literal_and_images_never_gain_fetch_authority() {
 	let html_source = "<img src=x data-owner=\"@zoe\" onerror=alert(1)>";
 	let html = Document::read(html_source);
 	assert_eq!(text_in(&html.blocks), html_source);
-	assert!(!html.mentions("zoe"));
+	assert!(!names(&html, "zoe"));
 	let image = kinds("![map](https://example.com/map.png)");
 	assert!(matches!(
 		&image[0],
@@ -151,12 +156,12 @@ fn html_is_literal_and_images_never_gain_fetch_authority() {
 #[test]
 fn references_footnotes_spoilers_and_mentions_share_the_projection() {
 	let document = Document::read("[site][s] ||**secret @zoe**|| `@zoe`[^n]\n\n[s]: https://example.com\n[^n]: note");
-	assert!(document.mentions("zoe"));
+	assert!(names(&document, "zoe"));
 	assert!(format!("{:?}", document.blocks).contains("FootnoteDefinition"));
 	assert!(format!("{:?}", document.blocks).contains("Spoiler"));
 	assert!(format!("{:?}", document.blocks).contains("Strong"));
-	assert!(!Document::read("`@zoe`").mentions("zoe"));
-	assert!(!Document::read("zoe@example.com").mentions("example"));
+	assert!(!names(&Document::read("`@zoe`"), "zoe"));
+	assert!(!names(&Document::read("zoe@example.com"), "example"));
 }
 
 #[test]

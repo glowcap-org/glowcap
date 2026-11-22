@@ -17,9 +17,16 @@ mod footprint;
 pub mod history;
 mod inbox;
 pub use discovery::DiscoverySelection;
+mod adoption;
+mod direct;
 mod nickname;
 mod references;
 mod rows;
+pub use adoption::{Adoption, LineAdoption, LineReceipt, Refusal as AdoptionRefusal, adopt_line};
+pub use direct::{
+	DirectAdoption, DirectReach, DirectRefusal, MAX_TAKEN_OPENINGS, Openings, Reaching, StartDirect, adopt_direct,
+	direct_reach, introduced_to, open_direct, receive_direct, reopened_direct,
+};
 pub use inbox::InboxSelection;
 pub use nickname::RoomNickname;
 pub use rows::{Directory, PostedLine, PublicEntry, Room};
@@ -53,6 +60,8 @@ pub struct Direct {
 	/// A nickname cannot renew either occurrence.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub introduction: Option<Introduction>,
+	#[serde(default, skip_serializing_if = "List::is_empty")]
+	pub openings: Openings,
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub inbox: Option<FieldKey<custody::DirectInbox>>,
 	#[serde(
@@ -236,13 +245,45 @@ pub struct ConnectionSelection {
 }
 
 /// Independent held use and control. This row selects saved occurrences only.
-/// Labels, permissions, status and revisions belong to Loam's managed owner.
+/// Labels, permissions, and status belong to Loam's managed owner.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Access {
 	pub id: Id,
 	pub access: Option<FieldKey<custody::SessionAccess>>,
 	pub control: Option<FieldKey<custody::SessionControl>>,
+	/// Where this session's issue of the row's access stands.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub issue: Option<Issue>,
+}
+
+/// An issue reserves its row at a place before it derives an access, and
+/// saves the access's inventory entry with its control.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase", deny_unknown_fields)]
+pub enum Issue {
+	/// The control is not saved yet. Issuing again at this place with the
+	/// same request returns that same access.
+	Unsaved(Place),
+	/// The entry the saved control manages, so the row still names its access
+	/// once a revoke has ended the control.
+	Saved(Entry),
+}
+
+/// One access in a managed owner's inventory.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Entry {
+	pub slot: u32,
+	pub generation: u64,
+}
+
+/// A managed owner's derivation sequence and revision for one issue.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Place {
+	pub sequence: u32,
+	pub revision: u64,
 }
 impl Operations {
 	pub fn valid(&self) -> bool {
@@ -339,6 +380,9 @@ pub enum InvalidIntent {
 	Directory,
 	Active,
 	Custody,
+	/// A replacement opens a direct row for a registration another open row
+	/// already reaches.
+	DirectOpen,
 }
 impl Intent {
 	/// Effective standing preserves explicit empty overrides at both scopes.
@@ -382,6 +426,16 @@ impl Intent {
 					&& previous.is_none_or(|row| row.inbox != candidate.inbox)
 			}) {
 				return Err(InvalidIntent::Custody);
+			}
+			// A replacement opens no row for a registration an open row of the
+			// current workspace reaches. Rows it carries open together, as a
+			// workspace saved before that rule may, are kept as a loaded one is.
+			if !candidate.closed
+				&& previous.is_none_or(|row| row.closed)
+				&& self.reaches_another(candidate)
+				&& next.reaches_another(candidate)
+			{
+				return Err(InvalidIntent::DirectOpen);
 			}
 		}
 		for row in self.operations.as_slice() {
@@ -442,7 +496,14 @@ impl Intent {
 	pub fn validate<R: References>(&self, custody: &Custody<R>) -> Result<(), InvalidIntent> {
 		self.validate_archive_shares()?;
 		for (at, row) in self.accesses.as_slice().iter().enumerate() {
-			if row.access.is_none() && row.control.is_none() {
+			// A row selects a use, a control, or an issue still deriving its
+			// access. Only a saved issue holds a control.
+			let valid = match row.issue {
+				None => row.access.is_some() || row.control.is_some(),
+				Some(Issue::Unsaved(_)) => row.control.is_none(),
+				Some(Issue::Saved(_)) => row.control.is_some(),
+			};
+			if !valid {
 				return Err(InvalidIntent::Custody);
 			}
 			if self.accesses.as_slice()[..at].iter().any(|prior| prior.id == row.id) {

@@ -9,6 +9,8 @@ import { LocalRefusal } from "../../lib/text/failure.ts";
 import type { DirectIntent } from "../../web/ui/session/managed/model.ts";
 import type { ManagedRoomsSession } from "../../web/ui/session/managed/session.ts";
 import type { RoomsManagedCommand } from "../../../../zig-out/wasm/rooms/rooms_browser.js";
+import type { ConversationOpening } from "../../web/ui/session/managed/openings.ts";
+import { acquireDirect } from "../../web/ui/session/managed/direct.ts";
 
 function saved() {
 	const current = snapshot();
@@ -182,4 +184,103 @@ Deno.test("direct action returns the adopted conversation identity after reconne
 	} as unknown as ManagedRoomsSession;
 	assertEquals(await new ManagedActions(session).direct("directory", "bob", true, "peer-registration"), "saved");
 	assertEquals(selected, ["saved"]);
+});
+
+/** The saved row open, introduced under the directory's earlier contact. The
+ * member opened it when the session accepted their introduction and holds no
+ * route yet. This session opened it when it holds the member's route. */
+function open(opener: "member" | "session") {
+	const current = saved();
+	const row = current.intent.conversations[0] as DirectIntent;
+	row.closed = false;
+	row.peer = "Bob";
+	if (opener === "session") row.access = "old-route";
+	else row.introduction!.opening = "their-opening";
+	return current;
+}
+
+for (const opener of ["member", "session"] as const) {
+	Deno.test(`a direct route given back to the row the ${opener} opened releases its receipt`, async () => {
+		const current = open(opener);
+		const before = structuredClone(current.intent);
+		let released = 0;
+		const operation = new ManagedOperation("again", {
+			result: () => Promise.resolve({ inbox: "surplus-route" }),
+			adopted: () => Promise.resolve(false),
+			originalIntent: () => ["again", 1, "startDirect", ["directory", "bob", "peer-registration", "new-opening"]],
+			prepareResultAcquisition: () => {
+				throw new Error("a second open row was prepared");
+			},
+			release: () => {
+				released++;
+				return Promise.resolve();
+			},
+			free() {},
+		} as unknown as RoomsManagedCommand);
+		const session = viewer({ snapshot: () => Promise.resolve(current) });
+		try {
+			await completeResult(session, operation);
+			assertEquals([released, operation.acquired], [1, false]);
+			assertEquals(current.intent, before);
+		} finally {
+			await operation.close();
+			await session.close();
+		}
+	});
+
+	Deno.test(`a direct action reaches the row the ${opener} opened after the directory registers again`, async () => {
+		const current = open(opener);
+		let introduced = 0;
+		const session = {
+			refresh: () => Promise.resolve(current),
+			workspace: {
+				directoryReader: () =>
+					Promise.resolve({ memberRegistration: () => Promise.resolve("peer-registration"), free() {} }),
+			},
+			command: () => {
+				introduced++;
+				throw new Error("unexpected introduction");
+			},
+		} as unknown as ManagedRoomsSession;
+		assertEquals(await acquireDirect(session, "directory", "bob"), "saved");
+		assertEquals(introduced, 0);
+	});
+}
+
+Deno.test("an opening whose route was given back does not own the row it reaches", async () => {
+	const current = saved();
+	const acquired: string[] = [];
+	const session = {
+		execute: async (
+			_id: string,
+			prepare: () => Promise<ManagedOperation>,
+			complete: (op: ManagedOperation) => Promise<void>,
+			continuation?: { settled(): Promise<void> },
+		) => {
+			await complete(await prepare());
+			await continuation?.settled();
+		},
+		refresh: () => Promise.resolve(current),
+		workspace: {
+			directoryReader: () =>
+				Promise.resolve({ memberRegistration: () => Promise.resolve("peer-registration"), free() {} }),
+		},
+		command: () => Promise.resolve({ id: "receipt", result: () => Promise.resolve({ inbox: "route" }) }),
+		// The member opened the conversation while this command ran, so the
+		// route went back and the row keeps the member's opening.
+		completeResult: () => {
+			const row = current.intent.conversations[0] as DirectIntent;
+			row.closed = false;
+			row.introduction!.opening = "their-opening";
+			return Promise.resolve();
+		},
+	} as unknown as ManagedRoomsSession;
+	const opening = {
+		acquired: (id: string) => {
+			acquired.push(id);
+			return Promise.resolve();
+		},
+	} as unknown as ConversationOpening;
+	assertEquals(await acquireDirect(session, "directory", "bob", undefined, opening), "saved");
+	assertEquals(acquired, []);
 });

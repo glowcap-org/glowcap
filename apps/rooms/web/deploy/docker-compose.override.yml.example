@@ -51,9 +51,146 @@ services:
   #     # through the private network.
   #     GLOWCAP_ROOMS_SESSION_RELAY_ALIAS_URL: "wss://rooms.example/relay"
 
+  # Run a bot: a member of Rooms whose replies come from a coding agent. The
+  # deployment guide's "Run a bot" section (README.md beside this file) gives
+  # the order. Uncomment the bot session and the volumes first, run `up`, and
+  # issue the bot's link. Then uncomment the bot and its secret, and run `up`
+  # again. Each heading below marks one piece. Uncomment the lines under it.
+  # == bot session ==
+  # bot-session:
+  #   # The bot speaks as this session, which has its own nickname and rooms.
+  #   # It runs the same image as the shared session, and the guide's second
+  #   # step gives it its nickname.
+  #   image: ${GLOWCAP_ROOMS_IMAGE}
+  #   container_name: glowcap-rooms-bot-session
+  #   working_dir: /runtime
+  #   entrypoint: ["/runtime/bin/glowcap", "apps", "rooms", "session", "serve"]
+  #   command:
+  #     - --dir=/session-state
+  #     - --readiness-file=/run/rooms-session/use.sturdyref
+  #   environment:
+  #     GLOWCAP_LIB_DIR: /runtime/lib
+  #     GLOWCAP_ROOMS_SESSION_STATE: /session-state
+  #     GLOWCAP_ROOMS_SESSION_TRANSPORT: iroh
+  #     GLOWCAP_ROOMS_SESSION_REACHABILITY: discovery
+  #     GLOWCAP_ROOMS_SESSION_RELAY_URL: ws://directory:8080/relay
+  #   volumes:
+  #     - bot-session-state:/session-state
+  #   tmpfs:
+  #     - /run/rooms-session:mode=0700
+  #   healthcheck:
+  #     test: ["CMD", "/runtime/bin/glowcap", "apps", "rooms", "session", "ready", "--file=/run/rooms-session/use.sturdyref"]
+  #     interval: 30s
+  #     timeout: 10s
+  #     retries: 3
+  #     start_period: 90s
+  #   restart: unless-stopped
+  #   networks:
+  #     - glowcap-rooms-net
+  # == bot ==
+  # bot:
+  #   # The operator's own image, built from bot/Dockerfile in this directory.
+  #   # It copies /runtime from the selected Rooms image, which `up` also names
+  #   # glowcap-rooms:selected because a build cannot take an image ID. So
+  #   # `pull_policy: build` rebuilds it on every `up` and it follows an upgrade.
+  #   build:
+  #     context: ./bot
+  #     args:
+  #       GLOWCAP_ROOMS_IMAGE: glowcap-rooms:selected
+  #   image: glowcap-rooms-bot
+  #   pull_policy: build
+  #   container_name: glowcap-rooms-bot
+  #   entrypoint: ["/runtime/bin/glowcap", "apps", "rooms", "bot", "serve"]
+  #   command:
+  #     - --dir=/bot-state
+  #   # Each setting below is a variable too, by the rule in the bot guide's
+  #   # "Settings as variables" section. These are stored in the bot volume on
+  #   # the first start.
+  #   environment:
+  #     GLOWCAP_LIB_DIR: /runtime/lib
+  #     # The agent: claude, codex, or pi. Install it in bot/Dockerfile.
+  #     #   claude: Claude Code, signed in under the container user's home.
+  #     #     Either permission works.
+  #     #   codex: Codex, signed in under the container user's home or
+  #     #     CODEX_HOME. It needs full.
+  #     #   pi: Pi and the provider configuration it reads under the
+  #     #     container user's home. It needs full.
+  #     GLOWCAP_ROOMS_BOT_HARNESS: claude
+  #     # What the agent may do: safe or full, as the bot guide's "Choosing
+  #     # the agent and its permission" section says.
+  #     GLOWCAP_ROOMS_BOT_PERMISSION: safe
+  #     # The agent's own provider and model syntax. Unset, the agent's default.
+  #     # GLOWCAP_ROOMS_BOT_MODEL: ""
+  #     # The nicknames the bot answers, separated by commas. Unset, it
+  #     # answers everyone who can write to it.
+  #     # GLOWCAP_ROOMS_BOT_ALLOW: "ann,bob"
+  #     # How much anyone can start: messages from one person and in one
+  #     # conversation in an hour, and replies in a row to one person.
+  #     # GLOWCAP_ROOMS_BOT_SENDER_LIMIT: "30"
+  #     # GLOWCAP_ROOMS_BOT_CONVERSATION_LIMIT: "60"
+  #     # GLOWCAP_ROOMS_BOT_STREAK_LIMIT: "10"
+  #     # Your own instructions for the agent, read for every reply, from
+  #     # the file mounted below.
+  #     # GLOWCAP_ROOMS_BOT_INSTRUCTIONS: /bot-instructions.md
+  #     # The access link is read from this file, never from a variable.
+  #     GLOWCAP_ROOMS_BOT_LINK: /run/secrets/bot-link
+  #   secrets:
+  #     - bot-link
+  #   volumes:
+  #     - bot-state:/bot-state
+  #     # The bot's home, where the agent keeps its notes and memories across
+  #     # every conversation. It is its own volume, so starting the bot fresh
+  #     # by removing bot-state keeps it. To keep it on this host instead,
+  #     # replace this line with a directory owned by the container user:
+  #     # - ./bot/home:/bot-state/home
+  #     - bot-home:/bot-state/home
+  #     # The agent's sign-in and configuration under the container user's
+  #     # home. Mount only what the agent needs, from copies kept in this
+  #     # directory. Claude Code replaces its sign-in file when it refreshes
+  #     # its token, so its directory is writable and owned by the container
+  #     # user. A read-only or single-file mount stops the bot answering once
+  #     # the first token expires. For example:
+  #     # - ./bot/claude:/home/node/.claude
+  #     # - ./bot/instructions.md:/bot-instructions.md:ro
+  #   # The bot reaches its session over iroh, so it needs none of this
+  #   # deployment's networks. To reach a model server that listens only on this
+  #   # host's loopback, replace the default network with the host's:
+  #   # network_mode: host
+  #   # To reach one that listens on the Docker bridge gateway or every
+  #   # interface, name the host and use http://host.docker.internal:<port>:
+  #   # extra_hosts:
+  #   #   - "host.docker.internal:host-gateway"
+  #   depends_on:
+  #     bot-session:
+  #       condition: service_healthy
+  #   healthcheck:
+  #     test: ["CMD", "/runtime/bin/glowcap", "apps", "rooms", "bot", "ready", "--dir=/bot-state"]
+  #     interval: 30s
+  #     timeout: 10s
+  #     retries: 3
+  #     start_period: 90s
+  #   restart: unless-stopped
+
 # The site network is declared here as well, so Compose knows it is managed
 # outside this file. Give `name` whatever `docker network ls` calls it.
 # networks:
 #   site-ingress:
 #     name: site-ingress
 #     external: true
+
+# The bot's three volumes. Uncomment these with the bot session.
+# == bot volumes ==
+# volumes:
+#   bot-session-state:
+#     name: glowcap-rooms-bot-session-state
+#   bot-state:
+#     name: glowcap-rooms-bot-state
+#   bot-home:
+#     name: glowcap-rooms-bot-home
+
+# The bot's access link, one file the guide's third step writes. Uncomment it
+# with the bot.
+# == bot secret ==
+# secrets:
+#   bot-link:
+#     file: ./secrets/bot-link

@@ -9,7 +9,9 @@ impl<P: Tasks + Deadline + Clone + 'static> Activity<P> {
 		archive: custody::FieldKey<custody::ArchiveAccess>,
 	) -> Result<()> {
 		self.push(Event {
-			data: json!({"target":{"kind":"archive","id":archive},"notice":{"kind":"unavailable"}}).to_string(),
+			data: json!({"target":{"kind":"archive","id":archive},"notice":{"kind":"unavailable"},
+				"mentions":rooms_application::room::mentions::Mentions::default()})
+			.to_string(),
 			history: History::None.into(),
 			origin: Origin::Archive { source, archive },
 			files: Vec::new(),

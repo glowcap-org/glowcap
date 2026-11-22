@@ -89,9 +89,12 @@ fn perform(ctx: *Ctx, parsed: *types.Parsed, comptime verb: Verb) !void {
         std.meta.stringToEnum(operations.Unit, parsed.positionals[0]) orelse return error.Usage
     else
         operations.Unit.all;
+    // Compose names the services, including any the override adds, and refuses
+    // an unknown one itself. An operand that starts with a dash would be a
+    // Compose option, so it is refused here.
     if (verb == .logs) {
         for (parsed.positionals) |service| {
-            if (!std.mem.eql(u8, service, "directory") and !std.mem.eql(u8, service, "session")) return error.Usage;
+            if (service.len == 0 or service[0] == '-') return error.Usage;
         }
     }
     const cwd = try std.process.currentPathAlloc(ctx.io, gpa);

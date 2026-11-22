@@ -10,6 +10,7 @@ import { AcquisitionConflict, MAX_CONFLICT_REPREPARATIONS } from "./acquisition.
 import type { ResultRecipe } from "./result_recipe.ts";
 import { CompletedLine, isLineResult, type LineAdoption, type LineResult } from "./completed_line.ts";
 import { readDirectReceipt } from "./direct_receipt.ts";
+import { directReach } from "../../application.ts";
 
 /** Persisted receipts can outlive the build that wrote them. */
 function retained(condition: unknown, diagnostic: string): asserts condition {
@@ -192,10 +193,18 @@ async function completeOnce(
 				opening: args[3],
 			};
 			recipe.check(`introduction:${operation.id}`, introduction);
+			// A registration holds at most one open row, whoever opened it. A
+			// route that finds one goes back to the session, and that row is the
+			// conversation. Otherwise the route reopens the last closed row.
+			const reach = directReach(snapshot.intent, args[0], args[2]);
+			if (reach.open != null) {
+				await during("release-effect", result, operation.request.release());
+				await during("addressed-snapshot", result, session.refresh());
+				return result;
+			}
 			source = recipe.source();
-			const previous = snapshot.intent.conversations.findLast((row): row is DirectIntent =>
-				row.kind === "direct" && row.closed && row.directory === args[0] &&
-				row.introduction?.registration === args[2]
+			const previous = snapshot.intent.conversations.find((row): row is DirectIntent =>
+				row.kind === "direct" && row.id === reach.reopened
 			);
 			recipe.check(
 				`direct-reopening:${operation.id}`,
@@ -214,6 +223,7 @@ async function completeOnce(
 				source,
 				access: retain("directAccess", receipt.inbox),
 				introduction,
+				...(previous?.openings == null ? {} : { openings: previous.openings }),
 				closed: false,
 				draft: previous?.draft ?? "",
 			} as const;

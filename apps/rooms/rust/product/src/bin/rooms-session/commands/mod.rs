@@ -1,8 +1,10 @@
 //! Private command front behind the Zig argv catalog. This composes local
 //! requests and session startup. The shared application owns Rooms effects.
+mod access;
 mod acquisition;
 mod admission;
 use admission::command;
+use rooms_application::failure::Retry;
 mod bootstrap;
 mod listen;
 mod options;
@@ -27,7 +29,8 @@ fn emit(value: &Value) -> Result<(), Failure> {
 }
 pub(crate) fn operation() -> Result<String, Failure> {
 	let mut bytes = [0; 16];
-	rooms_platform::entropy::fill(&mut bytes).map_err(|error| Failure::new("entropy", "after-state-change", error))?;
+	rooms_platform::entropy::fill(&mut bytes)
+		.map_err(|error| Failure::new("entropy", Retry::AfterStateChange, error))?;
 	Ok(bytes.iter().map(|b| format!("{b:02x}")).collect())
 }
 async fn request(state: &Path, request: Value) -> Result<Value, Failure> {
@@ -151,6 +154,9 @@ pub async fn run(body: &str) -> Result<(), String> {
 		let options = Options::read(body)?;
 		if options.verb.starts_with("team-") {
 			return team::run(&options).await;
+		}
+		if options.verb.starts_with("access-") {
+			return access::run(&options).await;
 		}
 		if options.verb == "listen" {
 			return listen::run(&options.state).await;

@@ -108,10 +108,20 @@ pub struct Acquisition<D> {
 	method: &'static str,
 }
 impl<D: Deadline + Clone> Workspace<D> {
-	/// Private retirement uses the same bounded candidate and grant checks.
-	/// The witness grants scheduling access, never workspace permissions.
-	pub fn prepare_owner_acquisition(&self, owner: &Ref, expected: u64, intent: &Intent) -> Result<Acquisition<D>> {
-		let [base, imports, releases, intent] = AcquisitionRequest::new(expected, Vec::new(), &[], intent)?.arguments;
+	/// The session's own write to a row this workspace's grant started:
+	/// installing the row's callback or retiring a lost route. It travels
+	/// through that grant, so a paused or revoked grant refuses it, and the
+	/// grant needs only its participation right, never custody management.
+	/// The owner witness is the session's private root.
+	pub fn prepare_owner_acquisition(
+		&self,
+		owner: &Ref,
+		expected: u64,
+		imports: Vec<Import>,
+		releases: &[custody::Coordinate],
+		intent: &Intent,
+	) -> Result<Acquisition<D>> {
+		let [base, imports, releases, intent] = AcquisitionRequest::new(expected, imports, releases, intent)?.arguments;
 		Ok(Acquisition {
 			caller: self.caller.clone(),
 			source: self.reference.clone(),

@@ -50,6 +50,18 @@ pub fn valid_nick(nick: &str) -> bool {
 	nick_refusal(nick).is_none()
 }
 
+/// The form Rooms compares nicknames in. Two names with one lowercase form
+/// are one name, so the directory registers it once and a room seats it
+/// once.
+pub fn nick_key(nick: &str) -> String {
+	nick.to_lowercase()
+}
+
+/// Whether Rooms treats two nicknames as one name.
+pub fn same_nick(left: &str, right: &str) -> bool {
+	nick_key(left) == nick_key(right)
+}
+
 /// Why Rooms will not answer to `nick`, or `None` when it will. A room grants
 /// a name, the directory registers one, and a member offers an inbox to one.
 /// All three hand out the same thing, so one answer serves all three. The

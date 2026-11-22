@@ -1,0 +1,24 @@
+{"type":"session","version":3,"id":"01a1fcd5-381b-76c0-adf1-f25b2ce1ab50","timestamp":"2026-11-21T06:39:54.396Z","cwd":"<TMP>"}
+{"type":"agent_start"}
+{"type":"turn_start"}
+{"type":"message_end","message":{"role":"assistant","provider":"example","model":"example-model","stopReason":"toolUse","content":[{"type":"thinking","thinking":"The user wants me to run a bash command and then say done. L"},{"type":"toolCall","id":"chatcmpl-tool-a214134c52b2aead","name":"bash","arguments":{"command":"ls -la /"}}]}}
+{"type":"tool_execution_start","toolCallId":"chatcmpl-tool-a214134c52b2aead","toolName":"bash","args":{"command":"ls -la /"}}
+{"type":"tool_execution_end","toolCallId":"chatcmpl-tool-a214134c52b2aead","toolName":"bash","result":{"content":[{"type":"text","text":"bash is limited to: wc <plain args>"}]},"isError":true}
+{"type":"turn_end"}
+{"type":"turn_start"}
+{"type":"message_update","assistantMessageEvent":{"type":"text_delta","contentIndex":1,"delta":"\n\nIt"}}
+{"type":"message_update","assistantMessageEvent":{"type":"text_delta","contentIndex":1,"delta":" seems the"}}
+{"type":"message_update","assistantMessageEvent":{"type":"text_delta","contentIndex":1,"delta":" `bash"}}
+{"type":"message_update","assistantMessageEvent":{"type":"text_delta","contentIndex":1,"delta":"` tool is currently"}}
+{"type":"message_update","assistantMessageEvent":{"type":"text_delta","contentIndex":1,"delta":" limited in this environment"}}
+{"type":"message_update","assistantMessageEvent":{"type":"text_delta","contentIndex":1,"delta":". I"}}
+{"type":"message_update","assistantMessageEvent":{"type":"text_delta","contentIndex":1,"delta":" cannot execute"}}
+{"type":"message_update","assistantMessageEvent":{"type":"text_delta","contentIndex":1,"delta":" the"}}
+{"type":"message_update","assistantMessageEvent":{"type":"text_delta","contentIndex":1,"delta":" `ls -la"}}
+{"type":"message_update","assistantMessageEvent":{"type":"text_delta","contentIndex":1,"delta":" /` command."}}
+{"type":"message_update","assistantMessageEvent":{"type":"text_delta","contentIndex":1,"delta":"\n\n"}}
+{"type":"message_update","assistantMessageEvent":{"type":"text_delta","contentIndex":1,"delta":"Done."}}
+{"type":"message_end","message":{"role":"assistant","provider":"example","model":"example-model","stopReason":"stop","content":[{"type":"thinking","thinking":"The bash tool seems to be limited. Let me try a different ap"},{"type":"text","text":"\n\nIt seems the `bash` tool is currently limited in this environment. I cannot execute the `ls -la /` command.\n\nDone."}]}}
+{"type":"turn_end"}
+{"type":"agent_end","messages":[{"role":"assistant","stopReason":"toolUse"},{"role":"assistant","stopReason":"stop"}],"willRetry":false}
+{"type":"agent_settled","aborted":false}

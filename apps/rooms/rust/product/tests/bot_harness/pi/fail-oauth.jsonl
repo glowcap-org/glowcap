@@ -1,0 +1,7 @@
+{"type":"session","version":3,"id":"01a1fcd4-5870-775a-bbfa-4dd52fcc43d4","timestamp":"2026-11-21T06:38:57.137Z","cwd":"<TMP>"}
+{"type":"agent_start"}
+{"type":"turn_start"}
+{"type":"message_end","message":{"role":"assistant","provider":"openai-codex","model":"gpt-6.1-terra","stopReason":"error","errorMessage":"OAuth refresh failed for openai-codex: OpenAI Codex token refresh failed (401): {\n  \"error\": {\n    \"message\": \"Invalid refresh token.\",\n    \"type\": \"invalid_request_error\",\n    \"param\": null,\n    \"code\": \"invalid_refresh_token\"\n  }\n}","content":[]}}
+{"type":"turn_end"}
+{"type":"agent_end","messages":[{"role":"assistant","stopReason":"error","errorMessage":"OAuth refresh failed for openai-codex: OpenAI Codex token refresh failed (401): {\n  \"error\": {\n    \"message\": \"Invalid refresh token.\",\n    \"type\": \"invalid_request_error\",\n    \"param\": null,\n    \"code\": \"invalid_refresh_token\"\n  }\n}"}],"willRetry":false}
+{"type":"agent_settled","aborted":false}

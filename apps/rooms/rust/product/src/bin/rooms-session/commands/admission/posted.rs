@@ -1,7 +1,28 @@
-//! Adopt a send's exact live line occurrence before reporting usable authority.
-//! The saved acquisition owns recovery. Replay never remints a destination.
+//! Adopt what a committed command returned before reporting usable
+//! authority: a send's exact live line occurrence, or the route a
+//! `startDirect` introduced. The saved acquisition owns recovery. Replay never
+//! remints a destination. The plans are the shared `adopt_line` and
+//! `adopt_direct`, which attached views also use. A route to a member an open
+//! conversation already reaches is given back.
 use super::{Failure, Options, Value, json, request};
+use rooms_application::content::session::{
+	custody::FieldKey,
+	results,
+	workspace::{Adoption, DirectRefusal, Intent, LineReceipt, adopt_direct, adopt_line},
+};
+use rooms_application::failure::Retry;
 
+fn intent(workspace: &Value) -> Result<Intent, Failure> {
+	Intent::decode(&workspace.to_string()).map_err(|_| Failure::invalid("session returned an invalid workspace"))
+}
+/// A key no held custody uses, from platform entropy.
+fn fresh<K>() -> Result<FieldKey<K>, Failure> {
+	let mut entropy = [0; 16];
+	rooms_platform::entropy::fill(&mut entropy)
+		.map_err(|error| Failure::new("entropy", Retry::AfterStateChange, error))?;
+	FieldKey::from_entropy(entropy)
+		.ok_or_else(|| Failure::new("entropy", Retry::AfterStateChange, "entropy produced no key"))
+}
 pub(super) async fn acquire(
 	options: &Options,
 	original: &Value,
@@ -9,85 +30,60 @@ pub(super) async fn acquire(
 	name: &str,
 	args: &[String],
 ) -> Result<(), Failure> {
-	if !matches!(name, "say" | "sendFiles" | "refileLine") || submitted["adopted"] == true {
+	let Some(adoption) = Adoption::of(name, args) else {
+		return Ok(());
+	};
+	if submitted["adopted"] == true {
 		return Ok(());
 	}
 	let result = &submitted["result"];
-	if result["line"].is_null() || result["id"].is_null() {
+	if !result.is_object() {
 		return Ok(());
 	}
-	let target = args
-		.first()
-		.ok_or_else(|| Failure::invalid("line receipt lacks its conversation"))?;
+	let before = intent(&original["workspace"])?;
 	let status = request(&options.state, json!({"verb":"status"})).await?;
-	let mut intent = status["workspace"].clone();
-	let row = intent["conversations"]
-		.as_array_mut()
-		.and_then(|rows| rows.iter_mut().find(|row| row["id"] == *target))
-		.ok_or_else(|| Failure::invalid("the initiating conversation was removed; retain its receipt"))?;
-	let prior = original["workspace"]["conversations"]
-		.as_array()
-		.and_then(|rows| rows.iter().find(|row| row["id"] == *target))
-		.ok_or_else(|| Failure::invalid("the original conversation is unavailable"))?;
-	for field in [
-		"kind",
-		"directory",
-		"source",
-		"access",
-		"accepted",
-		"publicEntry",
-		"publication",
-		"control",
-		"moderator",
-		"seat",
-		"peer",
-		"introduction",
-		"closed",
-	] {
-		if row[field] != prior[field] {
-			return Err(Failure::invalid(
-				"the initiating conversation authority changed; retain its receipt",
-			));
+	let current = intent(&status["workspace"])?;
+	let (mappings, releases, planned, source) = match adoption {
+		Adoption::Line(target) => {
+			let Some(receipt) = LineReceipt::read(&result.to_string())
+				.map_err(|_| Failure::invalid("the command returned an invalid line receipt"))?
+			else {
+				return Ok(());
+			};
+			let plan = adopt_line(&before, &current, target, &receipt, fresh()?).map_err(Failure::invalid)?;
+			(plan.mappings, plan.releases, plan.intent, None)
 		}
-	}
-	let previous = |row: &Value| {
-		row["lines"]
-			.as_array()
-			.and_then(|lines| lines.iter().find(|line| line["id"] == result["id"]))
-			.map(|line| line["handle"].clone())
+		Adoption::Direct(start) => {
+			let receipt = serde_json::from_value::<results::Direct>(result.clone())
+				.map_err(|_| Failure::uncertain("peer has not supplied a direct inbox"))?;
+			let operation = submitted["operation"]
+				.as_str()
+				.ok_or_else(|| Failure::invalid("session returned no operation"))?;
+			let plan = match adopt_direct(&before, &current, operation, &start, &receipt, fresh()?, fresh()?) {
+				Ok(plan) => plan,
+				Err(DirectRefusal::Open(_)) => {
+					return super::super::acquisition::submit(
+						options,
+						json!({"kind":"release-result", "operation":operation, "command_base":submitted["base"],
+							"name":name, "args":args}),
+					)
+					.await;
+				}
+				Err(refusal) => return Err(Failure::invalid(refusal)),
+			};
+			(plan.mappings, Vec::new(), plan.intent, Some(plan.source))
+		}
 	};
-	// Direct send settlement can already install its sender occurrence. The
-	// candidate revision fences replacement of that exact current field.
-	let replaced = previous(row);
-	let preserved = if row["kind"] == "direct" {
-		replaced.clone()
-	} else {
-		None
-	};
-	let destination = match &preserved {
-		Some(key) => key.clone(),
-		None => json!(super::super::operation()?),
-	};
-	let mut lines = row["lines"].as_array().cloned().unwrap_or_default();
-	lines.retain(|line| line["id"] != result["id"]);
-	lines.push(json!({"id":result["id"],"handle":destination}));
-	row["lines"] = json!(lines);
 	let base = status["revision"]
 		.as_str()
 		.and_then(|base| base.parse::<u64>().ok())
 		.ok_or_else(|| Failure::invalid("session returned no workspace revision"))?;
-	let releases: Vec<Value> = replaced
-		.filter(|_| preserved.is_none())
-		.into_iter()
-		.map(|key| json!({"role":"line","key":key}))
-		.collect();
 	super::super::acquisition::submit(
 		options,
 		json!({
 			"kind":"result", "operation":submitted["operation"], "command_base":submitted["base"],
 			"name":name, "args":args, "base":base,
-			"mappings":[[{"role":"line","key":result["line"]},{"role":"line","key":destination}]],
-			"releases":releases, "intent":intent, "source":null,
+			"mappings":mappings, "releases":releases, "intent":planned, "source":source,
 		}),
 	)
 	.await

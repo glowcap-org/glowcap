@@ -1,0 +1,305 @@
+//! The access verbs a person at a terminal uses, run through the real session
+//! executable's control path against a running session. Another Host attaches
+//! with the printed link, so the proof reaches what the access allows. The
+//! session keeps each control in its workspace rows, so an access is managed
+//! by the id the list shows, with nothing kept from the issue's output.
+use super::session_rig::{Fixture, attach, call, free_port, host, run_within, text_arrived};
+use glowcap::PendingWork;
+use rooms_platform::HostPlatform;
+use rooms_services::session::attached::{EffectStatus, Error, View};
+use serde_json::{Value, json};
+use std::{path::Path, time::Duration};
+
+/// One control request to completion, with its stdout and stderr kept apart.
+fn request(state: &Path, verb: &str, named: Value) -> (bool, String, String) {
+	let options = json!({"verb": format!("access-{verb}"), "state": state, "named": named, "arguments": []});
+	let output = super::command()
+		.args(["control", &options.to_string()])
+		.output()
+		.unwrap();
+	(
+		output.status.success(),
+		String::from_utf8(output.stdout).unwrap(),
+		String::from_utf8(output.stderr).unwrap(),
+	)
+}
+
+fn access(state: &Path, verb: &str, named: Value) -> Value {
+	let (ok, stdout, stderr) = request(state, verb, named.clone());
+	assert!(ok, "access {verb} {named}: {stdout}{stderr}");
+	assert_eq!(stdout.lines().count(), 1, "one JSON line: {stdout:?}");
+	serde_json::from_str(&stdout).unwrap()
+}
+
+fn row(state: &Path, label: &str) -> Value {
+	let listed = access(state, "list", json!({}));
+	let mut rows = listed["accesses"]
+		.as_array()
+		.unwrap()
+		.iter()
+		.filter(|row| row["label"] == label);
+	let row = rows
+		.next()
+		.cloned()
+		.unwrap_or_else(|| panic!("no access labeled {label}: {listed}"));
+	assert!(rows.next().is_none(), "two accesses labeled {label}: {listed}");
+	row
+}
+
+/// The id the list shows for the access labeled `label`.
+fn listed_id(state: &Path, label: &str) -> String {
+	row(state, label)["id"]
+		.as_str()
+		.unwrap_or_else(|| panic!("the access labeled {label} has no id"))
+		.to_owned()
+}
+
+#[test]
+fn a_person_issues_lists_pauses_resumes_and_revokes_access_from_the_terminal() {
+	let fixture = Fixture::start("access-verbs", &["access-one", "access-two"], "access-room");
+	let (one, two) = (&fixture.peers[0], &fixture.peers[1]);
+	let (ok, stdout, stderr) = request(
+		&one.state,
+		"issue",
+		json!({"label": ["the bot"], "rights": ["collaborator"]}),
+	);
+	assert!(ok, "{stdout}{stderr}");
+	let issued: Value = serde_json::from_str(&stdout).unwrap();
+	let link = issued["link"].as_str().unwrap().to_owned();
+	let id = issued["id"].as_str().unwrap().to_owned();
+	assert_eq!(issued["label"], "the bot");
+	assert_eq!(issued.as_object().unwrap().len(), 5, "{issued}");
+	assert!(!stderr.contains(&link), "the link reached stderr");
+	// A refused value is refused exactly, before anything is issued.
+	for rights in ["root", "Observer", ""] {
+		let (ok, stdout, stderr) = request(&one.state, "issue", json!({"label": ["x"], "rights": [rights]}));
+		assert!(!ok, "{rights:?} was accepted");
+		assert!(!stdout.contains(&link) && !stderr.contains(&link));
+		assert!(stdout.contains("--rights"), "{stdout}");
+	}
+	let (ok, stdout, _) = request(&one.state, "issue", json!({"label": ["x"]}));
+	assert!(!ok && stdout.contains("--rights is required"), "{stdout}");
+	let listed = row(&one.state, "the bot");
+	assert_eq!(listed["id"], id.as_str());
+	assert!(!listed.to_string().contains(&link), "the list quoted the link");
+	assert_eq!(
+		(listed["state"].clone(), listed["effective"].clone()),
+		(json!("active"), json!("active"))
+	);
+	assert!(
+		listed["rights"]
+			.as_array()
+			.unwrap()
+			.contains(&json!("interactWorkspace"))
+	);
+	run_within(Duration::from_secs(60), async {
+		let holder = host().await;
+		let view = attach(&holder, &link).await;
+		let room = fixture.room_id(0);
+		let said = view
+			.say("access-say-1", &room, "from the terminal's access")
+			.await
+			.unwrap();
+		assert_eq!(said.status, EffectStatus::Committed);
+		text_arrived(&two.state, "from the terminal's access");
+		let named = || json!({"id": [id]});
+		access(&one.state, "pause", named());
+		assert!(matches!(
+			view.say("access-say-2", &room, "paused").await,
+			Err(Error::Paused)
+		));
+		assert_eq!(row(&one.state, "the bot")["state"], "paused");
+		access(&one.state, "resume", named());
+		let again = view.say("access-say-3", &room, "resumed").await.unwrap();
+		assert_eq!(again.status, EffectStatus::Committed);
+		assert_eq!(row(&one.state, "the bot")["state"], "active");
+		access(&one.state, "revoke", named());
+		assert!(matches!(
+			view.say("access-say-4", &room, "revoked").await,
+			Err(Error::Revoked)
+		));
+		assert_eq!(row(&one.state, "the bot")["state"], "revoked");
+		// A revoked access no longer names its control. Its row saved the
+		// inventory entry it manages, so the list still shows it once, by id.
+		let revoked = row(&one.state, "the bot");
+		assert_eq!(
+			(&revoked["id"], &revoked["saved"], &revoked["state"]),
+			(&json!(id), &json!(true), &json!("revoked"))
+		);
+		let listed = access(&one.state, "list", json!({}));
+		let kept = listed["accesses"]
+			.as_array()
+			.unwrap()
+			.iter()
+			.filter(|row| row["id"] == id.as_str())
+			.count();
+		assert_eq!(kept, 1, "{listed}");
+		let (ok, stdout, _) = request(&one.state, "pause", named());
+		assert!(!ok && stdout.contains("revoked"), "{stdout}");
+		access(&one.state, "revoke", named());
+		holder.close(PendingWork::Cancel).await.unwrap();
+	});
+	fixture.finish();
+}
+
+#[test]
+fn an_access_whose_output_was_lost_is_managed_by_the_id_the_list_shows() {
+	let fixture = Fixture::start("access-lost", &["lost-one", "lost-two"], "lost-room");
+	let (one, two) = (&fixture.peers[0], &fixture.peers[1]);
+	let links: Vec<String> = ["first", "second"]
+		.iter()
+		.map(|label| {
+			let issued = access(
+				&one.state,
+				"issue",
+				json!({"label": [label], "rights": ["collaborator"]}),
+			);
+			issued["link"].as_str().unwrap().to_owned()
+		})
+		.collect();
+	// Only the holders keep the links. The operator kept nothing else.
+	let first = listed_id(&one.state, "first");
+	let second = listed_id(&one.state, "second");
+	assert_ne!(first, second);
+	// The session keeps both in the workspace rows the page lists.
+	let status = call(&one.state, "status", json!({}));
+	let kept: Vec<_> = status["workspace"]["accesses"]
+		.as_array()
+		.unwrap()
+		.iter()
+		.filter_map(|row| row["id"].as_str())
+		.collect();
+	assert!(
+		kept.contains(&first.as_str()) && kept.contains(&second.as_str()),
+		"{status}"
+	);
+	access(&one.state, "revoke", json!({"id": [first]}));
+	run_within(Duration::from_secs(60), async {
+		let holder = host().await;
+		let room = fixture.room_id(0);
+		let revoked = View::attach(&holder, HostPlatform, &links[0]).await;
+		assert!(matches!(revoked, Err(Error::Revoked)), "{:?}", revoked.err());
+		let kept = attach(&holder, &links[1]).await;
+		let said = kept
+			.say("lost-say-1", &room, "the second access still works")
+			.await
+			.unwrap();
+		assert_eq!(said.status, EffectStatus::Committed);
+		text_arrived(&two.state, "the second access still works");
+		holder.close(PendingWork::Cancel).await.unwrap();
+	});
+	// Forgetting is for a revoked access only, and frees its row.
+	let (ok, stdout, _) = request(&one.state, "forget", json!({"id": [second]}));
+	assert!(!ok && stdout.contains("Revoke it before forgetting it"), "{stdout}");
+	access(&one.state, "forget", json!({"id": [first]}));
+	let listed = access(&one.state, "list", json!({}));
+	let ids: Vec<_> = listed["accesses"]
+		.as_array()
+		.unwrap()
+		.iter()
+		.map(|row| row["id"].clone())
+		.collect();
+	assert!(!ids.contains(&json!(first)) && ids.contains(&json!(second)), "{listed}");
+	let (ok, stdout, _) = request(&one.state, "revoke", json!({"id": [first]}));
+	assert!(!ok && stdout.contains("session access list"), "{stdout}");
+	fixture.finish();
+}
+
+#[test]
+fn an_issue_the_session_stopped_in_the_middle_of_is_finished_by_issuing_again() {
+	let mut fixture = Fixture::start_on(
+		"access-unfinished",
+		&["unfinished-one", "unfinished-two"],
+		"unfinished-room",
+		&[free_port(), 0],
+	);
+	let state = fixture.peers[0].state.clone();
+	let named = || json!({"id": ["kept-bot"], "label": ["the bot"], "rights": ["collaborator"]});
+	fixture.peers[0].restart_at(Some("after-issue"));
+	let (ok, stdout, stderr) = request(&state, "issue", named());
+	assert!(!ok, "the session finished an issue it was to stop in: {stdout}{stderr}");
+	assert!(
+		!fixture.peers[0].process.wait().success(),
+		"the session was not stopped after the issue"
+	);
+	fixture.peers[0].relaunch(None);
+
+	// The row was saved before the issue, so the access that was made is
+	// paused and found through it.
+	let listed = access(&state, "list", json!({}));
+	let rows = listed["accesses"].as_array().unwrap();
+	let unfinished: Vec<_> = rows.iter().filter(|row| row["id"] == "kept-bot").collect();
+	assert_eq!(unfinished.len(), 1, "{listed}");
+	assert_eq!(unfinished[0]["state"], "unfinished", "{listed}");
+	let made = row(&state, "the bot");
+	assert_eq!((&made["state"], &made["saved"]), (&json!("paused"), &json!(false)));
+
+	let issued = access(&state, "issue", named());
+	let link = issued["link"].as_str().unwrap().to_owned();
+	assert_eq!(issued["id"], "kept-bot");
+	// One access labeled the bot: the issue was finished, not repeated.
+	let finished = row(&state, "the bot");
+	assert_eq!(
+		(&finished["id"], &finished["state"], &finished["saved"]),
+		(&json!("kept-bot"), &json!("active"), &json!(true))
+	);
+	let status = call(&state, "status", json!({}));
+	let saved = status["workspace"]["accesses"]
+		.as_array()
+		.unwrap()
+		.iter()
+		.find(|row| row["id"] == "kept-bot")
+		.cloned()
+		.unwrap_or_else(|| panic!("{status}"));
+	assert_eq!(
+		saved["issue"],
+		json!({"saved": {"slot": finished["slot"], "generation": finished["generation"]}}),
+		"the row did not save the inventory entry it manages"
+	);
+	run_within(Duration::from_secs(60), async {
+		let holder = host().await;
+		let view = attach(&holder, &link).await;
+		let room = fixture.room_id(0);
+		let said = view.say("unfinished-say", &room, "finished at last").await.unwrap();
+		assert_eq!(said.status, EffectStatus::Committed);
+		text_arrived(&fixture.peers[1].state, "finished at last");
+		holder.close(PendingWork::Cancel).await.unwrap();
+	});
+	access(&state, "revoke", json!({"id": ["kept-bot"]}));
+	access(&state, "forget", json!({"id": ["kept-bot"]}));
+	let listed = access(&state, "list", json!({}));
+	assert!(
+		listed["accesses"]
+			.as_array()
+			.unwrap()
+			.iter()
+			.all(|row| row["id"] != "kept-bot"),
+		"{listed}"
+	);
+
+	// A row whose issue stopped can be dropped instead of finished. Its
+	// access stays paused and listed without an id.
+	fixture.peers[0].restart_at(Some("after-issue"));
+	let lost = || json!({"id": ["lost-bot"], "label": ["the lost bot"], "rights": ["observer"]});
+	let (ok, _, _) = request(&state, "issue", lost());
+	assert!(!ok);
+	assert!(!fixture.peers[0].process.wait().success());
+	fixture.peers[0].relaunch(None);
+	let forgotten = access(&state, "forget", json!({"id": ["lost-bot"]}));
+	assert!(forgotten["note"].as_str().unwrap().contains("paused"), "{forgotten}");
+	let left = row(&state, "the lost bot");
+	assert_eq!(
+		(&left["id"], &left["state"]),
+		(&Value::Null, &json!("paused")),
+		"{left}"
+	);
+	fixture.finish();
+}
+
+#[test]
+fn access_commands_say_when_no_session_is_running() {
+	let temp = rooms_testing::scratch::Scratch::create("access-none");
+	let (ok, stdout, _) = request(&temp, "list", json!({}));
+	assert!(!ok);
+	assert!(stdout.contains("no session is running"), "{stdout}");
+}

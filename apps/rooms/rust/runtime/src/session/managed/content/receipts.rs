@@ -101,11 +101,21 @@ pub(super) fn requirement(input: Invocation<'_>) -> Result<Requirement> {
 			};
 			effect_requirement_text(text_of(&receipt.canonical_intent)?, additional)
 		}
-		"resume-effect" | "release-effect" => {
+		"resume-effect" => {
 			let [_, intent] = input.args else {
 				return Err(refuse("effect recovery takes operation id and original intent"));
 			};
 			effect_requirement(intent, &[Permission::ResolvePending])
+		}
+		// Release drops a receipt only the original source made and never
+		// dispatches. What it forfeits, an unadopted result, only that same
+		// source could adopt, so it needs no more than the effect itself did.
+		// A source can always give up its own receipts.
+		"release-effect" => {
+			let [_, intent] = input.args else {
+				return Err(refuse("effect release takes operation id and original intent"));
+			};
+			effect_requirement(intent, &[])
 		}
 		_ => Err(refuse("unknown recovery method")),
 	}

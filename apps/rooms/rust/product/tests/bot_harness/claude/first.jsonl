@@ -1,0 +1,4 @@
+{"type":"system","subtype":"init","session_id":"d5acc2aa-8342-47d9-877a-0b647149bcd4","cwd":"<WORKDIR>","model":"claude-sonnet-5-5","permissionMode":"default"}
+{"type":"assistant","session_id":"d5acc2aa-8342-47d9-877a-0b647149bcd4","message":{"role":"assistant","content":[{"type":"text","text":"pong. I'll remember the word: heliotrope."}]}}
+{"type":"rate_limit_event","rate_limit_info":{"status":"allowed","resetsAt":1795845600,"rateLimitType":"seven_day","overageStatus":"allowed","overageResetsAt":1796083200,"isUsingOverage":false,"unifiedWindows":{"seven_day":{"utilization":0,"resetsAt":1795845600,"status":"allowed"}}},"session_id":"d5acc2aa-8342-47d9-877a-0b647149bcd4"}
+{"type":"result","subtype":"success","is_error":false,"api_error_status":null,"terminal_reason":"completed","result":"pong. I'll remember the word: heliotrope.","session_id":"d5acc2aa-8342-47d9-877a-0b647149bcd4","permission_denials":[]}

@@ -285,7 +285,11 @@ impl<P: Tasks + Deadline + Clone + 'static> Session<P> {
 				));
 			}
 		}
-		let installation = match source.prepare_inbox(&selected, inbox.reference()).await {
+		let prepared = match self.state.writer.root() {
+			Ok(owner) => source.prepare_inbox(&owner, &selected, inbox.reference()).await,
+			Err(error) => Err(Error::from(error)),
+		};
+		let installation = match prepared {
 			Ok(installation) => installation,
 			Err(error) => return Err(crate::cleanup::failed(error, inbox.close().await.map_err(Error::from))),
 		};

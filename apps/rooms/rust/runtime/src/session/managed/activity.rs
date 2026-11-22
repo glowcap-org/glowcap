@@ -20,9 +20,13 @@ use std::{
 };
 use tokio::sync::Notify;
 
-const MAX_EVENTS: usize = 4096;
+/// The most events activity keeps. A reader further behind meets a gap.
+pub const MAX_EVENTS: usize = 4096;
 const MAX_BYTES: usize = 16 * 1024 * 1024;
 const MAX_READS: usize = 16;
+/// The longest activity token the session reads back: the run's marker in
+/// hexadecimal, a colon, and a decimal position.
+pub const MAX_TOKEN_BYTES: usize = 103;
 
 pub struct Event<P: Tasks> {
 	pub data: String,
@@ -291,7 +295,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Activity<P> {
 		Ok(token)
 	}
 	pub(super) fn parse_token(&self, token: &str) -> Result<u64> {
-		if token.len() > 103 {
+		if token.len() > MAX_TOKEN_BYTES {
 			return Err(loam::refusal("activity token exceeds its bound"));
 		}
 		let (incarnation, counter) = token

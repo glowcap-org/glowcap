@@ -18,13 +18,24 @@ pub fn line_bytes(text: &str) -> usize {
 }
 
 /// A browser receives only Rooms' inert document projection. Authored source
-/// remains the wire and archive value. Parsing failure is represented inside
-/// the document as literal text rather than crossing this boundary as a lost
-/// message.
-#[wasm_bindgen(js_name = markdownDocument)]
-pub fn markdown_document(text: &str) -> Result<String, JsValue> {
-	serde_json::to_string(&rooms_application::markdown::Document::read(text))
+/// remains the wire and archive value. A line is read as the parts the page
+/// draws: one per IRC formatting run, each with its own document. Parsing
+/// failure is represented inside a document as literal text rather than
+/// crossing this boundary as a lost message.
+#[wasm_bindgen(js_name = richText)]
+pub fn rich_text(text: &str) -> Result<String, JsValue> {
+	serde_json::to_string(&rooms_application::markdown::rich::read(text))
 		.map_err(|error| js_sys::Error::new(&error.to_string()).into())
+}
+
+/// Whom a line addresses, as `{"member":bool,"room":bool}`. `own` is the name
+/// the reader answers to in the room, or absent before one is known. This is
+/// the question the session answers for every live line, asked of a line that
+/// no activity row carries, such as one read from history or an archive.
+#[wasm_bindgen(js_name = lineMentions)]
+pub fn line_mentions(from: &str, text: &str, own: Option<String>) -> Result<String, JsValue> {
+	let found = rooms_application::room::mentions::Mentions::of_line(from, text, own.as_deref());
+	serde_json::to_string(&found).map_err(|error| js_sys::Error::new(&error.to_string()).into())
 }
 
 #[wasm_bindgen(js_name = openGraphTargets)]

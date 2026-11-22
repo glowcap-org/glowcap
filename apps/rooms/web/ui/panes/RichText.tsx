@@ -4,8 +4,7 @@
 import { Fragment, type ReactNode, useId, useMemo, useState } from "react";
 import { showHiddenText, taskStatus } from "../../../lib/text/controls.ts";
 import { richTextImageLabel } from "../../../lib/text/page.ts";
-import { type MarkdownDocument, type MarkdownNode, readRichText, type RichTextPart } from "../markdown.ts";
-import type { IrcRun } from "../irc_formatting.ts";
+import { type IrcRun, type MarkdownDocument, type MarkdownNode, readRichText, type RichTextPart } from "../markdown.ts";
 import { substituteEmoji } from "../text.ts";
 
 function Spoiler({ children }: { children: ReactNode }) {

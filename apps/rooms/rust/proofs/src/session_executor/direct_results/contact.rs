@@ -33,6 +33,7 @@ pub(super) async fn refuse_replacement(host: &Host, source: &Ref, platform: &Pla
 				opening: rooms_application::fields::Text::new("opening".into()).unwrap(),
 				registration: rooms_application::fields::Text::new(REGISTRATION.into()).unwrap(),
 			}),
+			openings: Default::default(),
 			inbox: None,
 			closed: false,
 			lines: List::default(),

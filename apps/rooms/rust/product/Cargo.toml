@@ -10,10 +10,29 @@ publish.workspace = true
 [lints]
 workspace = true
 
+[features]
+# feature test-support: Builds the fault points, the directory stand-in for a
+# session, and the fake harness that the bot's and the session's process tests
+# drive. Release and plain debug builds carry none of them.
+test-support = ["rooms-services/test-support"]
+
+[[bin]]
+name = "rooms-bot-fake-harness"
+required-features = ["test-support"]
+
+[[test]]
+name = "bot_process"
+required-features = ["test-support"]
+
+[[test]]
+name = "session_process"
+required-features = ["test-support"]
+
 [dependencies]
 rooms-services = { path = "../services", features = ["processes"] }
 rooms-platform = { path = "../platform" }
 rooms-application = { path = "../application" }
+rooms-glowcap = { path = "../glowcap" }
 glowcap.workspace = true
 tokio = { workspace = true, features = ["signal", "net", "io-util", "fs", "process"] }
 serde = { workspace = true, features = ["std"] }
@@ -24,13 +43,13 @@ tokio-rustls.workspace = true
 hyper = { workspace = true, features = ["client"] }
 hyper-util.workspace = true
 http-body-util.workspace = true
+futures-util = { workspace = true, features = ["async-await", "std"] }
+nix = { workspace = true, features = ["process", "dir"] }
+sha2.workspace = true
 
 [dev-dependencies]
 rooms-testing = { path = "../testing" }
-rooms-glowcap = { path = "../glowcap" }
 glowcap = { workspace = true, features = ["tcp"] }
 tokio = { workspace = true, features = ["test-util"] }
 futures-util = { workspace = true, features = ["async-await", "sink"] }
 tokio-tungstenite = { workspace = true, features = ["connect"] }
-sha2.workspace = true
-nix.workspace = true

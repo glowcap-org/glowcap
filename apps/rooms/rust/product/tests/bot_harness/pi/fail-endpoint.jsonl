@@ -1,0 +1,26 @@
+{"type":"session","version":3,"id":"01a1fcd3-c298-7753-a6b0-d224e98a288b","timestamp":"2026-11-21T06:38:18.777Z","cwd":"<TMP>"}
+{"type":"agent_start"}
+{"type":"turn_start"}
+{"type":"message_end","message":{"role":"assistant","provider":"example","model":"example-model","stopReason":"error","errorMessage":"500: {\"message\":\"proxy.InternalServerError: InternalServerError: OpenAIException - Connection error.. Received Model Group=example-model\\nAvailable Model Group Fallbacks=None\",\"type\":\"internal_server_error\",\"param\":null,\"code\":\"500\"}","content":[]}}
+{"type":"turn_end"}
+{"type":"agent_end","messages":[{"role":"assistant","stopReason":"error","errorMessage":"500: {\"message\":\"proxy.InternalServerError: InternalServerError: OpenAIException - Connection error.. Received Model Group=example-model\\nAvailable Model Group Fallbacks=None\",\"type\":\"internal_server_error\",\"param\":null,\"code\":\"500\"}"}],"willRetry":true}
+{"type":"auto_retry_start","attempt":1,"maxAttempts":3,"delayMs":2000,"errorMessage":"500: {\"message\":\"proxy.InternalServerError: InternalServerError: OpenAIException - Connection error.. Received Model Group=example-model\\nAvailable Model Group Fallbacks=None\",\"type\":\"internal_server_error\",\"param\":null,\"code\":\"500\"}"}
+{"type":"agent_start"}
+{"type":"turn_start"}
+{"type":"message_end","message":{"role":"assistant","provider":"example","model":"example-model","stopReason":"error","errorMessage":"500: {\"message\":\"proxy.InternalServerError: InternalServerError: OpenAIException - Connection error.. Received Model Group=example-model\\nAvailable Model Group Fallbacks=None\",\"type\":\"internal_server_error\",\"param\":null,\"code\":\"500\"}","content":[]}}
+{"type":"turn_end"}
+{"type":"agent_end","messages":[{"role":"assistant","stopReason":"error","errorMessage":"500: {\"message\":\"proxy.InternalServerError: InternalServerError: OpenAIException - Connection error.. Received Model Group=example-model\\nAvailable Model Group Fallbacks=None\",\"type\":\"internal_server_error\",\"param\":null,\"code\":\"500\"}"}],"willRetry":true}
+{"type":"auto_retry_start","attempt":2,"maxAttempts":3,"delayMs":4000,"errorMessage":"500: {\"message\":\"proxy.InternalServerError: InternalServerError: OpenAIException - Connection error.. Received Model Group=example-model\\nAvailable Model Group Fallbacks=None\",\"type\":\"internal_server_error\",\"param\":null,\"code\":\"500\"}"}
+{"type":"agent_start"}
+{"type":"turn_start"}
+{"type":"message_end","message":{"role":"assistant","provider":"example","model":"example-model","stopReason":"error","errorMessage":"500: {\"message\":\"proxy.InternalServerError: InternalServerError: OpenAIException - Connection error.. Received Model Group=example-model\\nAvailable Model Group Fallbacks=None\",\"type\":\"internal_server_error\",\"param\":null,\"code\":\"500\"}","content":[]}}
+{"type":"turn_end"}
+{"type":"agent_end","messages":[{"role":"assistant","stopReason":"error","errorMessage":"500: {\"message\":\"proxy.InternalServerError: InternalServerError: OpenAIException - Connection error.. Received Model Group=example-model\\nAvailable Model Group Fallbacks=None\",\"type\":\"internal_server_error\",\"param\":null,\"code\":\"500\"}"}],"willRetry":true}
+{"type":"auto_retry_start","attempt":3,"maxAttempts":3,"delayMs":8000,"errorMessage":"500: {\"message\":\"proxy.InternalServerError: InternalServerError: OpenAIException - Connection error.. Received Model Group=example-model\\nAvailable Model Group Fallbacks=None\",\"type\":\"internal_server_error\",\"param\":null,\"code\":\"500\"}"}
+{"type":"agent_start"}
+{"type":"turn_start"}
+{"type":"message_end","message":{"role":"assistant","provider":"example","model":"example-model","stopReason":"error","errorMessage":"500: {\"message\":\"proxy.InternalServerError: InternalServerError: OpenAIException - Connection error.. Received Model Group=example-model\\nAvailable Model Group Fallbacks=None\",\"type\":\"internal_server_error\",\"param\":null,\"code\":\"500\"}","content":[]}}
+{"type":"turn_end"}
+{"type":"agent_end","messages":[{"role":"assistant","stopReason":"error","errorMessage":"500: {\"message\":\"proxy.InternalServerError: InternalServerError: OpenAIException - Connection error.. Received Model Group=example-model\\nAvailable Model Group Fallbacks=None\",\"type\":\"internal_server_error\",\"param\":null,\"code\":\"500\"}"}],"willRetry":false}
+{"type":"auto_retry_end","attempt":3,"success":false,"finalError":"500: {\"message\":\"proxy.InternalServerError: InternalServerError: OpenAIException - Connection error.. Received Model Group=example-model\\nAvailable Model Group Fallbacks=None\",\"type\":\"internal_server_error\",\"param\":null,\"code\":\"500\"}"}
+{"type":"agent_settled","aborted":false}

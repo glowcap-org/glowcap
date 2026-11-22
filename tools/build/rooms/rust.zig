@@ -112,14 +112,27 @@ pub fn register(b: *std.Build, check_step: *std.Build.Step, runtime_gate: *execu
     // not name, and for the `--all-targets` compile.
     const lint = commands.addRootedSystemCommand(b, .build_tool, &.{
         "cargo",       "clippy",        "--quiet",    "--locked",                 "--manifest-path", "apps/rooms/rust/Cargo.toml",
-        "--workspace", "--all-targets", "--features", "rooms-services/processes", "--",              "-D",
-        "warnings",
+        "--workspace", "--all-targets", "--features", "rooms-services/processes", "--features",      "rooms-product/test-support",
+        "--",          "-D",            "warnings",
     });
     // Metadata checking does not link the C archives. An explicit path avoids
     // download discovery without installing unrelated transport artifacts.
     commands.setLibDir(lint, .host);
     const lint_step = b.step("rooms-rust-lint", "Lint the Rooms Rust workspace with clippy, warnings denied (needs cargo)");
     lint_step.dependOn(&lint.step);
+    // The pass above builds the product and the services with
+    // `test-support`, which carries the fault points and stand-ins, so the
+    // shipped cfg arms of both are read again without it: the product's
+    // binaries and the services library they link, with the feature they
+    // ship with.
+    const shipped_lint = commands.addRootedSystemCommand(b, .build_tool, &.{
+        "cargo",      "clippy",                   "--quiet", "--locked", "--manifest-path", "apps/rooms/rust/Cargo.toml",
+        "-p",         "rooms-product",            "--bins",  "-p",       "rooms-services",  "--lib",
+        "--features", "rooms-services/processes", "--",      "-D",       "warnings",
+    });
+    commands.setLibDir(shipped_lint, .host);
+    shipped_lint.step.dependOn(&lint.step);
+    lint_step.dependOn(&shipped_lint.step);
     // The browser crates compile most of their bodies only under
     // `cfg(target_arch = "wasm32")`, which the pass above never reads, so the
     // same verdict is read again for the Wasm target. The binding's build

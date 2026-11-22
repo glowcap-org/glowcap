@@ -1,69 +1,9 @@
 //! Process choices cross the actual socket adapter, managed workspace, CapTP
 //! directory and room callback. Both creation and public entry retain custody.
 use super::*;
-use serde_json::{Value, json};
-use std::io::Read;
+use serde_json::json;
 
-fn ready(mut command: Command, prefix: &str) -> (Process, String) {
-	let mut process = Process::new(command.stdout(Stdio::piped()).spawn().unwrap(), "session");
-	let output = process.child.stdout.take().unwrap();
-	let (send, receive) = mpsc::channel();
-	let prefix = prefix.to_owned();
-	std::thread::spawn(move || {
-		for line in BufReader::new(output).lines() {
-			let line = line.unwrap();
-			if let Some(value) = line.strip_prefix(&prefix) {
-				let _ = send.send(value.to_owned());
-				break;
-			}
-		}
-	});
-	let route = receive
-		.recv_timeout(Duration::from_secs(8))
-		.expect("product readiness deadline");
-	(process, route)
-}
-fn call(state: &std::path::Path, verb: &str, named: Value) -> Value {
-	let options = json!({"verb":verb,"state":state,"named":named,"arguments":[]});
-	let mut process = Process::new(
-		super::command()
-			.args(["control", &options.to_string()])
-			.stdout(Stdio::piped())
-			.spawn()
-			.unwrap(),
-		"session",
-	);
-	let status = process.wait();
-	let mut output = String::new();
-	process
-		.child
-		.stdout
-		.take()
-		.unwrap()
-		.read_to_string(&mut output)
-		.unwrap();
-	assert!(status.success(), "{verb} {named}: {output}");
-	serde_json::from_str(&output).unwrap()
-}
-fn direct_message(state: &std::path::Path, text: &str) -> String {
-	let deadline = Instant::now() + Duration::from_secs(8);
-	loop {
-		let batch = call(state, "tick", json!({"wait":["0"]}));
-		if let Some(event) = batch["pending"]
-			.as_array()
-			.unwrap()
-			.iter()
-			.find(|event| event["event"]["target"]["kind"] == "direct" && event["event"]["notice"]["text"] == text)
-		{
-			return event["event"]["target"]["id"].as_str().unwrap().into();
-		}
-		assert!(
-			Instant::now() < deadline,
-			"private message did not reach {state:?}: {batch}"
-		);
-		std::thread::sleep(Duration::from_millis(20));
-	}
-}
+use super::session_rig::{call, direct_message, ready};
 #[test]
 fn managed_local_control_joins_and_replies_through_actual_custody() {
 	let temp = Scratch::create("managed-journey");
@@ -173,4 +113,25 @@ fn a_session_whose_stdout_is_closed_keeps_serving_its_local_control() {
 	let batch = call(&state, "tick", json!({"wait":["0"]}));
 	assert!(batch["pending"].is_array(), "{batch}");
 	process.signal("-TERM");
+}
+
+/// A nickname belongs to its workspace, so starting the workspace again under
+/// another one is refused by name, and starting it under its own still works.
+#[test]
+fn starting_a_workspace_under_another_nickname_is_refused() {
+	use super::session_rig::{Fixture, try_call};
+	let fixture = Fixture::start("start-other-nick", &["nick-one"], "workshop");
+	let state = &fixture.peers[0].state;
+	let refused = try_call(state, "start", json!({"nick": ["nick-two"]})).unwrap_err();
+	assert!(
+		refused.contains(r#"nickname is \"nick-one\""#) && refused.contains("another --dir"),
+		"{refused}"
+	);
+	let status = call(state, "status", json!({}));
+	assert_eq!(status["workspace"]["directories"][0]["nick"], "nick-one");
+	call(state, "start", json!({"nick": ["nick-one"]}));
+	let locator = fixture.locator.clone();
+	let refused = try_call(state, "start", json!({"locator": [locator], "nick": ["nick-two"]})).unwrap_err();
+	assert!(refused.contains("another --dir"), "{refused}");
+	fixture.finish();
 }

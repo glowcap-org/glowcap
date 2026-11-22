@@ -156,28 +156,19 @@ impl Request<'_> {
 		{
 			return Ok(false);
 		}
-		let previous = record
-			.intent
-			.conversations
-			.as_slice()
-			.iter()
-			.rposition(|row| match row {
-				workspace::Conversation::Direct(row) => {
-					row.closed
-						&& row.directory.text().as_str() == Some(reopening.directory.as_str())
-						&& row.introduction.as_ref().is_some_and(|intro| {
-							intro.registration.text().as_str() == Some(reopening.registration.as_str())
-						})
-				}
-				_ => false,
-			});
-		let position = previous.unwrap_or(record.intent.conversations.as_slice().len());
+		// One registration holds at most one open row, so a route that finds one
+		// open is given back. Otherwise it reopens the last closed row. Both
+		// rules are the application's, which the plan every caller makes uses.
+		let (directory, registration) = (reopening.directory.as_str(), reopening.registration.as_str());
+		if workspace::open_direct(&record.intent, directory, registration).is_some() {
+			return Ok(false);
+		}
+		let previous = workspace::reopened_direct(&record.intent, directory, registration);
+		let position = previous.map_or(record.intent.conversations.as_slice().len(), |(at, _)| at);
 		let Some(workspace::Conversation::Direct(next)) = candidate.conversations.as_slice().get(position) else {
 			return Ok(false);
 		};
-		let expected_id = previous
-			.map(|at| record.intent.conversations.as_slice()[at].id().text())
-			.unwrap_or(self.operation.text());
+		let expected_id = previous.map_or(self.operation.text(), |(_, old)| old.id.text());
 		if next.id.text() != expected_id
 			|| next.directory.text().as_str() != Some(reopening.directory.as_str())
 			|| next.peer.text().as_str() != Some(reopening.peer.as_str())
@@ -196,16 +187,14 @@ impl Request<'_> {
 		{
 			return Ok(false);
 		}
-		if let Some(at) = previous {
-			let workspace::Conversation::Direct(old) = &record.intent.conversations.as_slice()[at] else {
-				unreachable!()
-			};
-			if next.draft != old.draft {
+		if let Some((at, old)) = previous {
+			// The row keeps its draft and the openings it took, by `land`.
+			if next.draft != old.draft || next.openings != old.openings {
 				return Ok(false);
 			}
 			candidate.conversations.as_mut_slice()[at] = record.intent.conversations.as_slice()[at].clone();
 		} else {
-			if next.draft.text().as_str() != Some("") {
+			if next.draft.text().as_str() != Some("") || !next.openings.is_empty() {
 				return Ok(false);
 			}
 			candidate.conversations.remove(position);

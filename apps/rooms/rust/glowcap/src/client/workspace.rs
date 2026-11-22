@@ -126,6 +126,11 @@ impl<D: Deadline> Workspace<D> {
 	pub async fn describe_access(&self) -> Result<super::access::UseState, Error> {
 		super::access::UseState::validated(self.call("describe-access", &[]).await?)
 	}
+	/// The name this use capability is published under. Joined to the locator
+	/// of the session's own link it makes a link another process can redeem.
+	pub async fn durable_name(&self) -> Result<String, Error> {
+		super::access::publication_name(&self.call("durable-name", &[]).await?)
+	}
 	pub async fn mutation_sequence(&self) -> Result<u32, Error> {
 		self.call("mutation-sequence", &[])
 			.await?
@@ -421,6 +426,21 @@ impl<D: Deadline> Command<D> {
 	pub async fn receive(&self) -> Result<EffectStatus, Error> {
 		self.observer().receive().await
 	}
+	/// Give up this command's receipt through its original source. An
+	/// unadopted result is forfeited and the operation can never be sent
+	/// again. A receipt the session no longer holds answers done, and one
+	/// whose executor is still retained is refused.
+	pub async fn release(&self) -> Result<(), Error> {
+		self.caller
+			.call(
+				&self.source,
+				"release-effect",
+				&[self.operation.clone().into(), self.canonical.clone().into()],
+				"the session receipt did not answer",
+			)
+			.await
+			.map(|_| ())
+	}
 	/// Committed data is encoded JSON text, optionally paired with exact
 	/// returned custody. An unsettled receipt returns its status instead.
 	/// A terminal failed observation returns its retained diagnostic error.
@@ -428,6 +448,16 @@ impl<D: Deadline> Command<D> {
 		self.observer()
 			.result("the original session result did not answer")
 			.await
+	}
+	/// The committed result's JSON text, whether the receipt carries it alone
+	/// or beside returned custody.
+	pub async fn result_text(&self) -> Result<String, Error> {
+		let result = self.result().await?;
+		result
+			.as_str()
+			.or_else(|| result.as_list()?.first()?.as_str())
+			.map(str::to_owned)
+			.ok_or_else(|| loam::refusal("command has no committed data").into())
 	}
 }
 fn snapshot(revision: &Argument, intent: &Argument) -> Result<Snapshot, Error> {

@@ -1,9 +1,9 @@
 // The browser-facing mirror of Rooms' versioned, inert Markdown projection.
-// Authored text is parsed by the Rust application. This layer only decodes the
-// projection and derives presentation facts from it.
-import { markdownDocument } from "./application.ts";
+// Authored text, IRC formatting runs, and whom a line addresses are all read by
+// the Rust application. This layer only decodes what it answers.
+import * as z from "zod/mini";
+import { applicationProjection, lineMentionsOf, richTextOf } from "./application.ts";
 import { MAX_SCROLLBACK } from "./limits.ts";
-import { hasIrcFormatting, type IrcRun, ircRuns } from "./irc_formatting.ts";
 
 export type MarkdownNode =
 	| { readonly kind: "text"; readonly text: string }
@@ -58,32 +58,49 @@ export interface MarkdownDocument {
 	readonly degraded?: "source-too-large" | "parser-refused" | "document-too-complex" | "adapter-failed";
 }
 
-export interface RichTextPart {
-	readonly document: MarkdownDocument;
-	readonly irc?: IrcRun;
-	readonly before?: string;
-	readonly after?: string;
+/** One stretch of a line from an IRC bridge, with the emphasis in force across
+ * it. IRC carries emphasis as toggling control characters, so the application
+ * splits the line by state. Colours stay the numbers the author picked, because
+ * what they look like is a decision for the stylesheet. */
+const IrcRunSchema = z.object({
+	text: z.string(),
+	bold: z.boolean(),
+	italic: z.boolean(),
+	underline: z.boolean(),
+	strike: z.boolean(),
+	mono: z.boolean(),
+	fg: z.optional(z.number()),
+	bg: z.optional(z.number()),
+});
+export type IrcRun = z.infer<typeof IrcRunSchema>;
+
+function isMarkdownDocument(value: unknown): value is MarkdownDocument {
+	return typeof value === "object" && value != null && "version" in value && value.version === 1 &&
+		"blocks" in value && Array.isArray(value.blocks);
 }
 
-function literal(text: string): MarkdownDocument {
-	return { version: 1, blocks: [{ kind: "text", text }], degraded: "adapter-failed" };
+const RichTextSchema = z.array(z.object({
+	irc: z.optional(IrcRunSchema),
+	before: z.string(),
+	after: z.string(),
+	document: z.custom<MarkdownDocument>(isMarkdownDocument),
+}));
+
+export type RichTextPart = z.infer<typeof RichTextSchema>[number];
+
+function literal(text: string): RichTextPart {
+	return {
+		before: "",
+		after: "",
+		document: { version: 1, blocks: [{ kind: "text", text }], degraded: "adapter-failed" },
+	};
 }
 
-/** Decode the application's total projection. An adapter/version fault keeps
+/** The application's total reading of one line: a part for each IRC formatting
+ * run, each with its own document, so Markdown never spans a style change. A
+ * line with no IRC formatting is one part. An adapter or version fault keeps
  * the exact source readable, because presentation failure must not erase what
  * somebody said. */
-export function readMarkdown(text: string): MarkdownDocument {
-	try {
-		const document = JSON.parse(markdownDocument(text)) as MarkdownDocument;
-		return document.version === 1 && Array.isArray(document.blocks) ? document : literal(text);
-	} catch {
-		return literal(text);
-	}
-}
-
-/** IRC toggles are an outer transport formatting vocabulary. Each stable run
- * gets its own Markdown document, so Markdown cannot open on one side of an IRC
- * state change and close under a different style. */
 export function readRichText(text: string): readonly RichTextPart[] {
 	const known = readings.get(text);
 	if (known != null) {
@@ -91,8 +108,12 @@ export function readRichText(text: string): readonly RichTextPart[] {
 		readings.set(text, known);
 		return known;
 	}
-	const reading = parseRichText(text);
-	if (reading.some((part) => part.document.degraded === "adapter-failed")) return reading;
+	let reading: readonly RichTextPart[];
+	try {
+		reading = applicationProjection(richTextOf(text), RichTextSchema, "rich text");
+	} catch {
+		return [literal(text)];
+	}
 	readings.set(text, reading);
 	if (readings.size > MAX_SCROLLBACK) {
 		for (const oldest of readings.keys()) {
@@ -112,34 +133,13 @@ export function readRichText(text: string): readonly RichTextPart[] {
  * through read-only types. */
 const readings = new Map<string, readonly RichTextPart[]>();
 
-function parseRichText(text: string): readonly RichTextPart[] {
-	if (!hasIrcFormatting(text)) return [{ document: readMarkdown(text) }];
-	return ircRuns(text).map((irc) => {
-		const before = irc.text.match(/^[ \t]+/)?.[0] ?? "";
-		const after = irc.text.slice(before.length).match(/[ \t]+$/)?.[0] ?? "";
-		const body = irc.text.slice(before.length, irc.text.length - after.length);
-		return { irc, before, after, document: readMarkdown(body) };
-	});
-}
+/** Whom a line addresses: the member this reader answers to as `own`, or the
+ * whole room. The application decides, with one reading for the live session
+ * and for lines read from history or an archive. A reader's own line addresses
+ * nobody, and the application finds the mention inside IRC formatting. */
+const LineMentionsSchema = z.object({ member: z.boolean(), room: z.boolean() });
+export type LineMentions = z.infer<typeof LineMentionsSchema>;
 
-function nodesMention(nodes: readonly MarkdownNode[], nick: string): boolean {
-	const wanted = nick.toLowerCase();
-	const pending = [...nodes];
-	while (pending.length > 0) {
-		const node = pending.pop();
-		if (node === undefined) break;
-		if (node.kind === "mention" && (node.room || (wanted !== "" && node.name.toLowerCase() === wanted))) {
-			return true;
-		}
-		if ("children" in node) pending.push(...node.children);
-	}
-	return false;
-}
-
-export function richTextMentions(reading: readonly RichTextPart[], nick: string): boolean {
-	return reading.some(({ document }) => nodesMention(document.blocks, nick));
-}
-
-export function messageMentions(text: string, nick: string): boolean {
-	return richTextMentions(readRichText(text), nick);
+export function lineMentions(from: string, text: string, own: string): LineMentions {
+	return applicationProjection(lineMentionsOf(from, text, own), LineMentionsSchema, "line mentions");
 }

@@ -96,12 +96,7 @@ impl<D: Deadline> Control<D> {
 	/// Resolve it at this capability's actual home. A local locator cannot name
 	/// a foreign control. Private bootstrap controls have no publication.
 	pub async fn durable_name(&self) -> Result<String, Error> {
-		let reply = self.call("durable-name", &[]).await?;
-		reply
-			.as_str()
-			.filter(|name| !name.is_empty() && name.len() <= 64)
-			.map(str::to_owned)
-			.ok_or_else(|| glowcap::loam::refusal("invalid control publication name").into())
+		publication_name(&self.call("durable-name", &[]).await?)
 	}
 	pub async fn derivation_sequence(&self) -> Result<u32, Error> {
 		self.sequence("derivation-sequence").await
@@ -188,6 +183,15 @@ impl<D: Deadline> Control<D> {
 			.await?;
 		control_reply(reply)
 	}
+}
+
+/// The publication name a held capability reports for itself.
+pub(crate) fn publication_name(reply: &Argument) -> Result<String, Error> {
+	reply
+		.as_str()
+		.filter(|name| !name.is_empty() && name.len() <= 64)
+		.map(str::to_owned)
+		.ok_or_else(|| glowcap::loam::refusal("invalid publication name").into())
 }
 
 fn control_reply(reply: Argument) -> Result<Argument, Error> {

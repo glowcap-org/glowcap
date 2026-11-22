@@ -1,4 +1,4 @@
-// Desktop notifications when you are @mentioned or sent a direct message.
+// Desktop notifications when you are sent a direct message.
 //
 // Opt-in, and off unless the tab is in the background: a notice about a message
 // you are already looking at is noise. Both facts it reads (whether notices are

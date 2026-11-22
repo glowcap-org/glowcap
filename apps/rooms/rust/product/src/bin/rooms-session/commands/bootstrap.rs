@@ -4,6 +4,7 @@ use super::Failure;
 use bytes::Bytes;
 use http_body_util::{BodyExt, Empty, LengthLimitError, Limited};
 use hyper_util::rt::TokioIo;
+use rooms_application::failure::Retry;
 use std::{sync::Arc, time::Duration};
 use tokio::{
 	io::{AsyncRead, AsyncWrite},
@@ -25,7 +26,7 @@ pub async fn resolve(locator: &str) -> Result<String, Failure> {
 		.unwrap_or_else(|_| {
 			Err(Failure::new(
 				"timeout",
-				"after-state-change",
+				Retry::AfterStateChange,
 				"request timed out after 10 seconds",
 			))
 		})
@@ -55,7 +56,7 @@ async fn fetch(locator: &str) -> Result<String, Failure> {
 		let (status, location, bytes) = if url.scheme() == "https" {
 			let config = rooms_platform::tls::system_config()
 				.await
-				.map_err(|e| Failure::new("tls", "after-state-change", e))?;
+				.map_err(|e| Failure::new("tls", Retry::AfterStateChange, e))?;
 			let name = tokio_rustls::rustls::pki_types::ServerName::try_from(host).map_err(Failure::invalid)?;
 			let socket = tokio_rustls::TlsConnector::from(Arc::new(config))
 				.connect(name, socket)
@@ -81,12 +82,18 @@ async fn fetch(locator: &str) -> Result<String, Failure> {
 			continue;
 		}
 		let text = std::str::from_utf8(&bytes)
-			.map_err(|_| Failure::new("bootstrap", "after-state-change", "response is not UTF-8 locator text"))?
+			.map_err(|_| {
+				Failure::new(
+					"bootstrap",
+					Retry::AfterStateChange,
+					"response is not UTF-8 locator text",
+				)
+			})?
 			.trim();
 		if !text.starts_with("ocapn://") || text.chars().any(char::is_whitespace) {
 			return Err(Failure::new(
 				"bootstrap",
-				"after-state-change",
+				Retry::AfterStateChange,
 				"response must contain one plain ocapn:// locator; check the /locator endpoint and its access policy",
 			));
 		}
@@ -100,7 +107,7 @@ async fn exchange<S: AsyncRead + AsyncWrite + Unpin>(
 ) -> Result<(hyper::StatusCode, Option<String>, Bytes), Failure> {
 	let (mut sender, connection) = hyper::client::conn::http1::handshake(TokioIo::new(socket))
 		.await
-		.map_err(|e| Failure::new("http", "after-state-change", e))?;
+		.map_err(|e| Failure::new("http", Retry::AfterStateChange, e))?;
 	let request = hyper::Request::builder()
 		.uri(&url[url::Position::BeforePath..])
 		.header("host", &url[url::Position::BeforeHost..url::Position::AfterPort])
@@ -111,7 +118,7 @@ async fn exchange<S: AsyncRead + AsyncWrite + Unpin>(
 		let response = sender
 			.send_request(request)
 			.await
-			.map_err(|e| Failure::new("http", "after-state-change", e))?;
+			.map_err(|e| Failure::new("http", Retry::AfterStateChange, e))?;
 		let status = response.status();
 		// Classify the response before reading its body: an error/login page or
 		// redirect document is not a locator and must not mask its status with a
@@ -119,7 +126,7 @@ async fn exchange<S: AsyncRead + AsyncWrite + Unpin>(
 		if !status.is_success() && !status.is_redirection() {
 			return Err(Failure::new(
 				"http",
-				"after-state-change",
+				Retry::AfterStateChange,
 				format!("HTTP {status}; check endpoint access (browser login is not shared with this session)"),
 			));
 		}
@@ -141,7 +148,7 @@ async fn exchange<S: AsyncRead + AsyncWrite + Unpin>(
 			}) {
 			return Err(Failure::new(
 				"bootstrap",
-				"after-state-change",
+				Retry::AfterStateChange,
 				"received HTML instead of a locator, possibly an access-gateway login page; browser login is not shared with this session. Supply an agent-accessible /locator URL or a directory ocapn:// locator; do not disable access controls",
 			));
 		}
@@ -150,9 +157,9 @@ async fn exchange<S: AsyncRead + AsyncWrite + Unpin>(
 			.await
 			.map_err(|error| {
 				if error.is::<LengthLimitError>() {
-					Failure::new("bootstrap", "after-state-change", format!("response exceeds the {MAX_LOCATOR_BYTES}-byte locator limit; check that /locator returns locator text, not a login or error page"))
+					Failure::new("bootstrap", Retry::AfterStateChange, format!("response exceeds the {MAX_LOCATOR_BYTES}-byte locator limit; check that /locator returns locator text, not a login or error page"))
 				} else {
-					Failure::new("http", "after-state-change", format!("could not read locator response: {error}"))
+					Failure::new("http", Retry::AfterStateChange, format!("could not read locator response: {error}"))
 				}
 			})?
 			.to_bytes();
@@ -165,7 +172,7 @@ async fn exchange<S: AsyncRead + AsyncWrite + Unpin>(
 		biased;
 		result = &mut exchange => result,
 		result = connection => {
-			result.map_err(|e| Failure::new("http", "after-state-change", e))?;
+			result.map_err(|e| Failure::new("http", Retry::AfterStateChange, e))?;
 			exchange.await
 		}
 	}

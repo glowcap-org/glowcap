@@ -6,13 +6,14 @@ use crate::session::managed::{
 };
 use glowcap::{Argument, Ref};
 use rooms_application::{
-	content::session::custody,
+	content::session::{custody, workspace::InboxSelection},
 	direct,
 	directory::registration,
 	room::{
 		attachment::Attachment,
 		inbox,
 		line::{LineChange, Proposal},
+		mentions::Mentions,
 	},
 };
 use rooms_glowcap::client::{Deadline, Tasks};
@@ -33,7 +34,11 @@ pub(super) fn receiver<P: Tasks + Deadline + Clone + 'static>(
 		MembershipEvent::DirectorySnapshot { snapshot, origin } => {
 			events.upgrade().ok_or("Session activity has closed")?.push(Event {
 				history: History::None.into(),
-				data: envelope(&target, json!({"kind":"discoverySnapshot","snapshot":snapshot})),
+				data: envelope(
+					&target,
+					json!({"kind":"discoverySnapshot","snapshot":snapshot}),
+					Mentions::default(),
+				),
 				origin: origin.clone().into(),
 				files: Vec::new(),
 				incoming: None,
@@ -45,7 +50,11 @@ pub(super) fn receiver<P: Tasks + Deadline + Clone + 'static>(
 		MembershipEvent::DirectoryChanged { event, origin } => {
 			events.upgrade().ok_or("Session activity has closed")?.push(Event {
 				history: History::None.into(),
-				data: envelope(&target, json!({"kind":"discoveryChanged","event":event})),
+				data: envelope(
+					&target,
+					json!({"kind":"discoveryChanged","event":event}),
+					Mentions::default(),
+				),
 				origin: origin.clone().into(),
 				files: Vec::new(),
 				incoming: None,
@@ -62,6 +71,7 @@ pub(super) fn receiver<P: Tasks + Deadline + Clone + 'static>(
 			let values = rooms_glowcap::values(arguments).collect::<Vec<_>>();
 			let mut files = Vec::new();
 			let mut recorded = None;
+			let mut mentions = Mentions::default();
 			let notice = match &target {
 				MembershipTarget::Discovery(_) => return Err("discovery needs its observation consumer".into()),
 				MembershipTarget::Directory(_) => {
@@ -96,6 +106,13 @@ pub(super) fn receiver<P: Tasks + Deadline + Clone + 'static>(
 				}
 				MembershipTarget::Room(_) => match inbox::read("notify", &values).map_err(|e| e.to_string())? {
 					inbox::Notice::Line(line) => {
+						// The callback's installed nickname is the one its room seat
+						// answers to, and a changed name replaces the callback.
+						let own = origin.installed().and_then(|(selection, _)| match selection {
+							InboxSelection::Room { nickname, .. } => nickname.text().text().as_str(),
+							_ => None,
+						});
+						mentions = Mentions::of_line(line.from, line.text, own);
 						recorded = line.marker.and_then(|marker| {
 							super::super::recording::record(
 								&owner,
@@ -138,7 +155,7 @@ pub(super) fn receiver<P: Tasks + Deadline + Clone + 'static>(
 			};
 			events.upgrade().ok_or("Session activity has closed")?.push(Event {
 				history: recorded.map_or(History::None, History::Recorded).into(),
-				data: envelope(&target, notice),
+				data: envelope(&target, notice, mentions),
 				origin: origin.clone().into(),
 				files,
 				incoming: None,
@@ -282,7 +299,7 @@ pub(super) fn receiver<P: Tasks + Deadline + Clone + 'static>(
 			let rollback = retained.clone();
 			if let Err(error) = activity.push(Event {
 				history: recorded.map_or(History::None, History::Recorded).into(),
-				data: envelope(&target, data),
+				data: envelope(&target, data, Mentions::default()),
 				origin: origin.clone().into(),
 				files,
 				incoming,
@@ -298,14 +315,17 @@ pub(super) fn receiver<P: Tasks + Deadline + Clone + 'static>(
 		}
 	})
 }
-fn envelope(target: &MembershipTarget, notice: Json) -> String {
+/// Every projected event carries `mentions` beside `target` and `notice`, so a
+/// consumer reads one shape. Only a line addressed to this member or the room
+/// reports a true fact.
+fn envelope(target: &MembershipTarget, notice: Json, mentions: Mentions) -> String {
 	let (kind, id) = match target {
 		MembershipTarget::Discovery(id) => ("discovery", id),
 		MembershipTarget::Directory(id) => ("directory", id),
 		MembershipTarget::Room(id) => ("room", id),
 		MembershipTarget::Direct(id) => ("direct", id),
 	};
-	json!({"target":{"kind":kind,"id":id},"notice":notice}).to_string()
+	json!({"target":{"kind":kind,"id":id},"notice":notice,"mentions":mentions}).to_string()
 }
 fn line_bytes<'a, P: Tasks + Deadline + Clone + 'static>(
 	id: &str,
@@ -352,6 +372,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Changes for LineChanges<P> {
 				&self.target,
 				json!({"kind":"line", "text":proposal.text,
 			"marker":{"id":proposal.id.get(),"change":proposal.kind.event_change()}, "previewUrls":previews.urls()}),
+				Mentions::default(),
 			),
 			origin: self.origin.clone().into(),
 			files: proposal.files().cloned().collect(),

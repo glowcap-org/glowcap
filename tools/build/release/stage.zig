@@ -13,7 +13,7 @@ pub const Manifest = struct {
     rooms: bool = false,
 };
 
-pub const helpers = &.{ "rooms-server", "rooms-session", "rooms-web", "rooms-archive", "rooms-chat", "rooms-irc-server", "rooms-irc-bridge" };
+pub const helpers = &.{ "rooms-server", "rooms-session", "rooms-bot", "rooms-web", "rooms-archive", "rooms-chat", "rooms-irc-server", "rooms-irc-bridge" };
 pub const product: Manifest = .{
     .dynamic_archives = &.{ "glowcap_net_transport_iroh", "glowcap_net_transport_webrtc" },
     .binaries = &.{"glowcap"},

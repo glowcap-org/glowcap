@@ -74,6 +74,8 @@ export interface DirectIntent {
 	inbox?: FieldKey;
 	access: FieldKey | null;
 	introduction?: { access: FieldKey; name: FieldKey; callback: FieldKey; registration: string; opening: string };
+	/** The openings of the introductions this row took, which a reopening keeps. */
+	openings?: string[];
 	lines?: PostedLine[];
 	closed: boolean;
 	draft: string;
@@ -106,7 +108,14 @@ export interface ReceivedArchive {
 export interface WorkspaceIntent {
 	version: 1;
 	archiveShares?: ReceivedArchive[];
-	accesses?: { id: string; access?: FieldKey | null; control?: FieldKey | null }[];
+	accesses?: {
+		id: string;
+		access?: FieldKey | null;
+		control?: FieldKey | null;
+		issue?:
+			| { unsaved: { sequence: number; revision: number } }
+			| { saved: { slot: number; generation: number } };
+	}[];
 	directories: DirectoryIntent[];
 	conversations: ConversationIntent[];
 	invitations: {

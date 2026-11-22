@@ -27,6 +27,7 @@ pub(super) mod recording;
 mod retention;
 mod signaling;
 mod snapshot;
+mod unadopted;
 use super::{
 	State, bridge,
 	records::{self, Field, References},
@@ -61,6 +62,17 @@ use std::rc::Weak;
 struct SessionContent<P: Tasks + Deadline + Clone + 'static>(Weak<State<P>>);
 pub(super) fn refuse(message: &str) -> glowcap::Error {
 	loam::refusal(message)
+}
+/// The line for a change that would give a registration a second open
+/// direct row, from a replacement or from the `openDirect` gesture.
+pub(super) const DIRECT_OPEN: &str = "an open direct conversation already reaches this member";
+/// The refusal for a workspace replacement `Intent::replace_configuration`
+/// turned down.
+pub(super) fn refuse_configuration(invalid: workspace::InvalidIntent) -> glowcap::Error {
+	refuse(match invalid {
+		workspace::InvalidIntent::DirectOpen => DIRECT_OPEN,
+		_ => "change history retention through its dedicated command",
+	})
 }
 pub(super) fn text(value: &Argument) -> Result<&str> {
 	value.as_str().ok_or_else(|| refuse("session text argument required"))
@@ -100,6 +112,7 @@ impl<P: Tasks + Deadline + Clone + 'static> SessionContent<P> {
 	}
 	fn declared_requirement(&self, input: Invocation<'_>) -> Result<Requirement> {
 		let owner = self.owner(input.verb)?;
+		let private = continuing::private(input);
 		let input = continuing::input(self, input)?;
 		// Forwarding bypasses invoke; application lifetime belongs to admission
 		// too, including the fresh source check after every upstream wait.
@@ -112,6 +125,7 @@ impl<P: Tasks + Deadline + Clone + 'static> SessionContent<P> {
 		use Permission::*;
 		match input.verb {
 			"retire-room-authority" => authority::requirement(input, &owner.writer.root()?),
+			"unadopted-effects" | "release-unadopted-effect" => unadopted::requirement(input, &owner.writer.root()?),
 			"observe-direct-connection" => connection::requirement(input, &owner.writer.root()?),
 			"observe-archive-connection" => archive_connection::requirement(input, &owner.writer.root()?),
 			"record-inbox" => {
@@ -205,6 +219,7 @@ impl<P: Tasks + Deadline + Clone + 'static> SessionContent<P> {
 			}
 			"replaceWorkspace" => Requirement::new(&[ReplaceWorkspace.key()], &[]),
 			"release" => Requirement::new(&[ManageCustody.key(), ReplaceWorkspace.key()], &[]),
+			"acquire-workspace" if private => continuing::acquisition_requirement(),
 			"acquire-workspace" => Requirement::new(&[ManageCustody.key(), ReplaceWorkspace.key()], &[]),
 			"import" | "import-bundle" | "initialize" | "retire-host-registrations" | "settle-effect" => {
 				Requirement::new(&[ManageCustody.key()], &[])
@@ -357,6 +372,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Content for SessionContent<P> {
 				.work(call, class, None, owner.platform.monotonic_millis())
 				.map_err(super::admission::callback_error)?;
 		}
+		let private = continuing::private(input);
 		let input = continuing::input(self, input)?;
 		if input.verb == "retire-host-registrations" {
 			return host_registrations::invoke(call, input, &owner.writer.root()?);
@@ -429,6 +445,9 @@ impl<P: Tasks + Deadline + Clone + 'static> Content for SessionContent<P> {
 		if input.verb == "restore-custody" {
 			return super::retained::invoke(call, input, &owner.writer.root()?);
 		}
+		if matches!(input.verb, "unadopted-effects" | "release-unadopted-effect") {
+			return unadopted::invoke(&owner, call, input);
+		}
 		if input.verb == "initialize" {
 			if call.source()? != owner.writer.root()? {
 				return Err(refuse("private session root required"));
@@ -493,7 +512,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Content for SessionContent<P> {
 			return bridge::forget(&owner, call, input);
 		}
 		if matches!(input.verb, "import" | "import-bundle" | "acquire-workspace") {
-			return acquisition::invoke(call, input);
+			return acquisition::invoke(call, input, private);
 		}
 		if matches!(
 			input.verb,
@@ -574,7 +593,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Content for SessionContent<P> {
 					.replace_configuration(
 						workspace::Intent::decode(text(intent)?).map_err(|_| refuse("invalid workspace intent"))?,
 					)
-					.map_err(|_| refuse("change history retention through its dedicated command"))?;
+					.map_err(refuse_configuration)?;
 				record
 					.intent
 					.validate(&record.custody)
@@ -599,7 +618,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Content for SessionContent<P> {
 					.replace_configuration(
 						workspace::Intent::decode(text(intent)?).map_err(|_| refuse("invalid workspace intent"))?,
 					)
-					.map_err(|_| refuse("change history retention through its dedicated command"))?;
+					.map_err(refuse_configuration)?;
 				records::replace(call, input, &mut record)?;
 				Ok(Argument::Void)
 			}

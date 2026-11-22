@@ -77,6 +77,23 @@ impl Directory {
 	pub fn registers(&self) -> bool {
 		self.source.is_some() && self.nick.text().as_str().is_some_and(|nick| !nick.is_empty())
 	}
+	/// Whether two views of one directory introduce under the same contact: the
+	/// row, its access, its initiating source, and its registered name and
+	/// inbox. Standing and nickname choices may change freely between them.
+	pub fn same_contact(&self, other: &Self) -> bool {
+		self.id == other.id
+			&& self.access == other.access
+			&& self.source == other.source
+			&& self.name == other.name
+			&& self.inbox == other.inbox
+	}
+	/// Clear what a lost connection held: the registered name, the nickname
+	/// the directory assigned, and the inbox.
+	pub fn retire_connection(&mut self) {
+		self.name = None;
+		self.assigned_nick = None;
+		self.inbox = None;
+	}
 }
 impl Intent {
 	/// The room row named by a conversation id.
@@ -88,6 +105,16 @@ impl Intent {
 	}
 }
 impl Room {
+	/// Clear what a lost connection held: the seat, the subject and files it
+	/// carried, the inbox, and the lines posted through it. The entrance,
+	/// control, and reconnect choice stay.
+	pub fn retire_connection(&mut self) {
+		self.seat = None;
+		self.subject = None;
+		self.files = None;
+		self.inbox = None;
+		self.lines = Default::default();
+	}
 	/// The one coordinate through which this row is entered: its link, its
 	/// accepted visit, or its public entry. A row with no entrance or several
 	/// has none.

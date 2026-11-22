@@ -15,6 +15,9 @@ use tokio::sync::watch;
 pub(super) struct Owner<P: Tasks> {
 	budget: Rc<supervision::Budget<P>>,
 	worker: RefCell<Option<[Membership<P>; 2]>>,
+	/// Releases the receipts revoked accesses leave. It starts with the feeds,
+	/// so every host that opens a session runs it, and closes first.
+	sweeper: RefCell<Option<Membership<P>>>,
 	updates: watch::Sender<[Option<Result<()>>; 2]>,
 	inspection: Rc<tokio::sync::Mutex<()>>,
 }
@@ -23,6 +26,7 @@ impl<P: Tasks> Default for Owner<P> {
 		Self {
 			budget: Rc::new(supervision::Budget::default()),
 			worker: RefCell::new(None),
+			sweeper: RefCell::new(None),
 			updates: watch::channel([None, None]).0,
 			inspection: Rc::new(tokio::sync::Mutex::new(())),
 		}
@@ -36,6 +40,19 @@ impl<P: Tasks> Owner<P> {
 	}
 	pub fn started(&self) -> bool {
 		self.worker.borrow().is_some()
+	}
+	/// Close the revoked-receipt owner ahead of the feeds, so it cannot sweep
+	/// while the session closes what it sweeps against. A failed close keeps
+	/// it for the next close to try again.
+	pub(super) async fn close_sweeper(&self) -> Result<()> {
+		let Some(mut sweeper) = self.sweeper.borrow_mut().take() else {
+			return Ok(());
+		};
+		let closed = sweeper.close().await;
+		if closed.is_err() {
+			*self.sweeper.borrow_mut() = Some(sweeper);
+		}
+		closed
 	}
 }
 /// Two parked Loam receives cover content and all child grant changes, regardless
@@ -107,7 +124,8 @@ impl<P: Tasks + Deadline + Clone + 'static> Owner<P> {
 			return Err(Error::closed("Session is closing"));
 		}
 		let mut worker = self.worker.borrow_mut();
-		if worker.is_none() {
+		let starting = worker.is_none();
+		if starting {
 			let roots = [
 				(owner.writer.root()?, 0, "session-content-feed"),
 				(owner.writer.root_control()?, 1, "session-inventory-feed"),
@@ -160,19 +178,32 @@ impl<P: Tasks + Deadline + Clone + 'static> Owner<P> {
 		let worker = worker
 			.as_ref()
 			.ok_or_else(|| Error::closed("Session change feed is not installed"))?;
+		if starting {
+			let wake = self.wake(worker);
+			*self.sweeper.borrow_mut() = Some(super::revoked_receipts::spawn(
+				&owner.platform,
+				&self.budget,
+				owner.writer.clone(),
+				wake,
+			));
+		}
+		Ok(self.wake(worker))
+	}
+	fn wake(&self, worker: &[Membership<P>; 2]) -> Wake {
 		let mut updates = self.updates.subscribe();
 		// Startup callers must observe the initial ready notification, including
 		// subscribers that arrive after it. They still poll their own source.
 		updates.mark_changed();
-		Ok(Wake {
+		Wake {
 			updates,
 			feedback: self.updates.clone(),
 			inspection: self.inspection.clone(),
 			retry: std::array::from_fn(|index| worker[index].retry_signal()),
-		})
+		}
 	}
 	pub async fn close(&self) -> Result<()> {
 		self.budget.close_all().await?;
+		self.sweeper.borrow_mut().take();
 		self.worker.borrow_mut().take();
 		Ok(())
 	}

@@ -4,12 +4,25 @@ use super::*;
 use rooms_application::{content::session::local as gestures, session::command::Request};
 
 fn apply(current: &workspace::Intent, name: &str, args: &[&str]) -> Result<workspace::Intent, gestures::Refusal> {
+	gesture(current, name, args, false)
+}
+/// Apply one gesture to a copy of `current`. `targeted` says whether the
+/// gesture selects existing custody, as `openDirect` selects a route.
+fn gesture(
+	current: &workspace::Intent,
+	name: &str,
+	args: &[&str],
+	targeted: bool,
+) -> Result<workspace::Intent, gestures::Refusal> {
 	use crate::arguments::Arg;
 	let mut wire = vec![Arg::Text("gesture".into()), Arg::Integer(1), Arg::Text(name.into())];
 	wire.extend(args.iter().map(|s| Arg::Text((*s).into())));
 	let request = Request::parse(&wire).unwrap();
 	assert!(gestures::recognizes(request.route()));
-	assert!(requirements::command(request.route()).unwrap().targets.is_empty());
+	assert_eq!(
+		requirements::command(request.route()).unwrap().targets.is_empty(),
+		!targeted
+	);
 	let mut candidate = current.clone();
 	gestures::apply(&request, &mut candidate, &mut custody::Custody::<References>::default())?;
 	Ok(candidate)
@@ -173,4 +186,42 @@ pub fn run() {
 		"workspace reset preserves the peer's connection choice"
 	);
 	assert!(apply(&initial, "dismissInvitation", &["missing"]).is_err());
+	direct_opening();
+}
+
+/// `openDirect` selects a row that is open, and reopens a closed one only
+/// while no other open row reaches its registration.
+fn direct_opening() {
+	let row = |id: &str, closed: bool| {
+		json!({ "kind": "direct", "id": id, "directory": "directory", "peer": "peer",
+			"access": key::<custody::DirectAccess>(if closed { 2 } else { 3 }, 1), "closed": closed, "draft": "",
+			"introduction": { "access": key::<custody::DirectoryAccess>(1, 1), "name": key::<custody::DirectoryAccess>(4, 1),
+				"callback": key::<custody::DirectoryAccess>(5, 1), "registration": "member", "opening": id } })
+	};
+	let open = |current: &workspace::Intent, row: &[&str]| gesture(current, "openDirect", row, true);
+	let mut both = fixture();
+	both["conversations"] = json!([row("closed", true), row("open", false)]);
+	let both = workspace::Intent::decode(&both.to_string()).unwrap();
+	let selected = row("open", false).to_string();
+	assert_eq!(
+		open(&both, &[&selected]).unwrap().active.unwrap().text().as_str(),
+		Some("open")
+	);
+	let mut reopening = row("closed", true);
+	reopening["closed"] = false.into();
+	assert_eq!(
+		open(&both, &[&reopening.to_string()]),
+		Err(gestures::Refusal::DirectOpen)
+	);
+	let mut alone = fixture();
+	alone["conversations"] = json!([row("closed", true)]);
+	let alone = workspace::Intent::decode(&alone.to_string()).unwrap();
+	let reopened = open(&alone, &[&reopening.to_string()]).unwrap();
+	assert!(matches!(&reopened.conversations.as_slice()[0], workspace::Conversation::Direct(row) if !row.closed));
+	let mut another = row("another", false);
+	another["access"] = serde_json::to_value(key::<custody::DirectAccess>(6, 1)).unwrap();
+	assert_eq!(
+		open(&reopened, &[&another.to_string()]),
+		Err(gestures::Refusal::DirectOpen)
+	);
 }

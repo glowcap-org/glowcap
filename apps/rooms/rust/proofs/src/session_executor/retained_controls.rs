@@ -85,6 +85,7 @@ pub(super) async fn run() {
 								id: Text::new("observer".into()).unwrap(),
 								access: Some(access.key.retag()),
 								control: Some(control.key.retag()),
+								issue: None,
 							})
 							.unwrap();
 						let acquisition = workspace

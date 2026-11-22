@@ -1,6 +1,7 @@
 //! Roster composition only. Every member uses the ordinary peer lifecycle and
 //! application commands. Harness/model scheduling stays outside the product.
 use super::{Failure, Options, execute, supervise};
+use rooms_application::failure::Retry;
 use serde_json::{Value, json};
 use std::collections::BTreeSet;
 
@@ -12,7 +13,7 @@ pub async fn run(options: &Options) -> Result<Value, Failure> {
 			let bytes = tokio::task::spawn_blocking(move || rooms_platform::storage::read(&path, 16384))
 				.await
 				.map_err(Failure::uncertain)?
-				.map_err(|e| Failure::new("storage", "after-state-change", e))?
+				.map_err(|e| Failure::new("storage", Retry::AfterStateChange, e))?
 				.ok_or_else(|| Failure::invalid("no roster in this directory"))?;
 			let roster: Value = serde_json::from_slice(&bytes)?;
 			let members = roster["members"]
@@ -74,7 +75,7 @@ async fn start(options: &Options) -> Result<Value, Failure> {
 	let lease = tokio::task::spawn_blocking(move || {
 		let lease = rooms_platform::storage::Directory::open(root, "roster.lock")?;
 		let old = rooms_platform::storage::read(&lease.path().join("roster.json"), 16384)
-			.map_err(|e| Failure::new("storage", "after-state-change", e))?;
+			.map_err(|e| Failure::new("storage", Retry::AfterStateChange, e))?;
 		if let Some(old) = old {
 			if serde_json::from_slice::<Value>(&old)? != serde_json::from_slice::<Value>(&encoded)? {
 				return Err(Failure::invalid(

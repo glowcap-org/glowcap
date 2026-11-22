@@ -1,6 +1,7 @@
 //! Human choices select typed custody and original command results. Routes are
 //! transient acquisition input. Managed workspace rows contain no bearer links.
 use super::{Failure, Options, acquisition::submit as acquire, command, request};
+use rooms_application::failure::Retry;
 use rooms_application::{
 	content::session::workspace,
 	fields::{List, Text},
@@ -54,7 +55,7 @@ pub async fn wait(options: &Options, description: &str, predicate: impl Fn(&Valu
 		if tokio::time::Instant::now() >= deadline {
 			return Err(Failure::new(
 				"timeout",
-				"after-state-change",
+				Retry::AfterStateChange,
 				format!("waiting for {description}; inspect the managed workspace and control log"),
 			));
 		}
@@ -88,11 +89,13 @@ pub async fn directory(options: &Options) -> Result<Value, Failure> {
 			.cloned()
 			.ok_or_else(|| Failure::invalid("name a directory with --locator and --nick"))?
 	};
+	// A nickname belongs to the workspace that registered it, so naming
+	// another is refused before anything waits on the directory.
 	if let Some(nick) = options.get("nick")
 		&& entry["nick"] != nick
 	{
 		return Err(Failure::invalid(format!(
-			"directory already requests nickname {}",
+			"this workspace's nickname is {} and stays with it. To use the nickname {nick:?}, start a new workspace with another --dir",
 			entry["nick"]
 		)));
 	}
@@ -294,62 +297,43 @@ pub async fn target(options: &Options) -> Result<String, Failure> {
 	let registration = reader["registration"]
 		.as_str()
 		.ok_or_else(|| Failure::invalid("peer has no live registration"))?;
-	let opening = super::operation()?;
-	let introduction = json!(workspace::Introduction {
-		access: field(directory["access"].clone())?,
-		name: field(directory["name"].clone())?,
-		callback: field(directory["inbox"].clone())?,
-		registration: field(json!(registration))?,
-		opening: field(json!(opening))?,
-	});
+	// Reuse is keyed on the registration, so the case of a nickname or a
+	// name another member took since cannot select the wrong conversation.
+	let directory_id = id_text(&directory)?;
 	let status = request(&options.state, json!({"verb":"status"})).await?;
 	check_contact(&status, &directory)?;
-	if let Some(row) = rows(&status["workspace"], "conversations")?.iter().find(|row| {
-		row["kind"] == "direct"
-			&& row["directory"] == directory["id"]
-			&& row["peer"] == peer
-			&& row["closed"] == false
-			&& ["access", "name", "callback", "registration"]
-				.iter()
-				.all(|key| row["introduction"][key] == introduction[key])
-	}) {
-		return id_text(row);
+	if let Some(row) = workspace::open_direct(&intent(&status)?, &directory_id, registration) {
+		return text(&row.id);
 	}
-	let args = vec![id_text(&directory)?, peer.into(), registration.into(), opening.clone()];
-	let setup = setup(options);
-	let submitted = super::admission::command_at(&setup, "startDirect", args.clone(), status).await?;
-	serde_json::from_value::<rooms_application::content::session::results::Direct>(submitted["result"].clone())
-		.map_err(|_| Failure::uncertain("peer has not supplied a direct inbox"))?;
-	let status = request(&options.state, json!({"verb":"status"})).await?;
-	check_contact(&status, &directory)?;
-	let id = super::operation()?;
-	let source = fresh()?;
-	let access = fresh()?;
-	let mut intent = status["workspace"].clone();
-	rows_mut(&mut intent, "conversations")?.push(json!({"kind":"direct","id":id,"directory":directory["id"],"peer":peer,"source":source,"access":access,"introduction":introduction,"closed":false,"draft":""}));
-	acquire_result(
-		options,
-		&submitted,
-		"startDirect",
-		&args,
-		&status,
-		ResultAcquisition {
-			intent,
-			mappings: vec![json!([
-				coordinate("directAccess", &submitted["result"]["inbox"]),
-				coordinate("directAccess", &access)
-			])],
-			source,
-		},
-	)
-	.await?;
-	wait(options, "direct inbox", |s| {
-		s["workspace"]["conversations"]
-			.as_array()
-			.is_some_and(|rows| rows.iter().any(|row| row["id"] == id && row["inbox"].is_string()))
+	let start = workspace::StartDirect {
+		directory: &directory_id,
+		peer,
+		registration,
+		opening: &super::operation()?,
+	};
+	// The admission keeps the introduced route through the shared plan, which
+	// reopens the last closed conversation with this registration.
+	super::admission::command_at(&setup(options), "startDirect", start.arguments(), status).await?;
+	let opened = wait(options, "direct inbox", |s| {
+		intent(s).is_ok_and(|now| {
+			workspace::open_direct(&now, &directory_id, registration).is_some_and(|row| row.inbox.is_some())
+		})
 	})
 	.await?;
-	Ok(id)
+	let opened = intent(&opened)?;
+	let row = workspace::open_direct(&opened, &directory_id, registration)
+		.ok_or_else(|| Failure::invalid("the direct conversation closed as it opened"))?;
+	text(&row.id)
+}
+fn intent(status: &Value) -> Result<workspace::Intent, Failure> {
+	workspace::Intent::decode(&status["workspace"].to_string())
+		.map_err(|_| Failure::invalid("session returned an invalid workspace"))
+}
+fn text(id: &workspace::Id) -> Result<String, Failure> {
+	id.text()
+		.as_str()
+		.map(str::to_owned)
+		.ok_or_else(|| Failure::invalid("session response row lacks id text"))
 }
 fn check_contact(status: &Value, original: &Value) -> Result<(), Failure> {
 	let current = rows(&status["workspace"], "directories")?

@@ -114,6 +114,7 @@ pub const commands = [_]types.Command{
     .{ .name = "capabilities", .short_help = "Print the kept operator capabilities as complete links, with the running directory's locators", .flags = &.{ state, status[0] }, .run = run("rooms-web", .capabilities) },
     .{ .name = "trace", .short_help = "Follow the live protocol trace, including replay", .flags = &.{ state, status[0], .{ .long = "json", .help = "Print complete records as JSON lines" }, .{ .long = "print-link", .help = "Print the full capability and exit" } }, .positionals = &.{.{ .name = "capability", .help = "Trace sturdyref (found from local HTTP and private --state when left out)", .required = false }}, .run = run("rooms-web", .trace) },
     .{ .name = "session", .short_help = "Join, converse, and keep listening through a durable session", .children = &@import("session.zig").commands },
+    .{ .name = "bot", .short_help = "Keep a coding agent present in Rooms as one of its members", .children = &@import("bot_commands.zig").commands },
     .{ .name = "team", .short_help = "Coordinate a roster through the same durable session lifecycle", .children = &@import("session_commands.zig").team_commands },
     .{ .name = "directory", .short_help = "Operate a standalone Rooms directory", .children = &.{
         .{ .name = "serve", .short_help = "Run a directory without HTTP or browser assets", .flags = &directory, .run = run("rooms-server", .service) },

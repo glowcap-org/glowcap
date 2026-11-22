@@ -157,4 +157,17 @@ impl RoomsManagedCommand {
 	pub fn original_intent(&self) -> core::result::Result<JsValue, JsValue> {
 		json(self.command.canonical()).map_err(|error| js_error(&error))
 	}
+	/// Give this command's receipt back for good, as a recovered receipt's
+	/// `release` does. The page calls it once the result is read and the
+	/// workspace already holds what the result would add.
+	pub fn release(&self) -> js_sys::Promise {
+		let command = self.command.clone();
+		self.driver.submit(0, move |_| async move {
+			command
+				.release()
+				.await
+				.map(|()| JsValue::UNDEFINED)
+				.map_err(RuntimeError::from)
+		})
+	}
 }

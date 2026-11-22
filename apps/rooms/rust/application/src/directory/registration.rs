@@ -96,24 +96,26 @@ pub fn nickname_availability<'a>(
 		return NicknameAvailability::Unknown;
 	}
 	let pending = match own {
-		Some(OwnNick::Granted(own)) if own.eq_ignore_ascii_case(nick) => return NicknameAvailability::Available,
-		Some(OwnNick::Requested(own)) => own.eq_ignore_ascii_case(nick),
+		Some(OwnNick::Granted(own)) if crate::room::inbox::same_nick(own, nick) => {
+			return NicknameAvailability::Available;
+		}
+		Some(OwnNick::Requested(own)) => crate::room::inbox::same_nick(own, nick),
 		_ => false,
 	};
 	let mut occupied = BTreeSet::new();
-	let requested = nick.to_lowercase();
+	let requested = crate::room::inbox::nick_key(nick);
 	let mut directory_taken = false;
 	let room_known = room.is_some();
 	if let Some(names) = directory {
 		for name in names {
-			let folded = name.to_lowercase();
+			let folded = crate::room::inbox::nick_key(name);
 			directory_taken |= folded == requested;
 			occupied.insert(folded);
 		}
 	}
 	if let Some(names) = room {
 		for name in names {
-			occupied.insert(name.to_lowercase());
+			occupied.insert(crate::room::inbox::nick_key(name));
 		}
 	}
 	if occupied.contains(&requested) {
@@ -122,7 +124,7 @@ pub fn nickname_availability<'a>(
 		}
 		let mut suggestion = suggested_nick(nick);
 		for _ in 0..=occupied.len() {
-			if !occupied.contains(&suggestion.to_lowercase()) {
+			if !occupied.contains(&crate::room::inbox::nick_key(&suggestion)) {
 				return NicknameAvailability::Taken {
 					source: if directory_taken { "directory" } else { "room" },
 					suggestion,

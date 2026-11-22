@@ -1,5 +1,6 @@
 //! New automatic gestures re-prepare only after proven absence and unchanged selection.
 use super::{Failure, Options, operation, request};
+use rooms_application::failure::Retry;
 use serde_json::{Value, json};
 use std::time::Duration;
 mod posted;
@@ -114,7 +115,7 @@ async fn command_once(options: &Options, id: &str, base: u64, name: &str, args: 
 					.await;
 					let failure = result
 						.err()
-						.unwrap_or_else(|| Failure::new("refused", "after-state-change", "command was not sent"));
+						.unwrap_or_else(|| Failure::new("refused", Retry::AfterStateChange, "command was not sent"));
 					// A lost result read still needs its exact observation. A
 					// confirmed refusal can retire it without hiding the reason.
 					return Err(retire_refusal(options, id, failure).await);
@@ -151,7 +152,7 @@ async fn retire_refusal(options: &Options, id: &str, failure: Failure) -> Failur
 		Ok(_) => failure,
 		Err(cleanup) => Failure::new(
 			"cleanup",
-			"after-state-change",
+			Retry::AfterStateChange,
 			format!("{failure}; local observation release failed: {cleanup}; retain the original request for cleanup"),
 		),
 	}

@@ -1,6 +1,7 @@
 //! Filesystem-authorized local view of a Rooms session. The executable composes
 //! this adapter with the peer. Neither the application nor session notices
 //! depend on it. A failed observer leaves commands and other views available.
+mod accesses;
 mod acquisitions;
 mod commands;
 mod failure;
@@ -8,8 +9,10 @@ mod feed;
 mod inbox;
 mod request;
 mod worker;
+pub use accesses::rights;
 pub use failure::Failure;
 use feed::{Application, Feed};
+use rooms_application::failure::Retry;
 use serde_json::{Value, json};
 use std::{cell::RefCell, path::PathBuf, rc::Rc, time::Duration};
 use tokio::{
@@ -51,21 +54,26 @@ request::request! {
 		DirectoryRead => "directory-read" { id: String, peer: Option<String>, #[serde(default)] name: Option<String> },
 		Resume => "resume" {},
 		Stop => "stop" {},
+		AccessIssue => "access-issue" { id: String, label: String, rights: String },
+		AccessList => "access-list" {},
+		AccessChange => "access-change" { id: String, change: crate::session::attached::Lifecycle },
+		AccessForget => "access-forget" { id: String },
 	}
 }
+
 async fn snapshot(app: &Application) -> Result<Value, Failure> {
 	let s = app.workspace.snapshot().await.map_err(peer_failure)?;
 	Ok(json!({"ok": true, "revision": s.revision.to_string(), "workspace": s.intent}))
 }
 fn peer_failure(error: rooms_glowcap::client::Error) -> Failure {
 	if let Some(failure) = error.admission_refusal() {
-		return Failure::new(failure.code.wire(), failure.code.definition().retry.wire(), &error);
+		return Failure::new(failure.code.wire(), failure.code.definition().retry, &error);
 	}
 	if let rooms_glowcap::client::Error::RefusedObservation(reason) = &error {
 		if let Some(failure) = rooms_application::failure::Failure::parse(reason) {
-			return Failure::new(failure.code.wire(), failure.code.definition().retry.wire(), reason);
+			return Failure::new(failure.code.wire(), failure.code.definition().retry, reason);
 		}
-		return Failure::new("refused", "after-state-change", reason);
+		return Failure::new("refused", Retry::AfterStateChange, reason);
 	}
 	if let rooms_glowcap::client::Error::Observation(reason) = &error {
 		return Failure::uncertain(reason);
@@ -122,7 +130,7 @@ impl Control {
 		use std::os::unix::fs::FileTypeExt;
 		let app = peer
 			.local()
-			.map_err(|error| Failure::new("closed", "after-state-change", error))?;
+			.map_err(|error| Failure::new("closed", Retry::AfterStateChange, error))?;
 		let state = &peer.state_directory;
 		// Acquire this adapter's exclusive custody before touching its socket.
 		let storage = worker::Owner::open(state.join("inbox")).await?;
@@ -192,17 +200,8 @@ impl Control {
 					.prepare_command(&id, base, &name, &args)
 					.await
 					.map_err(peer_failure)?;
-				let result = command.result().await.map_err(peer_failure)?;
-				let data = result
-					.as_str()
-					.or_else(|| {
-						result
-							.as_list()
-							.and_then(|values| values.first())
-							.and_then(glowcap::Argument::as_str)
-					})
-					.ok_or_else(|| Failure::invalid("command has no committed data"))?;
-				Ok(json!({"ok":true,"result":serde_json::from_str::<Value>(data)?,
+				let data = command.result_text().await.map_err(peer_failure)?;
+				Ok(json!({"ok":true,"result":serde_json::from_str::<Value>(&data)?,
 					"adopted":command.adopted().await.map_err(peer_failure)?}))
 			}
 			RequestBody::DirectoryRead { id, peer, name } => {
@@ -290,6 +289,10 @@ impl Control {
 				Ok(json!({"ok": true, "observing": true, "notice": "listening resumed; directory snapshots requested"}))
 			}
 			RequestBody::Stop {} => Ok(json!({"ok": true})),
+			RequestBody::AccessIssue { id, label, rights } => accesses::issue(app, &id, &label, &rights).await,
+			RequestBody::AccessList {} => accesses::list(app).await,
+			RequestBody::AccessChange { id, change } => accesses::change(app, &id, change).await,
+			RequestBody::AccessForget { id } => accesses::forget(app, &id).await,
 			RequestBody::Command { id, base, name, args } => {
 				let status = self.commands.submit(&app.workspace, &id, base, &name, &args).await?;
 				Ok(json!({"ok": true, "operation": id, "status":format!("{status:?}").to_lowercase()}))

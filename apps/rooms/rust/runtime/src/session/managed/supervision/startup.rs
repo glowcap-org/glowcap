@@ -38,7 +38,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Worker<P> {
 					// Only proved absence permits a new candidate. Recheck the
 					// original source and selection, retaining the same callback.
 					(installation, source) = original_source
-						.prepare_inbox(&self.selected, self.inbox.reference())
+						.prepare_inbox(&self.writer.root()?, &self.selected, self.inbox.reference())
 						.await?;
 				}
 				Err(error) => {

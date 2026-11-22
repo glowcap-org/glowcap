@@ -8,6 +8,7 @@ use rooms_application::{
 };
 mod contact;
 mod participation;
+mod receiving_side;
 mod sender;
 const REGISTRATION: &str = "00000000-0000-4000-8000-000000000001";
 const DIRECTORY: Schema = Schema {
@@ -376,6 +377,7 @@ pub(super) async fn run() {
 							.unwrap();
 						let direct = workspace::Direct {
 							introduction: None,
+							openings: Default::default(),
 							inbox: None,
 							source: None,
 							kind: workspace::DirectKind::Direct,
@@ -544,6 +546,7 @@ pub(super) async fn run() {
 						owner.replace_workspace(&intent).await.unwrap();
 						contact::adopt_exact(&host, &root, &platform).await;
 						participation::run(&host, &owner, &platform).await;
+						receiving_side::run(&host, &owner, &root, &platform).await;
 					}
 					owner.close().await.unwrap();
 					let marker = attachment.live_marker().unwrap().unwrap();
@@ -564,7 +567,9 @@ pub(super) async fn run() {
 					let (root, root_control) =
 						environment::restore(&attachment, loam::Resource::decode(resource.encode())).await;
 					owner.bind(root.clone(), root_control.clone()).unwrap();
-					assert_eq!(acquisitions.get(), if malformed || timed_out { 1 } else { 4 });
+					// Two introductions here, then the collaborator's open, reopen, and
+					// second open of one peer.
+					assert_eq!(acquisitions.get(), if malformed || timed_out { 1 } else { 5 });
 					if !malformed && !timed_out {
 						// This inbox was imported through the unrevoked private root.
 						// Expiry alone refuses its saved registration alias.

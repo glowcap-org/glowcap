@@ -13,6 +13,7 @@ pub const log = @import("operability/log.zig");
 pub const mcp = @import("mcp/mod.zig");
 pub const mcp_schema = @import("mcp/schema.zig");
 pub const rooms_session = @import("app/rooms/session.zig");
+pub const rooms_bot = @import("app/rooms/bot_commands.zig");
 pub const rooms_commands = @import("app/rooms/commands.zig");
 pub const rooms = @import("app/rooms/mod.zig");
 pub const cmd = @import("cmd/mod.zig");

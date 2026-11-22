@@ -1,10 +1,12 @@
-//! Typing uses the original source and exact room/direct selection on every send.
+//! Typing uses the exact room/direct selection on every send, through any
+//! access whose rights admit it, and stops with that access's pause or
+//! revocation. An access that may only read shows none.
 use super::*;
 use rooms_glowcap::client::workspace::Workspace;
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
 #[tokio::test]
-async fn typing_preserves_source_target_and_selection_for_rooms_and_directs() {
+async fn typing_keeps_the_selection_through_any_access_that_may_post() {
 	run().await;
 }
 pub(super) async fn run() {
@@ -49,7 +51,7 @@ pub(super) async fn run() {
 				let terms = policy.value_for_kind(session::KIND, &session::SUPPORTED.iter().map(|p| p.key()).collect::<Vec<_>>(), &[]).unwrap();
 				let powers = ControlPowers { pause: true, resume: true, revoke: true, ..Default::default() };
 				let (source, control) = owner.derive(terms, 1, powers).await.unwrap();
-				let (sibling, _) = owner.derive(terms, 0, ControlPowers::default()).await.unwrap();
+				let (sibling, sibling_control) = owner.derive(terms, 0, powers).await.unwrap();
 				let selected = requests::coordinate(role, 1);
 				let next = requests::coordinate(role, 2);
 				owner.import(selected, target.clone(), None).await.unwrap();
@@ -73,15 +75,27 @@ pub(super) async fn run() {
 				let sender = workspace.typing_sender("conversation", selected).await.unwrap();
 				sender.set(true).await.unwrap();
 				assert_eq!(calls.get(), 1);
-				assert!(Workspace::local(host.clone(), platform.clone(), sibling.clone()).typing_sender("conversation", selected).await.is_err(), "equal permission cannot substitute for the initiating source");
+				let shared = Workspace::local(host.clone(), platform.clone(), sibling.clone()).typing_sender("conversation", selected).await.unwrap();
+				shared.set(true).await.unwrap();
+				assert_eq!(calls.get(), 2, "an access with equal rights shows typing where it may say a line");
+				publication_results::lifecycle(&host, &sibling_control, "pause").await;
+				assert!(shared.set(false).await.is_err(), "a sender stops with its own access's pause");
+				publication_results::lifecycle(&host, &sibling_control, "resume").await;
+				assert_eq!(calls.get(), 2);
+				publication_results::lifecycle(&host, &sibling_control, "revoke").await;
+				assert!(shared.set(false).await.is_err(), "a sender ends with its own access's revocation");
+				let observing = policy.value_for_kind(session::KIND, &[rooms_application::content::permissions::Permission::ObserveWorkspace.key()], &[]).unwrap();
+				let (observer, _) = owner.derive(observing, 0, ControlPowers::default()).await.unwrap();
+				assert!(Workspace::local(host.clone(), platform.clone(), observer.clone()).typing_sender("conversation", selected).await.is_err(), "an access that may only read shows no typing");
+				assert_eq!(calls.get(), 2);
 				let raw = Ref::try_from(&host.send(&source, "typing-sender", &["conversation".into(), serde_json::to_string(&selected).unwrap().into(), serde_json::to_string(&requests::coordinate(custody::Role::SessionAccess, 1)).unwrap().into()]).await.unwrap()).unwrap();
 				assert!(host.send(&raw, "post", &["forbidden".into()]).await.is_err());
 				publication_results::lifecycle(&host, &control, "pause").await;
 				assert!(sender.set(false).await.is_err());
-				assert_eq!(calls.get(), 1);
+				assert_eq!(calls.get(), 2);
 				publication_results::lifecycle(&host, &control, "resume").await;
 				sender.set(false).await.unwrap();
-				assert_eq!(calls.get(), 2);
+				assert_eq!(calls.get(), 3);
 				let mut replaced_source = original.clone();
 				let new_source = custody::FieldKey::new(NonZeroU64::new(2).unwrap(), NonZeroU64::new(1).unwrap());
 				match &mut replaced_source.conversations.as_mut_slice()[0] {
@@ -90,7 +104,7 @@ pub(super) async fn run() {
 				}
 				owner.replace_workspace(&replaced_source).await.unwrap();
 				assert!(sender.set(true).await.is_err(), "source selection stays exact even when another field aliases the held grant");
-				assert_eq!(calls.get(), 2);
+				assert_eq!(calls.get(), 3);
 				owner.replace_workspace(&original).await.unwrap();
 				let mut changed = original.clone();
 				match &mut changed.conversations.as_mut_slice()[0] {
@@ -100,7 +114,7 @@ pub(super) async fn run() {
 				owner.replace_workspace(&changed).await.unwrap();
 				assert!(sender.set(true).await.is_err(), "retained sender cannot follow a replacement selection");
 				assert!(workspace.typing_sender("conversation", selected).await.is_err());
-				assert_eq!(calls.get(), 2);
+				assert_eq!(calls.get(), 3);
 				assert_eq!(replacement_calls.get(), 0);
 				let next_sender = workspace.typing_sender("conversation", next).await.unwrap();
 				next_sender.set(true).await.unwrap();
@@ -134,7 +148,7 @@ pub(super) async fn run() {
 					assert!(startup.await.is_err(), "startup cannot create consumers after close begins");
 					assert_eq!(platform.tasks.borrow().len(), tasks, "no change feed or membership is spawned during close");
 					owner.close().await.unwrap();
-				drop((sender, next_sender, raw, workspace, target, replacement, root, source, control, sibling, owner));
+				drop((sender, shared, next_sender, raw, workspace, target, replacement, root, source, control, sibling, sibling_control, observer, owner));
 				attachment.close().await.unwrap();
 				host.close(PendingWork::Cancel).await.unwrap();
 				environment::close(&mut store).await;
