@@ -54,8 +54,9 @@ pub const Handle = struct {
     /// Owned copy of the bound locator, for `info` and refusal messages.
     locator: []u8,
     /// Why the accept loop stopped, when it stopped by itself: a fault's
-    /// error name, or `served_stop` after a `--once`/`--publish` listener
-    /// answered its one partner. Read by the fronts so a listener that is no
+    /// error name, or after a `--once`/`--publish` listener's one session,
+    /// `served_stop` when the partner left and the cause's error name when
+    /// its session failed. Read by the fronts so a listener that is no
     /// longer accepting, for either reason, cannot keep reporting itself as
     /// listening. The bound socket stays held either way, so the locator in
     /// `info` stays accurate.
@@ -129,10 +130,19 @@ pub const Handle = struct {
     }
 };
 
-const ServeOutcome = enum { peer_ended, terminal, stopped };
+const ServeOutcome = union(enum) {
+    peer_ended,
+    /// The partner's session failed with this cause, which ends only it.
+    peer_failed: anyerror,
+    terminal,
+    stopped,
+};
 
 fn continueAfterServe(outcome: ServeOutcome, one_shot: bool) bool {
-    return outcome == .peer_ended and !one_shot;
+    return switch (outcome) {
+        .peer_ended, .peer_failed => !one_shot,
+        .terminal, .stopped => false,
+    };
 }
 
 fn consumeTestTerminalFailure(handle: *Handle) bool {
@@ -287,8 +297,12 @@ fn acceptLoop(handle: *Handle) void {
         _ = handle.accepted.fetchAdd(1, .monotonic);
         const outcome = serveUntilStop(session, handle);
         if (!continueAfterServe(outcome, handle.once or handle.publish != null)) {
-            if (outcome == .peer_ended and (handle.once or handle.publish != null)) {
-                handle.stop_reason.store(Handle.served_stop, .release);
+            // A one-partner listener reports how its one session ended, so
+            // `info` names a failed partner's cause rather than success.
+            switch (outcome) {
+                .peer_ended => handle.stop_reason.store(Handle.served_stop, .release),
+                .peer_failed => |err| handle.stop_reason.store(@errorName(err), .release),
+                .terminal, .stopped => {},
             }
             return;
         }
@@ -301,7 +315,8 @@ fn acceptLoop(handle: *Handle) void {
 fn serveUntilStop(session: *driver.Session, handle: *Handle) ServeOutcome {
     while (!handle.stop.load(.acquire)) {
         const progress = session.stepReadable(signals.poll_ms) catch |err| {
-            if (partner_failure.isSessionFailure(err)) return .peer_ended;
+            if (partner_failure.isSessionFailure(err))
+                return if (partner_failure.partnerLeft(err)) .peer_ended else .{ .peer_failed = err };
             handle.stop_reason.store(@errorName(err), .release);
             handle.terminal_failure = .init(err);
             return .terminal;
@@ -314,6 +329,8 @@ fn serveUntilStop(session: *driver.Session, handle: *Handle) ServeOutcome {
 test "background listener exits after terminal serving failure" {
     try std.testing.expect(continueAfterServe(.peer_ended, false));
     try std.testing.expect(!continueAfterServe(.peer_ended, true));
+    try std.testing.expect(continueAfterServe(.{ .peer_failed = error.FrameTooLarge }, false));
+    try std.testing.expect(!continueAfterServe(.{ .peer_failed = error.FrameTooLarge }, true));
     try std.testing.expect(!continueAfterServe(.terminal, false));
     try std.testing.expect(!continueAfterServe(.stopped, false));
 }

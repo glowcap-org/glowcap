@@ -16,6 +16,12 @@ pub fn isSessionFailure(err: anyerror) bool {
     };
 }
 
+/// Whether a session failure is the partner hanging up, the ordinary end of a
+/// served session rather than a failure of it.
+pub fn partnerLeft(err: anyerror) bool {
+    return err == error.ConnectionLost or err == error.TruncatedFrame;
+}
+
 /// Whether a failed `accept` costs only that arrival, so the loop accepts
 /// again. It does only while the server is `listening`: once the listener
 /// stops, `accept` returns the listener's cause and then `ServerClosed`,
@@ -41,6 +47,13 @@ test "a partner's failure costs one arrival while the listener listens" {
     try std.testing.expect(!acceptAgain(false, error.ProcessFdQuotaExceeded));
     try std.testing.expect(!acceptAgain(false, error.ServerClosed));
     try std.testing.expect(!acceptAgain(false, error.ConnectionLost));
+}
+
+test "a partner hanging up ends its session without failing it" {
+    try std.testing.expect(partnerLeft(error.ConnectionLost));
+    try std.testing.expect(partnerLeft(error.TruncatedFrame));
+    try std.testing.expect(!partnerLeft(error.FrameTooLarge));
+    try std.testing.expect(!partnerLeft(error.ProtocolAbort));
 }
 
 test "a session's transport, protocol, and timeout failures are the partner's" {
