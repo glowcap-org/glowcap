@@ -22,7 +22,8 @@
 // demo's own member roster, so an attached room may have other people in it,
 // chatting away. They are shown in the transcripts but never counted.
 
-import { loopbackTcpDesignator, readAnnouncedLocator } from "../lib/locator.ts";
+import { loopbackTcpDesignator } from "../lib/locator.ts";
+import { readAnnouncedLocator } from "../test/support/announce.ts";
 import {
 	buildRust,
 	onPath,

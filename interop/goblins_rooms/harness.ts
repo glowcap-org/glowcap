@@ -31,7 +31,7 @@
 // Runs as `zig build goblins-rooms`; needs `deno`, `racket`, and the `goblins`
 // collection on PATH.
 
-import { readAnnouncedLocator } from "../../apps/rooms/lib/locator.ts";
+import { readAnnouncedLocator } from "../../apps/rooms/test/support/announce.ts";
 import { readAnnouncement, runChild, stopSpawnedServer } from "../../apps/_demo/orchestrator.ts";
 import { CAPTP_VERSION_WIRE, type TraceEvent } from "@glowcap/runtime";
 import { connectTraceViewer, vatTraceEnv } from "../../apps/rooms/test/trace/viewer.ts";

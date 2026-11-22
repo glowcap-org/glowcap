@@ -6,6 +6,8 @@
 // could take it first. The child's stdout must be piped. A child that exits
 // first reports its status and, when its stderr is piped, what it said, so the
 // failure names the process rather than the deadline.
+import { OutputClosed, readAnnouncement } from "../../../_demo/orchestrator.ts";
+import { loopbackTcpDesignator } from "../../lib/locator.ts";
 import { within } from "./wait.ts";
 
 interface Announcement {
@@ -18,28 +20,25 @@ interface Announcement {
 
 export async function readAnnounced(proc: Deno.ChildProcess, announcement: Announcement): Promise<string> {
 	const { token, who, withinMs = 10_000 } = announcement;
-	const reader = proc.stdout.getReader();
-	const decoder = new TextDecoder();
-	// The whole line, so a chunk that ends mid-value is read on, not returned.
-	const pattern = new RegExp(`^${token} (\\S+)\\n`, "m");
-	let buf = "";
-	let open = true;
-	const deadline = Date.now() + withinMs;
 	try {
-		while (open) {
-			const { value, done } = await within(reader.read(), `${who} to announce`, deadline - Date.now());
-			if (done) {
-				open = false;
-				break;
-			}
-			buf += decoder.decode(value, { stream: true });
-			const match = buf.match(pattern);
-			if (match != null) return match[1];
-		}
-	} finally {
-		reader.releaseLock();
+		const [, value] = await readAnnouncement(
+			proc.stdout,
+			new RegExp(`^${token} (\\S+)$`, "m"),
+			`${who} never announced ${token}`,
+			withinMs,
+		);
+		return value;
+	} catch (error) {
+		if (error instanceof OutputClosed) throw await exitedBeforeAnnouncing(proc, who);
+		throw error;
 	}
-	throw await exitedBeforeAnnouncing(proc, who);
+}
+
+/** The Rooms server's announced dial locator: a bare port becomes a loopback
+ * TCP designator, and an `ocapn://` URI passes through unchanged. */
+export async function readAnnouncedLocator(proc: Deno.ChildProcess, withinMs = 10_000): Promise<string> {
+	const token = await readAnnounced(proc, { token: "ROOMS-SERVER-LISTENING", who: "rooms server", withinMs });
+	return /^\d+$/.test(token) ? loopbackTcpDesignator(Number(token)) : token;
 }
 
 /** The failure for a child that ended before it announced: its exit status and,
