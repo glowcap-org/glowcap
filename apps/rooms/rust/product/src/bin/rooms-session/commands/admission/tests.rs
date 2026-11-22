@@ -327,3 +327,81 @@ async fn a_route_to_a_member_an_open_conversation_reaches_is_given_back() {
 		"the saved acquisition is removed once it completes"
 	);
 }
+
+/// A supervisor write that overtakes a posted result's plan installs nothing
+/// of it. The overtaken acquisition is released and forgotten, and the result
+/// is planned again at the revision the next status read names.
+#[tokio::test]
+async fn an_overtaken_result_is_planned_again_at_the_fresh_revision() {
+	let state = rooms_testing::scratch::Scratch::create("overtaken");
+	let listener = UnixListener::bind(state.join("control.sock")).unwrap();
+	let options = Options {
+		verb: "direct".into(),
+		state: state.to_path_buf(),
+		named: Default::default(),
+		arguments: Vec::new(),
+	};
+	let key = |slot: u64| format!("{slot:016x}{:016x}", 1);
+	let registration = "00000000-0000-4000-8000-000000000001";
+	let workspace = json!({"version":1,"directories":[{"id":"d","access":key(1),"name":key(2),"source":key(3),
+		"inbox":key(4),"home":true,"nick":"bot","nickAllocation":"exact","standing":null}],
+		"conversations":[],"invitations":[],"active":null,"standing":"","ignored":[],"keepHistory":false,
+		"connection":"fastest","archive":null,"archiveControl":null,"operators":[],"peering":[]});
+	let reply = workspace.clone();
+	let recovery = state.join("recovery");
+	let server = tokio::spawn(async move {
+		let mut requests = Vec::new();
+		let script = [
+			("status", json!({"ok": true, "revision": "9", "workspace": reply})),
+			(
+				"acquire",
+				Failure::conflict("workspace revision changed; this acquisition installed no changes").response(),
+			),
+			("release-acquisition", json!({"ok": true})),
+			("status", json!({"ok": true, "revision": "10", "workspace": reply})),
+			("acquire", json!({"ok": true})),
+			("release-acquisition", json!({"ok": true})),
+		];
+		for (verb, response) in script {
+			let (stream, _) = listener.accept().await.unwrap();
+			let mut reader = BufReader::new(stream);
+			let mut line = String::new();
+			reader.read_line(&mut line).await.unwrap();
+			let request: Value = serde_json::from_str(&line).unwrap();
+			assert_eq!(request["verb"], verb, "{request}");
+			if verb == "status" {
+				assert_eq!(
+					std::fs::read_dir(&recovery).map_or(0, Iterator::count),
+					0,
+					"an overtaken plan is forgotten"
+				);
+			}
+			reader
+				.get_mut()
+				.write_all(format!("{response}\n").as_bytes())
+				.await
+				.unwrap();
+			requests.push(request);
+		}
+		requests
+	});
+	let args = ["d", "ann", registration, "opening"].map(String::from);
+	let submitted = json!({"status":"committed", "operation":"operation", "base":7, "adopted":false,
+		"result":{"inbox":key(20)}});
+	posted::acquire(
+		&options,
+		&json!({"workspace": workspace}),
+		&submitted,
+		"startDirect",
+		&args,
+	)
+	.await
+	.unwrap();
+	let requests = server.await.unwrap();
+	assert_eq!(requests[1]["request"]["kind"], "result", "{}", requests[1]);
+	assert_eq!(requests[1]["request"]["base"], 9);
+	assert_eq!(requests[4]["request"]["base"], 10);
+	assert_eq!(requests[1]["id"], requests[2]["id"]);
+	assert_ne!(requests[1]["id"], requests[4]["id"], "a new plan is a new acquisition");
+	assert_eq!(std::fs::read_dir(state.join("recovery")).unwrap().count(), 0);
+}

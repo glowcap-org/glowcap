@@ -131,7 +131,7 @@ fn ended_after_issue() {
 /// fresh place. A row whose issue did not finish keeps its place once the
 /// session has used it, and takes a fresh one otherwise.
 async fn reserve(app: &Application, id: &workspace::Id) -> Result<workspace::Place, Failure> {
-	for attempt in 1..=SAVE_ATTEMPTS {
+	for _ in 0..SAVE_ATTEMPTS {
 		let snapshot = app.workspace.snapshot().await.map_err(peer_failure)?;
 		let mut intent = snapshot.intent;
 		let fresh = attached::place(&app.management).await.map_err(failure)?;
@@ -161,7 +161,7 @@ async fn reserve(app: &Application, id: &workspace::Id) -> Result<workspace::Pla
 			.await;
 		match submitted {
 			Ok(()) => return Ok(fresh),
-			Err(ClientError::WorkspaceConflict) if attempt < SAVE_ATTEMPTS => {}
+			Err(ClientError::WorkspaceConflict) => {}
 			Err(error) => return Err(peer_failure(error)),
 		}
 	}
@@ -267,7 +267,7 @@ pub(super) async fn change(app: &Application, id: &str, lifecycle: Lifecycle) ->
 /// answer says that any access this row made stays paused with its link
 /// never shown.
 pub(super) async fn forget(app: &Application, id: &str) -> Result<Value, Failure> {
-	for attempt in 1..=SAVE_ATTEMPTS {
+	for _ in 0..SAVE_ATTEMPTS {
 		let snapshot = app.workspace.snapshot().await.map_err(peer_failure)?;
 		let Some(index) = snapshot
 			.intent
@@ -319,7 +319,7 @@ pub(super) async fn forget(app: &Application, id: &str) -> Result<Value, Failure
 				return Ok(json!({"ok": true, "id": id, "forgotten": true, "note": FORGOTTEN_UNFINISHED_NOTE}));
 			}
 			Ok(()) => return Ok(json!({"ok": true, "id": id, "forgotten": true})),
-			Err(ClientError::WorkspaceConflict) if attempt < SAVE_ATTEMPTS => {}
+			Err(ClientError::WorkspaceConflict) => {}
 			Err(error) => return Err(peer_failure(error)),
 		}
 	}
@@ -346,7 +346,7 @@ async fn save(
 	control: &Control<HostPlatform>,
 	issued: Option<GrantId>,
 ) -> Result<(), Unsaved> {
-	for attempt in 1..=SAVE_ATTEMPTS {
+	for _ in 0..SAVE_ATTEMPTS {
 		let snapshot = app.workspace.snapshot().await.map_err(peer_failure)?;
 		let mut intent = snapshot.intent;
 		let key = fresh_key()?;
@@ -377,7 +377,7 @@ async fn save(
 			.await;
 		match submitted {
 			Ok(()) => return Ok(()),
-			Err(ClientError::WorkspaceConflict) if attempt < SAVE_ATTEMPTS => {}
+			Err(ClientError::WorkspaceConflict) => {}
 			Err(error) => return Err(peer_failure(error).into()),
 		}
 	}
@@ -441,11 +441,7 @@ fn unknown(id: &str) -> Failure {
 }
 
 fn conflict() -> Failure {
-	Failure::new(
-		"conflict",
-		Retry::Soon,
-		"the workspace kept changing while the access was saved. Try again",
-	)
+	Failure::conflict("the workspace kept changing while the access was saved. Try again")
 }
 
 fn names(rights: &Terms) -> Vec<&'static str> {

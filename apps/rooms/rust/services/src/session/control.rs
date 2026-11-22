@@ -66,6 +66,9 @@ async fn snapshot(app: &Application) -> Result<Value, Failure> {
 	Ok(json!({"ok": true, "revision": s.revision.to_string(), "workspace": s.intent}))
 }
 fn peer_failure(error: rooms_glowcap::client::Error) -> Failure {
+	if matches!(error, rooms_glowcap::client::Error::WorkspaceConflict) {
+		return Failure::conflict(&error);
+	}
 	if let Some(failure) = error.admission_refusal() {
 		return Failure::new(failure.code.wire(), failure.code.definition().retry, &error);
 	}
