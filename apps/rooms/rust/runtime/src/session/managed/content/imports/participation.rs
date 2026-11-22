@@ -157,25 +157,18 @@ impl Request<'_> {
 			return Ok(false);
 		}
 		// One registration holds at most one open row, so a route that finds one
-		// open is given back. Otherwise it reopens the last closed row.
-		let reaches = |row: &workspace::Conversation| match row {
-			workspace::Conversation::Direct(row) => {
-				workspace::introduced_to(row, &reopening.directory, &reopening.registration).then_some(row.closed)
-			}
-			_ => None,
-		};
-		let rows = record.intent.conversations.as_slice();
-		if rows.iter().any(|row| reaches(row) == Some(false)) {
+		// open is given back. Otherwise it reopens the last closed row. Both
+		// rules are the application's, which the plan every caller makes uses.
+		let (directory, registration) = (reopening.directory.as_str(), reopening.registration.as_str());
+		if workspace::open_direct(&record.intent, directory, registration).is_some() {
 			return Ok(false);
 		}
-		let previous = rows.iter().rposition(|row| reaches(row) == Some(true));
-		let position = previous.unwrap_or(record.intent.conversations.as_slice().len());
+		let previous = workspace::reopened_direct(&record.intent, directory, registration);
+		let position = previous.map_or(record.intent.conversations.as_slice().len(), |(at, _)| at);
 		let Some(workspace::Conversation::Direct(next)) = candidate.conversations.as_slice().get(position) else {
 			return Ok(false);
 		};
-		let expected_id = previous
-			.map(|at| record.intent.conversations.as_slice()[at].id().text())
-			.unwrap_or(self.operation.text());
+		let expected_id = previous.map_or(self.operation.text(), |(_, old)| old.id.text());
 		if next.id.text() != expected_id
 			|| next.directory.text().as_str() != Some(reopening.directory.as_str())
 			|| next.peer.text().as_str() != Some(reopening.peer.as_str())
@@ -194,10 +187,7 @@ impl Request<'_> {
 		{
 			return Ok(false);
 		}
-		if let Some(at) = previous {
-			let workspace::Conversation::Direct(old) = &record.intent.conversations.as_slice()[at] else {
-				unreachable!()
-			};
+		if let Some((at, old)) = previous {
 			if next.draft != old.draft {
 				return Ok(false);
 			}

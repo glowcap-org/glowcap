@@ -23,7 +23,10 @@ mod nickname;
 mod references;
 mod rows;
 pub use adoption::{Adoption, LineAdoption, LineReceipt, Refusal as AdoptionRefusal, adopt_line};
-pub use direct::{DirectAdoption, DirectRefusal, StartDirect, adopt_direct, introduced_to, open_direct};
+pub use direct::{
+	DirectAdoption, DirectReach, DirectRefusal, Reaching, StartDirect, adopt_direct, direct_reach, introduced_to,
+	open_direct, reopened_direct,
+};
 pub use inbox::InboxSelection;
 pub use nickname::RoomNickname;
 pub use rows::{Directory, PostedLine, PublicEntry, Room};
@@ -375,6 +378,9 @@ pub enum InvalidIntent {
 	Directory,
 	Active,
 	Custody,
+	/// A replacement opens a direct row for a registration another open row
+	/// already reaches.
+	DirectOpen,
 }
 impl Intent {
 	/// Effective standing preserves explicit empty overrides at both scopes.
@@ -418,6 +424,11 @@ impl Intent {
 					&& previous.is_none_or(|row| row.inbox != candidate.inbox)
 			}) {
 				return Err(InvalidIntent::Custody);
+			}
+			// A replacement keeps two open rows the receiving side already
+			// holds, but opens no second one.
+			if !candidate.closed && previous.is_none_or(|row| row.closed) && next.reaches_another(candidate) {
+				return Err(InvalidIntent::DirectOpen);
 			}
 		}
 		for row in self.operations.as_slice() {

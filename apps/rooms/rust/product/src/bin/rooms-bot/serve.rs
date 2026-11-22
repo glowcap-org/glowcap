@@ -9,6 +9,7 @@ use super::{
 	harness, home, inbox,
 	ledger::Ledger,
 	link::{self, Link},
+	opens,
 	request::Request,
 	rooms::{Rooms, captp},
 	sessions::Sessions,
@@ -65,16 +66,16 @@ pub async fn run(request: &Request) -> Result<(), Error> {
 	#[cfg(feature = "test-support")]
 	if let Some(directory) = request.single("rooms-dir")? {
 		let rooms = super::rooms::files::Files::open(Path::new(directory));
-		return serve(&rooms, &store, stored, &config, &*harness, shutdown, 0).await;
+		return serve(&rooms, &store, stored, &config, &*harness, shutdown, Carried::default()).await;
 	}
 	let Some(settled) = settled else {
 		return Err(Error::Config(
 			"--link is required the first time: pass the session link the session's owner issued".into(),
 		));
 	};
-	let unconfirmed = match settled.replaced {
+	let carried = match settled.replaced {
 		Some(old) => hand_over(old, &store, &config, &*harness, &shutdown).await?,
-		None => 0,
+		None => Carried::default(),
 	};
 	if *shutdown.borrow() {
 		return Ok(());
@@ -83,28 +84,43 @@ pub async fn run(request: &Request) -> Result<(), Error> {
 		settled.link.save(&store)?;
 	}
 	let rooms = captp::Attached::open(&store, settled.link)?;
-	let served = serve(&rooms, &store, stored, &config, &*harness, shutdown, unconfirmed).await;
+	let served = serve(&rooms, &store, stored, &config, &*harness, shutdown, carried).await;
 	rooms.close().await;
 	served
 }
 
-/// Let the replaced link's access settle the lines it sent. The new link is
-/// saved only after, so a bot stopped here is started again with both.
+/// What a replaced link's access gave up on, for `status` to count.
+#[derive(Default)]
+struct Carried {
+	unconfirmed: u64,
+	unsettled_opens: u64,
+}
+
+/// Let the replaced link's access settle the lines and the direct-message
+/// opens it sent. The new link is saved only after, so a bot stopped here is
+/// started again with both.
 async fn hand_over(
 	old: Link,
 	store: &Store,
 	config: &Config,
 	harness: &dyn harness::Harness,
 	shutdown: &watch::Receiver<bool>,
-) -> Result<u64, Error> {
+) -> Result<Carried, Error> {
 	let Some(ledger) = Ledger::load(store)? else {
-		return Ok(0);
+		return Ok(Carried::default());
 	};
 	let rooms = captp::Attached::open(store, old)?;
 	let env = environment(&rooms, store, config, harness, ledger)?;
 	let handed = engine::hand_over(&env, shutdown).await;
+	let opens = match &handed {
+		Ok(_) if !*shutdown.borrow() => opens::look(&rooms, store, true).await,
+		_ => Ok(0),
+	};
 	rooms.close().await;
-	handed
+	Ok(Carried {
+		unconfirmed: handed?,
+		unsettled_opens: opens?,
+	})
 }
 
 fn environment<'a, R: Rooms>(
@@ -166,7 +182,7 @@ async fn serve<R: Rooms>(
 	config: &Config,
 	harness: &dyn harness::Harness,
 	shutdown: watch::Receiver<bool>,
-	unconfirmed: u64,
+	carried: Carried,
 ) -> Result<(), Error> {
 	let Some(ledger) = ledger(rooms, store, stored.as_ref(), &shutdown).await? else {
 		return Ok(());
@@ -176,8 +192,13 @@ async fn serve<R: Rooms>(
 	}
 	home::create(store.root())?;
 	let env = environment(rooms, store, config, harness, ledger)?;
-	env.facts.borrow_mut().unconfirmed = unconfirmed;
+	{
+		let mut facts = env.facts.borrow_mut();
+		facts.unconfirmed = carried.unconfirmed;
+		facts.unsettled_opens = carried.unsettled_opens;
+	}
 	inbox::sweep(store, &env.ledger.borrow().open());
+	opens::settle(&env).await?;
 	let name = harness.name();
 	engine::serve(&env, shutdown, || {
 		crate::announce::announce(&format!("ROOMS-BOT-SERVING {name}"));

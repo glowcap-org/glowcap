@@ -4,6 +4,7 @@ import { invariant } from "../../lib/invariant.ts";
 import * as z from "zod/mini";
 import type { InitInput } from "../../../../zig-out/wasm/rooms/rooms_browser.js";
 import { type DirId, dirId } from "./directory.ts";
+import type { WorkspaceIntent } from "./session/managed/model.ts";
 
 /** Parse a JSON projection from the Rust application, proving its shape
  * before any consumer reads it. A wrong shape names a defect in the shared
@@ -46,6 +47,31 @@ export function directConversationId(directory: string, registration: string): s
 
 export function directHistoryId(directory: string, registration: string): string {
 	return applicationModule().directHistoryId(directory, registration);
+}
+
+/** Which direct row reaches a member, by the rule the session holds: the open
+ * row a new route is given back to, and the closed row a new route reopens
+ * when none is open. Each is a conversation id, or null. */
+export interface DirectReach {
+	readonly open: string | null;
+	readonly reopened: string | null;
+}
+
+const DirectReachSchema = z.object({
+	open: z.nullable(z.number()),
+	reopened: z.nullable(z.number()),
+});
+
+export function directReach(intent: WorkspaceIntent, directory: string, registration: string): DirectReach {
+	const rows = intent.conversations.map((row) =>
+		row.kind === "direct"
+			? { directory: row.directory, registration: row.introduction?.registration ?? null, closed: row.closed }
+			: null
+	);
+	const encoded = applicationModule().directReach(JSON.stringify(rows), directory, registration);
+	const reach = applicationProjection(encoded, DirectReachSchema, "direct reach");
+	const id = (at: number | null) => at == null ? null : intent.conversations[at]?.id ?? null;
+	return { open: id(reach.open), reopened: id(reach.reopened) };
 }
 
 /** Display facts from the shared Rooms route reader. They hold no live capability. */

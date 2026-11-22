@@ -11,10 +11,7 @@ use super::{Error, View};
 use rooms_application::content::session::{
 	custody::{self, FieldKey},
 	results,
-	workspace::{
-		Adoption, Conversation, DirectRefusal, Id, Intent, LineReceipt, StartDirect, adopt_direct, adopt_line,
-		introduced_to,
-	},
+	workspace::{Adoption, DirectRefusal, Id, Intent, LineReceipt, StartDirect, adopt_direct, adopt_line, open_direct},
 };
 use rooms_glowcap::client::{
 	Deadline, Error as ClientError, Tasks,
@@ -163,7 +160,8 @@ impl<D: Deadline + Tasks + Clone + 'static> View<D> {
 		if self.settled(command.adopted().await).await? {
 			// The registration's one open row holds the route this command kept.
 			let now = self.snapshot().await?;
-			let conversation = reaching(&now.intent, start)
+			let conversation = open_direct(&now.intent, start.directory, start.registration)
+				.map(|row| row.id.clone())
 				.ok_or_else(|| Error::Input(format!("the conversation with {} closed as it opened", start.peer)))?;
 			return Ok(Route {
 				conversation: text(&conversation)?,
@@ -243,16 +241,6 @@ impl<D: Deadline + Tasks + Clone + 'static> View<D> {
 			Err(error) => Err(self.failure(error).await),
 		}
 	}
-}
-/// The open direct conversation introduced to `start`'s registration from its
-/// directory. The session holds at most one.
-fn reaching(intent: &Intent, start: &StartDirect<'_>) -> Option<Id> {
-	intent.conversations.as_slice().iter().find_map(|row| match row {
-		Conversation::Direct(row) if !row.closed && introduced_to(row, start.directory, start.registration) => {
-			Some(row.id.clone())
-		}
-		_ => None,
-	})
 }
 pub(super) fn text(id: &Id) -> Result<String, Error> {
 	id.text()

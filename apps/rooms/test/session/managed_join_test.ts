@@ -85,7 +85,7 @@ Deno.test("a direct opening makes one call and waits for its inbox or failure", 
 	}
 });
 
-Deno.test("named direct contact reuses only the exact current registration", async () => {
+Deno.test("named direct contact reuses the open row of the current registration under any contact", async () => {
 	for (const change of ["none", "peer", "local", "manual", "lookup", "prepare"]) {
 		const current = snapshot();
 		current.intent.directories.push({
@@ -188,14 +188,11 @@ Deno.test("named direct contact reuses only the exact current registration", asy
 			assertEquals(calls, ["lookup", "free"]);
 			continue;
 		}
-		assertEquals(
-			await direct,
-			change === "none" ? "old-conversation" : "new-conversation",
-		);
-		assertEquals(
-			calls,
-			change === "none" ? ["lookup", "free"] : ["lookup", "free", "introduce", "acquire"],
-		);
+		// A row introduced under the directory's earlier name still reaches the
+		// member, so only another registration or no introduction opens anew.
+		const reused = change === "none" || change === "local";
+		assertEquals(await direct, reused ? "old-conversation" : "new-conversation");
+		assertEquals(calls, reused ? ["lookup", "free"] : ["lookup", "free", "introduce", "acquire"]);
 	}
 });
 

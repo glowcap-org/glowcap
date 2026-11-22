@@ -1,6 +1,6 @@
 //! The production browser boundary. Loading the module admits durable choices
 //! without opening a Host, so controller selection precedes runtime ownership.
-use crate::js_text::address_text;
+use crate::js_text::{address_text, scalar};
 use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen(js_name = directConversationId)]
@@ -13,6 +13,45 @@ pub fn direct_conversation_id(directory: js_sys::JsString, registration: js_sys:
 	identity
 		.and_then(|id| id.text().as_str().map(str::to_owned))
 		.ok_or_else(|| js_sys::Error::new("Invalid direct conversation identity").into())
+}
+
+/// Which direct rows reach the member holding `registration` through
+/// `directory`, by the application rule the session holds
+/// (`workspace::direct_reach`). `rows` is a JSON array with one entry per
+/// conversation: `null` for a room, and `{ directory, registration, closed }`
+/// for a direct row, `registration` being null when nothing introduced it.
+/// Resolves `{ open, reopened }`, each a position in `rows` or null.
+#[wasm_bindgen(js_name = directReach)]
+pub fn direct_reach(
+	rows: js_sys::JsString,
+	directory: js_sys::JsString,
+	registration: js_sys::JsString,
+) -> Result<String, JsValue> {
+	use rooms_application::content::session::{custody, workspace};
+	#[derive(serde::Deserialize)]
+	struct Row {
+		directory: String,
+		registration: Option<String>,
+		closed: bool,
+	}
+	let invalid = || JsValue::from(js_sys::Error::new("Invalid direct reach"));
+	let rows = scalar(&rows, custody::MAX_AUTHORITY_BYTES).map_err(|_| invalid())?;
+	let rows: Vec<Option<Row>> = serde_json::from_str(&rows).map_err(|_| invalid())?;
+	if rows.len() > rooms_application::session::checkpoint::MAX_CONVERSATIONS {
+		return Err(invalid());
+	}
+	let (Some(directory), Some(registration)) = (address_text(directory), address_text(registration)) else {
+		return Err(invalid());
+	};
+	let reaching = rows.iter().map(|row| {
+		row.as_ref().map(|row| workspace::Reaching {
+			directory: &row.directory,
+			registration: row.registration.as_deref(),
+			closed: row.closed,
+		})
+	});
+	let reach = workspace::direct_reach(reaching, &directory, &registration);
+	Ok(serde_json::json!({ "open": reach.open, "reopened": reach.reopened }).to_string())
 }
 
 /// Stable directory identity uses the same policy and locator parser as host

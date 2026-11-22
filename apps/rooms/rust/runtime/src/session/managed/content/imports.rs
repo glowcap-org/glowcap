@@ -487,7 +487,7 @@ pub(super) fn invoke(call: &mut Call<'_>, input: Invocation<'_>) -> Result<Argum
 		record
 			.intent
 			.replace_configuration_retiring(intent, &mut record.custody)
-			.map_err(|_| refuse("change history retention through its dedicated command"))?;
+			.map_err(refuse_configuration)?;
 		record
 			.intent
 			.validate(&record.custody)

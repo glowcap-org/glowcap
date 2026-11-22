@@ -38,6 +38,11 @@
 //!   authority and releases its receipt. Keeping a kept line succeeds.
 //! - Dropping a future loses nothing. A read that is dropped is asked again
 //!   from the same cursor.
+//! - A direct-message open sent again under its operation and base is
+//!   answered from its first receipt, and its route is kept or given back.
+//!   One that never reached the session at that base is introduced then, or
+//!   fenced out once the workspace moved past the base.
+use rooms_services::session::attached::Introduction;
 use serde::{Deserialize, Serialize};
 use std::{fmt, future::Future, path::Path, time::Duration};
 
@@ -220,6 +225,22 @@ pub enum Outcome {
 	Conflict,
 }
 
+/// How a direct-message open settled when it was looked at again.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Settled {
+	/// Its route is kept in this conversation.
+	Opened(String),
+	/// Another open already reached the member, so its route was given back.
+	Reused(String),
+	/// Nothing was committed.
+	Unapplied,
+	/// It committed, but its route could not be kept and was given back, so
+	/// no conversation reaches the member through it.
+	Released,
+	/// It may still commit.
+	Uncertain,
+}
+
 /// Whether a line reached activity, read from the activity after a cursor.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Echo {
@@ -307,4 +328,12 @@ pub trait Rooms {
 	/// An existing destination is refused as [`RoomsErrorKind::Exists`], and a
 	/// failed save leaves nothing at the destination. Returns the bytes saved.
 	fn fetch(&self, attachment: &Attachment, destination: &Path) -> impl Future<Output = Result<u64, RoomsError>>;
+	/// Send the direct-message open `introduction` again under its
+	/// `operation` and `base`, and keep or give back the route it holds.
+	fn settle_open(
+		&self,
+		operation: &str,
+		base: Base,
+		introduction: &Introduction,
+	) -> impl Future<Output = Result<Settled, RoomsError>>;
 }

@@ -58,10 +58,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Worker<P> {
 						if let workspace::Conversation::Direct(row) = row
 							&& row.inbox == Some(inbox)
 						{
-							row.closed = true;
-							row.inbox = None;
-							row.access = None;
-							row.lines = Default::default();
+							row.retire_connection();
 							changed = true;
 						}
 					}
@@ -69,9 +66,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Worker<P> {
 				Lease::Directory(name) => {
 					for row in snapshot.intent.directories.as_mut_slice() {
 						if row.name == Some(name) {
-							row.name = None;
-							row.assigned_nick = None;
-							row.inbox = None;
+							row.retire_connection();
 							changed = true;
 						}
 					}
@@ -81,11 +76,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Worker<P> {
 						if let workspace::Conversation::Room(row) = row
 							&& row.seat == Some(seat)
 						{
-							row.seat = None;
-							row.subject = None;
-							row.files = None;
-							row.inbox = None;
-							row.lines = Default::default();
+							row.retire_connection();
 							changed = true;
 						}
 					}

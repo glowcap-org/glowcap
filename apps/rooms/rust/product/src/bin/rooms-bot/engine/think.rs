@@ -16,7 +16,7 @@ use crate::bot::{
 	harness::{FailureKind, Turn},
 	home, inbox,
 	ledger::{Asked, Content, Ledger, MAX_RUNS, Part, Phase, Progress, Started, TurnId},
-	prompt, reply,
+	opens, prompt, reply,
 	rooms::{ConversationId, Rooms, RoomsError},
 	runner::{self, Finish, Heard, Place, Ran},
 	status::Activity,
@@ -50,9 +50,14 @@ pub async fn run<R: Rooms>(env: &Env<'_, R>, id: TurnId, stop: &mut watch::Recei
 	if let Some(conversation) = conversation
 		&& !matches!(step, Step::Stopped)
 	{
-		if let Err(error) = actions::close(env.store.root(), &conversation) {
-			// tolerant: the budget stays bounded, and the conversation's next
-			// turn opens a fresh one in its place.
+		let settled = match actions::close(env.store.root(), &conversation) {
+			Ok(()) => opens::settle(env).await,
+			Err(error) => Err(error),
+		};
+		if let Err(error) = settled {
+			// tolerant: the budget stays bounded, a note that could not move
+			// stays in it, and the conversation's next turn closes it again.
+			// A kept open is looked at again after the next turn or start.
 			env.store.log(&format!("turn {}: {error}", id.0));
 		}
 		if let Err(error) = notice(env, &conversation, false).await {
@@ -237,8 +242,6 @@ async fn fix_reply<R: Rooms>(
 /// Everything one invocation needs, so a failed resume can run again fresh.
 struct Inputs<'a> {
 	conversation: &'a ConversationId,
-	/// [`act::TURN_MEMBERS`] for this turn.
-	members: &'a str,
 	prompt: &'a str,
 	system: &'a str,
 	place: Place<'a>,
@@ -266,7 +269,6 @@ async fn invoke<R: Rooms>(
 	invocation.env.extend([
 		(act::TURN_BOT.into(), env.store.root().into()),
 		(act::TURN_CONVERSATION.into(), inputs.conversation.as_str().into()),
-		(act::TURN_MEMBERS.into(), inputs.members.into()),
 		(home::TURN_HOME.into(), inputs.home.into()),
 	]);
 	runner::run(env.harness, invocation, &inputs.place, inputs.deadline, stop).await
@@ -352,14 +354,8 @@ async fn attempt<R: Rooms>(
 		kind: asked.kind,
 		instructions: instructions.as_deref(),
 	});
-	let members = act::members(
-		ring.iter()
-			.map(|line| line.from.as_deref())
-			.chain(triggers.iter().map(|trigger| trigger.from.as_deref())),
-	);
 	let inputs = Inputs {
 		conversation,
-		members: &members,
 		prompt: &turn_prompt,
 		system: &system,
 		place: Place {
@@ -373,7 +369,9 @@ async fn attempt<R: Rooms>(
 	};
 	let tag = format!("turn {}", id.0);
 	let stored = env.sessions.borrow().get(name, conversation).map(str::to_owned);
-	actions::open(env.store.root(), conversation, id)?;
+	let senders = ring.iter().map(|line| line.from.as_deref());
+	let senders = senders.chain(triggers.iter().map(|trigger| trigger.from.as_deref()));
+	actions::open(env.store.root(), conversation, id, senders)?;
 	let mut ran = run_once(env, id, &inputs, stored.as_deref(), (spent, before), stop).await?;
 	let mut fresh = false;
 	// A crash proves the stored session unusable only when the agent never

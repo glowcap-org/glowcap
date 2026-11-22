@@ -18,6 +18,7 @@ mod home;
 mod inbox;
 mod ledger;
 mod link;
+mod opens;
 mod prompt;
 mod reply;
 mod request;

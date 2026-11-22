@@ -60,6 +60,7 @@ export type AcquisitionStage =
 	| "addressed-snapshot"
 	| "acquire-result-workspace"
 	| "acquire-created-room"
+	| "release-effect"
 	| "resume-effect";
 
 /** The effect committed. Failure while acquiring its result cannot undo it.

@@ -74,6 +74,10 @@ pub struct Facts {
 	/// Lines given up on since this serve started, neither confirmed nor sent
 	/// again, because the session could no longer say whether they posted.
 	pub unconfirmed: u64,
+	/// Direct-message opens given up on since this serve started, neither
+	/// kept nor given back, whose receipts the session keeps until the access
+	/// is revoked.
+	pub unsettled_opens: u64,
 	/// The last failure, until the same activity next succeeds.
 	pub last_error: Option<Problem>,
 }

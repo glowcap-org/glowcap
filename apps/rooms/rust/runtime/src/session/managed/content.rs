@@ -63,6 +63,17 @@ struct SessionContent<P: Tasks + Deadline + Clone + 'static>(Weak<State<P>>);
 pub(super) fn refuse(message: &str) -> glowcap::Error {
 	loam::refusal(message)
 }
+/// The line for a change that would give a registration a second open
+/// direct row, from a replacement or from the `openDirect` gesture.
+pub(super) const DIRECT_OPEN: &str = "an open direct conversation already reaches this member";
+/// The refusal for a workspace replacement `Intent::replace_configuration`
+/// turned down.
+pub(super) fn refuse_configuration(invalid: workspace::InvalidIntent) -> glowcap::Error {
+	refuse(match invalid {
+		workspace::InvalidIntent::DirectOpen => DIRECT_OPEN,
+		_ => "change history retention through its dedicated command",
+	})
+}
 pub(super) fn text(value: &Argument) -> Result<&str> {
 	value.as_str().ok_or_else(|| refuse("session text argument required"))
 }
@@ -361,6 +372,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Content for SessionContent<P> {
 				.work(call, class, None, owner.platform.monotonic_millis())
 				.map_err(super::admission::callback_error)?;
 		}
+		let private = continuing::private(input);
 		let input = continuing::input(self, input)?;
 		if input.verb == "retire-host-registrations" {
 			return host_registrations::invoke(call, input, &owner.writer.root()?);
@@ -500,7 +512,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Content for SessionContent<P> {
 			return bridge::forget(&owner, call, input);
 		}
 		if matches!(input.verb, "import" | "import-bundle" | "acquire-workspace") {
-			return acquisition::invoke(call, input);
+			return acquisition::invoke(call, input, private);
 		}
 		if matches!(
 			input.verb,
@@ -581,7 +593,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Content for SessionContent<P> {
 					.replace_configuration(
 						workspace::Intent::decode(text(intent)?).map_err(|_| refuse("invalid workspace intent"))?,
 					)
-					.map_err(|_| refuse("change history retention through its dedicated command"))?;
+					.map_err(refuse_configuration)?;
 				record
 					.intent
 					.validate(&record.custody)
@@ -606,7 +618,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Content for SessionContent<P> {
 					.replace_configuration(
 						workspace::Intent::decode(text(intent)?).map_err(|_| refuse("invalid workspace intent"))?,
 					)
-					.map_err(|_| refuse("change history retention through its dedicated command"))?;
+					.map_err(refuse_configuration)?;
 				records::replace(call, input, &mut record)?;
 				Ok(Argument::Void)
 			}

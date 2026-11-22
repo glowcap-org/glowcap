@@ -1,15 +1,27 @@
 //! `--dm <nickname>`: the direct conversation a `say` or `send` posts to.
 //! It reaches only someone taking part in the turn's conversation: a member
 //! whose room line the turn was shown, or the other person of the turn's
-//! direct conversation. The nickname is looked up in the directory of the
-//! turn's conversation, and the session reuses the open conversation with
-//! that member or opens one (`View::reach_direct` and `View::introduce`). The
-//! introduction an open sends is kept in the turn's action budget first, so
-//! looking again at an uncertain open sends that same introduction. The bot's
+//! direct conversation. The bot names those members in the turn's action
+//! budget when the turn opens (`actions::members`), outside the agent's reach.
+//! A room line names its sender only by nickname, so the nickname must also
+//! hold a registration in the directory of the turn's conversation now. The
+//! session reuses the open conversation with that registration or opens one
+//! (`View::reach_direct` and `View::introduce`). The
+//! base and introduction an open sends are noted in the turn's action budget
+//! first, so looking again at an uncertain open sends that same one, and the
+//! note is dropped once the open settles. One still uncertain when the turn
+//! ends is settled by the serving bot (`opens`). The bot's
 //! log names the peer and the conversation before every post `--dm` reaches,
 //! and says "opened" only once the open committed.
 use super::{Turn, failure};
-use crate::bot::{actions, engine, error::Error, request::Request, rooms::ConversationId, rooms::captp::Live, store};
+use crate::bot::{
+	actions, engine,
+	error::Error,
+	opens::Open,
+	request::Request,
+	rooms::{Base, ConversationId, captp::Live},
+	store,
+};
 use rooms_application::{
 	content::session::workspace::Conversation,
 	failure::{FailureCode, Retry},
@@ -96,7 +108,8 @@ async fn reached(live: &Live, turn: &Turn, ask: &Ask) -> Result<(String, Value),
 				turn.conversation, ask.peer
 			))
 		})?;
-	if !takes_part(row, &turn.members, &ask.peer) {
+	let budget = ConversationId::new(turn.conversation.as_str());
+	if !takes_part(row, &actions::members(&root, &budget)?, &ask.peer) {
 		return Err(failure::refused(&Failure::invalid(format!(
 			"--dm reaches only someone in this conversation, and {} has not written in it this turn: answer here, or use the from nickname of a line in this conversation",
 			ask.peer
@@ -109,18 +122,17 @@ async fn reached(live: &Live, turn: &Turn, ask: &Ask) -> Result<(String, Value),
 	let directory = directory
 		.as_str()
 		.ok_or(Error::Usage("the turn's conversation names no directory".into()))?;
-	let budget = ConversationId::new(turn.conversation.as_str());
 	let (operation, base, introduction) = match &ask.again {
 		Some((operation, base)) => {
-			let introduction = actions::noted_open(&root, &budget, operation)?
-				.filter(|introduction| same_nick(&introduction.peer, &ask.peer))
+			let noted = actions::noted_open(&root, &budget, operation)?
+				.filter(|noted| same_nick(&noted.introduction.peer, &ask.peer) && noted.base == Base(*base))
 				.ok_or_else(|| {
 					Error::Usage(format!(
-						"this turn sent no --dm open to {} under operation {operation}: run the verb without --operation and --base",
+						"this turn has no uncertain --dm open to {} under operation {operation} at base {base}: run the verb without --operation and --base",
 						ask.peer
 					))
 				})?;
-			(operation.clone(), Some(*base), introduction)
+			(operation.clone(), *base, noted.introduction)
 		}
 		None => match live.view.reach_direct(directory, &ask.peer).await {
 			Ok(Reach::Open(conversation)) => {
@@ -132,8 +144,14 @@ async fn reached(live: &Live, turn: &Turn, ask: &Ask) -> Result<(String, Value),
 			}
 			Ok(Reach::Introduce(introduction)) => {
 				let operation = engine::operation()?;
-				actions::note_open(&root, &budget, &operation, &introduction)?;
-				(operation, None, introduction)
+				let base = live.view.revision().await.map_err(|cause| failure::call(&cause))?;
+				let noted = Open {
+					base: Base(base),
+					introduction,
+					looks: 0,
+				};
+				actions::note_open(&root, &budget, &operation, &noted)?;
+				(operation, base, noted.introduction)
 			}
 			Err(ViewError::Peer(cause)) if cause.failure_code() == Some(FailureCode::PeerOffline) => {
 				return Err(failure::refused(&Failure::new(
@@ -148,41 +166,65 @@ async fn reached(live: &Live, turn: &Turn, ask: &Ask) -> Result<(String, Value),
 			Err(cause) => return Err(failure::call(&cause)),
 		},
 	};
-	introduce(live, turn, &log, &operation, base, &introduction).await
+	let noted = Noted {
+		root: &root,
+		budget: &budget,
+		operation: &operation,
+	};
+	introduce(live, turn, &log, &noted, base, &introduction).await
 }
 
-/// Send the open and log what it did before anything posts through it.
+/// Where the open under `operation` is noted.
+struct Noted<'a> {
+	root: &'a std::path::Path,
+	budget: &'a ConversationId,
+	operation: &'a str,
+}
+
+/// Send the open and log what it did before anything posts through it. An
+/// open that settles drops its note.
 async fn introduce(
 	live: &Live,
 	turn: &Turn,
 	log: &store::Log,
-	operation: &str,
-	base: Option<u64>,
+	noted: &Noted<'_>,
+	base: u64,
 	introduction: &Introduction,
 ) -> Result<(String, Value), Error> {
+	let operation = noted.operation;
+	let settled = || actions::settled_open(noted.root, noted.budget, operation);
 	let line = |what: &str, landed: &str| {
 		log.line(&format!(
 			"a turn in conversation {} {what} a direct conversation with {} under operation {operation}{landed}",
 			turn.conversation, introduction.peer
 		))
 	};
-	match live.view.introduce(operation, base, introduction).await {
+	match live.view.introduce(operation, Some(base), introduction).await {
 		Ok(Opened::Opened { conversation, sent }) => {
 			line("opened", &format!(", as conversation {conversation}"));
+			settled()?;
 			Ok((conversation, json!({"operation": sent.operation, "base": sent.base})))
 		}
 		Ok(Opened::Reused { conversation, .. }) => {
 			let landed = format!(", and another open had made it, as conversation {conversation}");
 			line("reused", &landed);
+			settled()?;
 			Ok((conversation, Value::Null))
 		}
-		Ok(Opened::Unapplied(sent)) => Err(failure::with_operation(
-			failure::unapplied(sent.status.wire()),
-			operation,
-		)),
+		Ok(Opened::Unapplied(sent)) => {
+			settled()?;
+			Err(failure::with_operation(
+				failure::unapplied(sent.status.wire()),
+				operation,
+			))
+		}
 		Ok(Opened::Uncertain(sent)) => {
 			line("may have opened", "");
 			Err(failure::with_operation(failure::unsettled(&sent), operation))
+		}
+		Err(cause @ ViewError::Unopened { released: true, .. }) => {
+			settled()?;
+			Err(failure::with_operation(failure::call(&cause), operation))
 		}
 		Err(cause @ ViewError::Uncertain { .. }) => {
 			line("may have opened", "");

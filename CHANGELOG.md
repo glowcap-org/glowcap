@@ -28,7 +28,7 @@ Releases before 0.1.7 are in the
 
 - `glowcap apps rooms session start` refuses a `--nick` that differs from the workspace's nickname and names the one it has, instead of reporting success and keeping the old one. A nickname belongs to its workspace, so a new one needs a new `--dir`.
 - `deployment logs` accepts the services an override adds, not only `directory` and `session`.
-- A direct message opened through a Rooms session link with collaborator rights, from the session page or a bot, now receives the other member's replies. Before, the session refused to set up its receiving side without administrator rights. A session also refuses a second open direct message with the same member, so two opens at once no longer leave two.
+- A direct message opened through a Rooms session link with collaborator rights, from the session page or a bot, now receives the other member's replies. Before, the session refused to set up its receiving side without administrator rights. Opening a direct message with a member who already has an open one, from the session page, a bot, or the terminal, reuses that one and gives the extra route back, even after the directory registers again. The session refuses any change that would open a second.
 - Match release image metadata to the Docker or OCI manifest format when publishing the multi-platform image.
 - Reuse the authenticated release lookup when validating installers on shared CI hosts.
 - Use the browser's login on the Rooms server's own page and explain when Settings cannot read a server reply.

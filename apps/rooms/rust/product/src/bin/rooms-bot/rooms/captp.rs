@@ -15,7 +15,7 @@ mod names;
 
 use super::{
 	Attachment, Base, Batch, ConversationId, Cursor, Echo, FETCH_DEADLINE, Outcome, Outgoing, Rooms, RoomsError,
-	RoomsErrorKind,
+	RoomsErrorKind, Settled,
 };
 use crate::bot::{
 	error::Error,
@@ -257,6 +257,23 @@ impl Rooms for Attached {
 				RoomsErrorKind::Unreachable,
 				format!("the file did not arrive within {} seconds", FETCH_DEADLINE.as_secs()),
 			)),
+		}
+	}
+
+	async fn settle_open(
+		&self,
+		operation: &str,
+		base: Base,
+		introduction: &attached::Introduction,
+	) -> Result<Settled, RoomsError> {
+		let live = self.live().await?;
+		match live.view.introduce(operation, Some(base.0), introduction).await {
+			Ok(attached::Opened::Opened { conversation, .. }) => Ok(Settled::Opened(conversation)),
+			Ok(attached::Opened::Reused { conversation, .. }) => Ok(Settled::Reused(conversation)),
+			Ok(attached::Opened::Unapplied(_)) => Ok(Settled::Unapplied),
+			Ok(attached::Opened::Uncertain(_)) => Ok(Settled::Uncertain),
+			Err(attached::Error::Unopened { released: true, .. }) => Ok(Settled::Released),
+			Err(cause) => Err(self.failed(&live, cause, true).await),
 		}
 	}
 }

@@ -18,9 +18,15 @@
 //! follows, and the owner sweeps again on a bounded backoff as well as on the
 //! next change, because a session whose receipt places are full may make no
 //! further change. A failed feed is reported by the feed, and until it
-//! recovers the owner sweeps on the same backoff. A backoff whose timer
-//! returns early is dropped until the next change, so the owner never sweeps
-//! in a loop that gives a single-threaded host no turn.
+//! recovers the owner sweeps on the same backoff.
+//!
+//! A platform's wait returns `None` at once when it refuses the wait, and
+//! `None` on time when it runs out, so only the clock tells the two apart.
+//! The host and browser platforms never refuse a wait. The proofs platform
+//! refuses one while a proof refuses observation. A backoff whose wait came
+//! back early is dropped, and reported once like a failed sweep, so the owner
+//! sweeps again on the next change only and never loops without giving a
+//! single-threaded host a turn.
 //!
 //! `Session::close` closes this owner before anything else it closes, so no
 //! sweep runs while the session shuts down.
@@ -72,8 +78,13 @@ pub(super) fn spawn<P: Tasks + Deadline + Clone + 'static>(
 						early: armed.is_some_and(|(wait, at)| early(wait, timer.monotonic_millis().saturating_sub(at))),
 					},
 				};
-				if !schedule.woke(woke) {
-					continue;
+				match schedule.woke(woke) {
+					Next::Sweep => {}
+					Next::Wait => continue,
+					Next::Dropped(error) => {
+						writer.report("Revoked receipt release", &error);
+						continue;
+					}
 				}
 				let swept = tokio::select! {
 					biased;
@@ -105,6 +116,20 @@ fn early(wait: u64, elapsed: u64) -> bool {
 	elapsed.saturating_mul(2) < wait
 }
 
+/// What the owner does after a wake.
+#[derive(Debug)]
+enum Next {
+	Sweep,
+	Wait,
+	/// The platform refused the backoff's wait, so the owner waits for the
+	/// next change and reports this, once, to the session's failure owner.
+	Dropped(Error),
+}
+
+/// The text of the report a dropped backoff makes.
+const DROPPED: &str =
+	"the platform refused the wait before sweeping again, so the next sweep waits for a session change";
+
 /// When the owner sweeps again on its own, and the failure it reported last.
 #[derive(Debug, Default)]
 struct Schedule {
@@ -114,28 +139,34 @@ struct Schedule {
 	/// The feed that wakes this owner has failed, so it sweeps on the backoff
 	/// until the feed recovers.
 	feed_failed: bool,
+	/// A dropped backoff was reported since the last sweep that succeeded.
+	dropped: bool,
 }
 impl Schedule {
-	/// Note what woke the owner, and say whether to sweep now. A failed feed
-	/// starts the backoff and is not itself a reason to sweep. A timer that
-	/// returned early drops the backoff, and the owner sweeps again on the
-	/// next change only, so a platform that refuses a wait cannot make the
-	/// owner sweep without ever yielding.
-	fn woke(&mut self, woke: Woke) -> bool {
+	/// Note what woke the owner, and say what to do. A failed feed starts the
+	/// backoff and is not itself a reason to sweep. A timer that returned
+	/// early drops the backoff, and the owner sweeps again on the next change
+	/// only, so a platform that refuses a wait cannot make the owner sweep
+	/// without ever yielding. The first drop after a sweep that succeeded is
+	/// reported.
+	fn woke(&mut self, woke: Woke) -> Next {
 		match woke {
 			Woke::Changed(true) => self.feed_failed = false,
 			Woke::Changed(false) => {
 				self.feed_failed = true;
 				self.retry.get_or_insert(FIRST_RETRY_MS);
-				return false;
+				return Next::Wait;
 			}
 			Woke::Backoff { early: true } => {
 				self.retry = None;
-				return false;
+				if std::mem::replace(&mut self.dropped, true) {
+					return Next::Wait;
+				}
+				return Next::Dropped(Error::refused(DROPPED));
 			}
 			Woke::Backoff { early: false } => {}
 		}
-		true
+		Next::Sweep
 	}
 	/// Note a sweep's outcome, and return its failure when it is not the one
 	/// reported last.
@@ -143,6 +174,7 @@ impl Schedule {
 		match swept {
 			Ok(()) => {
 				self.reported = None;
+				self.dropped = false;
 				self.retry = self.feed_failed.then(|| later(self.retry));
 				None
 			}
@@ -233,12 +265,12 @@ mod tests {
 	#[test]
 	fn a_failure_is_reported_once_and_retried_on_a_doubling_backoff_up_to_its_bound() {
 		let mut schedule = Schedule::default();
-		assert!(schedule.woke(Woke::Changed(true)));
+		assert!(matches!(schedule.woke(Woke::Changed(true)), Next::Sweep));
 		let failed: Result<()> = Err(Error::invalid("full"));
 		assert!(schedule.swept(&failed).is_some(), "the first failure is reported");
 		assert_eq!(schedule.retry, Some(FIRST_RETRY_MS));
 		for _ in 0..8 {
-			assert!(schedule.woke(Woke::Backoff { early: false }));
+			assert!(matches!(schedule.woke(Woke::Backoff { early: false }), Next::Sweep));
 			assert!(schedule.swept(&failed).is_none(), "the same failure is reported once");
 		}
 		assert_eq!(schedule.retry, Some(LAST_RETRY_MS));
@@ -253,32 +285,46 @@ mod tests {
 	}
 
 	#[test]
-	fn a_timer_that_returns_early_drops_the_backoff_until_the_next_change() {
+	fn a_timer_that_returns_early_drops_the_backoff_until_the_next_change_and_says_so_once() {
 		assert!(early(1_000, 0) && early(1_000, 499));
 		assert!(!early(1_000, 500) && !early(1_000, 999) && !early(1_000, 1_000));
 		let mut schedule = Schedule::default();
-		assert!(schedule.woke(Woke::Changed(true)));
+		assert!(matches!(schedule.woke(Woke::Changed(true)), Next::Sweep));
 		assert!(schedule.swept(&Err(Error::invalid("full"))).is_some());
-		assert!(
-			!schedule.woke(Woke::Backoff { early: true }),
-			"a refused wait is no reason to sweep"
-		);
+		let Next::Dropped(error) = schedule.woke(Woke::Backoff { early: true }) else {
+			panic!("a refused wait is reported, and is no reason to sweep");
+		};
+		assert_eq!(error.to_string(), Error::refused(DROPPED).to_string());
 		assert_eq!(schedule.retry, None, "the next wake is the next change");
-		assert!(schedule.woke(Woke::Changed(true)));
+		assert!(matches!(schedule.woke(Woke::Changed(true)), Next::Sweep));
+		assert!(
+			schedule.swept(&Err(Error::invalid("full"))).is_none(),
+			"the same failure stays reported"
+		);
+		assert!(
+			matches!(schedule.woke(Woke::Backoff { early: true }), Next::Wait),
+			"a drop is reported once until a sweep succeeds"
+		);
+		assert!(matches!(schedule.woke(Woke::Changed(true)), Next::Sweep));
+		assert!(schedule.swept(&Ok(())).is_none());
+		assert!(
+			matches!(schedule.woke(Woke::Backoff { early: true }), Next::Dropped(_)),
+			"a drop after a success is reported again"
+		);
 	}
 
 	#[test]
 	fn a_failed_feed_sweeps_on_the_backoff_until_it_recovers() {
 		let mut schedule = Schedule::default();
 		assert!(
-			!schedule.woke(Woke::Changed(false)),
+			matches!(schedule.woke(Woke::Changed(false)), Next::Wait),
 			"a failed feed is no change to sweep for"
 		);
 		assert_eq!(schedule.retry, Some(FIRST_RETRY_MS));
-		assert!(schedule.woke(Woke::Backoff { early: false }));
+		assert!(matches!(schedule.woke(Woke::Backoff { early: false }), Next::Sweep));
 		assert!(schedule.swept(&Ok(())).is_none());
 		assert_eq!(schedule.retry, Some(2 * FIRST_RETRY_MS), "the feed is still down");
-		assert!(schedule.woke(Woke::Changed(true)));
+		assert!(matches!(schedule.woke(Woke::Changed(true)), Next::Sweep));
 		assert!(schedule.swept(&Ok(())).is_none());
 		assert_eq!(schedule.retry, None, "the recovered feed wakes the owner again");
 	}

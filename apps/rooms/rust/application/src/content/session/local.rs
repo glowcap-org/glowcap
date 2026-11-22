@@ -23,6 +23,8 @@ pub enum Refusal {
 	Arguments,
 	Missing,
 	Capacity,
+	/// Opening the row would give its registration a second open row.
+	DirectOpen,
 }
 
 /// These routes change local intent and custody. Checked imports and external
@@ -122,22 +124,32 @@ pub fn apply<R: References>(
 			{
 				return Err(Refusal::Arguments);
 			}
-			if let Some(existing) = intent
+			let position = intent
 				.conversations
-				.as_mut_slice()
-				.iter_mut()
-				.find(|row| row.id() == &next.id)
-			{
-				let Conversation::Direct(existing) = existing else {
+				.as_slice()
+				.iter()
+				.position(|row| row.id() == &next.id);
+			if let Some(position) = position {
+				let Conversation::Direct(existing) = &intent.conversations.as_slice()[position] else {
 					return Err(Refusal::Arguments);
 				};
 				if existing.directory != next.directory || existing.peer != next.peer || existing.access != next.access
 				{
 					return Err(Refusal::Arguments);
 				}
-				existing.closed = false;
-				intent.active = Some(existing.id.clone());
+				// Selecting a row already open keeps it. Reopening one gives its
+				// registration no second open row.
+				if existing.closed && intent.reaches_another(existing) {
+					return Err(Refusal::DirectOpen);
+				}
+				if let Conversation::Direct(existing) = &mut intent.conversations.as_mut_slice()[position] {
+					existing.closed = false;
+				}
+				intent.active = Some(next.id);
 			} else {
+				if intent.reaches_another(&next) {
+					return Err(Refusal::DirectOpen);
+				}
 				intent.active = Some(next.id.clone());
 				// Opening selects existing checked custody; it cannot import a bearer.
 				next.draft = field("")?;

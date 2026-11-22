@@ -37,6 +37,11 @@
 //!   lets a call through.
 //! - `files/<token>-<index>` holds the bytes of an attachment a row names. A
 //!   fetch copies them.
+//! - `open-answers` holds how each direct-message open settles when it is
+//!   looked at again, one per line: `opened`, `reused`, `unapplied`,
+//!   `released`, `uncertain`, or a failure as in `send-faults`. Each look takes the first
+//!   and is logged in `calls.jsonl` as `settle-open`, and with none left a
+//!   look is refused.
 //!
 //! ```text
 //! {"at":1,"conversation":"c1","kind":"direct","text":"hi"}
@@ -54,7 +59,7 @@ mod receipts;
 
 use super::{
 	Attachment, Base, Batch, Body, Change, ConversationId, Cursor, Echo, Incoming, Kind, Line, Mentions, Outcome,
-	Outgoing, Rooms, RoomsError, RoomsErrorKind, Sender,
+	Outgoing, Rooms, RoomsError, RoomsErrorKind, Sender, Settled,
 };
 use receipts::{Receipt, Status};
 use serde::{Deserialize, Serialize};
@@ -263,7 +268,12 @@ impl Files {
 
 	/// Take the next injected send outcome.
 	fn next_fault(&self) -> Result<Option<String>, RoomsError> {
-		let path = self.directory.join("send-faults");
+		self.take("send-faults")
+	}
+
+	/// Take the first line of the file `name`, or none when it holds none.
+	fn take(&self, name: &str) -> Result<Option<String>, RoomsError> {
+		let path = self.directory.join(name);
 		let text = match std::fs::read_to_string(&path) {
 			Ok(text) => text,
 			Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
@@ -512,6 +522,37 @@ impl Rooms for Files {
 			return Err(RoomsError::new(RoomsErrorKind::Exists, "the file is already saved"));
 		}
 		std::fs::copy(&source, destination).map_err(|error| RoomsError::new(RoomsErrorKind::Refused, error))
+	}
+
+	async fn settle_open(
+		&self,
+		operation: &str,
+		base: Base,
+		introduction: &rooms_services::session::attached::Introduction,
+	) -> Result<Settled, RoomsError> {
+		let conversation = ConversationId::new(introduction.peer.as_str());
+		let look = Outgoing {
+			conversation: &conversation,
+			text: "",
+			operation,
+		};
+		self.log("settle-open", &look, base)?;
+		let answer = self.take("open-answers")?;
+		if let Some(error) = answer.as_deref().and_then(failure) {
+			return Err(error);
+		}
+		let conversation = format!("direct-{}", introduction.peer);
+		match answer.as_deref() {
+			Some("opened") => Ok(Settled::Opened(conversation)),
+			Some("reused") => Ok(Settled::Reused(conversation)),
+			Some("unapplied") => Ok(Settled::Unapplied),
+			Some("released") => Ok(Settled::Released),
+			Some("uncertain") => Ok(Settled::Uncertain),
+			_ => Err(RoomsError::new(
+				RoomsErrorKind::Refused,
+				"the stand-in has no answer for this open",
+			)),
+		}
 	}
 }
 

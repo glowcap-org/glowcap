@@ -1,16 +1,21 @@
 //! Opening a direct conversation. A `startDirect` receipt holds the peer's
 //! inbox as a result key, and the workspace reaches the peer only after one
-//! acquisition moves that key into a direct row. This module finds the open
-//! row that already reaches a peer's registration, and plans the one row the
-//! session admits for a new route: the last closed row introduced under the
-//! same registration, reopened under its own id and draft, or else a new row
-//! whose id is the command's operation. A registration holds at most one open
-//! row, so a route that arrives while another row is open is given back. The
-//! session's participation check (`imports/participation.rs` in the runtime)
-//! is the rule this plan meets, and it reads rows through [`introduced_to`].
-//! The terminal front and attached views use it, and the page plans the same
-//! row in its own completion recipe.
-use super::{Conversation, Direct, DirectKind, Directory, Field, Id, Intent, Introduction, custody};
+//! acquisition moves that key into a direct row. A row reaches the peer whose
+//! registration introduced it, under whatever contact its directory held
+//! then: its route and its inbox are its own custody, so a directory that
+//! registers again later leaves the row carrying lines both ways.
+//!
+//! [`open_direct`] is the one rule for which open row reaches a member. The
+//! plan here, the session's participation check (`imports/participation.rs`
+//! in the runtime), the terminal front, attached views, and the page (through
+//! the browser module's `directReach`) all ask it. A registration holds at
+//! most one open row, so a route that arrives while one is open is given
+//! back. Otherwise the plan reopens [`reopened_direct`], the last closed row
+//! of the same registration, under its own id and draft, or else adds a new
+//! row whose id is the command's operation. The session refuses a workspace
+//! replacement or a local gesture that opens a second row
+//! (`Intent::reaches_another`).
+use super::{Conversation, Direct, DirectKind, Field, Id, Intent, Introduction, custody};
 use crate::{
 	content::session::results,
 	fields::{List, Text},
@@ -52,41 +57,128 @@ impl<'a> StartDirect<'a> {
 	}
 }
 
+/// What the reach rule reads of one direct row: the directory row it was
+/// introduced from, the registration that introduced it, and whether it is
+/// closed. The page projects its rows to this through the browser module.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Reaching<'a> {
+	pub directory: &'a str,
+	pub registration: Option<&'a str>,
+	pub closed: bool,
+}
+impl<'a> Reaching<'a> {
+	/// The fields of `row` the rule reads. A row whose text fields hold no
+	/// text reaches no one.
+	pub fn of(row: &'a Direct) -> Option<Self> {
+		Some(Self {
+			directory: row.directory.text().as_str()?,
+			registration: row
+				.introduction
+				.as_ref()
+				.and_then(|introduction| introduction.registration.text().as_str()),
+			closed: row.closed,
+		})
+	}
+	/// Whether the row was introduced from `directory` to the peer holding
+	/// `registration`, under any contact that directory held.
+	pub fn reaches(&self, directory: &str, registration: &str) -> bool {
+		self.directory == directory && self.registration == Some(registration)
+	}
+}
+
+/// Where the rows reaching one member sit among a workspace's conversations.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct DirectReach {
+	/// The first open row. A new route is given back while one is open.
+	pub open: Option<usize>,
+	/// The last closed row, which a new route reopens when none is open.
+	pub reopened: Option<usize>,
+}
+
+/// Find the rows of `rows`, one entry per conversation and `None` for a room,
+/// that reach the peer holding `registration` through `directory`. Keyed by
+/// registration, so the case of a nickname or a name another member took
+/// since cannot select the wrong row.
+pub fn direct_reach<'a>(
+	rows: impl IntoIterator<Item = Option<Reaching<'a>>>,
+	directory: &str,
+	registration: &str,
+) -> DirectReach {
+	let mut reach = DirectReach::default();
+	for (at, row) in rows.into_iter().enumerate() {
+		match row {
+			Some(row) if row.reaches(directory, registration) && row.closed => reach.reopened = Some(at),
+			Some(row) if row.reaches(directory, registration) && reach.open.is_none() => reach.open = Some(at),
+			_ => {}
+		}
+	}
+	reach
+}
+
 /// Whether `row` was introduced from the directory row `directory` to the
 /// peer that holds `registration`, under any contact that directory held.
 pub fn introduced_to(row: &Direct, directory: &str, registration: &str) -> bool {
-	row.directory.text().as_str() == Some(directory)
-		&& row
-			.introduction
-			.as_ref()
-			.is_some_and(|introduction| introduction.registration.text().as_str() == Some(registration))
+	Reaching::of(row).is_some_and(|row| row.reaches(directory, registration))
 }
 
-/// Whether `row` was introduced from `directory`'s current contact to the
-/// peer that holds `registration`.
-fn introduces(row: &Direct, directory: &Directory, registration: &str) -> bool {
-	row.directory == directory.id
-		&& row.introduction.as_ref().is_some_and(|introduction| {
-			introduction.access == directory.access
-				&& Some(introduction.name) == directory.name
-				&& Some(introduction.callback) == directory.inbox
-				&& introduction.registration.text().as_str() == Some(registration)
-		})
+fn reach(intent: &Intent, directory: &str, registration: &str) -> DirectReach {
+	let rows = intent.conversations.as_slice().iter().map(|row| match row {
+		Conversation::Direct(row) => Reaching::of(row),
+		Conversation::Room(_) => None,
+	});
+	direct_reach(rows, directory, registration)
+}
+
+fn direct_at(intent: &Intent, at: usize) -> Option<&Direct> {
+	match intent.conversations.as_slice().get(at)? {
+		Conversation::Direct(row) => Some(row.as_ref()),
+		Conversation::Room(_) => None,
+	}
 }
 
 /// The open direct row that reaches the peer holding `registration` through
-/// `directory`'s current contact. Keyed by registration, so the case of a
-/// nickname or a name another member took since cannot select the wrong row.
+/// `directory`, by [`direct_reach`].
 pub fn open_direct<'a>(intent: &'a Intent, directory: &str, registration: &str) -> Option<&'a Direct> {
-	let directory = intent
-		.directories
-		.as_slice()
-		.iter()
-		.find(|row| row.id.text().as_str() == Some(directory))?;
-	intent.conversations.as_slice().iter().find_map(|row| match row {
-		Conversation::Direct(row) if !row.closed && introduces(row, directory, registration) => Some(row.as_ref()),
-		_ => None,
-	})
+	direct_at(intent, reach(intent, directory, registration).open?)
+}
+
+/// The position and row of the last closed direct row that reaches the peer
+/// holding `registration` through `directory`, by [`direct_reach`].
+pub fn reopened_direct<'a>(intent: &'a Intent, directory: &str, registration: &str) -> Option<(usize, &'a Direct)> {
+	let at = reach(intent, directory, registration).reopened?;
+	Some((at, direct_at(intent, at)?))
+}
+
+impl Direct {
+	/// Close the conversation a lost connection carried, and clear its inbox,
+	/// route, and lines.
+	pub fn retire_connection(&mut self) {
+		self.closed = true;
+		self.inbox = None;
+		self.access = None;
+		self.lines = List::default();
+	}
+}
+
+impl Intent {
+	/// Whether an open row of `self` other than `row` reaches the registration
+	/// that introduced `row`. One registration holds at most one open row,
+	/// whoever opened it and whatever rights opened it, so `row` may open only
+	/// while this is false.
+	pub(crate) fn reaches_another(&self, row: &Direct) -> bool {
+		let Some(Reaching {
+			directory,
+			registration: Some(registration),
+			..
+		}) = Reaching::of(row)
+		else {
+			return false;
+		};
+		self.conversations.as_slice().iter().any(|other| {
+			matches!(other, Conversation::Direct(other) if other.id != row.id && !other.closed
+				&& introduced_to(other, directory, registration))
+		})
+	}
 }
 
 /// The complete acquisition candidate that keeps one introduced route.
@@ -140,7 +232,8 @@ impl core::error::Error for DirectRefusal {}
 /// was prepared against and `current` the one the acquisition is checked at.
 /// `operation` is the command's operation. `access` and `source` are fresh
 /// keys for the route and the initiating access. An open row that already
-/// reaches the registration is `Open`, whoever opened it.
+/// reaches the registration is `Open`, whether this session or the peer
+/// opened it.
 pub fn adopt_direct(
 	original: &Intent,
 	current: &Intent,
@@ -173,22 +266,10 @@ pub fn adopt_direct(
 		registration: Text::new(start.registration.into()).ok_or(DirectRefusal::Arguments)?,
 		opening: Text::new(start.opening.into()).ok_or(DirectRefusal::Arguments)?,
 	};
-	let rows = || {
-		current
-			.conversations
-			.as_slice()
-			.iter()
-			.enumerate()
-			.filter_map(|(at, row)| match row {
-				Conversation::Direct(row) if introduced_to(row, start.directory, start.registration) => Some((at, row)),
-				_ => None,
-			})
-	};
-	if let Some((_, open)) = rows().find(|(_, row)| !row.closed) {
+	if let Some(open) = open_direct(current, start.directory, start.registration) {
 		return Err(DirectRefusal::Open(open.id.clone()));
 	}
-	let reopened = rows()
-		.next_back()
+	let reopened = reopened_direct(current, start.directory, start.registration)
 		.map(|(at, row)| (at, row.id.clone(), row.draft.clone()));
 	let (id, draft) = match &reopened {
 		Some((_, id, draft)) => (id.clone(), draft.clone()),

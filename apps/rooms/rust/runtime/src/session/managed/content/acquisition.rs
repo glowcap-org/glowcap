@@ -215,15 +215,32 @@ pub(super) fn references_from(
 	Ok(references)
 }
 
-pub(super) fn invoke(call: &mut Call<'_>, input: Invocation<'_>) -> Result<Argument> {
-	invoke_from(call, input, None)
+/// Invoke an import or acquisition. One that arrived on the private
+/// continuation channel commits only a write the session makes for itself
+/// (`continuing::admits`).
+pub(super) fn invoke(call: &mut Call<'_>, input: Invocation<'_>, private: bool) -> Result<Argument> {
+	invoke_checked(call, input, None, private)
 }
 pub(super) fn invoke_from(call: &mut Call<'_>, input: Invocation<'_>, source: Option<&Ref>) -> Result<Argument> {
+	invoke_checked(call, input, source, false)
+}
+fn invoke_checked(call: &mut Call<'_>, input: Invocation<'_>, source: Option<&Ref>, private: bool) -> Result<Argument> {
 	let request = Request::read(input)?;
 	let mut record = records::decode(input)?;
 	let replacement = request.prepare_workspace(input, &record)?;
 	if matches!(replacement, Err(WorkspaceConflict)) {
 		return Ok("conflict".into());
+	}
+	if private {
+		let (Ok(Some(intent)), Request::Workspace { entries, releases, .. }) = (&replacement, &request) else {
+			return Err(refuse("a private continuation acquires only a workspace"));
+		};
+		let imports: Vec<_> = entries.iter().map(|entry| entry.coordinate).collect();
+		if !continuing::admits(&record.intent, intent, &imports, releases) {
+			return Err(refuse(
+				"a private continuation installs one inbox or retires a lost connection",
+			));
+		}
 	}
 	let mut changed = false;
 	if let Request::Workspace { releases, .. } = &request {
@@ -259,7 +276,7 @@ pub(super) fn invoke_from(call: &mut Call<'_>, input: Invocation<'_>, source: Op
 		record
 			.intent
 			.replace_configuration_retiring(intent, &mut record.custody)
-			.map_err(|_| refuse("change history retention through its dedicated command"))?;
+			.map_err(refuse_configuration)?;
 		record
 			.intent
 			.validate(&record.custody)

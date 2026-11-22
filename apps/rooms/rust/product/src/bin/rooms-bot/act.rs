@@ -69,23 +69,10 @@ impl Verb {
 pub const TURN_BOT: &str = "GLOWCAP_ROOMS_TURN_BOT";
 /// The conversation of the turn a verb runs in.
 pub const TURN_CONVERSATION: &str = "GLOWCAP_ROOMS_TURN_CONVERSATION";
-/// The nicknames of the members whose room lines the turn was shown, one
-/// per line. `--dm` reaches only these from a room.
-pub const TURN_MEMBERS: &str = "GLOWCAP_ROOMS_TURN_MEMBERS";
-
-/// The value of [`TURN_MEMBERS`] for a turn shown lines from `senders`, each
-/// nickname once.
-pub fn members<'a>(senders: impl IntoIterator<Item = Option<&'a str>>) -> String {
-	let senders: std::collections::BTreeSet<&str> = senders.into_iter().flatten().collect();
-	senders.into_iter().collect::<Vec<_>>().join("\n")
-}
-
 /// The turn a verb runs in.
 pub struct Turn {
 	pub bot: PathBuf,
 	pub conversation: String,
-	/// Who wrote the room lines the turn was shown.
-	pub members: Vec<String>,
 }
 
 impl Turn {
@@ -96,11 +83,6 @@ impl Turn {
 			(Some(bot), Some(Ok(conversation))) => Ok(Self {
 				bot: bot.into(),
 				conversation,
-				members: std::env::var(TURN_MEMBERS)
-					.unwrap_or_default()
-					.lines()
-					.map(str::to_owned)
-					.collect(),
 			}),
 			_ => Err(Error::Usage(format!(
 				"say, send, command, and workspace run only during a bot's turn, which sets {TURN_BOT} and {TURN_CONVERSATION}"

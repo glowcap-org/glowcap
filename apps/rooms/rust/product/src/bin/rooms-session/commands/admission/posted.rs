@@ -3,8 +3,7 @@
 //! `startDirect` introduced. The saved acquisition owns recovery. Replay never
 //! remints a destination. The plans are the shared `adopt_line` and
 //! `adopt_direct`, which attached views also use. A route to a member an open
-//! conversation already reaches is given back, and that conversation is the
-//! answer.
+//! conversation already reaches is given back.
 use super::{Failure, Options, Value, json, request};
 use rooms_application::content::session::{
 	custody::FieldKey,
