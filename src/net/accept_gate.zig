@@ -46,7 +46,6 @@ pub fn classify(err: AcceptError) failure.AcceptError {
         error.Unexpected,
         error.ProcessFdQuotaExceeded,
         error.SystemFdQuotaExceeded,
-        error.NetworkDown,
         => error.AcceptRefused,
     };
 }
@@ -128,19 +127,6 @@ pub const Gate = struct {
         const fd = server.socket.handle;
         if (mode == .wait) {
             if (!try self.waitReadable(fd, -1)) return .would_block;
-            if (!self.nonblocking) {
-                const stream = server.accept(io) catch |err| switch (err) {
-                    error.ConnectionAborted, error.WouldBlock => return .would_block,
-                    error.SocketNotListening, error.Canceled => return error.ConnectionLost,
-                    error.ProcessFdQuotaExceeded,
-                    error.SystemFdQuotaExceeded,
-                    error.SystemResources,
-                    error.NetworkDown,
-                    => |refusal| return refusal,
-                    error.BlockedByFirewall, error.ProtocolFailure, error.Unexpected => return error.Unexpected,
-                };
-                return .{ .stream = stream };
-            }
         } else {
             try self.wake_failure.check();
             if (self.stopping.load(.acquire)) return error.ConnectionLost;
@@ -149,7 +135,7 @@ pub const Gate = struct {
                 self.nonblocking = true;
             }
         }
-        return socket.acceptNonblocking(io, fd);
+        return socket.acceptQueued(io, fd);
     }
 
     /// Wake a parked wait without releasing anything. Idempotent, so a foreign

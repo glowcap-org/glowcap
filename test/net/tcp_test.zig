@@ -215,11 +215,26 @@ test "tcp listener close wakes and joins a blocked accept" {
     try accept.await(io);
 }
 
-test "a nonblocking accept keeps an aborted arrival or an empty queue pending" {
-    const pending = @import("glowcap").net.socket_tcp.testing.pendingOnAccept;
+test "an accept keeps a lost arrival or an empty queue pending" {
+    const socket_tcp = @import("glowcap").net.socket_tcp;
+    const pending = socket_tcp.testing.pendingOnAccept;
     try std.testing.expect(pending(.CONNABORTED));
     try std.testing.expect(pending(.AGAIN));
+    // Linux reports a queued connection's own network error from accept.
+    try std.testing.expect(pending(.PROTO));
+    try std.testing.expect(pending(.NETDOWN));
+    try std.testing.expect(pending(.HOSTUNREACH));
     try std.testing.expect(!pending(.MFILE));
+    // A security module denies every accept with EPERM and dequeues nothing.
+    try std.testing.expect(!pending(.PERM));
+}
+
+test "every completion backend re-arms past a lost arrival" {
+    const accept_failure = @import("glowcap").net.socket_tcp.acceptFailure;
+    try std.testing.expectEqual(error.ConnectionAborted, accept_failure(.NETUNREACH));
+    try std.testing.expectEqual(error.ConnectionAborted, accept_failure(.PROTO));
+    try std.testing.expectEqual(error.ProcessFdQuotaExceeded, accept_failure(.MFILE));
+    try std.testing.expect(!@import("glowcap").net.completion_resident.acceptRefusalPersists(accept_failure(.HOSTDOWN)));
 }
 
 test "a full descriptor table refuses the accept and leaves the listener open" {

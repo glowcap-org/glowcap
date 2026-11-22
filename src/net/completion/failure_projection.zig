@@ -11,8 +11,9 @@ pub fn primary(comp: contract.Completion, fallback: anyerror) anyerror {
     return comp.failure orelse fallback;
 }
 
-/// A peer can reset before the backend claims its socket. The listener then
-/// waits for another arrival. Post-claim failures carry their disposition on
+/// A queued connection can fail before the backend claims its socket, and
+/// every backend reports that as `ConnectionAborted`. The listener then waits
+/// for another arrival. Post-claim failures carry their disposition on
 /// the completion. Other unclaimed refusals belong to the listener.
 pub fn acceptRefusalPersists(err: anyerror) bool {
     return err != error.ConnectionAborted;
