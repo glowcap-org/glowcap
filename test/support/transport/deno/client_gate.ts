@@ -2,6 +2,11 @@
 // readiness field from the partner's stdout within the deadline, parse the port
 // argument, and serve accepted sessions.
 
+import { readUntil } from "../../../../apps/_demo/orchestrator.ts";
+
+/** How long a partner has to print its readiness line. */
+const READY_MS = 30_000;
+
 export function fail(gate: string, msg: string): never {
 	throw new Error(`${gate} FAILED: ${msg}`);
 }
@@ -28,17 +33,8 @@ async function readReadinessField(
 	gate: string,
 	miss: string,
 ): Promise<string> {
-	const decoder = new TextDecoder();
-	let buf = "";
-	const deadline = Date.now() + 30_000;
-	while (Date.now() < deadline) {
-		const { value, done } = await reader.read();
-		if (done) break;
-		buf += decoder.decode(value, { stream: true });
-		const m = buf.match(new RegExp(`"${field}":"([^"]+)"`));
-		if (m) return m[1];
-	}
-	fail(gate, miss);
+	const [, value] = await ready(reader, new RegExp(`"${field}":"([^"]+)"`), gate, miss);
+	return value;
 }
 
 export function parseOptionalPortArg(gate: string): void {
@@ -74,14 +70,18 @@ export async function awaitGreeterReady(
 	gate: string,
 	miss = "never saw the exporter's greeter readiness line",
 ): Promise<void> {
-	const decoder = new TextDecoder();
-	let buf = "";
-	const deadline = Date.now() + 30_000;
-	while (Date.now() < deadline) {
-		const { value, done } = await reader.read();
-		if (done) break;
-		buf += decoder.decode(value, { stream: true });
-		if (buf.includes('"name":"greeter"')) return;
+	await ready(reader, /"name":"greeter"/, gate, miss);
+}
+
+async function ready(
+	reader: ReadableStreamDefaultReader<Uint8Array>,
+	pattern: RegExp,
+	gate: string,
+	miss: string,
+): Promise<RegExpMatchArray> {
+	try {
+		return await readUntil(reader, pattern, miss, READY_MS);
+	} catch (error) {
+		fail(gate, error instanceof Error ? error.message : String(error));
 	}
-	fail(gate, miss);
 }

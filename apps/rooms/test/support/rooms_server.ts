@@ -119,19 +119,24 @@ export async function withPeeringServer(
 /** Wait until the Rooms front on `port` answers `/locator` with a locator, and
  * return it trimmed. The front answers only once the room it supervises has
  * announced, so this is the one probe that means "serving and useful". `who`
- * names the front in the sentence a timeout reports. */
-export async function roomLocator(port: number, who = "rooms-web"): Promise<string> {
-	for (let i = 0; i < 400; i++) {
+ * names the front in the sentence a timeout reports. Each probe is bounded by
+ * what is left of `withinMs`, so a front that accepts and never answers fails
+ * on time. */
+export async function roomLocator(port: number, who = "rooms-web", withinMs = 20_000): Promise<string> {
+	const deadline = Date.now() + withinMs;
+	while (Date.now() < deadline) {
 		try {
-			const res = await fetch(`http://127.0.0.1:${port}/locator`);
+			const res = await fetch(`http://127.0.0.1:${port}/locator`, {
+				signal: AbortSignal.timeout(Math.max(1, deadline - Date.now())),
+			});
 			const said = (await res.text()).trim();
 			if (res.status === 200 && said.length > 0) return said;
 		} catch {
-			// not up / room not ready yet
+			// not up, the room has not announced yet, or this probe ran out of time
 		}
 		await delay(50);
 	}
-	throw new Error(`${who} did not answer with a room locator`);
+	throw new Error(`${who} did not answer with a room locator within ${withinMs} ms`);
 }
 
 /** The TCP port of the room the front on `httpPort` supervises, read from the

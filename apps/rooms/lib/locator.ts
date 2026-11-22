@@ -29,6 +29,7 @@ import {
 import type { Ref } from "@glowcap/runtime";
 import { roomsHostOptions, type RoomsHostPosture } from "./profile.ts";
 import { isUriLocator } from "./doors.ts";
+import { readAnnouncement } from "../../_demo/orchestrator.ts";
 
 /** The token the server prints after `ROOMS-SERVER-LISTENING`. */
 const ANNOUNCE_RE = /ROOMS-SERVER-LISTENING (\S+)/;
@@ -46,29 +47,20 @@ function announceToLocator(token: string): string {
 
 /** Read a rooms server child's first `ROOMS-SERVER-LISTENING <token>` line from
  * its stdout and resolve it to a dial locator (a TCP `host:port`, or an iroh
- * `ocapn://` URI), giving up after `deadlineMs`. The orchestrator and the web
- * bridge both spawn a server and wait for this line, so the reader lives here
- * beside the announce vocabulary it parses. */
+ * `ocapn://` URI), giving up after `deadlineMs`. The Rooms demo and the Goblins
+ * Rooms harness both spawn a server and wait for this line, so the reader lives
+ * here beside the announce vocabulary it parses. */
 export async function readAnnouncedLocator(
 	proc: Deno.ChildProcess,
 	deadlineMs = 10_000,
 ): Promise<string> {
-	const reader = proc.stdout.getReader();
-	const decoder = new TextDecoder();
-	let buf = "";
-	const deadline = Date.now() + deadlineMs;
-	try {
-		while (Date.now() < deadline) {
-			const { value, done } = await reader.read();
-			if (done) break;
-			buf += decoder.decode(value);
-			const m = buf.match(ANNOUNCE_RE);
-			if (m) return announceToLocator(m[1]);
-		}
-	} finally {
-		reader.releaseLock();
-	}
-	throw new Error("rooms server never announced its locator");
+	const [, token] = await readAnnouncement(
+		proc.stdout,
+		ANNOUNCE_RE,
+		"rooms server never announced its locator",
+		deadlineMs,
+	);
+	return announceToLocator(token);
 }
 
 export interface RoomsRuntime {

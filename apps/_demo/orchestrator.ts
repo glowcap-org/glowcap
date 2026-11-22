@@ -100,26 +100,53 @@ export async function buildRust(
 	return true;
 }
 
-async function readAnnouncement(
+/** Read `reader` until its text matches `pattern`, and return the match.
+ *
+ * The deadline bounds the whole wait, including a read the child never
+ * answers, so a child that stays up without printing the line fails as fast as
+ * one that exits. Either failure starts with `miss` and carries what the child
+ * printed. The caller keeps the reader. */
+export async function readUntil(
 	reader: ReadableStreamDefaultReader<Uint8Array>,
 	pattern: RegExp,
 	miss: string,
+	deadlineMs: number,
 ): Promise<RegExpMatchArray> {
 	const decoder = new TextDecoder();
 	let buf = "";
-	const deadline = Date.now() + 10_000;
-	while (Date.now() < deadline) {
-		const { value, done } = await reader.read();
-		if (done) break;
-		buf += decoder.decode(value, { stream: true });
-		const m = buf.match(pattern);
-		if (m) {
-			reader.releaseLock();
-			return m;
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	const expired = new Promise<null>((resolve) => {
+		timer = setTimeout(() => resolve(null), deadlineMs);
+	});
+	try {
+		for (;;) {
+			// A read still pending at the deadline stays observed by this race.
+			const next = await Promise.race([reader.read(), expired]);
+			if (next === null) throw new Error(`${miss} within ${deadlineMs} ms\n${buf}`);
+			if (next.done) throw new Error(`${miss}: its output closed\n${buf}`);
+			buf += decoder.decode(next.value, { stream: true });
+			const m = buf.match(pattern);
+			if (m) return m;
 		}
+	} finally {
+		clearTimeout(timer);
 	}
-	reader.releaseLock();
-	throw new Error(miss);
+}
+
+/** Read an announcement from one of a child's pipes, such as a listening port
+ * and locator, then unlock the pipe for the caller to drain. */
+export async function readAnnouncement(
+	stream: ReadableStream<Uint8Array>,
+	pattern: RegExp,
+	miss: string,
+	deadlineMs = 10_000,
+): Promise<RegExpMatchArray> {
+	const reader = stream.getReader();
+	try {
+		return await readUntil(reader, pattern, miss, deadlineMs);
+	} finally {
+		reader.releaseLock();
+	}
 }
 
 /** Read an announcement on stderr, such as a listening port and locator. */
@@ -128,7 +155,7 @@ export async function readStderrAnnouncement(
 	pattern: RegExp,
 	miss: string,
 ): Promise<RegExpMatchArray> {
-	return await readAnnouncement(proc.stderr.getReader(), pattern, miss);
+	return await readAnnouncement(proc.stderr, pattern, miss);
 }
 
 export function rejectAttach(
@@ -290,9 +317,7 @@ export async function runCrossLangDemo(
 
 	let failed = false;
 	try {
-		const announced = server
-			? await readAnnouncement(server.stdout.getReader(), demo.listenPattern, demo.listenMiss)
-			: null;
+		const announced = server ? await readAnnouncement(server.stdout, demo.listenPattern, demo.listenMiss) : null;
 		const port = announced ? Number(announced[1]) : pinPort;
 		const captures = announced ? announced.slice(2) : await attachedCaptures(demo, port);
 		console.log(
