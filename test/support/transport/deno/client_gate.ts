@@ -4,8 +4,8 @@
 
 import { readUntil } from "../../../../apps/_demo/orchestrator.ts";
 
-/** How long a partner has to print its readiness line. */
-const READY_MS = 30_000;
+/** How long a partner has to print its readiness line: under the step's 30 s process deadline, so the gate names the miss before the build stops it. */
+const READY_MS = 20_000;
 
 export function fail(gate: string, msg: string): never {
 	throw new Error(`${gate} FAILED: ${msg}`);

@@ -7,6 +7,10 @@ import asyncio
 import re
 import sys
 from pathlib import Path
+from typing import NoReturn
+
+# How long a partner has to print its readiness line: under the step's 30 s process deadline, so the gate names the miss before the build stops it.
+READY_SECONDS = 20.0
 
 
 def insert_bindings_path() -> None:
@@ -15,7 +19,7 @@ def insert_bindings_path() -> None:
     sys.path.insert(0, str(root / "bindings" / "python"))
 
 
-def fail(gate: str, msg: str) -> None:
+def fail(gate: str, msg: str) -> NoReturn:
     print(f"{gate} FAILED: {msg}", file=sys.stderr)
     raise SystemExit(1)
 
@@ -50,17 +54,25 @@ async def read_sturdyref_path(
 
 
 async def _read_readiness_field(proc: asyncio.subprocess.Process, gate: str, field: str, *, miss: str) -> str:
+    pattern = rb'"' + re.escape(field.encode()) + rb'":"([^"]+)"'
+    return (await _ready_line(proc, gate, pattern, miss=miss)).group(1).decode()
+
+
+async def _ready_line(proc: asyncio.subprocess.Process, gate: str, pattern: bytes, *, miss: str) -> re.Match[bytes]:
+    """Read the partner's stdout until a line matches ``pattern``. The deadline
+    bounds the whole wait, including a read the partner never answers."""
     assert proc.stdout is not None
-    deadline = asyncio.get_running_loop().time() + 30.0
-    while asyncio.get_running_loop().time() < deadline:
-        line = await asyncio.wait_for(proc.stdout.readline(), timeout=30.0)
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + READY_SECONDS
+    while True:
+        try:
+            line = await asyncio.wait_for(proc.stdout.readline(), timeout=max(0.0, deadline - loop.time()))
+        except TimeoutError:
+            fail(gate, f"{miss} within {READY_SECONDS:g} s")
         if not line:
-            break
-        m = re.search(rb'"' + field.encode() + rb'":"([^"]+)"', line)
-        if m:
-            return m.group(1).decode()
-    fail(gate, miss)
-    raise AssertionError  # unreachable
+            fail(gate, f"{miss}: its output closed")
+        if m := re.search(pattern, line):
+            return m
 
 
 async def accept_loop(server) -> None:
@@ -72,12 +84,4 @@ async def accept_loop(server) -> None:
 async def await_greeter_ready(
     proc: asyncio.subprocess.Process, gate: str, *, miss: str = "never saw the exporter's greeter readiness line"
 ) -> None:
-    assert proc.stdout is not None
-    deadline = asyncio.get_running_loop().time() + 30.0
-    while asyncio.get_running_loop().time() < deadline:
-        line = await asyncio.wait_for(proc.stdout.readline(), timeout=30.0)
-        if not line:
-            break
-        if b'"name":"greeter"' in line:
-            return
-    fail(gate, miss)
+    await _ready_line(proc, gate, rb'"name":"greeter"', miss=miss)
