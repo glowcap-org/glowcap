@@ -11,6 +11,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const completion = @import("loop.zig");
+const contract = @import("contract.zig");
 
 const linux = std.os.linux;
 
@@ -189,7 +190,25 @@ pub const testing = if (builtin.is_test) struct {
     pub const pendingOnAccept = acceptPending;
 } else struct {};
 
-pub fn acceptNonblocking(io: std.Io, listener: std.posix.fd_t) error{ConnectionLost}!ReadyAccept {
+/// Why the kernel refused an accept on a live listener: the descriptor
+/// quotas, memory, or an errno no other row names. The listener stays open,
+/// and its owner decides whether to retry.
+pub const AcceptRefusal = error{ ProcessFdQuotaExceeded, SystemFdQuotaExceeded, SystemResources, OutOfMemory, NetworkDown, Unexpected };
+
+/// The refusal one accept errno names, through the projection the completion
+/// backends share.
+pub fn acceptRefusal(errno: std.posix.E) AcceptRefusal {
+    return switch (contract.failureFromErrno(errno)) {
+        error.ProcessFdQuotaExceeded => error.ProcessFdQuotaExceeded,
+        error.SystemFdQuotaExceeded => error.SystemFdQuotaExceeded,
+        error.SystemResources => error.SystemResources,
+        error.OutOfMemory => error.OutOfMemory,
+        error.NetworkDown => error.NetworkDown,
+        else => error.Unexpected,
+    };
+}
+
+pub fn acceptNonblocking(io: std.Io, listener: std.posix.fd_t) (AcceptRefusal || error{ConnectionLost})!ReadyAccept {
     const posix = std.posix;
     const linux_target = builtin.target.os.tag == .linux;
     while (true) {
@@ -203,7 +222,7 @@ pub fn acceptNonblocking(io: std.Io, listener: std.posix.fd_t) error{ConnectionL
         const errno = posix.errno(rc);
         if (errno == .INTR) continue;
         if (acceptPending(errno)) return .would_block;
-        if (errno != .SUCCESS) return error.ConnectionLost;
+        if (errno != .SUCCESS) return acceptRefusal(errno);
         const fd: posix.fd_t = @intCast(rc);
         // Linux accept4 creates a blocking, close-on-exec stream. BSD's
         // accept inherits O_NONBLOCK from the listener and needs both flags.

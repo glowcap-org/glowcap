@@ -29,6 +29,7 @@ pub const BoundListener = socket_tcp.BoundListener;
 pub const boundIp4 = socket_tcp.boundIp4;
 pub const ReadyAccept = socket_tcp.ReadyAccept;
 pub const acceptNonblocking = socket_tcp.acceptNonblocking;
+pub const AcceptRefusal = socket_tcp.AcceptRefusal;
 pub const setNonblocking = socket_tcp.setNonblocking;
 pub const setNoSigpipe = socket_tcp.setNoSigpipe;
 pub const setCloseOnExec = socket_tcp.setCloseOnExec;

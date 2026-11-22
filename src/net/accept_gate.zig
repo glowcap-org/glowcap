@@ -16,13 +16,49 @@
 
 const std = @import("std");
 
+const failure = @import("netlayer/failure.zig");
 const poll = @import("poll.zig");
 const socket = @import("socket.zig");
 const wake_channel = @import("wake_channel.zig");
 
 pub const AcceptMode = enum { wait, ready };
 
-pub const WaitError = error{ ConnectionLost, WakeNudgeFailed, WakeDrainFailed };
+/// `ConnectionLost` is the listener shutting down. A refused poll keeps its
+/// own cause, as do the wake channel's faults.
+pub const WaitError = error{ ConnectionLost, WakeNudgeFailed, WakeDrainFailed } || poll.WaitError;
+
+/// A wait's failures, or the kernel refusing the accept itself on a listener
+/// that stays open.
+pub const AcceptError = WaitError || socket.AcceptRefusal;
+
+/// The netlayer contract's name for a gate failure. Shutdown and the wake
+/// faults keep theirs, and the kernel refusing the accept or its wait is
+/// `AcceptRefused`: the listener is still open. The gate allocates nothing, so
+/// its `OutOfMemory` is the kernel's.
+pub fn classify(err: AcceptError) failure.AcceptError {
+    return switch (err) {
+        error.ConnectionLost => error.ConnectionLost,
+        error.WakeNudgeFailed => error.WakeNudgeFailed,
+        error.WakeDrainFailed => error.WakeDrainFailed,
+        error.OutOfMemory,
+        error.SystemResources,
+        error.InvalidWait,
+        error.Unexpected,
+        error.ProcessFdQuotaExceeded,
+        error.SystemFdQuotaExceeded,
+        error.NetworkDown,
+        => error.AcceptRefused,
+    };
+}
+
+/// Whether `err` is one of the gate's own failures, for a caller whose error
+/// set merges the gate's with its own.
+pub fn owns(comptime err: anyerror) bool {
+    for (@typeInfo(AcceptError).error_set.error_names.?) |name| {
+        if (std.mem.eql(u8, name, @errorName(err))) return true;
+    }
+    return false;
+}
 
 const readable_mask = std.posix.POLL.IN | std.posix.POLL.HUP | std.posix.POLL.ERR;
 
@@ -58,7 +94,7 @@ pub const Gate = struct {
     /// Under the lease, wait until `fd` is readable or `timeout_ms` passes (a
     /// negative timeout waits forever). Returns true when `fd` is readable and
     /// false on timeout. A shutdown that happened before the call or arrives
-    /// during it returns `ConnectionLost`.
+    /// during it returns `ConnectionLost`, and a refused poll its own cause.
     ///
     /// The shutdown branch drains the wake channel before returning. The nudge
     /// byte is the only thing that ever makes the wake half readable, and the
@@ -74,7 +110,7 @@ pub const Gate = struct {
             .{ .fd = fd, .events = std.posix.POLL.IN, .revents = 0 },
             .{ .fd = self.wake.read, .events = std.posix.POLL.IN, .revents = 0 },
         };
-        const ready = poll.wait(&fds, timeout_ms) catch return error.ConnectionLost;
+        const ready = try poll.wait(&fds, timeout_ms);
         try self.wake_failure.check();
         if (self.stopping.load(.acquire) or fds[1].revents & readable_mask != 0) {
             self.wake.drain() catch |err| {
@@ -88,14 +124,20 @@ pub const Gate = struct {
 
     /// Under the listener lease, take one ready socket. A peer can disappear
     /// between readiness and accept. The caller then has no stream to claim.
-    pub fn acceptStream(self: *Gate, io: std.Io, server: *std.Io.net.Server, mode: AcceptMode) WaitError!socket.ReadyAccept {
+    pub fn acceptStream(self: *Gate, io: std.Io, server: *std.Io.net.Server, mode: AcceptMode) AcceptError!socket.ReadyAccept {
         const fd = server.socket.handle;
         if (mode == .wait) {
             if (!try self.waitReadable(fd, -1)) return .would_block;
             if (!self.nonblocking) {
                 const stream = server.accept(io) catch |err| switch (err) {
                     error.ConnectionAborted, error.WouldBlock => return .would_block,
-                    else => return error.ConnectionLost,
+                    error.SocketNotListening, error.Canceled => return error.ConnectionLost,
+                    error.ProcessFdQuotaExceeded,
+                    error.SystemFdQuotaExceeded,
+                    error.SystemResources,
+                    error.NetworkDown,
+                    => |refusal| return refusal,
+                    error.BlockedByFirewall, error.ProtocolFailure, error.Unexpected => return error.Unexpected,
                 };
                 return .{ .stream = stream };
             }

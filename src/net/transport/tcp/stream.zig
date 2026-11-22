@@ -24,6 +24,7 @@ const netlayer = @import("../../netlayer.zig");
 const addressing = @import("addressing.zig");
 const profile_listener = @import("listener.zig");
 const runtime = @import("runtime.zig");
+const accept_gate = @import("../../accept_gate.zig");
 
 const NetLayerListener = netlayer.Listener;
 const Buffers = netlayer.Buffers;
@@ -195,8 +196,10 @@ pub fn classifyConnect(err: (ConnectRawError || std.mem.Allocator.Error)) netlay
 
 pub fn classifyAccept(err: runtime.AcceptError) netlayer.AcceptError {
     return switch (err) {
-        error.ConnectionLost => error.ConnectionLost,
-        else => error.SocketConfigurationFailed,
+        inline else => |e| if (comptime accept_gate.owns(e))
+            accept_gate.classify(e)
+        else
+            error.SocketConfigurationFailed,
     };
 }
 
@@ -286,7 +289,7 @@ const BorrowedShell = netlayer.ListenerShell(struct {
     }
 
     pub fn waitAcceptable(self: *Listener, timeout_ms: i32) netlayer.AcceptError!bool {
-        return self.waitAcceptable(timeout_ms);
+        return self.waitAcceptable(timeout_ms) catch |err| accept_gate.classify(err);
     }
 
     pub fn localLocator(self: *Listener, allocator: std.mem.Allocator) netlayer.ListenError!model.PeerLocator {

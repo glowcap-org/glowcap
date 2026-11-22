@@ -418,12 +418,12 @@ pub const Resident = struct {
     /// Park on the readiness fd for at most `timeout_ms`, then perform the same
     /// ordered wake-byte and record drain as `drainReady`. This is the blocking
     /// embedding helper. Reactors register `readinessFd` and call `drainReady`
-    /// from their own poller instead.
-    pub fn pollReady(self: *const Resident, out: []ReadyEvent, timeout_ms: i32) error{ReadinessFailed}!usize {
+    /// from their own poller instead. A refused poll keeps its own cause.
+    pub fn pollReady(self: *const Resident, out: []ReadyEvent, timeout_ms: i32) (error{ReadinessFailed} || net.poll.WaitError)!usize {
         const fd = self.readinessFd();
         if (fd < 0) return error.ReadinessFailed;
         var fds = [_]std.posix.pollfd{.{ .fd = fd, .events = std.posix.POLL.IN, .revents = 0 }};
-        const ready = net.poll.wait(&fds, timeout_ms) catch return error.ReadinessFailed;
+        const ready = try net.poll.wait(&fds, timeout_ms);
         if (ready == 0) return 0;
         if (fds[0].revents & (std.posix.POLL.IN | std.posix.POLL.ERR | std.posix.POLL.HUP) == 0) return error.ReadinessFailed;
         return self.drainReady(out);

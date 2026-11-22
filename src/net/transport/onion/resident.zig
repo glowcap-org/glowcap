@@ -442,11 +442,12 @@ pub const Listener = struct {
     /// complete wrapper construction so concurrent deinit cannot free listener
     /// state between the kernel accept and the last read of `self.io`.
     fn acceptStreamLocked(self: *Listener) netlayer.AcceptError!Stream {
-        return (try self.gate.acceptStream(self.io, &self.server, .wait)).unwrap();
+        const accepted = self.gate.acceptStream(self.io, &self.server, .wait) catch |err| return accept_gate.classify(err);
+        return accepted.unwrap();
     }
 
     /// Claim one ready unframed stream for the event-driven provider.
-    pub fn acceptReadyStream(self: *Listener) accept_gate.WaitError!socket.ReadyAccept {
+    pub fn acceptReadyStream(self: *Listener) accept_gate.AcceptError!socket.ReadyAccept {
         self.gate.lock(self.io);
         defer self.gate.unlock(self.io);
         return self.gate.acceptStream(self.io, &self.server, .ready);
@@ -458,7 +459,7 @@ pub const Listener = struct {
     pub fn waitAcceptable(self: *Listener, timeout_ms: i32) netlayer.AcceptError!bool {
         self.gate.lock(self.io);
         defer self.gate.unlock(self.io);
-        return self.gate.waitReadable(self.server.socket.handle, timeout_ms);
+        return self.gate.waitReadable(self.server.socket.handle, timeout_ms) catch |err| accept_gate.classify(err);
     }
 
     /// Wake a blocked accept without releasing listener storage. This is the
