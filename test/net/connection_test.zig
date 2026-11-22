@@ -516,3 +516,49 @@ test "a multiplexed wait refuses a connection with no descriptor before polling"
     // A negative timeout would park forever if the row reached poll.
     try std.testing.expectError(error.NotPollable, net.waitAnyReadable(&.{&conn}, &pollfds, -1, &.{}));
 }
+
+test "connection blocking waits preserve the kernel resource refusal" {
+    const Fixture = struct {
+        descriptor: std.Io.net.Socket.Handle,
+
+        fn close(_: *anyopaque) void {}
+        fn socket(ctx: *anyopaque) ?std.Io.net.Socket.Handle {
+            const self: *const @This() = @ptrCast(@alignCast(ctx));
+            return self.descriptor;
+        }
+        fn tryClose(_: *anyopaque) net.ConnectionCloseProgress {
+            return .wait_read;
+        }
+        fn done(_: *engine.Peer) bool {
+            return false;
+        }
+    };
+
+    const allocator = std.testing.allocator;
+    const channel = try net.wake_channel.WakeChannel.open();
+    defer channel.deinit();
+    var fixture = Fixture{ .descriptor = channel.read };
+    var threaded = std.Io.Threaded.init(allocator, .{});
+    defer threaded.deinit();
+    var peer = handshake.stubPeer(allocator);
+    defer peer.deinit();
+    var reader = std.Io.Reader.fixed("");
+    var storage: [1]u8 = undefined;
+    var writer = std.Io.Writer.fixed(&storage);
+    var conn = net.Connection.init(threaded.io(), &peer, &reader, &writer, .{
+        .ctx = &fixture,
+        .close_fn = Fixture.close,
+        .try_close_fn = Fixture.tryClose,
+        .socket_handle_fn = Fixture.socket,
+    });
+    defer conn.deinit();
+
+    var script: net.poll.testing.Script = .{ .errnos = &.{ .NOMEM, .NOMEM } };
+    const guard = net.poll.testing.inject(&script);
+    defer guard.deinit();
+    const run = conn.runUntil(Fixture.done, 100);
+    const close_failure = conn.closeGracefully(100).?;
+    try std.testing.expectEqual(@as(usize, 2), script.calls);
+    try std.testing.expectError(error.SystemResources, run);
+    try std.testing.expectEqual(error.SystemResources, close_failure.cause);
+}

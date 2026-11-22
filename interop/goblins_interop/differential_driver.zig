@@ -168,6 +168,8 @@ pub fn probe(
     const slice_ms: i32 = @intCast(@min(deadline_ms, std.math.maxInt(i32)));
     const progress = conn.runUntil(watching, slice_ms) catch |err| switch (err) {
         error.Timeout => return .silent,
+        // A refused local wait says nothing about the peer's verdict.
+        error.SystemResources, error.InvalidWait, error.Unexpected => |wait_err| return wait_err,
         else => return .refused,
     };
     if (Watch.answered) return .accepted;

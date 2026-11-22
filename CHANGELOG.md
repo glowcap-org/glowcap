@@ -22,6 +22,7 @@ Releases before 0.1.7 are in the
 - Use the browser's login on the Rooms server's own page and explain when Settings cannot read a server reply.
 - Stop a Racket call on the driver loop from waiting forever when its answer arrives just as it starts waiting.
 - Stop a Racket server on the driver loop from spinning a core while a session sits idle.
+- Report a refused `poll` from `Connection.runUntil` and `Connection.closeGracefully` as its own cause, such as `SystemResources`, instead of `ConnectionLost`. A Zig switch over `runUntil`'s errors needs arms for `SystemResources`, `InvalidWait`, and `Unexpected`.
 
 ### Security
 
