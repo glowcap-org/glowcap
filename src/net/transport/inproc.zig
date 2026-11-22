@@ -35,6 +35,7 @@ const model = @import("model");
 const netlayer = @import("../netlayer.zig");
 const connection = @import("../connection.zig");
 const poll = @import("../poll.zig");
+const accept_gate = @import("../accept_gate.zig");
 const wake_channel = @import("../wake_channel.zig");
 const stream = @import("inproc/stream.zig");
 
@@ -489,9 +490,9 @@ fn listenerWaitAcceptable(self: *InprocListener, timeout_ms: i32) netlayer.Accep
         .events = std.posix.POLL.IN,
         .revents = 0,
     }};
-    const ready = poll.wait(&fds, timeout_ms) catch {
+    const ready = poll.wait(&fds, timeout_ms) catch |err| {
         self.mutex.lockUncancelable(io);
-        return error.ConnectionLost;
+        return accept_gate.classify(err);
     };
     self.mutex.lockUncancelable(io);
     try self.wake_failure.check();
