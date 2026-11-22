@@ -1,6 +1,7 @@
 {
   "compilerOptions": { "lib": ["deno.window", "dom", "dom.iterable"] },
   "license": "Apache-2.0",
+  "minimumDependencyAge": "P7D",
   "workspace": [
     "./abi",
     "./runtime",

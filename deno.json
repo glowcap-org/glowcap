@@ -1,5 +1,6 @@
 {
   "license": "Apache-2.0",
+  "minimumDependencyAge": "P7D",
   "imports": {
     "@glowcap/runtime/text": "./bindings/ts/runtime/text.ts",
     "@glowcap/runtime": "./bindings/ts/runtime/mod.ts",
