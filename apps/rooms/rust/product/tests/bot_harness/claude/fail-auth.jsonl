@@ -1,0 +1,3 @@
+{"type":"system","subtype":"init","session_id":"d09eda0b-6788-4e52-a918-fccdf1ed29f8","cwd":"<WORKDIR>","model":"claude-fable-5-2","permissionMode":"default"}
+{"type":"assistant","session_id":"d09eda0b-6788-4e52-a918-fccdf1ed29f8","error":"authentication_failed","message":{"role":"assistant","content":[{"type":"text","text":"Not logged in · Please run /login"}]}}
+{"type":"result","subtype":"success","is_error":true,"api_error_status":null,"terminal_reason":"api_error","result":"Not logged in · Please run /login","session_id":"d09eda0b-6788-4e52-a918-fccdf1ed29f8","permission_denials":[]}

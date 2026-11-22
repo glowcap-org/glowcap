@@ -13,7 +13,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { createElement } from "react";
 import { RichText } from "../web/ui/panes/RichText.tsx";
-import { readMarkdown } from "../web/ui/markdown.ts";
+import { readRichText } from "../web/ui/markdown.ts";
 import { writingExamples } from "../lib/text/writing.ts";
 import { keyLabel, markerFor, wrapSelection } from "../web/ui/composer/keys.ts";
 import { assertEquals } from "./assert.ts";
@@ -26,9 +26,10 @@ function drawn(text: string): string {
 
 Deno.test("every writing example parses whole", () => {
 	for (const example of writingExamples) {
-		const document = readMarkdown(example.source);
-		if (document.degraded !== undefined) {
-			fail(`${example.what}: the parser degraded it (${document.degraded})`);
+		for (const { document } of readRichText(example.source)) {
+			if (document.degraded !== undefined) {
+				fail(`${example.what}: the parser degraded it (${document.degraded})`);
+			}
 		}
 	}
 });

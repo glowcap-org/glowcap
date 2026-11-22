@@ -39,9 +39,12 @@ impl Options {
 		if options.number("wait", 30)? > 30 {
 			return Err(Failure::invalid("--wait must be 0..30"));
 		}
-		for id in options.values("id") {
-			id.parse::<u64>()
-				.map_err(|_| Failure::invalid("--id needs an unsigned integer"))?;
+		// An event's id is a number. An access's id is the text its list shows.
+		if !options.verb.starts_with("access-") {
+			for id in options.values("id") {
+				id.parse::<u64>()
+					.map_err(|_| Failure::invalid("--id needs an unsigned integer"))?;
+			}
 		}
 		if matches!(options.verb.as_str(), "reply" | "leave") {
 			let count = ["id", "room", "dm", "conversation"]

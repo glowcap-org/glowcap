@@ -442,6 +442,7 @@ LOCAL = {
     "glowcap": SERVES,
     "ocapnviz-dev": SERVES,
     "rooms-archive": SERVES,
+    "rooms-bot": SERVES,
     "rooms-chat": SERVES,
     "rooms-client": SERVES,
     "rooms-dev": SERVES,

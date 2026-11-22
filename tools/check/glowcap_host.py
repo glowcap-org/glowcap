@@ -21,6 +21,7 @@ import tempfile
 import time
 from pathlib import Path
 
+from deployment.bot_example import bot_example
 from deployment.checkout import checkout_deployment
 from deployment.confirmation import reset_prompt
 from deployment.volumes import selected_volumes
@@ -246,6 +247,7 @@ def lifecycle(deploy, root):
     log, env, workspace, call = deploy.log, deploy.env, deploy.workspace, deploy.call
     call("doctor")
     assert not workspace.exists(), "doctor created state"
+    bot_example(root / "share/glowcap/deployment/docker-compose.override.yml.example")
     before_up = log.read_text()
     started = call("up", "--image", "example/rooms:test")
     page = "Open the page:\nhttps://glowcap.org/rooms/app/?server=http%3A%2F%2Flocalhost%3A8080%2F"
@@ -253,6 +255,16 @@ def lifecycle(deploy, root):
     assert "Shared session use link:\nocapn://fixture" in started.stdout, started.stdout
     assert "Shared session management link:\nocapn://management" in started.stdout, started.stdout
     assert "ROOMS-TRACE-LISTENING ocapn://127.0.0.1%3A9300.tcp/s/" in started.stdout, started.stdout
+    # Logs name any service Compose knows, including ones the override adds.
+    before_logs = len(log.read_text())
+    call("logs", "directory", "bot")
+    logged = [json.loads(line) for line in log.read_text()[before_logs:].splitlines()]
+    assert any(a[-4:] == ["logs", "-f", "directory", "bot"] for a in logged), logged
+    call("logs", "--", "--since=1h", ok=False)
+    # The selected image is also named for builders that cannot take an image ID.
+    assert ["image", "tag", "sha256:" + "a" * 64, "glowcap-rooms:selected"] in [
+        json.loads(line) for line in log.read_text()[len(before_up) :].splitlines()
+    ]
     before_trace = len(log.read_text())
     call("trace", "--json")
     call("trace")

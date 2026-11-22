@@ -8,6 +8,7 @@ pub mod inbox;
 pub mod invitation;
 pub mod line;
 pub mod membership;
+pub mod mentions;
 pub mod message;
 pub mod operation;
 pub mod policy;

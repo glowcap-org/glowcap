@@ -112,8 +112,8 @@ pub fn register(b: *std.Build, check_step: *std.Build.Step, runtime_gate: *execu
     // not name, and for the `--all-targets` compile.
     const lint = commands.addRootedSystemCommand(b, .build_tool, &.{
         "cargo",       "clippy",        "--quiet",    "--locked",                 "--manifest-path", "apps/rooms/rust/Cargo.toml",
-        "--workspace", "--all-targets", "--features", "rooms-services/processes", "--",              "-D",
-        "warnings",
+        "--workspace", "--all-targets", "--features", "rooms-services/processes", "--features",      "rooms-product/test-support",
+        "--",          "-D",            "warnings",
     });
     // Metadata checking does not link the C archives. An explicit path avoids
     // download discovery without installing unrelated transport artifacts.

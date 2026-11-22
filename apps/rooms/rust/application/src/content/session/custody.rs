@@ -45,6 +45,12 @@ impl<K> FieldKey<K> {
 	pub const fn generation(self) -> NonZeroU64 {
 		self.generation
 	}
+	/// A fresh key from eight-byte halves of platform entropy. `None` when
+	/// either half is zero, which no key admits.
+	pub fn from_entropy(entropy: [u8; 16]) -> Option<Self> {
+		let half = |bytes: &[u8]| -> Option<NonZeroU64> { NonZeroU64::new(u64::from_be_bytes(bytes.try_into().ok()?)) };
+		Some(Self::new(half(&entropy[..8])?, half(&entropy[8..])?))
+	}
 	/// The same slot and generation under another role tag.
 	pub const fn retag<T>(self) -> FieldKey<T> {
 		FieldKey::new(self.slot, self.generation)

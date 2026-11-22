@@ -58,6 +58,13 @@ where
 	Ok(Some(receipt))
 }
 
+/// Whether `receipt` committed a result its source has not adopted. Only that
+/// source can adopt or release it, so the replay window never evicts it. The
+/// session releases it once that source's access is revoked.
+pub fn awaits_adoption<R: References>(receipt: &EffectReceipt<R>) -> bool {
+	!receipt.adopted && matches!(&receipt.outcome, Outcome::Committed { retained, .. } if !retained.is_empty())
+}
+
 /// Install a new unresolved receipt in the candidate graph. Only terminal
 /// receipts may leave the bounded replay window. Staging/commit belongs to
 /// Loam. This transition cannot activate an external effect.
@@ -86,10 +93,10 @@ where
 		let retired = receipts
 			.0
 			.iter()
-			.position(|receipt| match &receipt.outcome {
-				Outcome::Unresolved => false,
-				Outcome::Committed { retained, .. } if !retained.is_empty() && !receipt.adopted => false,
-				_ => !is_pinned(&receipt.operation),
+			.position(|receipt| {
+				!matches!(receipt.outcome, Outcome::Unresolved)
+					&& !awaits_adoption(receipt)
+					&& !is_pinned(&receipt.operation)
 			})
 			.ok_or(Refusal::Capacity)?;
 		receipts.0.remove(retired);

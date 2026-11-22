@@ -24,7 +24,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Activity<P> {
 					"kind":"line","from":origin.from,"text":text,"metadata":{"operation":operation},
 					"marker":{"id":origin.id.get(),"change":change.event_change()},
 					"previewUrls":origin.previews.urls()
-				}})
+				},"mentions":rooms_application::room::mentions::Mentions::default()})
 				.to_string(),
 				history: History::Reserved.into(),
 				origin: Origin::Outgoing {

@@ -9,6 +9,7 @@ use serde::Serialize;
 use url::Url;
 
 mod extensions;
+pub mod rich;
 use extensions::{extensions, spoilers};
 
 const DOCUMENT_VERSION: u8 = 1;
@@ -180,23 +181,6 @@ impl Document {
 			}],
 			degraded: Some(why),
 		}
-	}
-
-	#[must_use]
-	pub fn mentions(&self, nick: &str) -> bool {
-		let nick = nick.to_lowercase();
-		let mut pending: Vec<&Node> = self.blocks.iter().collect();
-		while let Some(node) = pending.pop() {
-			if let Node::Mention { name, room } = node
-				&& (*room || (!nick.is_empty() && name.to_lowercase() == nick))
-			{
-				return true;
-			}
-			if let Some(children) = node.children() {
-				pending.extend(children);
-			}
-		}
-		false
 	}
 }
 

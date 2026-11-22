@@ -57,6 +57,14 @@ pub fn add(b: *std.Build, in: Inputs) void {
     b.step("rooms-session", "Run the public Rooms session command; pass `-- <verb> [flags]`")
         .dependOn(&rooms_session.step);
 
+    const rooms_bot = commands.addInstalledSystemRun(b, .service, &.{"env"});
+    rooms_bot.addFileArg(.{ .relative = .{ .base = .install_prefix, .sub_path = "bin/glowcap" } });
+    rooms_bot.addArgs(&.{ "apps", "rooms", "bot" });
+    rooms_bot.addPassthruArgs();
+    rooms_bot.step.dependOn(&b.top_level_steps.get("rooms-bot-build").?.step);
+    b.step("rooms-bot", "Run the public Rooms bot command; pass `-- <verb> [flags]`")
+        .dependOn(&rooms_bot.step);
+
     const iroh_stub = b.createModule(.{
         .root_source_file = b.path("tools/gen/stub/iroh_sidecar.zig"),
         .target = in.target,

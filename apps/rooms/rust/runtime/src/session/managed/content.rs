@@ -27,6 +27,7 @@ pub(super) mod recording;
 mod retention;
 mod signaling;
 mod snapshot;
+mod unadopted;
 use super::{
 	State, bridge,
 	records::{self, Field, References},
@@ -112,6 +113,7 @@ impl<P: Tasks + Deadline + Clone + 'static> SessionContent<P> {
 		use Permission::*;
 		match input.verb {
 			"retire-room-authority" => authority::requirement(input, &owner.writer.root()?),
+			"unadopted-effects" | "release-unadopted-effect" => unadopted::requirement(input, &owner.writer.root()?),
 			"observe-direct-connection" => connection::requirement(input, &owner.writer.root()?),
 			"observe-archive-connection" => archive_connection::requirement(input, &owner.writer.root()?),
 			"record-inbox" => {
@@ -428,6 +430,9 @@ impl<P: Tasks + Deadline + Clone + 'static> Content for SessionContent<P> {
 		}
 		if input.verb == "restore-custody" {
 			return super::retained::invoke(call, input, &owner.writer.root()?);
+		}
+		if matches!(input.verb, "unadopted-effects" | "release-unadopted-effect") {
+			return unadopted::invoke(&owner, call, input);
 		}
 		if input.verb == "initialize" {
 			if call.source()? != owner.writer.root()? {

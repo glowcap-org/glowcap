@@ -227,6 +227,8 @@ def check_command_refusal(root, scratch):
         (["directory", "serve", "--state", state, "--transport", "invalid"], "transport must be"),
         (["archive", "serve", "--state", state, "--transport", "invalid"], "transport must be"),
         (["session", "serve", "--dir", state, "--transport", "invalid"], "transport must be"),
+        (["bot", "status"], "--dir is required"),
+        (["session", "access", "issue", "--dir", state, "--label", "x", "--rights", "root"], "--rights must be"),
         (["irc", "serve", "--directory", "not-a-locator"], "--directory must name"),
         (["irc", "bridge", "--irc-realname", "bridge bot; admin: alice", "--mode", "invalid"], "--mode must be"),
     ):
@@ -269,15 +271,23 @@ def main():
         glowcap_host.lifecycle(glowcap_host.Deployment(installed, Path(scratch)), root)
         root = installed.resolve().parent.parent
         assert sorted(path.name for path in (root / "bin").iterdir()) == ["glowcap"]
-        for name in (
-            "rooms-server",
-            "rooms-session",
-            "rooms-web",
-            "rooms-chat",
-            "rooms-archive",
-            "rooms-irc-server",
-            "rooms-irc-bridge",
-        ):
+        private = sorted(
+            (
+                "rooms-server",
+                "rooms-session",
+                "rooms-bot",
+                "rooms-web",
+                "rooms-chat",
+                "rooms-archive",
+                "rooms-irc-server",
+                "rooms-irc-bridge",
+            )
+        )
+        # Exactly these ship, so a test-only program such as the bot's fake
+        # coding agent never reaches a release.
+        shipped = sorted(path.name for path in (root / "libexec").iterdir())
+        assert shipped == private, f"libexec holds {shipped}, expected {private}"
+        for name in private:
             assert os.access(root / "libexec" / name, os.X_OK), f"missing private executable {name}"
         for name in ("README.md", "PROVENANCE.md", "LICENSE-APACHE", "LICENSE-THIRD-PARTY"):
             assert (root / name).is_file(), f"missing {name}"
@@ -298,6 +308,8 @@ def main():
             [],
             ["apps", "rooms"],
             ["apps", "rooms", "session"],
+            ["apps", "rooms", "session", "access"],
+            ["apps", "rooms", "bot"],
             ["apps", "rooms", "team"],
             ["apps", "rooms", "irc", "bridge"],
             ["apps", "rooms", "irc", "serve"],

@@ -17,14 +17,19 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { createElement } from "react";
 import { RichText } from "../web/ui/panes/RichText.tsx";
 import { assertEquals } from "./assert.ts";
-import { hasIrcFormatting } from "../web/ui/irc_formatting.ts";
-import { messageMentions, readRichText } from "../web/ui/markdown.ts";
+import { lineMentions, readRichText } from "../web/ui/markdown.ts";
 import { MAX_SCROLLBACK } from "../web/ui/limits.ts";
 import "./support/browser_application.ts";
 import { fail } from "./support/fail.ts";
 
 function drawn(text: string, nick = "zoe"): string {
 	return renderToStaticMarkup(createElement(RichText, { text, nick }));
+}
+
+/** Whether a line from `from` addresses the reader named `own`, or the room. */
+function addresses(text: string, own = "zoe", from = "bob"): boolean {
+	const found = lineMentions(from, text, own);
+	return found.member || found.room;
 }
 
 function paragraph(inner: string): string {
@@ -150,14 +155,14 @@ Deno.test("raw HTML, active schemes, and remote images stay inert", () => {
 	if (out.includes('href="javascript:')) fail(`an active scheme gained link authority: ${out}`);
 	if (out.includes("<img")) fail(`Markdown fetched a remote image: ${out}`);
 	includes(out, 'class="markdown-image-link" href="https://example.com/map.png"');
-	if (messageMentions(source, "zoe")) fail("literal HTML acquired mention effects");
+	if (addresses(source)) fail("literal HTML acquired mention effects");
 });
 
 Deno.test("code is excluded from mention effects", () => {
-	if (messageMentions("`@zoe`", "zoe")) fail("inline code triggered a mention");
-	if (messageMentions("```\n@zoe\n```", "zoe")) fail("a code block triggered a mention");
-	if (messageMentions("zoe@example.com", "example")) fail("an email address triggered a mention");
-	if (!messageMentions("hello @zoe", "zoe")) fail("ordinary prose lost its mention");
+	if (addresses("`@zoe`")) fail("inline code triggered a mention");
+	if (addresses("```\n@zoe\n```")) fail("a code block triggered a mention");
+	if (addresses("zoe@example.com", "example")) fail("an email address triggered a mention");
+	if (!addresses("hello @zoe")) fail("ordinary prose lost its mention");
 });
 
 Deno.test("a fence is source, and nothing inside it is read as anything else", () => {
@@ -220,11 +225,26 @@ Deno.test("a bridged line still reads as this app's own text", () => {
 	assertEquals(drawn("\x02hey\x02 @zoe"), '<strong>hey</strong> <span class="mention you">@zoe</span>');
 });
 
-Deno.test("a line with no control characters takes the ordinary path untouched", () => {
-	// The reading above must cost nothing for the messages this app writes, which
-	// is all of them.
-	assertEquals(hasIrcFormatting("**bold** @zoe"), false);
-	assertEquals(hasIrcFormatting("\x02bold"), true);
+Deno.test("a line with no control characters is one plain part", () => {
+	// The messages this app writes carry no formatting, and read as one document.
+	const [part, ...rest] = readRichText("**bold** @zoe");
+	assertEquals(rest.length, 0);
+	assertEquals(part.irc, undefined);
+});
+
+Deno.test("a mention inside IRC formatting still addresses the reader", () => {
+	// The bridge's colour digits sit against the name, and the formatting is not
+	// text: what the line draws as a mention is the mention it carries.
+	for (const text of ["\x02@zoe\x02 hi", "\x034@zoe\x03", "\x034,1@zoe\x03", "\x0304,12@zoe"]) {
+		if (!lineMentions("irc/bob", text, "zoe").member) fail(`${JSON.stringify(text)} lost its mention`);
+	}
+	if (lineMentions("irc/bob", "\x034,1zoe@example.com\x03", "zoe").member) fail("an address became a mention");
+});
+
+Deno.test("a reader's own line addresses nobody, whatever case the names are in", () => {
+	assertEquals(lineMentions("Zoe", "note to @zoe and @room", "zoe"), { member: false, room: false });
+	assertEquals(lineMentions("bob", "@room and @ZOE", "zoe"), { member: true, room: true });
+	assertEquals(lineMentions("bob", "@zoe", ""), { member: false, room: false });
 });
 
 Deno.test("a line read again is the same reading, and the cache stays bounded", () => {

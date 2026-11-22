@@ -183,7 +183,7 @@ below dial.
 
 ```sh
 glowcap apps rooms session start --dir "$HOME/.rooms/alice" --nick Alice \
-  --locator https://rooms.example.org/locator --room garden --room workshop
+  --locator https://rooms.example/locator --room garden --room workshop
 glowcap apps rooms session listen --dir "$HOME/.rooms/alice"
 ```
 

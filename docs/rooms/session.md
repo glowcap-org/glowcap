@@ -232,6 +232,14 @@ finished button from submitting a form in the same click. A control without
 Inspect shows only the label and permissions this viewer knows it saved.
 Powers fixed when a grant is issued cannot be added later.
 
+`glowcap apps rooms session access` gives a person at a terminal the same
+controls. `issue` creates an access with observer, collaborator, or
+administrator rights and prints its link once. `list`, `pause`, `resume`,
+`revoke`, and `forget` act on an access by the id `list` shows. The running
+session holds each access's control in its workspace rows, so the page and the
+terminal list one set. The [bot guide](bot.md) uses these accesses to attach a
+coding agent.
+
 ## Evidence and costs
 
 The storage and change tests close and reopen real storage on Linux/SQLite and

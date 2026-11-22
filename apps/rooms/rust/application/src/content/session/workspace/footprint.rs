@@ -7,7 +7,7 @@ impl<K> HeapBytes for FieldKey<K> {
 		0
 	}
 }
-scalar!(Version, Connection, RoomKind, DirectKind);
+scalar!(Version, Connection, RoomKind, DirectKind, Issue);
 graph!(Intent { accesses, directories, conversations, invitations, active,
     standing, ignored, operators, operations, peering, history_erasure, archive_shares;
 	version, keep_history, connection, archive, archive_control });
@@ -21,7 +21,7 @@ graph!(PublicEntry { ; access });
 graph!(Invitation { id, directory, label, from; authority, source });
 graph!(ReceivedArchive { id, channel, directory, conversation, from; kind, access, source, durable });
 graph!(Peering { id, directory, name; room, lease });
-graph!(Access { id; access, control });
+graph!(Access { id; access, control, issue });
 graph!(PostedLine { ; id, handle });
 graph!(Operations { connection; kind, handle });
 graph!(ConnectionSelection { operation, id; gateway });

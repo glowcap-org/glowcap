@@ -3,6 +3,7 @@
 //! journal. It serializes borrowed retained rows instead of cloning the inbox.
 use super::failure::Failure;
 use rooms_application::documents::WriteFailure;
+use rooms_application::failure::Retry;
 use rooms_platform::storage::{self, Directory, atomic};
 use serde::Serialize;
 use serde_json::{Value, json};
@@ -80,7 +81,7 @@ impl Inbox {
 			uncertain: false,
 		};
 		let raw = storage::read(&this.directory.path().join(NAME), MAX_BYTES)
-			.map_err(|e| Failure::new("storage", "after-state-change", e))?;
+			.map_err(|e| Failure::new("storage", Retry::AfterStateChange, e))?;
 		if let Some(raw) = raw {
 			if !raw.is_empty() && !raw.ends_with(b"\n") {
 				return Err(Failure::uncertain(
@@ -112,12 +113,12 @@ impl Inbox {
 			return Err(Failure::exhausted("inbox exceeds event budget"));
 		}
 		let gap = storage::read(&this.directory.path().join("gap.json"), 16 * 1024)
-			.map_err(|e| Failure::new("storage", "after-state-change", e))?;
+			.map_err(|e| Failure::new("storage", Retry::AfterStateChange, e))?;
 		if let Some(gap) = gap {
 			this.gap = serde_json::from_slice(&gap)?;
 		}
 		let active = storage::read(&this.directory.path().join("active.json"), 16)
-			.map_err(|e| Failure::new("storage", "after-state-change", e))?;
+			.map_err(|e| Failure::new("storage", Retry::AfterStateChange, e))?;
 		if let Some(active) = active
 			&& serde_json::from_slice::<bool>(&active)?
 		{

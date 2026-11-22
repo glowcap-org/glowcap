@@ -106,7 +106,14 @@ export interface ReceivedArchive {
 export interface WorkspaceIntent {
 	version: 1;
 	archiveShares?: ReceivedArchive[];
-	accesses?: { id: string; access?: FieldKey | null; control?: FieldKey | null }[];
+	accesses?: {
+		id: string;
+		access?: FieldKey | null;
+		control?: FieldKey | null;
+		issue?:
+			| { unsaved: { sequence: number; revision: number } }
+			| { saved: { slot: number; generation: number } };
+	}[];
 	directories: DirectoryIntent[];
 	conversations: ConversationIntent[];
 	invitations: {

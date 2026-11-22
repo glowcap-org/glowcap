@@ -345,6 +345,8 @@ async fn assemble(config: &Config, report: &Report, owners: &mut Owners) -> Resu
 	owners.local = Some(super::Local {
 		workspace: opened.workspace()?,
 		management: opened.management()?,
+		custody: opened.session().custody(),
+		locator: locator.clone(),
 		host,
 		activity: opened.session().activity(),
 		archive,

@@ -121,7 +121,7 @@ impl<C, R> Default for Registry<C, R> {
 }
 
 pub(super) fn fold(nick: &str) -> String {
-	nick.to_lowercase()
+	crate::room::inbox::nick_key(nick)
 }
 
 fn same_claimant<C: PartialEq>(held: (C, Option<&str>), caller: (C, Option<&str>)) -> bool {

@@ -11,6 +11,9 @@ publish.workspace = true
 workspace = true
 
 [features]
+# feature test-support: Builds the fault points the session's process tests
+# set. Release and plain debug builds carry none of them.
+test-support = []
 processes = ["tokio/signal", "tokio/net", "tokio/io-util", "tokio/fs", "tokio/process", "dep:tokio-tungstenite", "dep:futures-util", "dep:tokio-rustls", "dep:hyper", "dep:hyper-util", "dep:http-body-util", "dep:bytes", "dep:base64", "dep:flate2", "dep:url", "dep:nix", "dep:html5ever", "dep:encoding_rs"]
 
 [dependencies]

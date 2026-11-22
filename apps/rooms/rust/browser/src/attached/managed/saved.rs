@@ -153,6 +153,7 @@ impl RoomsManagedWorkspace {
 							.ok_or_else(|| RuntimeError::invalid("Invalid row identity"))?,
 						access: access.as_ref().map(|(key, _, _)| *key),
 						control: control.as_ref().map(|(key, _, _)| *key),
+						issue: None,
 					})
 					.map_err(|_| RuntimeError::exhausted("Saved access capacity is exhausted"))?;
 			}

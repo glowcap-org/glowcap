@@ -1,0 +1,4 @@
+{"type":"thread.started","thread_id":"01a1fcd3-8dff-72f3-987e-070caf3d1096"}
+{"type":"turn.started"}
+{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"tangerine"}}
+{"type":"turn.completed","usage":{"input_tokens":37187,"cached_input_tokens":24320,"cache_write_input_tokens":0,"output_tokens":80,"reasoning_output_tokens":66}}

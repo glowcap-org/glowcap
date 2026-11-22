@@ -1,4 +1,4 @@
-//! The Rooms peers, `rooms-archive`, `rooms-session`, and
+//! The Rooms peers, `rooms-archive`, `rooms-session`, `rooms-bot`, and
 //! `rooms-server`: their build, install, run steps, and the identity,
 //! transport, restart, and shutdown proofs that ride `runtime-check`.
 const std = @import("std");
@@ -13,6 +13,7 @@ pub const Binary = enum {
     chat,
     archive,
     session,
+    bot,
     server,
     irc_bridge,
     irc_server,
@@ -34,6 +35,7 @@ pub const Binary = enum {
         .chat = .{ .name = "rooms-chat", .test_env = "GLOWCAP_ROOMS_CHAT_TEST_BIN" },
         .archive = .{ .name = "rooms-archive", .env = "GLOWCAP_ROOMS_ARCHIVE_BIN", .test_env = "GLOWCAP_ROOMS_ARCHIVE_TEST_BIN" },
         .session = .{ .name = "rooms-session", .env = "GLOWCAP_ROOMS_SESSION_BIN", .test_env = "GLOWCAP_ROOMS_SESSION_TEST_BIN" },
+        .bot = .{ .name = "rooms-bot" },
         .server = .{ .name = "rooms-server", .env = "GLOWCAP_ROOMS_SERVER_BIN", .test_env = "GLOWCAP_ROOMS_SERVER_TEST_BIN" },
         .irc_bridge = .{ .name = "rooms-irc-bridge", .env = "GLOWCAP_ROOMS_IRC_BRIDGE_BIN" },
         .irc_server = .{ .name = "rooms-irc-server", .env = "GLOWCAP_ROOMS_IRC_SERVER_BIN" },
@@ -113,7 +115,7 @@ pub fn register(b: *std.Build, runtime_gate: *execution.RuntimeGate, iroh_abi: *
     proof_server.step.dependOn(&proof_compile.step);
     proof_server.step.dependOn(&proof_web.step);
     const browser_compile = compilePeers(b, iroh_abi, zig_archives, &.{ "rooms-web", "rooms-server" });
-    const compile = compilePeers(b, iroh_abi, zig_archives, &.{ "rooms-archive", "rooms-session", "rooms-irc-bridge", "rooms-irc-server", "rooms-chat" });
+    const compile = compilePeers(b, iroh_abi, zig_archives, &.{ "rooms-archive", "rooms-session", "rooms-bot", "rooms-irc-bridge", "rooms-irc-server", "rooms-chat" });
     // These groups share Cargo's output directory. Complete product builds
     // serialize them; browser builds never enter the unrelated second group.
     compile.step.dependOn(&browser_compile.step);
@@ -130,9 +132,12 @@ pub fn register(b: *std.Build, runtime_gate: *execution.RuntimeGate, iroh_abi: *
     install.step.dependOn(&chat_install.step);
     const session_install = Binary.session.addInstall(b, release_dir);
     session_install.step.dependOn(&compile.step);
+    const bot_install = Binary.bot.addInstall(b, release_dir);
+    bot_install.step.dependOn(&compile.step);
     const server_install = Binary.server.addInstall(b, release_dir);
     server_install.step.dependOn(&browser_compile.step);
     install.step.dependOn(&session_install.step);
+    install.step.dependOn(&bot_install.step);
     install.step.dependOn(&server_install.step);
     const bridge_install = Binary.irc_bridge.addInstall(b, release_dir);
     bridge_install.step.dependOn(&compile.step);
@@ -163,6 +168,7 @@ pub fn register(b: *std.Build, runtime_gate: *execution.RuntimeGate, iroh_abi: *
     build.dependOn(&install.step);
     const session_build = b.step("rooms-session-build", "Build and install the durable Rooms session runtime (needs cargo)");
     session_build.dependOn(&session_install.step);
+    b.step("rooms-bot-build", "Build and install the Rooms bot (needs cargo)").dependOn(&bot_install.step);
     const server_build = b.step("rooms-server-build", "Build and install the Rooms server (needs cargo)");
     server_build.dependOn(&server_install.step);
     const run = commands.addRootedSystemCommand(b, .service, &.{"env"});
@@ -179,9 +185,10 @@ pub fn register(b: *std.Build, runtime_gate: *execution.RuntimeGate, iroh_abi: *
     const compile_tests = commands.addRootedSystemCommand(b, .build_tool, &.{"env"});
     commands.addLibDirArg(compile_tests, .host);
     compile_tests.addArgs(&.{
-        "cargo",          "test",          "--quiet",      "--locked",        "--no-run",      "--manifest-path", "apps/rooms/rust/Cargo.toml",
-        "-p",             "rooms-product", "--test",       "archive_process", "--test",        "session_process", "--test",
-        "server_process", "--test",        "chat_process", "--bin",           "rooms-session",
+        "cargo",          "test",          "--quiet",      "--locked",        "--no-run",    "--manifest-path", "apps/rooms/rust/Cargo.toml",
+        "-p",             "rooms-product", "--test",       "archive_process", "--test",      "session_process", "--test",
+        "server_process", "--test",        "chat_process", "--test",          "bot_process", "--bin",           "rooms-session",
+        "--bin",          "rooms-bot",     "--features",   "test-support",
     });
     compile_tests.addDirectoryArg2(b.path("apps/rooms/rust/target"), .{ .prefix = "--target-dir=", .make_absolute = true });
     compile_tests.step.dependOn(iroh_abi);
@@ -234,26 +241,51 @@ pub fn register(b: *std.Build, runtime_gate: *execution.RuntimeGate, iroh_abi: *
         previous_unit = &unit.step;
     }
 
-    const process_run = commands.addRootedSystemCommand(b, .{ .deterministic = 30 }, &.{"env"});
-    commands.addLoaderPathArg(process_run);
-    commands.addLibDirArg(process_run, .host);
-    Binary.archive.addTestEnv(process_run);
-    Binary.session.addTestEnv(process_run);
-    Binary.server.addTestEnv(process_run);
-    Binary.chat.addTestEnv(process_run);
-    process_run.addArgs(&.{
-        "cargo",           "test",          "--locked",       "--manifest-path", "apps/rooms/rust/Cargo.toml",
-        "-p",              "rooms-product", "--test",         "archive_process", "--test",
-        "session_process", "--test",        "server_process", "--test",          "chat_process",
-        "--bin",           "rooms-session",
-    });
-    process_run.addDirectoryArg2(b.path("apps/rooms/rust/target"), .{ .prefix = "--target-dir=", .make_absolute = true });
-    process_run.step.dependOn(previous_unit);
+    // The peers' process proofs, the bot's units, and the bot's process proofs
+    // are separately bounded runs, so the bot's turns cannot spend the
+    // deadline the peers' restarts need. The bot's process proofs run by
+    // module. Each proof against a real session starts two or more sessions,
+    // and a session's start costs seconds of processor time in this profile,
+    // so each of those modules is its own run and holds a few proofs. The
+    // last run takes every module the others do not name. Every run builds
+    // with the `test-support` feature, which carries the fault points and
+    // stand-ins the proofs drive, so the compile above is the one they run.
+    const bot_process: []const []const u8 = &.{ "--test", "bot_process" };
+    const Run = struct { targets: []const []const u8, filter: []const []const u8 = &.{} };
+    const process_runs = [_]Run{
+        .{ .targets = &.{ "--test", "archive_process", "--test", "session_process", "--test", "server_process", "--test", "chat_process", "--bin", "rooms-session" } },
+        .{ .targets = &.{ "--bin", "rooms-bot" } },
+        .{ .targets = bot_process, .filter = &.{ "--", "captp::" } },
+        .{ .targets = bot_process, .filter = &.{ "--", "captp_actions::" } },
+        .{ .targets = bot_process, .filter = &.{ "--", "captp_crashes::" } },
+        .{ .targets = bot_process, .filter = &.{ "--", "captp_handover::" } },
+        .{ .targets = bot_process, .filter = &.{ "--", "captp_recovery::" } },
+        .{ .targets = bot_process, .filter = &.{ "--", "captp_session::" } },
+        .{ .targets = bot_process, .filter = &.{ "--", "crashes::", "--skip", "captp" } },
+        .{ .targets = bot_process, .filter = &.{ "--", "sending::" } },
+        .{ .targets = bot_process, .filter = &.{ "--", "--skip", "captp", "--skip", "crashes::", "--skip", "sending::" } },
+    };
     const test_step = b.step("rooms-peers-test", "Prove the archive peer, session peer, and Rooms server's identity, transport, restart and shutdown (needs cargo)");
-    process_run.step.dependOn(&install.step);
-    process_run.step.dependOn(&session_install.step);
-    process_run.step.dependOn(&server_install.step);
-    test_step.dependOn(&process_run.step);
+    var previous_process: *std.Build.Step = previous_unit;
+    for (process_runs) |bounded| {
+        const process_run = commands.addRootedSystemCommand(b, .{ .deterministic = 30 }, &.{"env"});
+        commands.addLoaderPathArg(process_run);
+        commands.addLibDirArg(process_run, .host);
+        Binary.archive.addTestEnv(process_run);
+        Binary.session.addTestEnv(process_run);
+        Binary.server.addTestEnv(process_run);
+        Binary.chat.addTestEnv(process_run);
+        process_run.addArgs(&.{ "cargo", "test", "--locked", "--manifest-path", "apps/rooms/rust/Cargo.toml", "-p", "rooms-product", "--features", "test-support" });
+        process_run.addArgs(bounded.targets);
+        process_run.addDirectoryArg2(b.path("apps/rooms/rust/target"), .{ .prefix = "--target-dir=", .make_absolute = true });
+        process_run.addArgs(bounded.filter);
+        process_run.step.dependOn(previous_process);
+        process_run.step.dependOn(&install.step);
+        process_run.step.dependOn(&session_install.step);
+        process_run.step.dependOn(&server_install.step);
+        previous_process = &process_run.step;
+    }
+    test_step.dependOn(previous_process);
     runtime_gate.add(test_step);
     // The same finite journey runs against release archives on Intel macOS.
     // Every command, readiness wait and shutdown owns its deadline.

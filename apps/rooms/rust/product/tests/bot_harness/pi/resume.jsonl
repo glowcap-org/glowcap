@@ -1,0 +1,9 @@
+{"type":"session","version":3,"id":"01a1fcd4-8519-7681-b1e9-f3bdca4296f6","timestamp":"2026-11-21T06:39:08.570Z","cwd":"<TMP>"}
+{"type":"agent_start"}
+{"type":"turn_start"}
+{"type":"message_update","assistantMessageEvent":{"type":"text_delta","contentIndex":1,"delta":"\n\ntanger"}}
+{"type":"message_update","assistantMessageEvent":{"type":"text_delta","contentIndex":1,"delta":"ine"}}
+{"type":"message_end","message":{"role":"assistant","provider":"example","model":"example-model","stopReason":"stop","content":[{"type":"thinking","thinking":"The user is asking me to remember a word from the previous c"},{"type":"text","text":"\n\ntangerine"}]}}
+{"type":"turn_end"}
+{"type":"agent_end","messages":[{"role":"assistant","stopReason":"stop"}],"willRetry":false}
+{"type":"agent_settled","aborted":false}

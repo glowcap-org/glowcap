@@ -7,27 +7,19 @@ use std::{
 	sync::mpsc,
 	time::{Duration, Instant},
 };
+#[path = "session_process/access.rs"]
+mod access;
+#[path = "session_process/attached.rs"]
+mod attached;
 #[path = "session_process/client.rs"]
 mod client;
 #[path = "session_process/journey.rs"]
 mod journey;
-fn command() -> Command {
-	let installed = std::env::var_os("GLOWCAP_ROOMS_SESSION_TEST_BIN");
-	let mut command = Command::new(
-		installed
-			.clone()
-			.unwrap_or_else(|| env!("CARGO_BIN_EXE_rooms-session").into()),
-	);
-	for (key, _) in std::env::vars_os() {
-		if key.to_string_lossy().starts_with("GLOWCAP_ROOMS_SESSION_") {
-			command.env_remove(key);
-		}
-	}
-	if installed.is_some() {
-		command.env_remove("LD_LIBRARY_PATH").env_remove("DYLD_LIBRARY_PATH");
-	}
-	command
-}
+#[path = "session_process/receipts.rs"]
+mod receipts;
+#[path = "session_rig/mod.rs"]
+mod session_rig;
+use session_rig::command;
 #[test]
 fn session_peer_executable_custody_restart_and_signals() {
 	let temp = Scratch::create("session-process");

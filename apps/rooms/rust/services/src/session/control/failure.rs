@@ -1,4 +1,5 @@
 //! JSON is a presentation boundary: retain failure class and retry advice.
+use rooms_application::failure::Retry;
 use rooms_runtime::Error;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -10,21 +11,28 @@ pub struct Failure {
 	pub message: String,
 }
 impl Failure {
-	pub fn new(class: &str, retry: &str, message: impl ToString) -> Self {
+	pub fn new(class: &str, retry: Retry, message: impl ToString) -> Self {
 		Self {
 			class: class.into(),
-			retry: retry.into(),
+			retry: retry.wire().into(),
 			message: message.to_string(),
 		}
 	}
+	/// The same failure, class and retry advice kept, told by `message`.
+	pub fn explained(self, message: impl ToString) -> Self {
+		Self {
+			message: message.to_string(),
+			..self
+		}
+	}
 	pub fn invalid(message: impl ToString) -> Self {
-		Self::new("invalid", "after-request-change", message)
+		Self::new("invalid", Retry::AfterRequestChange, message)
 	}
 	pub fn exhausted(message: impl ToString) -> Self {
-		Self::new("exhausted", "after-state-change", message)
+		Self::new("exhausted", Retry::AfterStateChange, message)
 	}
 	pub fn uncertain(message: impl ToString) -> Self {
-		Self::new("uncertain", "after-state-change", message)
+		Self::new("uncertain", Retry::AfterStateChange, message)
 	}
 	pub fn response(&self) -> Value {
 		json!({"ok": false, "error": self})
@@ -38,7 +46,7 @@ impl std::fmt::Display for Failure {
 impl std::error::Error for Failure {}
 impl From<std::io::Error> for Failure {
 	fn from(error: std::io::Error) -> Self {
-		Self::new("io", "after-state-change", error)
+		Self::new("io", Retry::AfterStateChange, error)
 	}
 }
 impl From<serde_json::Error> for Failure {
@@ -50,31 +58,59 @@ impl From<rooms_platform::storage::StorageError> for Failure {
 	fn from(error: rooms_platform::storage::StorageError) -> Self {
 		use rooms_platform::storage::StorageError;
 		let (class, retry) = match &error {
-			StorageError::Pending => ("busy", "soon"),
-			StorageError::InUse(_) => ("in-use", "after-state-change"),
-			StorageError::Io(_) | StorageError::Document(_) => ("storage", "after-state-change"),
-			StorageError::Worker(_) => ("worker", "after-state-change"),
-			StorageError::Cleanup { .. } => ("cleanup", "after-state-change"),
+			StorageError::Pending => ("busy", Retry::Soon),
+			StorageError::InUse(_) => ("in-use", Retry::AfterStateChange),
+			StorageError::Io(_) | StorageError::Document(_) => ("storage", Retry::AfterStateChange),
+			StorageError::Worker(_) => ("worker", Retry::AfterStateChange),
+			StorageError::Cleanup { .. } => ("cleanup", Retry::AfterStateChange),
 		};
 		Self::new(class, retry, error)
 	}
 }
 impl From<Error> for Failure {
 	fn from(error: Error) -> Self {
-		Self::new(class(&error), error.retry().wire(), error)
+		Self::new(class(&error), error.retry(), error)
 	}
 }
-/// A failure the catalog names is classed by its code, whichever owner
-/// carried it. Any other is classed by the owner that failed. Context and a
-/// failed cleanup describe the failure inside them, as `Error::retry` reads
-/// them. An admission class says nothing was sent, so text a peer wrote earns
-/// one only as a validated refusal.
+/// The one table for a failed attached view call, whichever command made it:
+/// the class and the next step each failure asks of its caller.
+impl From<&crate::session::attached::Error> for Failure {
+	fn from(error: &crate::session::attached::Error) -> Self {
+		use crate::session::attached::Error::{
+			Budget, Conflict, Exists, Input, Io, Malformed, Paused, Peer, Refused, Revoked, Stale, Uncertain, Unkept,
+			Unreachable,
+		};
+		let (class, retry) = match error {
+			Refused => ("refused", Retry::AfterRequestChange),
+			Revoked => ("revoked", Retry::Never),
+			Paused => ("paused", Retry::AfterStateChange),
+			Unreachable(_) => ("unreachable", Retry::Soon),
+			Uncertain { .. } => ("uncertain", Retry::AfterStateChange),
+			Peer(cause) => (named(cause.failure(), "peer"), cause.retry()),
+			Conflict => ("conflict", Retry::Soon),
+			Stale => ("restarted", Retry::AfterRequestChange),
+			Unkept { .. } => ("unkept", Retry::Never),
+			Input(_) => ("invalid", Retry::AfterRequestChange),
+			Malformed(_) => ("system", Retry::Never),
+			Budget => ("exhausted", Retry::AfterStateChange),
+			Exists(_) => ("exists", Retry::AfterRequestChange),
+			Io(_) => ("io", Retry::AfterStateChange),
+		};
+		Self::new(class, retry, error)
+	}
+}
+/// A failure the catalog names is classed by its code. An admission class
+/// says nothing was sent, so text a peer wrote earns one only as a validated
+/// refusal. Any other failure is classed by `owner`.
+fn named(failure: Option<rooms_application::failure::Failure<'_>>, owner: &'static str) -> &'static str {
+	failure
+		.filter(|failure| !failure.code.admission() || failure.refused_before_dispatch())
+		.map_or(owner, |failure| failure.code.wire())
+}
+/// A runtime failure is classed by its catalog code when it names one, and
+/// otherwise by the owner that failed. Context and a failed cleanup describe
+/// the failure inside them, as `Error::retry` reads them.
 fn class(error: &Error) -> &'static str {
-	let named = |failure: Option<rooms_application::failure::Failure<'_>>, owner| {
-		failure
-			.filter(|failure| !failure.code.admission() || failure.refused_before_dispatch())
-			.map_or(owner, |failure| failure.code.wire())
-	};
 	match error {
 		Error::Context { source, .. } => class(source),
 		Error::Cleanup { primary, .. } => class(primary),

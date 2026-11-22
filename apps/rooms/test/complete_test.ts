@@ -14,7 +14,7 @@ import {
 import { EMOJI_TABLE } from "../web/ui/emoji.ts";
 import "./support/browser_application.ts";
 import { PICKER, ROOM_MENTIONS, ROOM_MENTIONS_OFFERED, substituteEmoji } from "../web/ui/text.ts";
-import { messageMentions } from "../web/ui/markdown.ts";
+import { lineMentions } from "../web/ui/markdown.ts";
 import { actionIn, commandIn, held, known, noticeIn } from "../web/ui/commands.ts";
 import type { Conv } from "../web/ui/conversation.ts";
 import type { RoomInfo } from "../lib/directory_publications.ts";
@@ -262,7 +262,7 @@ Deno.test("every spelling of a room-wide call is understood, two are proposed", 
 	// Liberal in what it accepts: somebody arriving from another client writes
 	// the word their client taught them, and is read rather than corrected.
 	for (const name of ROOM_MENTIONS) {
-		if (!messageMentions(`morning @${name}`, "zoe")) fail(`@${name} did not reach a reader of the room`);
+		if (!lineMentions("bob", `morning @${name}`, "zoe").room) fail(`@${name} did not reach a reader of the room`);
 	}
 	// Brief in what it proposes: a list is a recommendation, and five ways to say
 	// one thing recommends nothing.
@@ -273,7 +273,9 @@ Deno.test("every spelling of a room-wide call is understood, two are proposed", 
 		fail("every spelling is proposed, so the list is a menu of synonyms rather than a recommendation");
 	}
 	// And a room-wide call reaches you whether or not you have a name yet.
-	if (!messageMentions("@here anyone about?", "")) fail("a room-wide call missed a reader with no name granted");
+	if (!lineMentions("bob", "@here anyone about?", "").room) {
+		fail("a room-wide call missed a reader with no name granted");
+	}
 });
 
 Deno.test("prefix matches outrank substring matches", () => {

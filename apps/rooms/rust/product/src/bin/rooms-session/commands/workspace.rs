@@ -1,6 +1,7 @@
 //! Human choices select typed custody and original command results. Routes are
 //! transient acquisition input. Managed workspace rows contain no bearer links.
 use super::{Failure, Options, acquisition::submit as acquire, command, request};
+use rooms_application::failure::Retry;
 use rooms_application::{
 	content::session::workspace,
 	fields::{List, Text},
@@ -54,7 +55,7 @@ pub async fn wait(options: &Options, description: &str, predicate: impl Fn(&Valu
 		if tokio::time::Instant::now() >= deadline {
 			return Err(Failure::new(
 				"timeout",
-				"after-state-change",
+				Retry::AfterStateChange,
 				format!("waiting for {description}; inspect the managed workspace and control log"),
 			));
 		}
@@ -88,11 +89,13 @@ pub async fn directory(options: &Options) -> Result<Value, Failure> {
 			.cloned()
 			.ok_or_else(|| Failure::invalid("name a directory with --locator and --nick"))?
 	};
+	// A nickname belongs to the workspace that registered it, so naming
+	// another is refused before anything waits on the directory.
 	if let Some(nick) = options.get("nick")
 		&& entry["nick"] != nick
 	{
 		return Err(Failure::invalid(format!(
-			"directory already requests nickname {}",
+			"this workspace's nickname is {} and stays with it. To use the nickname {nick:?}, start a new workspace with another --dir",
 			entry["nick"]
 		)));
 	}

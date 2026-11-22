@@ -68,6 +68,8 @@ zig build rooms-agent-test                          # Exercise the Rooms agent s
 zig build rooms-archive                             # Run the durable archive peer; pass -- --state=<directory> (iroh by default)
 zig build rooms-session-build                       # Build and install the durable Rooms session runtime (needs cargo); part of rooms-agent-test, rooms-archive-build, rooms-session
 zig build rooms-session                             # Run the public Rooms session command; pass `-- <verb> [flags]`
+zig build rooms-bot-build                           # Build and install the Rooms bot (needs cargo); part of rooms-archive-build, rooms-bot
+zig build rooms-bot                                 # Run the public Rooms bot command; pass `-- <verb> [flags]`
 zig build rooms-irc-server-build                    # Build and install the Rooms IRC server (needs cargo); part of rooms-archive-build, rooms-irc-server
 zig build rooms-irc-server                          # Serve a Rooms directory to ordinary IRC clients as an IRC server
 zig build rooms-irc-bridge-build                    # Build and install the standalone IRC bridge (needs cargo); part of rooms-archive-build, rooms-irc-bridge

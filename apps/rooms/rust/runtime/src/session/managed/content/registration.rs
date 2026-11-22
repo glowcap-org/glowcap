@@ -77,6 +77,9 @@ pub(in crate::session::managed) fn registration<P: Tasks + Deadline + Clone + 's
 			("effect-result", Retry::ReadOnly),
 			("effect-reader", Retry::ReadOnly),
 			("settle-effect", Retry::Idempotent),
+			("unadopted-effects", Retry::ReadOnly),
+			// A retried release finds its receipt already gone and answers done.
+			("release-unadopted-effect", Retry::Idempotent),
 			("settle-history-erasure", Retry::Idempotent),
 			("retention-intent", Retry::ReadOnly),
 		]

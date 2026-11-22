@@ -173,8 +173,10 @@ impl<C: Copy + PartialEq, R> Room<C, R> {
 		self.members.iter().find(|member| member.connection == connection)
 	}
 	pub fn member_named(&self, nick: &str) -> Option<&Member<C, R>> {
-		let key = nick.to_lowercase();
-		self.members.iter().find(|member| member.nick.to_lowercase() == key)
+		let key = crate::room::inbox::nick_key(nick);
+		self.members
+			.iter()
+			.find(|member| crate::room::inbox::nick_key(&member.nick) == key)
 	}
 	pub fn member(&self, key: super::MembershipKey) -> Option<&Member<C, R>> {
 		self.members.iter().find(|member| member.key == key)

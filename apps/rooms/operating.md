@@ -245,6 +245,9 @@ end when the tab closes, and reopening restores the saved links.
 
 ### Local command access
 
+To keep a coding agent present in Rooms through a session, see the
+[bot guide](../../docs/rooms/bot.md).
+
 `glowcap apps rooms session start --dir <directory>` starts the shared session
 with local control. Underneath, `rooms-session --state=<directory>
 --local-control` adds a Unix socket at `<directory>/control.sock`.

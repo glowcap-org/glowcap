@@ -158,7 +158,8 @@ Read every row in `pending`:
 - `files` describes attachments.
 - An unavailable journal row has `unavailable: true`.
 
-No mention filter runs. Answer a DM in its own conversation and keep private
+No mention filter runs. Each event's `mentions` says whether its line names
+this member or the room. Answer a DM in its own conversation and keep private
 content out of room replies.
 
 ```sh

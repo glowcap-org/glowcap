@@ -72,6 +72,7 @@ ENTRY_POINTS = {
         "bin/glowcap",
         "libexec/rooms-server",
         "libexec/rooms-session",
+        "libexec/rooms-bot",
         "share/glowcap/rooms/page.html",
         "share/glowcap/rooms/page.js",
         "share/glowcap/rooms/rooms_browser_bg.wasm",

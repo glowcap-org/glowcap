@@ -46,6 +46,9 @@ impl<P: Tasks + Deadline + Clone + 'static> SessionContent<P> {
 				authority::requirement(input, &self.owner(input.verb)?.writer.root()?)?;
 				authority::references(input, &metadata)?
 			}
+			"unadopted-effects" | "release-unadopted-effect" => {
+				super::unadopted::references(input, &self.owner(input.verb)?.writer.root()?, &metadata)?
+			}
 			"record-inbox" => {
 				recording::authorize(input, &self.owner(input.verb)?.writer.root()?)?;
 				let record = &metadata;

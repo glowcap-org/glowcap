@@ -220,7 +220,7 @@ impl<C: Copy + Ord, R: Clone> Rooms<C, R> {
 		effects.tell(connection, inbox.clone(), Notice::PolicyChanged(room.policy));
 		effects.tell(connection, inbox.clone(), Notice::Listed(listed));
 		self.returning_name(&entrance.room, nick, &mut effects);
-		if let Some((_, old_nick)) = already.filter(|(_, old)| old.to_lowercase() != nick.to_lowercase()) {
+		if let Some((_, old_nick)) = already.filter(|(_, old)| !crate::room::inbox::same_nick(old, nick)) {
 			self.broadcast(
 				&entrance.room,
 				&mut effects,

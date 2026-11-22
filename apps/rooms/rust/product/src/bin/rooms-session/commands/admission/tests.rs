@@ -1,5 +1,6 @@
 //! Deterministic socket races exercise the CLI's actual automatic admission path.
 use super::*;
+use rooms_application::failure::Retry;
 use tokio::{
 	io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
 	net::UnixListener,
@@ -36,7 +37,7 @@ async fn admission_refusal_releases_local_observation_but_uncertainty_keeps_it()
 				} else {
 					Failure::new(
 						"rate-limited",
-						"soon",
+						Retry::Soon,
 						"command: retry-after-ms=1000; scope=message; owner=session",
 					)
 					.response()
@@ -95,7 +96,7 @@ async fn unsent_command_preserves_refusal_and_retains_uncertain_observation() {
 					"command-result" if uncertain => Failure::uncertain("lost result read").response(),
 					"command-result" => Failure::new(
 						"rate-limited",
-						"after-delay",
+						Retry::Soon,
 						"retry-after-ms=1000; scope=message; owner=session",
 					)
 					.response(),

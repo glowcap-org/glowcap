@@ -292,6 +292,7 @@ class Assemble(unittest.TestCase):
     def test_an_archive_missing_an_entry_point_is_refused(self):
         for role, member in (
             ("product", "libexec/rooms-server"),
+            ("product", "libexec/rooms-bot"),
             ("sdk", "include/glowcap_ocapn.h"),
             ("sdk", "LICENSE-APACHE"),
         ):

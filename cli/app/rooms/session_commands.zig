@@ -17,9 +17,11 @@ const rooms = many("room", "Room to join (repeat for multiple rooms)");
 const locator = value("locator", "Directory locator or HTTP(S) bootstrap URL");
 const id = value("id", "Pending event identifier");
 const conversation = value("conversation", "Exact conversation identifier from status");
-const operation = value("operation", "Stable operation identifier for inspecting an uncertain result");
-const base = value("base", "Original workspace revision, required with --operation for exact replay");
+/// The pair that names an uncertain write, shared with the bot's `command`.
+pub const operation = value("operation", "Stable operation identifier for inspecting an uncertain result");
+pub const base = value("base", "Original workspace revision, required with --operation for exact replay");
 const join = [_]Flag{ dir, nick, locator, rooms };
+const access_id = value("id", "The access's id, as session access list shows it");
 /// How a session dials the peers it reaches.
 const dialing = [_]Flag{
     value("relay-url", "Rendezvous relay this peer dials browser members through (a relay listener registers at its own relay option)"),
@@ -40,6 +42,22 @@ const team_start = start ++ [_]Flag{
     many("member", "Member nickname (repeat for each member)"),
     value("max", "Maximum roster size including lead (default 4)"),
 };
+/// Handing out access to a running session, for a person at a terminal. The
+/// session keeps each access's control, so the page lists the same accesses.
+/// The link of a new access is printed once and kept nowhere else.
+const access_commands = [_]types.Command{
+    .{ .name = "issue", .short_help = "Create an access and print the link that lets someone use it, and its id", .flags = &.{
+        dir,
+        value("label", "Your own name for this access, shown in the list"),
+        value("rights", "What the access may do: observer (watch only), collaborator (also post and join), or administrator (also manage the workspace)"),
+        value("id", "The id to keep the access under (default: a new one). An issue that did not finish is finished by issuing again with its id, label, and rights"),
+    }, .run = run("access-issue") },
+    .{ .name = "list", .short_help = "Show each access with its id, rights, and whether it is active, paused, or revoked, and each id whose issue did not finish", .flags = &.{dir}, .run = run("access-list") },
+    .{ .name = "pause", .short_help = "Stop an access from working until you resume it", .flags = &.{ dir, access_id }, .run = run("access-pause") },
+    .{ .name = "resume", .short_help = "Let a paused access work again", .flags = &.{ dir, access_id }, .run = run("access-resume") },
+    .{ .name = "revoke", .short_help = "End an access for good", .flags = &.{ dir, access_id }, .run = run("access-revoke") },
+    .{ .name = "forget", .short_help = "Drop a revoked access from the list", .flags = &.{ dir, access_id }, .run = run("access-forget") },
+};
 pub const commands = [_]types.Command{
     .{ .name = "serve", .short_help = "Serve a foreground session for a host supervisor or attached browser", .flags = &([_]Flag{dir} ++ serve_options), .run = @import("mod.zig").run("rooms-session", .session_serve) },
     .{ .name = "ready", .short_help = "Read the foreground session's readiness capability", .flags = &.{value("file", "Readiness file (required)")}, .run = @import("mod.zig").run("rooms-session", .session_ready) },
@@ -55,6 +73,7 @@ pub const commands = [_]types.Command{
     .{ .name = "resume", .short_help = "Resume observation after accepting its reported gap", .flags = &.{ dir, .{ .long = "accept-gap", .help = "Acknowledge that events during the gap were not retained" } }, .run = run("resume") },
     .{ .name = "command", .short_help = "Invoke a shared Rooms application command", .flags = &.{ dir, operation, base }, .positionals = &.{.{ .name = "arguments", .help = "Command name followed by its arguments", .variadic = true }}, .run = run("command") },
     .{ .name = "stop", .short_help = "Stop the session and retain its workspace and unread events", .flags = &.{dir}, .run = run("stop") },
+    .{ .name = "access", .short_help = "Give someone access to the running session and manage what you gave", .children = &access_commands },
 };
 pub const team_commands = [_]types.Command{
     .{ .name = "start", .short_help = "Start a roster lead-first through the same session commands", .flags = &team_start, .run = run("team-start") },

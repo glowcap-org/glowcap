@@ -155,8 +155,12 @@ export function suggestedNickname(nick: string): string {
 	return applicationModule().suggestedNickname(nick);
 }
 
-export function markdownDocument(text: string): string {
-	return applicationModule().markdownDocument(text);
+export function richTextOf(text: string): string {
+	return applicationModule().richText(text);
+}
+
+export function lineMentionsOf(from: string, text: string, own: string): string {
+	return applicationModule().lineMentions(from, text, own);
 }
 
 export function openGraphTargets(text: string): string {
