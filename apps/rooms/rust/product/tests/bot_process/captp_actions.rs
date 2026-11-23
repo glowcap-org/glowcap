@@ -44,16 +44,8 @@ fn the_harness_posts_sends_edits_and_reads_the_workspace_through_the_verbs() {
 		"a line in another conversation was not logged: {}",
 		world.rig.log()
 	);
-	let outputs = |at: usize| -> Value {
-		let work = std::fs::read_dir(dir.join("work")).unwrap().flatten();
-		let path = work
-			.map(|conversation| conversation.path().join(format!("act-{at}.out")))
-			.find(|path| path.exists())
-			.unwrap();
-		serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap()
-	};
-	assert_eq!(outputs(0)["status"], "committed");
-	let workspace = outputs(2);
+	assert_eq!(world.rig.act_output(0)["status"], "committed");
+	let workspace = world.rig.act_output(2);
 	assert_eq!(workspace["ok"], true);
 	let conversations = workspace["workspace"]["conversations"].to_string();
 	assert!(
@@ -73,7 +65,7 @@ fn the_harness_posts_sends_edits_and_reads_the_workspace_through_the_verbs() {
 	world.dm(&format!("act:{}", json!([action("command", json!({}), &edit)])));
 	world.await_line("direct", "exit=0");
 	world.await_line("room", "edited by hand");
-	let edited = outputs(0);
+	let edited = world.rig.act_output(0);
 	assert_eq!(edited["status"], "committed", "{edited}");
 	assert!(
 		world.rig.log().contains("ran session command editLine under operation"),
@@ -94,10 +86,10 @@ fn the_harness_posts_sends_edits_and_reads_the_workspace_through_the_verbs() {
 		})
 	});
 	assert_ne!(exits.text, "exit=0 exit=0", "the unknown command succeeded");
-	let again = outputs(0);
+	let again = world.rig.act_output(0);
 	assert_eq!(again["status"], "committed", "{again}");
 	assert_eq!(world.count("room", "edited by hand"), 1);
-	let refused = outputs(1);
+	let refused = world.rig.act_output(1);
 	assert_eq!(refused["ok"], false);
 	assert!(
 		refused["error"]["class"].is_string() && refused["error"]["retry"].is_string(),
@@ -127,12 +119,7 @@ fn a_command_that_posted_but_could_not_be_kept_reports_the_post_and_releases_its
 	world.dm(&format!("act:{}", json!([action("command", json!({}), &posting)])));
 	world.await_line("direct", "exit=0");
 	world.await_line("room", "posted, not kept");
-	let work = std::fs::read_dir(world.rig.dir.join("work")).unwrap().flatten();
-	let output = work
-		.map(|conversation| conversation.path().join("act-0.out"))
-		.find(|path| path.exists())
-		.unwrap();
-	let output: Value = serde_json::from_slice(&std::fs::read(output).unwrap()).unwrap();
+	let output = world.rig.act_output(0);
 	assert_eq!(
 		(&output["ok"], &output["status"], &output["kept"], &output["receipt"]),
 		(&json!(true), &json!("committed"), &json!(false), &json!("released")),
