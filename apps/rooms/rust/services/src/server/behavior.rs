@@ -171,6 +171,8 @@ fn named(state: &Shared, args: &[Argument]) -> Reply {
 				.ok_or("room roster is outside the safe integer range")?,
 		);
 		rooms = vec![durable];
+	} else if let Some(local) = state.rooms.named(name) {
+		rooms = vec![local];
 	} else {
 		let folded = name.to_lowercase();
 		rooms = state

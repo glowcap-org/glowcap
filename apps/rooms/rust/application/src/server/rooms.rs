@@ -261,6 +261,12 @@ impl<C: Copy + Ord, R: Clone> Rooms<C, R> {
 	pub fn public_key_of(&self, name: &str) -> Option<RoomKey> {
 		self.public.get(&state::folded(name)).cloned()
 	}
+	/// The live listed room a public name belongs to, entered or not. `open`
+	/// refuses the name from the moment the room opens, so a lookup by name
+	/// answers for it from then on. Occupancy belongs to the listing.
+	pub fn named(&self, name: &str) -> Option<RoomInfo> {
+		self.public.get(&state::folded(name)).map(|key| self.rooms[key].info())
+	}
 	/// Whether a public name is taken by a live listed room.
 	pub fn public_name_taken(&self, name: &str) -> bool {
 		self.public.contains_key(&state::folded(name))
