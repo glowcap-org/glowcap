@@ -18,6 +18,60 @@ async fn named(directory: &Directory<HostPlatform>, name: &str) -> Vec<rooms_app
 	rooms_application::directory::rooms(&rooms_glowcap::Value(&reply)).unwrap()
 }
 
+/// A public room holds its name from the moment it opens, before its opener
+/// enters, so whoever lost the race to open it finds it by that name and goes in.
+#[tokio::test]
+async fn an_opened_room_is_named_before_its_opener_enters() {
+	rooms_testing::local_set::run_within(Duration::from_secs(20), async {
+		let temp = Scratch::create("server");
+		let running = super::super::start_with(
+			temp.to_path_buf(),
+			tcp(),
+			crate::server::Asked::parse("operator").unwrap(),
+		)
+		.await;
+		let locator = glowcap::parse_locator(&running.location).unwrap();
+		let opener_runtime = runtime().await;
+		let opener = Directory::fetch(Client::new(
+			opener_runtime
+				.connect(&locator, ConnectOptions::default())
+				.await
+				.unwrap(),
+			HostPlatform,
+		))
+		.await
+		.unwrap();
+		let racer_runtime = runtime().await;
+		let racer = Client::new(
+			racer_runtime
+				.connect(&locator, ConnectOptions::default())
+				.await
+				.unwrap(),
+			HostPlatform,
+		);
+		let directory = Directory::fetch(racer.clone()).await.unwrap();
+		let _unentered = opener.open("Orchard").await.unwrap();
+		let lost = directory.open("Orchard").await.unwrap_err();
+		assert!(lost.to_string().contains("already exists"), "{lost}");
+		assert!(
+			directory.list(None).await.unwrap().rooms.is_empty(),
+			"nobody occupies it yet"
+		);
+		let entry = named(&directory, "orchard").await.remove(0);
+		let entrance = directory
+			.enter_publication(entry.id.text().as_str().unwrap())
+			.await
+			.unwrap();
+		let (room, _, _, _) = join(&racer, entrance, "Racer").await;
+		room.leave().await.unwrap();
+		closing_tolerated(racer_runtime.close(PendingWork::Cancel).await);
+		closing_tolerated(opener_runtime.close(PendingWork::Cancel).await);
+		running.stop.send(()).unwrap();
+		running.task.await.unwrap().unwrap();
+	})
+	.await;
+}
+
 #[tokio::test]
 async fn named_managed_publication_reopens_without_members_and_fences_policy_replacement() {
 	rooms_testing::local_set::run_within(Duration::from_secs(20), dormant()).await;
