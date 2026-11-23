@@ -9,6 +9,11 @@ validating run is the push run on dev, or a manual check on dev or main, with
 successful gates and macos-runtime jobs. Print the accepted run URL, or fail
 with a diagnostic. Each API request has a 30-second deadline. API failures
 retain their status. No publication occurs.
+
+Promote moves main the moment that run completes, and GitHub can list the
+finished run some seconds later. While no finished push or manual run of the
+commit is listed, the lookup is read again for up to --settle seconds. A
+listed one that did not validate the commit is refused at once.
 """
 
 import argparse
@@ -17,8 +22,11 @@ import os
 import re
 import subprocess
 import sys
+import time
 
 VALIDATING = {("push", "dev"), ("workflow_dispatch", "dev"), ("workflow_dispatch", "main")}
+SETTLE_SECONDS = 45
+SETTLE_INTERVAL = 15
 
 
 def lookup(endpoint, key, kind, *fields):
@@ -51,6 +59,12 @@ def lookup(endpoint, key, kind, *fields):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--tip", action="store_true", help="also require COMMIT to be main's tip")
+    parser.add_argument(
+        "--settle",
+        type=float,
+        default=SETTLE_SECONDS,
+        help=f"seconds to keep reading while no finished validating run is listed (default {SETTLE_SECONDS})",
+    )
     parser.add_argument("commit")
     args = parser.parse_args()
     if not re.fullmatch(r"(?:[0-9a-f]{40}|[0-9a-f]{64})", args.commit):
@@ -81,19 +95,49 @@ def main():
             file=sys.stderr,
         )
         return 1
+    deadline = time.monotonic() + args.settle
+    while True:
+        status, listed, url = validating_run(repository, args.commit)
+        if status:
+            return status
+        if url:
+            print(url)
+            return 0
+        remaining = deadline - time.monotonic()
+        if listed or remaining <= 0:
+            break
+        time.sleep(min(SETTLE_INTERVAL, remaining))
+    print(
+        f"require-main-check: {args.commit} has no successful full check. "
+        "Run `gh workflow run check.yml --ref main -f suite=check`, wait for gates and "
+        "macos-runtime to pass, then rerun publication.",
+        file=sys.stderr,
+    )
+    return 1
+
+
+def validating_run(repository, commit):
+    """The lookup's status, whether a finished push or manual run of COMMIT is
+    listed, and the URL of one with successful gates and macos-runtime, or None."""
     status, runs = lookup(
         f"repos/{repository}/actions/workflows/check.yml/runs",
         "workflow_runs",
         list,
         "-f",
-        f"head_sha={args.commit}",
+        f"head_sha={commit}",
         "-f",
         "status=completed",
         "-f",
         "per_page=100",
     )
     if status:
-        return status
+        return status, False, None
+    listed = any(
+        isinstance(run, dict)
+        and run.get("head_sha") == commit
+        and (run.get("event"), run.get("head_branch")) in VALIDATING
+        for run in runs
+    )
     for run in runs:
         if not isinstance(run, dict):
             continue
@@ -101,7 +145,7 @@ def main():
         url = run.get("html_url")
         run_id, attempt = run.get("id"), run.get("run_attempt")
         if not (
-            run.get("head_sha") == args.commit
+            run.get("head_sha") == commit
             and (run.get("event"), run.get("head_branch")) in VALIDATING
             and run.get("status") == "completed"
             and run.get("conclusion") == "success"
@@ -119,7 +163,7 @@ def main():
             f"repos/{repository}/actions/runs/{run_id}/attempts/{attempt}/jobs?per_page=100", "jobs", list
         )
         if status:
-            return status
+            return status, listed, None
         passed = {
             job.get("name")
             for job in jobs
@@ -129,15 +173,8 @@ def main():
             and job.get("conclusion") == "success"
         }
         if {"gates", "macos-runtime"} <= passed:
-            print(url)
-            return 0
-    print(
-        f"require-main-check: {args.commit} has no successful full check. "
-        "Run `gh workflow run check.yml --ref main -f suite=check`, wait for gates and "
-        "macos-runtime to pass, then rerun publication.",
-        file=sys.stderr,
-    )
-    return 1
+            return 0, listed, url
+    return 0, listed, None
 
 
 if __name__ == "__main__":

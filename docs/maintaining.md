@@ -198,7 +198,9 @@ first run `ci/require_main_check.py`. It requires the commit to be on
 `main` and to have a successful `check.yml` run, either the push run on `dev`
 or a manual full check. Both `gates` and `macos-runtime` must complete
 successfully in the same run attempt. The long fuzz search alone does not
-authorize publication.
+authorize publication. GitHub can list a finished run seconds after promote
+moves `main`, so until one of these runs is listed, the check reads again for
+up to 45 seconds before it refuses.
 
 If a commit on `main` has no such run, start full validation explicitly:
 
