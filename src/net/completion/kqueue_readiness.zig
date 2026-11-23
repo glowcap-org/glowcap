@@ -121,7 +121,7 @@ pub fn complete(
                             };
                             return;
                         },
-                        else => comp.failure = completion.failureFromErrno(std.posix.errno(accepted)),
+                        else => comp.failure = socket_tcp.acceptFailure(std.posix.errno(accepted)),
                     };
                     // Darwin does not inherit nonblocking across
                     // accept(2), and a blocking send at write-readiness

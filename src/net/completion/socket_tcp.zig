@@ -180,10 +180,31 @@ pub const ReadyAccept = union(enum) {
     }
 };
 
-/// A pre-claim abort and a queue drained since the readiness notification
-/// both leave the listener waiting for the next connection.
+/// The errnos with which `accept` reports one queued connection that failed
+/// before it was taken: a reset (`ECONNABORTED`) and, on Linux, the new
+/// socket's own pending network error, which `accept(2)` says to retry as
+/// `EAGAIN`. The arrival is gone and the listener is not. `ENONET` exists only
+/// on Linux.
+const arrival_lost_errnos = .{ "CONNABORTED", "PROTO", "NOPROTOOPT", "OPNOTSUPP", "NETDOWN", "NETUNREACH", "HOSTDOWN", "HOSTUNREACH", "NONET" };
+
+fn acceptArrivalLost(errno: std.posix.E) bool {
+    inline for (arrival_lost_errnos) |name| {
+        if (@hasField(std.posix.E, name) and errno == @field(std.posix.E, name)) return true;
+    }
+    return false;
+}
+
+/// A lost arrival and a queue drained since the readiness notification both
+/// leave the listener waiting for the next connection.
 fn acceptPending(errno: std.posix.E) bool {
-    return errno == .AGAIN or errno == .CONNABORTED;
+    return errno == .AGAIN or acceptArrivalLost(errno);
+}
+
+/// The completion failure for an accept errno. A lost arrival is
+/// `ConnectionAborted` whatever its errno, so every loop re-arms past it as it
+/// does past a reset. Any other errno projects as it does for other operations.
+pub fn acceptFailure(errno: std.posix.E) anyerror {
+    return if (acceptArrivalLost(errno)) error.ConnectionAborted else contract.failureFromErrno(errno);
 }
 
 pub const testing = if (builtin.is_test) struct {
@@ -193,7 +214,7 @@ pub const testing = if (builtin.is_test) struct {
 /// Why the kernel refused an accept on a live listener: the descriptor
 /// quotas, memory, or an errno no other row names. The listener stays open,
 /// and its owner decides whether to retry.
-pub const AcceptRefusal = error{ ProcessFdQuotaExceeded, SystemFdQuotaExceeded, SystemResources, OutOfMemory, NetworkDown, Unexpected };
+pub const AcceptRefusal = error{ ProcessFdQuotaExceeded, SystemFdQuotaExceeded, SystemResources, OutOfMemory, Unexpected };
 
 /// The refusal one accept errno names, through the projection the completion
 /// backends share.
@@ -203,12 +224,15 @@ pub fn acceptRefusal(errno: std.posix.E) AcceptRefusal {
         error.SystemFdQuotaExceeded => error.SystemFdQuotaExceeded,
         error.SystemResources => error.SystemResources,
         error.OutOfMemory => error.OutOfMemory,
-        error.NetworkDown => error.NetworkDown,
         else => error.Unexpected,
     };
 }
 
-pub fn acceptNonblocking(io: std.Io, listener: std.posix.fd_t) (AcceptRefusal || error{ConnectionLost})!ReadyAccept {
+/// Take one queued connection from a listener its caller saw readable, on a
+/// blocking or a nonblocking listener alike. A lost arrival or an empty queue
+/// is `would_block`, and a listener that no longer listens is
+/// `ConnectionLost`, the listener shutting down.
+pub fn acceptQueued(io: std.Io, listener: std.posix.fd_t) (AcceptRefusal || error{ConnectionLost})!ReadyAccept {
     const posix = std.posix;
     const linux_target = builtin.target.os.tag == .linux;
     while (true) {
@@ -222,6 +246,7 @@ pub fn acceptNonblocking(io: std.Io, listener: std.posix.fd_t) (AcceptRefusal ||
         const errno = posix.errno(rc);
         if (errno == .INTR) continue;
         if (acceptPending(errno)) return .would_block;
+        if (errno == .INVAL) return error.ConnectionLost;
         if (errno != .SUCCESS) return acceptRefusal(errno);
         const fd: posix.fd_t = @intCast(rc);
         // Linux accept4 creates a blocking, close-on-exec stream. BSD's

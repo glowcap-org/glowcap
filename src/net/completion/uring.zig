@@ -440,10 +440,10 @@ pub const Backend = struct {
             }
             // A CQE carries the negated errno itself. `std.posix.errno` would
             // read the thread's libc `errno` instead whenever libc is linked.
-            if (cqe.res < 0 and cqe.res != enobufs_res)
-                comp.failure = completion.failureFromErrno(linux.errno(
-                    @as(usize, @bitCast(@as(isize, cqe.res))),
-                ));
+            if (cqe.res < 0 and cqe.res != enobufs_res) {
+                const errno = linux.errno(@as(usize, @bitCast(@as(isize, cqe.res))));
+                comp.failure = if (accepted != null) socket_tcp.acceptFailure(errno) else completion.failureFromErrno(errno);
+            }
             if (cqe.flags & linux.IORING_CQE_F_BUFFER != 0) {
                 // A recv that selected a pool buffer (possibly zero bytes on
                 // EOF): borrow it to the loop, which recycles it after

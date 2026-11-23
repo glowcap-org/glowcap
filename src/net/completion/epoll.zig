@@ -527,7 +527,7 @@ pub const Backend = struct {
             else => |err| return .{
                 .user_data = user_data,
                 .result = -1,
-                .failure = completion.failureFromErrno(err),
+                .failure = socket_tcp.acceptFailure(err),
             },
         }
     }

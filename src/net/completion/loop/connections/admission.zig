@@ -106,7 +106,7 @@ pub fn Machine(
             // `run`), the accepted fd must still be closed, not leaked.
             errdefer if (accepted) |fd| self.backend.closeFd(fd);
             try ensureAccepting(self);
-            // An arrival that failed on its own (reset before accept took it,
+            // An arrival that failed on its own (lost before accept took it,
             // a refused socket option) leaves the next one unaffected, and the
             // re-arm above already waits for it. A refusal that would complete
             // again for every arrival (descriptor quota, memory, a dead
