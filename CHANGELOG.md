@@ -26,6 +26,7 @@ Releases before 0.1.7 are in the
 
 ### Fixed
 
+- Reloading a Rooms page on a private room while its server restarts keeps you in that room. Before, a reload that found the server down sent you to the join card.
 - `glowcap ocapn listen --once` and `--publish` exit with the protocol-abort or timeout code when their one partner's session fails, rather than 0. In MCP and the REPL, `info` reports that session's cause as `listener_stopped` rather than "served its one partner".
 - A `rooms session` send, direct message, room join, or directory registration that saves while the session's supervisor is also saving now plans its change again and keeps it. Before, it reported a failure, even after the command had committed, and named a recovery that could never succeed. Saving a session access that keeps losing to other writes now says so and asks for another try, instead of reporting a peer failure.
 - `glowcap apps rooms session start` refuses a `--nick` that differs from the workspace's nickname and names the one it has, instead of reporting success and keeping the old one. A nickname belongs to its workspace, so a new one needs a new `--dir`.
