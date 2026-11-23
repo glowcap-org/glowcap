@@ -526,10 +526,7 @@ pub fn resolvedRef(self: *Host, id: capability.PromiseId) !capability.Ref {
         .breaking, .broken => error.PromiseBroken,
         // Data is not a target. The listen path reads it.
         .fulfilled_data => error.UncallableTarget,
-        .fulfilled => |ref| if (self.capabilities.resolve(ref) != null)
-            ref
-        else
-            error.UnknownCapability,
+        .fulfilled => |ref| if (self.capabilities.liveTarget(ref)) |_| ref else |err| err,
     };
 }
 

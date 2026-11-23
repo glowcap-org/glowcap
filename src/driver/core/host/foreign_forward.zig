@@ -54,12 +54,14 @@ comptime {
         @compileError("foreign forwarding changed its 64-byte completion box");
 }
 
-pub fn begin(turn: *actors.Turn, source: *local.Producer, target: capability.Ref, verb: ?[]const u8, args: []const values.Value) !void {
+/// `session` is the route `routing.applicationTarget` chose: the target's home,
+/// or for an unsettled promise its origin session, where the send or tell
+/// queues.
+pub fn begin(turn: *actors.Turn, source: *local.Producer, session: *host_mod.HostSession, target: capability.Ref, verb: ?[]const u8, args: []const values.Value) !void {
     const transfer = try turn.prepareAnswerTransfer();
     const host = source.host;
     const lease = if (source.lease) |*lease| lease else return error.NoPendingWork;
     try lease.checkHost(host);
-    const session = (try host.capabilitySession(target)) orelse return error.UnknownCapability;
     const answer = transfer orelse {
         try delivery.tellValuesAdmitted(host, session, target, verb, args, turn.arena, .{ .retained = lease });
         turn.forwardNoAnswer();

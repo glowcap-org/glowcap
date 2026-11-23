@@ -239,7 +239,7 @@ fn sendValuesWithProgress(
 /// the promise instead of routing to an exporter. A settled promise and a
 /// direct target route.
 fn unsettledPromiseOf(self: *Host, target: capability.Ref) !?capability.PromiseId {
-    const resolved = self.capabilities.resolve(target) orelse return error.UnknownCapability;
+    const resolved = try self.capabilities.liveTarget(target);
     if (resolved != .deferred) return null;
     const promise = self.capability_promises.get(resolved.deferred) orelse return error.UnknownCapability;
     return if (promise.state.isPending()) resolved.deferred else null;

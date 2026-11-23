@@ -46,6 +46,8 @@ Releases before 0.1.7 are in the
 - Stop a `listen` started from the MCP server or the REPL when its listener fails, such as when the kernel refuses an accept for a full descriptor table, and name that cause in `info`. It kept reporting a live listener while spinning a core.
 - Keep `glowcap listen` serving when one partner fails its handshake or its session, as a `listen` from the MCP server or the REPL already does. It exited with an internal error.
 - Classify a closed `driver.Server`'s `ServerClosed` as `closed` rather than `io`, so a caller choosing by `OperationFailure.classify` reads a stopped listener as stopped.
+- Report a call, tell, listen, resolve, or retain naming a capability whose home connection was released as `CapabilityClosed` (`GLOWCAP_ERR_CLOSED`), so a caller can treat it as a lost connection. This holds from a behavior's own turn and through a promise fulfilled to that capability. It was reported as `UnknownCapability` (`GLOWCAP_ERR_NOT_FOUND`), the refusal for an id the Host never issued or has fully released, so a partner whose call a Zig behavior refuses this way now reads `CapabilityClosed`.
+- Route a promise target by the promise's state when a behavior's turn has no delivering session (a local call) and in `PendingWorkLease.call`, as a turn that arrived over a session already did. An unsettled promise queues a send or tell, and a forward from a turn with no answer queues as a tell. A forward with an answer or a `PendingWorkLease.call` to an unsettled promise returns `NotResolved`. A broken promise returns `PromiseBroken`, a promise fulfilled to a local actor delivers to it, and one fulfilled to data returns `UncallableTarget`. Each was refused as `UnknownCapability`.
 
 ### Security
 

@@ -978,11 +978,14 @@ int32_t glowcap_host_ref_retain(GlowcapHost *host, const GlowcapReference *ref, 
    resolves the owning session and emits any required op:gc-exports itself; the
    caller never pairs a capability with a session-local wire position. If that
    session already closed, its already-issued application units remain releaseable
-   as wire-free success; every other use is stale. A fully released or foreign-Host
-   identity is refused. A non-OK return commits no release, so the same (ref, delta)
-   may be retried. OK consumes the release; any later pump cleanup failure becomes
-   typed session close and must not invite a duplicate release. Single-thread
-   affinity applies: never call this from a finalizer thread.
+   as wire-free success. Once its transport is reported closed, a send, tell, or
+   listen naming the reference returns GLOWCAP_ERR_CLOSED. Once the session is
+   released, retaining it does too, and as an argument it is stale. A fully
+   released or foreign-Host identity is refused. A non-OK return commits no
+   release, so the same (ref, delta) may be retried. OK consumes the release; any
+   later pump cleanup failure becomes typed session close and must not invite a
+   duplicate release. Single-thread affinity applies: never call this from a
+   finalizer thread.
    Release result: negative retains ownership, zero consumes successfully, and
    positive consumes with a failure. Use glowcap_release_result_consumed and
    glowcap_release_result_code before retrying or reporting the failure. */

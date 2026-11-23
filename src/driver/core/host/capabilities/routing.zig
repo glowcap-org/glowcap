@@ -27,24 +27,26 @@ pub const ApplicationTarget = struct { ref: capability.Ref, session: ?*HostSessi
 /// Application delivery needs no caller-selected session. A pending give queues
 /// on its introducing session, which owns redemption authority. Once fulfilled,
 /// follow the retained target to its actual local or foreign home. These are
-/// borrowed identities. Admission uses the existing promise queue.
+/// borrowed identities. Admission uses the existing promise queue. A known
+/// reference whose home session is gone is `CapabilityClosed`, a lost
+/// connection, never `UnknownCapability`.
 pub fn applicationTarget(self: *Host, ref: capability.Ref) !ApplicationTarget {
     try self.claimOwner();
     var current = ref;
     while (true) {
-        const target = self.capabilities.resolve(current) orelse return error.UnknownCapability;
+        const target = try self.capabilities.liveTarget(current);
         switch (target) {
             .local => return .{ .ref = current, .session = null },
             .remote => |remote| return .{
                 .ref = current,
-                .session = self.sessions.get(remote.peer_handle) orelse return error.UnknownCapability,
+                .session = self.sessions.get(remote.peer_handle) orelse return error.CapabilityClosed,
             },
             .deferred => |id| {
                 const promise = self.capability_promises.get(id) orelse return error.UnknownCapability;
                 switch (promise.state) {
                     .pending, .settling, .settling_data => return .{
                         .ref = current,
-                        .session = self.sessions.get(promise.origin.peer()) orelse return error.UnknownCapability,
+                        .session = self.sessions.get(promise.origin.peer()) orelse return error.CapabilityClosed,
                     },
                     .fulfilled => |settled| current = settled,
                     .fulfilled_data => return error.UncallableTarget,
@@ -86,7 +88,7 @@ pub fn routeCapability(
     try self.claimOwner();
     try self.admitSessionOperation(session);
     try self.checkSession(session);
-    const target = self.capabilities.resolve(ref) orelse return error.UnknownCapability;
+    const target = try self.capabilities.liveTarget(ref);
     return switch (target) {
         .local => |actor_id| blk: {
             if (!self.vat.hasActor(actor_id)) return error.NoSuchActor;
@@ -94,7 +96,7 @@ pub fn routeCapability(
         },
         .remote => |remote| blk: {
             if (gate == .object_only and remote.far.kind != .object) return error.UncallableTarget;
-            const home = self.sessions.get(remote.peer_handle) orelse return error.UnknownCapability;
+            const home = self.sessions.get(remote.peer_handle) orelse return error.CapabilityClosed;
             if (home != session) try self.admitSessionOperation(home);
             try self.checkSession(home);
             if (!home.served.port.peer.session_state.holdsImport(remote.far.import_position) or

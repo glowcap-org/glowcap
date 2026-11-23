@@ -403,7 +403,7 @@ pub fn capabilityFromRaw(self: *const Host, raw: u64) capability.Ref {
 /// Pending redemption and terminal failure remain distinct from live objects.
 pub fn settledCapability(self: *Host, ref: capability.Ref) !capability.Ref {
     try self.claimOwner();
-    const target = self.capabilities.resolve(ref) orelse return error.UnknownCapability;
+    const target = try self.capabilities.liveTarget(ref);
     return switch (target) {
         .local, .remote => ref,
         .deferred => |id| try capability_promise.resolvedRef(self, id),
@@ -425,7 +425,11 @@ pub fn localActorFor(self: *Host, ref: capability.Ref) ?actors.Ref {
 /// The live session homing a remote `ref`, for application routing metadata.
 /// Local actors belong to the Host Vat and return null because any Port may
 /// project them. A returned shell remains Host-owned and is invalidated with
-/// its remote import session.
+/// its remote import session. Null folds every refusal. A turn with no session
+/// of its own takes its route from `routing.applicationTarget`, which names the
+/// exact refusal. A session's `HostTurn.forward` reads this only to choose a
+/// wire forward to another session, and otherwise routes through
+/// `routeTurnCapability`, which reports the exact cause.
 pub fn capabilitySession(self: *Host, ref: capability.Ref) error{WrongThread}!?*HostSession {
     const settled = self.settledCapability(ref) catch |err| switch (err) {
         error.WrongThread => return error.WrongThread,
@@ -444,7 +448,7 @@ pub fn capabilitySession(self: *Host, ref: capability.Ref) error{WrongThread}!?*
 pub fn retainCapability(self: *Host, ref: capability.Ref) !capability.Ref {
     try self.claimOwner();
     try self.admitApplicationOperation();
-    const target = self.capabilities.resolve(ref) orelse return error.UnknownCapability;
+    const target = try self.capabilities.liveTarget(ref);
     return self.capabilities.retain(self.allocator, target);
 }
 

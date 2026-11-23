@@ -8,6 +8,7 @@ const value_mod = @import("../value.zig");
 const value_copy = @import("../value_copy.zig");
 const capability = @import("../capability.zig");
 const lower = @import("capabilities/lower.zig");
+const routing = @import("capabilities/routing.zig");
 const vows = @import("../vows.zig");
 const settlement = @import("../vows/settlement.zig");
 const owned = @import("owned_call.zig");
@@ -276,9 +277,17 @@ pub fn inputCharge(host: *host_mod.Host, verb: ?[]const u8, args: []const value_
 /// Local forwarding retains the original completion owner. Each actual
 /// delivery owns its input, but no hop allocates another result buffer, Host
 /// vow row or producer. Existing Vat forwarding carries the terminal token.
+/// This turn has no session of its own, so its route comes from
+/// `routing.applicationTarget`, as for `send` and `tell` below.
 pub fn forward(turn: *actors.Turn, target: capability.Ref, verb: ?[]const u8, args: []const value_mod.Value) !void {
     const source = try producer(turn);
-    const actor = source.host.localActorFor(target) orelse return @import("foreign_forward.zig").begin(turn, source, target, verb, args);
+    const selected = try routing.applicationTarget(source.host, target);
+    const home = selected.session orelse return forwardLocal(turn, source, selected.ref, verb, args);
+    return @import("foreign_forward.zig").begin(turn, source, home, selected.ref, verb, args);
+}
+
+fn forwardLocal(turn: *actors.Turn, source: *Producer, target: capability.Ref, verb: ?[]const u8, args: []const value_mod.Value) !void {
+    const actor = source.host.localActorFor(target) orelse return error.UnknownCapability;
     const charge = try inputCharge(source.host, verb, args);
     var input: Input = .{ .producer = source, .target = target, .verb = verb, .args = args, .owned_bytes = charge };
     try turn.forwardOpaque(actor, input.message());
@@ -289,20 +298,18 @@ pub fn send(turn: *actors.Turn, target: capability.Ref, verb: ?[]const u8, args:
     const parent = try producer(turn);
     const lease = if (parent.lease) |*lease| lease else return error.NoPendingWork;
     try lease.checkHost(parent.host);
-    if (parent.host.localActorFor(target) != null)
-        return @import("local_completion.zig").send(parent.host, lease, target, verb, args);
-    const session = (try parent.host.capabilitySession(target)) orelse return error.UnknownCapability;
-    return @import("delivery.zig").sendValuesAdmitted(parent.host, session, target, verb, args, turn.arena, .{ .retained = lease });
+    const selected = try routing.applicationTarget(parent.host, target);
+    const home = selected.session orelse return @import("local_completion.zig").send(parent.host, lease, selected.ref, verb, args);
+    return @import("delivery.zig").sendValuesAdmitted(parent.host, home, selected.ref, verb, args, turn.arena, .{ .retained = lease });
 }
 
 pub fn tell(turn: *actors.Turn, target: capability.Ref, verb: ?[]const u8, args: []const value_mod.Value) !void {
     const parent = try producer(turn);
     const lease = if (parent.lease) |*lease| lease else return error.NoPendingWork;
     try lease.checkHost(parent.host);
-    if (parent.host.localActorFor(target) != null)
-        return tellLocal(parent.host, lease, target, verb, args);
-    const session = (try parent.host.capabilitySession(target)) orelse return error.UnknownCapability;
-    return @import("delivery.zig").tellValuesAdmitted(parent.host, session, target, verb, args, turn.arena, .{ .retained = lease });
+    const selected = try routing.applicationTarget(parent.host, target);
+    const home = selected.session orelse return tellLocal(parent.host, lease, selected.ref, verb, args);
+    return @import("delivery.zig").tellValuesAdmitted(parent.host, home, selected.ref, verb, args, turn.arena, .{ .retained = lease });
 }
 
 /// The queue and its producer retain admitted notification work without an
