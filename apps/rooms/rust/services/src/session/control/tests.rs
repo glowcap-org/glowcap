@@ -20,6 +20,14 @@ fn acquisition_socket_preserves_document_text_and_rejects_unknown_fields() {
 	}
 }
 
+/// The socket names an overtaken candidate as a conflict, so `rooms session`
+/// can plan it again instead of reporting a peer failure.
+#[test]
+fn an_overtaken_workspace_candidate_is_a_conflict() {
+	let failure = peer_failure(rooms_glowcap::client::Error::WorkspaceConflict);
+	assert!(failure.is_conflict(), "{failure:?}");
+	assert_eq!(failure.retry, Retry::Soon.wire());
+}
 fn path() -> rooms_testing::scratch::Scratch {
 	rooms_testing::scratch::Scratch::new("control")
 }

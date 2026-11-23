@@ -4,6 +4,8 @@ use rooms_runtime::Error;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
+const CONFLICT: &str = "conflict";
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Failure {
 	pub class: String,
@@ -33,6 +35,14 @@ impl Failure {
 	}
 	pub fn uncertain(message: impl ToString) -> Self {
 		Self::new("uncertain", Retry::AfterStateChange, message)
+	}
+	/// Another writer moved the workspace past the revision this candidate
+	/// named, so it installed nothing and a fresh plan can succeed at once.
+	pub fn conflict(message: impl ToString) -> Self {
+		Self::new(CONFLICT, Retry::Soon, message)
+	}
+	pub fn is_conflict(&self) -> bool {
+		self.class == CONFLICT
 	}
 	pub fn response(&self) -> Value {
 		json!({"ok": false, "error": self})
@@ -87,7 +97,7 @@ impl From<&crate::session::attached::Error> for Failure {
 			Unreachable(_) => ("unreachable", Retry::Soon),
 			Uncertain { .. } => ("uncertain", Retry::AfterStateChange),
 			Peer(cause) => (named(cause.failure(), "peer"), cause.retry()),
-			Conflict => ("conflict", Retry::Soon),
+			Conflict => (CONFLICT, Retry::Soon),
 			Stale => ("restarted", Retry::AfterRequestChange),
 			Unkept { .. } => ("unkept", Retry::Never),
 			Unopened { .. } => ("unopened", Retry::AfterStateChange),

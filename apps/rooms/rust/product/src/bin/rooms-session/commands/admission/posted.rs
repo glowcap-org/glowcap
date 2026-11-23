@@ -3,7 +3,9 @@
 //! `startDirect` introduced. The saved acquisition owns recovery. Replay never
 //! remints a destination. The plans are the shared `adopt_line` and
 //! `adopt_direct`, which attached views also use. A route to a member an open
-//! conversation already reaches is given back.
+//! conversation already reaches is given back. Supervisor and receipt writes
+//! move the workspace after every commit, so a plan another writer overtook
+//! is made again from fresh status.
 use super::{Failure, Options, Value, json, request};
 use rooms_application::content::session::{
 	custody::FieldKey,
@@ -11,6 +13,9 @@ use rooms_application::content::session::{
 	workspace::{Adoption, DirectRefusal, Intent, LineReceipt, adopt_direct, adopt_line},
 };
 use rooms_application::failure::Retry;
+
+/// Fresh plans a result gets while other writers keep overtaking them.
+const ATTEMPTS: usize = 4;
 
 fn intent(workspace: &Value) -> Result<Intent, Failure> {
 	Intent::decode(&workspace.to_string()).map_err(|_| Failure::invalid("session returned an invalid workspace"))
@@ -36,11 +41,28 @@ pub(super) async fn acquire(
 	if submitted["adopted"] == true {
 		return Ok(());
 	}
-	let result = &submitted["result"];
-	if !result.is_object() {
+	if !submitted["result"].is_object() {
 		return Ok(());
 	}
 	let before = intent(&original["workspace"])?;
+	let mut attempt = 1;
+	loop {
+		match acquire_at_current(options, &before, submitted, name, args, adoption).await {
+			Err(failure) if failure.is_conflict() && attempt < ATTEMPTS => attempt += 1,
+			outcome => return outcome,
+		}
+	}
+}
+/// Plan against the status read now and acquire at its revision.
+async fn acquire_at_current(
+	options: &Options,
+	before: &Intent,
+	submitted: &Value,
+	name: &str,
+	args: &[String],
+	adoption: Adoption<'_>,
+) -> Result<(), Failure> {
+	let result = &submitted["result"];
 	let status = request(&options.state, json!({"verb":"status"})).await?;
 	let current = intent(&status["workspace"])?;
 	let (mappings, releases, planned, source) = match adoption {
@@ -50,7 +72,7 @@ pub(super) async fn acquire(
 			else {
 				return Ok(());
 			};
-			let plan = adopt_line(&before, &current, target, &receipt, fresh()?).map_err(Failure::invalid)?;
+			let plan = adopt_line(before, &current, target, &receipt, fresh()?).map_err(Failure::invalid)?;
 			(plan.mappings, plan.releases, plan.intent, None)
 		}
 		Adoption::Direct(start) => {
@@ -59,7 +81,7 @@ pub(super) async fn acquire(
 			let operation = submitted["operation"]
 				.as_str()
 				.ok_or_else(|| Failure::invalid("session returned no operation"))?;
-			let plan = match adopt_direct(&before, &current, operation, &start, &receipt, fresh()?, fresh()?) {
+			let plan = match adopt_direct(before, &current, operation, &start, &receipt, fresh()?, fresh()?) {
 				Ok(plan) => plan,
 				Err(DirectRefusal::Open(_)) => {
 					return super::super::acquisition::submit(

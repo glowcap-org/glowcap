@@ -1,6 +1,8 @@
 //! Persist the exact acquisition recipe before sending it. Socket interruption
 //! lends a wait to the adapter's receiver. Restart replays this same candidate.
-//! This private file stores request material, never a replacement grant ledger.
+//! A conflict retires it, because its revision has passed and nothing it
+//! names was installed. This private file stores request material, never a
+//! replacement grant ledger.
 use super::{Failure, Options, request, request_encoded};
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -58,12 +60,16 @@ pub async fn submit(options: &Options, body: Value) -> Result<(), Failure> {
 }
 async fn finish(state: &Path, id: &str, encoded: &[u8]) -> Result<(), Failure> {
 	let outcome = async {
-		request_encoded(state, "acquire", encoded).await?;
+		let conflict = match request_encoded(state, "acquire", encoded).await {
+			Ok(_) => None,
+			Err(failure) if failure.is_conflict() => Some(failure),
+			Err(failure) => return Err(failure),
+		};
 		request(state, json!({"verb":"release-acquisition","id":id})).await?;
-		Ok(())
+		Ok(conflict)
 	}
 	.await;
-	outcome.map_err(|mut error: Failure| {
+	let conflict = outcome.map_err(|mut error: Failure| {
 		error.message = format!(
 			"acquisition {id}: {}; resume with rooms session recover --dir <workspace> --acquisition {id}",
 			error.message
@@ -83,11 +89,18 @@ async fn finish(state: &Path, id: &str, encoded: &[u8]) -> Result<(), Failure> {
 	.await;
 	cleanup.map_err(|mut error: Failure| {
 		error.message = format!(
-			"acquisition {id} completed; recovery file cleanup failed: {}; inspect status before another acquisition",
+			"acquisition {id} finished; recovery file cleanup failed: {}; inspect status before another acquisition",
 			error.message
 		);
 		error
-	})
+	})?;
+	match conflict {
+		Some(failure) => {
+			let message = format!("acquisition {id}: {}", failure.message);
+			Err(failure.explained(message))
+		}
+		None => Ok(()),
+	}
 }
 pub async fn recover(options: &Options) -> Result<Value, Failure> {
 	let id = options
