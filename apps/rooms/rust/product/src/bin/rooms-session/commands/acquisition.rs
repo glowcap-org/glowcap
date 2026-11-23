@@ -30,7 +30,36 @@ async fn sync(directory: &Path) -> Result<(), Failure> {
 	tokio::fs::File::open(directory).await?.sync_all().await?;
 	Ok(())
 }
-pub async fn submit(options: &Options, body: Value) -> Result<(), Failure> {
+/// Fresh plans an acquisition gets while other writers keep overtaking them.
+/// The session's supervisor and receipt writes move the workspace after every
+/// commit, so a plan read just before one is common.
+const ATTEMPTS: usize = 4;
+
+/// Read status, plan against it, and acquire at the revision it names. `plan`
+/// receives that status and revision and returns `None` when the status needs
+/// no acquisition. A conflict proves another writer overtook the plan before
+/// anything was installed, so the plan runs again against fresh status.
+pub async fn at_current(
+	options: &Options,
+	mut plan: impl AsyncFnMut(&Value, u64) -> Result<Option<Value>, Failure>,
+) -> Result<(), Failure> {
+	let mut attempt = 1;
+	loop {
+		let status = request(&options.state, json!({"verb":"status"})).await?;
+		let base = status["revision"]
+			.as_str()
+			.and_then(|base| base.parse::<u64>().ok())
+			.ok_or_else(|| Failure::invalid("session returned no workspace revision"))?;
+		let Some(body) = plan(&status, base).await? else {
+			return Ok(());
+		};
+		match submit(options, body).await {
+			Err(failure) if failure.is_conflict() && attempt < ATTEMPTS => attempt += 1,
+			outcome => return outcome,
+		}
+	}
+}
+async fn submit(options: &Options, body: Value) -> Result<(), Failure> {
 	let id = super::operation()?;
 	let envelope = json!({"verb":"acquire","id":id,"request":body});
 	let encoded = serde_json::to_vec(&envelope)?;

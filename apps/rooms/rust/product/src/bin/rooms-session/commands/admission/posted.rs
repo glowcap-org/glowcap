@@ -3,19 +3,14 @@
 //! `startDirect` introduced. The saved acquisition owns recovery. Replay never
 //! remints a destination. The plans are the shared `adopt_line` and
 //! `adopt_direct`, which attached views also use. A route to a member an open
-//! conversation already reaches is given back. Supervisor and receipt writes
-//! move the workspace after every commit, so a plan another writer overtook
-//! is made again from fresh status.
-use super::{Failure, Options, Value, json, request};
+//! conversation already reaches is given back.
+use super::{Failure, Options, Value, json};
 use rooms_application::content::session::{
 	custody::FieldKey,
 	results,
 	workspace::{Adoption, DirectRefusal, Intent, LineReceipt, adopt_direct, adopt_line},
 };
 use rooms_application::failure::Retry;
-
-/// Fresh plans a result gets while other writers keep overtaking them.
-const ATTEMPTS: usize = 4;
 
 fn intent(workspace: &Value) -> Result<Intent, Failure> {
 	Intent::decode(&workspace.to_string()).map_err(|_| Failure::invalid("session returned an invalid workspace"))
@@ -45,32 +40,30 @@ pub(super) async fn acquire(
 		return Ok(());
 	}
 	let before = intent(&original["workspace"])?;
-	let mut attempt = 1;
-	loop {
-		match acquire_at_current(options, &before, submitted, name, args, adoption).await {
-			Err(failure) if failure.is_conflict() && attempt < ATTEMPTS => attempt += 1,
-			outcome => return outcome,
-		}
-	}
+	super::super::acquisition::at_current(options, async |status, base| {
+		plan(&before, status, base, submitted, name, args, adoption)
+	})
+	.await
 }
-/// Plan against the status read now and acquire at its revision.
-async fn acquire_at_current(
-	options: &Options,
+/// The acquisition that adopts this result against `status`, or none when the
+/// result names nothing to adopt.
+fn plan(
 	before: &Intent,
+	status: &Value,
+	base: u64,
 	submitted: &Value,
 	name: &str,
 	args: &[String],
 	adoption: Adoption<'_>,
-) -> Result<(), Failure> {
+) -> Result<Option<Value>, Failure> {
 	let result = &submitted["result"];
-	let status = request(&options.state, json!({"verb":"status"})).await?;
 	let current = intent(&status["workspace"])?;
 	let (mappings, releases, planned, source) = match adoption {
 		Adoption::Line(target) => {
 			let Some(receipt) = LineReceipt::read(&result.to_string())
 				.map_err(|_| Failure::invalid("the command returned an invalid line receipt"))?
 			else {
-				return Ok(());
+				return Ok(None);
 			};
 			let plan = adopt_line(before, &current, target, &receipt, fresh()?).map_err(Failure::invalid)?;
 			(plan.mappings, plan.releases, plan.intent, None)
@@ -84,29 +77,17 @@ async fn acquire_at_current(
 			let plan = match adopt_direct(before, &current, operation, &start, &receipt, fresh()?, fresh()?) {
 				Ok(plan) => plan,
 				Err(DirectRefusal::Open(_)) => {
-					return super::super::acquisition::submit(
-						options,
-						json!({"kind":"release-result", "operation":operation, "command_base":submitted["base"],
-							"name":name, "args":args}),
-					)
-					.await;
+					return Ok(Some(json!({"kind":"release-result", "operation":operation,
+						"command_base":submitted["base"], "name":name, "args":args})));
 				}
 				Err(refusal) => return Err(Failure::invalid(refusal)),
 			};
 			(plan.mappings, Vec::new(), plan.intent, Some(plan.source))
 		}
 	};
-	let base = status["revision"]
-		.as_str()
-		.and_then(|base| base.parse::<u64>().ok())
-		.ok_or_else(|| Failure::invalid("session returned no workspace revision"))?;
-	super::super::acquisition::submit(
-		options,
-		json!({
-			"kind":"result", "operation":submitted["operation"], "command_base":submitted["base"],
-			"name":name, "args":args, "base":base,
-			"mappings":mappings, "releases":releases, "intent":planned, "source":source,
-		}),
-	)
-	.await
+	Ok(Some(json!({
+		"kind":"result", "operation":submitted["operation"], "command_base":submitted["base"],
+		"name":name, "args":args, "base":base,
+		"mappings":mappings, "releases":releases, "intent":planned, "source":source,
+	})))
 }

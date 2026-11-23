@@ -1,6 +1,6 @@
 //! Human choices select typed custody and original command results. Routes are
 //! transient acquisition input. Managed workspace rows contain no bearer links.
-use super::{Failure, Options, acquisition::submit as acquire, command, request};
+use super::{Failure, Options, acquisition::at_current, command, request};
 use rooms_application::failure::Retry;
 use rooms_application::{
 	content::session::workspace,
@@ -23,12 +23,6 @@ fn id_text(row: &Value) -> Result<String, Failure> {
 		.as_str()
 		.map(str::to_owned)
 		.ok_or_else(|| Failure::invalid("session response row lacks id text"))
-}
-fn revision(status: &Value) -> Result<u64, Failure> {
-	status["revision"]
-		.as_str()
-		.and_then(|v| v.parse().ok())
-		.ok_or_else(|| Failure::invalid("session returned no workspace revision"))
 }
 fn coordinate(role: &str, key: &Value) -> Value {
 	json!({"role":role,"key":key})
@@ -63,27 +57,31 @@ pub async fn wait(options: &Options, description: &str, predicate: impl Fn(&Valu
 	}
 }
 pub async fn directory(options: &Options) -> Result<Value, Failure> {
-	let status = request(&options.state, json!({"verb":"status"})).await?;
-	let directories = rows(&status["workspace"], "directories")?;
 	let entry = if let Some(locator) = options.get("locator") {
 		let locator = super::bootstrap::resolve(locator).await?;
 		let address = request(&options.state, json!({"verb":"locate","locator":locator})).await?;
-		if let Some(entry) = directories.iter().find(|row| row["id"] == address["id"]) {
-			entry.clone()
-		} else {
+		let mut entry = Value::Null;
+		at_current(options, async |status, base| {
+			let directories = rows(&status["workspace"], "directories")?;
+			if let Some(existing) = directories.iter().find(|row| row["id"] == address["id"]) {
+				entry = existing.clone();
+				return Ok(None);
+			}
 			let nick = options
 				.get("nick")
 				.ok_or_else(|| Failure::invalid("a new directory needs --nick"))?;
 			let access = fresh()?;
 			let source = fresh()?;
-			let entry = json!({"id":address["id"],"access":access,"source":source,"home":directories.is_empty(),"nick":nick,"nickAllocation":"automatic","standing":null});
+			entry = json!({"id":address["id"],"access":access,"source":source,"home":directories.is_empty(),"nick":nick,"nickAllocation":"automatic","standing":null});
 			let mut intent = status["workspace"].clone();
 			rows_mut(&mut intent, "directories")?.push(entry.clone());
-			acquire(options,json!({"kind":"workspace","base":revision(&status)?,"imports":[{"coordinate":coordinate("directoryAccess",&access),"uri":address["uri"]}],"source":source,"releases":[],"intent":intent})).await?;
-			entry
-		}
+			Ok(Some(json!({"kind":"workspace","base":base,"imports":[{"coordinate":coordinate("directoryAccess",&access),"uri":address["uri"]}],"source":source,"releases":[],"intent":intent})))
+		})
+		.await?;
+		entry
 	} else {
-		directories
+		let status = request(&options.state, json!({"verb":"status"})).await?;
+		rows(&status["workspace"], "directories")?
 			.iter()
 			.find(|row| row["home"] == true)
 			.cloned()
@@ -112,26 +110,6 @@ pub async fn directory(options: &Options) -> Result<Value, Failure> {
 		.cloned()
 		.ok_or_else(|| Failure::invalid("registered directory left the workspace"))
 }
-struct ResultAcquisition {
-	intent: Value,
-	mappings: Vec<Value>,
-	source: Value,
-}
-async fn acquire_result(
-	options: &Options,
-	submitted: &Value,
-	name: &str,
-	args: &[String],
-	status: &Value,
-	candidate: ResultAcquisition,
-) -> Result<(), Failure> {
-	let ResultAcquisition {
-		intent,
-		mappings,
-		source,
-	} = candidate;
-	acquire(options,json!({"kind":"result","operation":submitted["operation"],"command_base":submitted["base"],"name":name,"args":args,"base":revision(status)?,"mappings":mappings,"releases":[],"intent":intent,"source":source})).await
-}
 pub async fn join(options: &Options) -> Result<Value, Failure> {
 	let directory = directory(options).await?;
 	let setup = setup(options);
@@ -158,12 +136,12 @@ pub async fn join(options: &Options) -> Result<Value, Failure> {
 			}
 			if let Some(room) = listed.first() {
 				let id = super::operation()?;
-				acquire(
-					options,
-					json!({"kind":"public-room", "base":revision(&status)?, "selection":{
-						"id":id,"directory":directory["id"],"name":name,"publication":room["id"],"source":fresh()?
-					}}),
-				)
+				let selection = json!({
+					"id":id,"directory":directory["id"],"name":name,"publication":room["id"],"source":fresh()?
+				});
+				at_current(options, async |_, base| {
+					Ok(Some(json!({"kind":"public-room", "base":base, "selection":selection})))
+				})
 				.await?;
 				json!({"id":id})
 			} else {
@@ -179,7 +157,6 @@ pub async fn join(options: &Options) -> Result<Value, Failure> {
 					],
 				);
 				let submitted = command(&setup, verb, args.clone()).await?;
-				let status = request(&options.state, json!({"verb":"status"})).await?;
 				let source = fresh()?;
 				let access = fresh()?;
 				let control = fresh()?;
@@ -204,8 +181,6 @@ pub async fn join(options: &Options) -> Result<Value, Failure> {
 					standing: None,
 					draft: Text::default(),
 				});
-				let mut intent = status["workspace"].clone();
-				rows_mut(&mut intent, "conversations")?.push(conversation.clone());
 				let result = &submitted["result"];
 				let mappings = vec![
 					json!([
@@ -217,18 +192,13 @@ pub async fn join(options: &Options) -> Result<Value, Failure> {
 						coordinate("roomControl", &control)
 					]),
 				];
-				acquire_result(
-					options,
-					&submitted,
-					verb,
-					&args,
-					&status,
-					ResultAcquisition {
-						intent,
-						mappings,
-						source,
-					},
-				)
+				at_current(options, async |status, base| {
+					let mut intent = status["workspace"].clone();
+					rows_mut(&mut intent, "conversations")?.push(conversation.clone());
+					Ok(Some(json!({"kind":"result","operation":submitted["operation"],
+						"command_base":submitted["base"],"name":verb,"args":args,"base":base,
+						"mappings":mappings,"releases":[],"intent":intent,"source":source})))
+				})
 				.await?;
 				conversation
 			}
