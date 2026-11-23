@@ -43,6 +43,8 @@ class EvidenceTest(unittest.TestCase):
         current="a" * 40,
         job_records=None,
         relation="identical",
+        late=0,
+        settle=0,
     ):
         with tempfile.TemporaryDirectory() as temporary:
             stub(
@@ -64,7 +66,10 @@ if any('/compare/' in argument for argument in sys.argv):
 if any('/jobs?' in argument for argument in sys.argv):
     print(os.environ['EVIDENCE_JOBS'])
 else:
-    print(os.environ['EVIDENCE_RESPONSE'])
+    with open(os.environ['EVIDENCE_CALL']) as calls:
+        reads = sum('/actions/workflows/' in line for line in calls)
+    listed = reads > int(os.environ['EVIDENCE_LATE'])
+    print(os.environ['EVIDENCE_RESPONSE'] if listed else json.dumps({'workflow_runs': []}))
 """,
             )
             call = Path(temporary) / "call.json"
@@ -75,6 +80,7 @@ else:
                 EVIDENCE_STATUS=str(status),
                 EVIDENCE_CURRENT=current,
                 EVIDENCE_RELATION=relation,
+                EVIDENCE_LATE=str(late),
                 DEPLOY_SHA=commit,
                 GITHUB_SHA=commit,
                 GH_TOKEN="test-token",
@@ -91,7 +97,7 @@ else:
                 ),
             )
             arguments = (
-                [sys.executable, str(ROOT / "ci/require_main_check.py"), commit]
+                [sys.executable, str(ROOT / "ci/require_main_check.py"), "--settle", str(settle), commit]
                 if command is None
                 else ["bash", "-e", "-o", "pipefail", "-c", command]
             )
@@ -132,6 +138,33 @@ else:
                 self.assertEqual(refused.stdout, "")
         empty, _ = self.evidence([])
         self.assertEqual(empty.returncode, 1)
+
+    def test_a_run_listed_late_is_read_again_until_the_window_closes(self):
+        # Promote moves main the moment check completes, and the finished run
+        # can reach the listing seconds later.
+        accepted, _ = self.evidence([RUN], late=1, settle=2)
+        self.assertEqual(accepted.returncode, 0, accepted.stderr)
+        self.assertEqual(accepted.stdout.strip(), RUN["html_url"])
+        reads = [c for c in self.api_calls if any("/actions/workflows/" in a for a in c)]
+        self.assertEqual(len(reads), 2)
+        refused, _ = self.evidence([RUN], late=100, settle=0.2)
+        self.assertEqual(refused.returncode, 1, refused.stderr)
+        self.assertIn("has no successful full check", refused.stderr)
+        self.assertEqual(sum(any("/actions/workflows/" in a for a in c) for c in self.api_calls), 2)
+        failed, _ = self.evidence([dict(RUN, conclusion="failure")], settle=30)
+        self.assertEqual(failed.returncode, 1, failed.stderr)
+        self.assertEqual(
+            sum(any("/actions/workflows/" in a for a in c) for c in self.api_calls),
+            1,
+            "a listed run that did not validate the commit is an answer, not a delay",
+        )
+        scheduled, _ = self.evidence([dict(RUN, event="schedule")], settle=0.2)
+        self.assertEqual(scheduled.returncode, 1, scheduled.stderr)
+        self.assertEqual(
+            sum(any("/actions/workflows/" in a for a in c) for c in self.api_calls),
+            2,
+            "a scheduled run cannot validate the commit, so its push run is still awaited",
+        )
 
     def test_manual_recovery_requires_both_successful_gate_jobs(self):
         run = dict(
