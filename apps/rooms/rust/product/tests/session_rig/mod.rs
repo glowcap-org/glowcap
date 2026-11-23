@@ -275,17 +275,32 @@ impl Fixture {
 
 /// A TCP port nothing listens on now, for a session that must come back on
 /// the same port. It is below the range the system hands to a bind of port
-/// zero, so no other listener in these tests takes it while the session is
-/// down.
+/// zero, so no listener that binds port zero takes it while the session is
+/// down. Test processes run side by side, so this process also holds a lock on
+/// a claim file named for the port until it exits, and another process's
+/// `free_port` passes over a port whose claim is held.
 pub fn free_port() -> u16 {
-	use std::sync::atomic::{AtomicU16, Ordering};
-	const FIRST: u16 = 20_000;
-	const COUNT: u16 = 12_000;
-	static NEXT: AtomicU16 = AtomicU16::new(0);
-	let start = (std::process::id() % u32::from(COUNT)) as u16;
+	use std::sync::{
+		Mutex,
+		atomic::{AtomicU32, Ordering},
+	};
+	const FIRST: u32 = 20_000;
+	const COUNT: u32 = 12_000;
+	static NEXT: AtomicU32 = AtomicU32::new(0);
+	static CLAIMS: Mutex<Vec<std::fs::File>> = Mutex::new(Vec::new());
+	let claims = std::env::temp_dir().join("glowcap-rooms-test-ports");
+	std::fs::create_dir_all(&claims).unwrap();
+	let start = std::process::id() % COUNT;
 	for _ in 0..COUNT {
-		let port = FIRST + (start + NEXT.fetch_add(1, Ordering::Relaxed)) % COUNT;
-		if std::net::TcpListener::bind(("127.0.0.1", port)).is_ok() {
+		let port = u16::try_from(FIRST + (start + NEXT.fetch_add(1, Ordering::Relaxed)) % COUNT).unwrap();
+		let claim = std::fs::OpenOptions::new()
+			.create(true)
+			.truncate(false)
+			.write(true)
+			.open(claims.join(port.to_string()))
+			.unwrap();
+		if claim.try_lock().is_ok() && std::net::TcpListener::bind(("127.0.0.1", port)).is_ok() {
+			CLAIMS.lock().unwrap().push(claim);
 			return port;
 		}
 	}
