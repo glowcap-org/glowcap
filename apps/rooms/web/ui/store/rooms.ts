@@ -36,13 +36,14 @@ export function setRoomPolicy(projection: PageProjection, key: string, policy: R
  * `name` to state its policy before reading it as open.
  *
  * A room restored from the workspace reads as open until its directory says
- * otherwise. The wait ends when the room is unavailable or its directory
- * disconnects, because neither will answer. */
-export function roomPolicyPending(state: Pick<State, "convs" | "dirs">, name: string): boolean {
+ * otherwise. The wait ends when the room is unavailable, because it will not
+ * answer. A directory that lost its connection is dialed again, so its room
+ * still answers once it is back, and until then the page shows what it shows
+ * with no room open. */
+export function roomPolicyPending(state: Pick<State, "convs">, name: string): boolean {
 	for (const conv of state.convs.values()) {
 		if (conv.type !== "room" || conv.id !== name || conv.policyHeard) continue;
 		if (conv.membership === "unavailable") continue;
-		if (state.dirs.get(conv.dir)?.session === "disconnected") continue;
 		return true;
 	}
 	return false;

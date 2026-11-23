@@ -1,6 +1,8 @@
 // A private-room address waits for a restored room to state its policy, and
-// stops waiting once nothing will answer. Without the bound, a reload on the
-// address of a room that is gone or behind a lost directory renders nothing.
+// stops waiting once the room will not answer. Without the bound, a reload on
+// the address of a room that is gone renders nothing. A lost directory is not
+// that bound: the session dials it again, and a reload during a server restart
+// would otherwise leave the reader's private room for the join card.
 
 /// <reference lib="dom" />
 
@@ -42,10 +44,8 @@ Deno.test("an unavailable room ends the wait", () => {
 	assertEquals(store.roomPolicyPending(projection.get(), "#gone"), false);
 });
 
-Deno.test("a disconnected directory ends the wait", () => {
+Deno.test("a directory that lost its connection keeps the wait", () => {
 	const { projection, dir } = restored("#far");
 	store.setDirSession(projection, dir, "disconnected");
-	assertEquals(store.roomPolicyPending(projection.get(), "#far"), false);
-	store.setDirSession(projection, dir, "reconnecting");
 	assertEquals(store.roomPolicyPending(projection.get(), "#far"), true);
 });
