@@ -1,7 +1,7 @@
 // zig build mycelium-test passes the browser bundle as argv[0] and runs from
 // the repository root. Count GPU work and prove activity stops at its boundary.
 // SwiftShader timings are not measurements of a phone.
-import { type Browser, chromium } from "playwright";
+import { type Browser, chromium, type Page } from "playwright";
 import { deepStrictEqual as assertEquals, ok as assert } from "node:assert/strict";
 import type {} from "./mycelium_page.ts";
 
@@ -41,9 +41,7 @@ try {
 		const errors: string[] = [];
 		page.on("pageerror", (error) => errors.push(error.message));
 		try {
-			const epoch = new Date("2026-01-01T00:00:00Z");
-			await page.clock.install({ time: epoch });
-			await page.clock.pauseAt(epoch);
+			await freeze(page);
 			await page.goto(`http://127.0.0.1:${server.addr.port}/`);
 			const mounted = await page.evaluate(() => myceliumFixture.start());
 			assertEquals(mounted, !mobile);
@@ -152,6 +150,16 @@ try {
 	await server.shutdown();
 }
 
+/** Hold the page's clock still before it loads. An installed clock follows
+ * real time until it is paused, and pausing never moves it back, so it starts
+ * a minute before the moment it pauses at. The check runs under a one-minute
+ * deadline, so no pause can come later than that. */
+async function freeze(page: Page) {
+	const epoch = Date.parse("2026-01-01T00:00:00Z");
+	await page.clock.install({ time: epoch - 60_000 });
+	await page.clock.pauseAt(epoch);
+}
+
 /** The site's drift: each plane rises by its own share of the scroll, moved
  * by the compositor with nothing redrawn, holds still under reduced motion,
  * and hears no scroll once stopped. */
@@ -160,9 +168,7 @@ async function drift(browser: Browser) {
 	const errors: string[] = [];
 	page.on("pageerror", (error) => errors.push(error.message));
 	try {
-		const epoch = new Date("2026-01-01T00:00:00Z");
-		await page.clock.install({ time: epoch });
-		await page.clock.pauseAt(epoch);
+		await freeze(page);
 		await page.goto(`http://127.0.0.1:${server.addr.port}/?drift`);
 		assertEquals(await page.evaluate(() => myceliumFixture.start()), true);
 		await page.clock.fastForward(950);
