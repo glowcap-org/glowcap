@@ -140,7 +140,7 @@ fn observeCapability(
     try self.claimOwner();
     try self.admitApplicationOperation();
     var current = target;
-    var resolved_target = self.capabilities.resolve(current) orelse return error.UnknownCapability;
+    var resolved_target = try self.capabilities.liveTarget(current);
     while (resolved_target == .deferred) {
         const promise = self.capability_promises.get(resolved_target.deferred) orelse
             return error.UnknownCapability;
@@ -152,7 +152,7 @@ fn observeCapability(
             },
             .fulfilled => |resolved| {
                 current = resolved;
-                resolved_target = self.capabilities.resolve(current) orelse return error.UnknownCapability;
+                resolved_target = try self.capabilities.liveTarget(current);
             },
             // Late observation preserves the same outcome as a queued listen.
             .fulfilled_data, .breaking, .broken => {

@@ -269,6 +269,17 @@ pub const Registry = struct {
         };
     }
 
+    /// The live target behind `ref` for a verb that uses it. A row whose remote
+    /// home closed keeps its unsettled retains, so it is a known reference on a
+    /// lost connection, `CapabilityClosed`. A stale or foreign id is
+    /// `UnknownCapability`.
+    pub fn liveTarget(self: *const Registry, ref: Ref) error{ CapabilityClosed, UnknownCapability }!Target {
+        return self.resolve(ref) orelse if (self.retainCount(ref) != null)
+            error.CapabilityClosed
+        else
+            error.UnknownCapability;
+    }
+
     /// Number of outstanding application retains on a usable or invalidated
     /// capability. Host release uses this to validate the whole delta before
     /// committing any corresponding wire GC.

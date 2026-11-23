@@ -156,6 +156,11 @@ return this type. A reference passes to another session of the same Host with no
 extra step when the Host can route it. Return an application retain with
 `glowcap_host_ref_release`. Stale and foreign-Host ids fail closed.
 
+A reference whose home session closed is a lost connection. Once the session's
+transport is reported closed, a send, tell, or listen naming the reference
+returns `GLOWCAP_ERR_CLOSED`. Once the session is released, retaining it does
+too, and as an argument it is stale.
+
 A send returns a separate `uint64_t` vow handle for observing its answer.
 Use `glowcap_host_vow_capability` to obtain a passable promise reference from
 a vow associated with a session. The header defines its release rules and

@@ -94,10 +94,10 @@ pub const PendingWorkLease = struct {
         const host = self.host orelse return error.NoPendingWork;
         const admission: WorkAdmission = .{ .retained = self };
         try admission.check(host);
-        if (host.localActorFor(target) != null)
-            return @import("local_delivery.zig").callAdmitted(host, allocator, target, verb, args, reply_bytes, admission, via);
-        const session = (try host.capabilitySession(target)) orelse return error.UnknownCapability;
-        return @import("owned_call.zig").callAdmitted(host, allocator, session, target, verb, args, reply_bytes, admission);
+        const selected = try @import("capabilities/routing.zig").applicationTarget(host, target);
+        const home = selected.session orelse
+            return @import("local_delivery.zig").callAdmitted(host, allocator, selected.ref, verb, args, reply_bytes, admission, via);
+        return @import("owned_call.zig").callAdmitted(host, allocator, home, selected.ref, verb, args, reply_bytes, admission);
     }
 
     /// Cold reference preparation remains a child of the admitted operation.

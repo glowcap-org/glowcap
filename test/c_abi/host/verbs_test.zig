@@ -438,13 +438,31 @@ test "libglowcap_host: a projected reference releases after its home session clo
     try pump(&hosts, &.{pair}, &dials, &watches);
     const remote_ref = try fetched.requireRef();
 
-    // Closing the home invalidates use immediately, but teardown already
+    // Once the transport is reported closed, a verb naming the reference is
+    // refused by its condemned home. Retaining it is a local count on a row
+    // that is still live.
+    try expectOk(cd.glowcap_host_session_transport_closed(pair.a, "gone", 4));
+    var refused_vow: u64 = 0;
+    try std.testing.expectEqual(c.GLOWCAP_ERR_CLOSED, cd.glowcap_host_send(client, &remote_ref, "poke", 4, null, 0, &refused_vow));
+    try std.testing.expectEqual(c.GLOWCAP_ERR_CLOSED, cd.glowcap_host_tell(client, &remote_ref, "poke", 4, null, 0));
+    try std.testing.expectEqual(c.GLOWCAP_ERR_CLOSED, cd.glowcap_host_session_listen(pair.a, &remote_ref, &refused_vow));
+    var early_retain: c.GlowcapReference = .{ .id = 0 };
+    try expectOk(cd.glowcap_host_ref_retain(client, &remote_ref, &early_retain));
+    try expectOk(cd.glowcap_host_ref_release(client, &early_retain, 1));
+
+    // Releasing the home invalidates use immediately, but teardown already
     // reclaimed the wire import. The application unit therefore retains one
     // release-only recipient instead of turning a later finalizer into a
     // permanent NOT_FOUND retry.
     try expectOk(cd.glowcap_host_session_release(pair.a));
+    // Until its last retain is returned, the reference is a lost connection
+    // to a send or a retain.
+    try std.testing.expectEqual(c.GLOWCAP_ERR_CLOSED, cd.glowcap_host_send(client, &remote_ref, "poke", 4, null, 0, &refused_vow));
+    var refused_retain: c.GlowcapReference = .{ .id = 0 };
+    try std.testing.expectEqual(c.GLOWCAP_ERR_CLOSED, cd.glowcap_host_ref_retain(client, &remote_ref, &refused_retain));
     try expectOk(cd.glowcap_host_ref_release(client, &remote_ref, 1));
     try std.testing.expectEqual(c.GLOWCAP_ERR_NOT_FOUND, cd.glowcap_host_ref_release(client, &remote_ref, 1));
+    try std.testing.expectEqual(c.GLOWCAP_ERR_NOT_FOUND, cd.glowcap_host_send(client, &remote_ref, "poke", 4, null, 0, &refused_vow));
 }
 
 test "libglowcap_host: a nonzero local_turn_budget constructs a host (ADR-0018)" {

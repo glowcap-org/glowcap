@@ -24,10 +24,7 @@ const Retains = struct {
     count: usize = 0,
 
     fn acquire(self: *Retains, ref: value_mod.Capability) !void {
-        const target = self.host.capabilities.resolve(ref) orelse {
-            if (self.host.capabilities.retainCount(ref) != null) return error.CapabilityClosed;
-            return error.UnknownCapability;
-        };
+        const target = try self.host.capabilities.liveTarget(ref);
         _ = try self.host.capabilities.retain(self.host.allocator, target);
         self.count += 1;
     }

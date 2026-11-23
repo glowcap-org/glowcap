@@ -312,6 +312,7 @@ comptime {
         _ = @import("driver/core_host/failure_taxonomy_test.zig");
         _ = @import("driver/core_host/capability_projection_test.zig");
         _ = @import("driver/core_host/routing_depth_test.zig");
+        _ = @import("driver/core_host/routing_closed_home_test.zig");
         _ = @import("driver/core_host/give/relayed_test.zig");
         _ = @import("driver/core_host/locator_test.zig");
         _ = @import("driver/core_host/locator_budget_test.zig");
