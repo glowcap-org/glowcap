@@ -392,6 +392,34 @@ impl Rig {
 		std::fs::read_to_string(self.dir.join("bot.log")).unwrap_or_default()
 	}
 
+	/// What the action at `at` of the latest turn printed, in whichever
+	/// conversation's working directory holds it.
+	pub fn act_output(&self, at: usize) -> Value {
+		let path = std::fs::read_dir(self.dir.join("work"))
+			.unwrap()
+			.flatten()
+			.map(|conversation| conversation.path().join(format!("act-{at}.out")))
+			.find(|path| path.exists())
+			.unwrap();
+		serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap()
+	}
+
+	/// Every action output the bot kept, then its log: what a failed turn
+	/// assertion prints so the failure names its cause.
+	pub fn evidence(&self) -> String {
+		let mut evidence = String::new();
+		for conversation in std::fs::read_dir(self.dir.join("work")).into_iter().flatten().flatten() {
+			for entry in std::fs::read_dir(conversation.path()).into_iter().flatten().flatten() {
+				let path = entry.path();
+				if path.extension().is_some_and(|extension| extension == "out") {
+					let printed = std::fs::read_to_string(&path).unwrap_or_default();
+					evidence.push_str(&format!("{}: {printed}\n", path.display()));
+				}
+			}
+		}
+		evidence + &self.log()
+	}
+
 	pub fn workdir(&self, conversation: &str) -> PathBuf {
 		self.dir.join("work").join(conversation)
 	}
