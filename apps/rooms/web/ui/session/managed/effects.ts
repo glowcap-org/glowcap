@@ -274,6 +274,12 @@ export class ManagedEffects {
 				await recovery;
 				signal?.throwIfAborted();
 			}
+			// A completion that finished its receipt and then failed has nobody left
+			// to run it again once no cancellation recovers it. Its record would hold
+			// the gesture's conversation against every later change.
+			if (this.#records.get(operation) === record && record.finished != null && record.operation == null) {
+				this.#forget(operation);
+			}
 			throw error;
 		} finally {
 			record.completing = undefined;

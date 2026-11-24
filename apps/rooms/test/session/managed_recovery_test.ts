@@ -98,7 +98,8 @@ Deno.test("startup skips a listed receipt whose release already happened", async
 	const failures: unknown[] = [];
 	const asked: string[] = [];
 	const { workspace } = linkedWorkspace("released", [], {
-		effects: () => Promise.resolve([{ operation: "released", status: "committed", resumable: false }]),
+		effects: () =>
+			Promise.resolve([{ operation: "released", status: "committed", resumable: false, released: false }]),
 		// The session answers Void to the receipt's intent, which the binding
 		// reads as no receipt to recover.
 		recoverEffect: (id: string) => {

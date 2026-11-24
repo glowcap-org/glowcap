@@ -187,8 +187,30 @@ Deno.test("a workspace selection the session refused is freed and the next selec
 Deno.test("an inventory status with no words here reads as unknown, an inherited name included", async () => {
 	const session = viewer({ snapshot: () => Promise.resolve(snapshot()) });
 	try {
-		const rows = ["toString", "later"].map((status) => ({ operation: status, status, resumable: false }));
+		const rows = ["toString", "later"].map((status) => ({
+			operation: status,
+			status,
+			resumable: false,
+			released: false,
+		}));
 		assertEquals(openChanges(session, rows).map((row) => row.state), ["unknown", "unknown"]);
+	} finally {
+		await session.close();
+	}
+});
+
+Deno.test("a receipt its source let go is no open change, though the session still lists it", async () => {
+	const session = viewer({ snapshot: () => Promise.resolve(snapshot()) });
+	try {
+		const row = (operation: string, released: boolean) => ({
+			operation,
+			status: "unknown",
+			resumable: false,
+			released,
+		});
+		assertEquals(openChanges(session, [row("let-go", true), row("held", false)]).map((change) => change.id), [
+			"held",
+		]);
 	} finally {
 		await session.close();
 	}

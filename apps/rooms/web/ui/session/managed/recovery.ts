@@ -118,7 +118,7 @@ export async function restoreEffects(viewer: Recovery): Promise<boolean> {
 		port.isCurrent(pass) ? port.over((link) => call(link.workspace)) : Promise.reject(new PassEnded());
 	try {
 		for (const receipt of await onPass((workspace) => workspace.effects())) {
-			if (receipt.status === "unsent" || viewer.known(receipt.operation)) continue;
+			if (receipt.status === "unsent" || receipt.released || viewer.known(receipt.operation)) continue;
 			const recovered = await onPass((workspace) => workspace.recoverEffect(receipt.operation));
 			if (recovered == null) continue;
 			// A newer link, or a move for it, may have taken this receipt up meanwhile.

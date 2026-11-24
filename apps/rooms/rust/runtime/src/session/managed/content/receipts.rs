@@ -262,6 +262,7 @@ impl<P: Tasks + Deadline + Clone + 'static> SessionContent<P> {
 						"operation": id,
 						"status": status(receipt, owner.receipt_running(id, &record)).as_str(),
 						"resumable": owner.holds(id),
+						"released": receipt.disposition == custody::Disposition::Released,
 					}));
 				}
 				Ok(serde_json::to_string(&rows)

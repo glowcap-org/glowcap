@@ -168,6 +168,9 @@ export interface EffectView {
 	operation: string;
 	status: string;
 	resumable: boolean;
+	/** Its source let the receipt go. The session keeps it only to answer a
+	 * second send of the same operation, so it is no open change. */
+	released: boolean;
 }
 /** An archive coordinate as the wire carries it. Mirrors ArchiveCoordinates
  * in lib/archive/protocol.ts, which owns no JSON schema. */

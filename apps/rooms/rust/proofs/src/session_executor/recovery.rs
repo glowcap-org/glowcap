@@ -274,6 +274,19 @@ pub(super) async fn cold(host: &Host, source: &Ref, result: &str, calls: &Cell<u
 		"cold inventory contains exactly the root's receipts"
 	);
 	assert!(rows.iter().all(|row| !row.resumable));
+	let released = |id: &str| {
+		rows.iter()
+			.find(|row| row.operation == id)
+			.is_some_and(|row| row.released)
+	};
+	assert!(
+		released("effect-forfeit"),
+		"the inventory says which receipt its source let go"
+	);
+	assert!(
+		!released("effect-stalled"),
+		"a receipt nobody released is not marked released"
+	);
 	// No executor survives the restart, so the receipts that keep a place are
 	// exactly the ones a revoked source's sweep would find held.
 	let mut held_now = workspace.held_effects().await.unwrap();

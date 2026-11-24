@@ -25,7 +25,7 @@ impl RoomsManagedWorkspace {
 					&rows
 						.into_iter()
 						.map(
-							|row| serde_json::json!({"operation": row.operation, "status": row.status.wire(), "resumable": row.resumable}),
+							|row| serde_json::json!({"operation": row.operation, "status": row.status.wire(), "resumable": row.resumable, "released": row.released}),
 						)
 						.collect::<Vec<_>>(),
 				)

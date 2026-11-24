@@ -7,6 +7,9 @@ pub struct EffectEntry {
 	pub operation: String,
 	pub status: EffectStatus,
 	pub resumable: bool,
+	/// Its source gave the receipt up. It stays only to answer a resubmission
+	/// until the replay window evicts it, and nothing is left to decide.
+	pub released: bool,
 }
 pub use rooms_application::content::session::effects::{Holder, Release};
 
@@ -45,6 +48,7 @@ impl<D: Deadline + Clone> Workspace<D> {
 			operation: String,
 			status: String,
 			resumable: bool,
+			released: bool,
 		}
 		let reply = self.call("effect-inventory", &[]).await?;
 		let rows: Vec<Entry> = serde_json::from_str(
@@ -63,6 +67,7 @@ impl<D: Deadline + Clone> Workspace<D> {
 					operation: row.operation,
 					status: EffectStatus::read(&row.status.into())?,
 					resumable: row.resumable,
+					released: row.released,
 				})
 			})
 			.collect()

@@ -54,23 +54,24 @@ export function openChanges(session: ManagedRoomsSession, rows: readonly EffectV
 				letGo: ready,
 			};
 		}),
-		...(rows ?? []).filter((row) => row.status !== "committed" || holding.has(row.operation)).map(
-			(row): OpenChange => {
-				const id = row.operation;
-				const ready = holding.has(id) ? recoverable.has(id) : row.resumable;
-				// Held work that is not recoverable is still running here.
-				const running = holding.has(id) && !ready;
-				return {
-					id,
-					status: row.status,
-					resumable: row.resumable,
-					state: running ? "working" : known(row.status),
-					act: ready ? "complete" : null,
-					// Paused executors still own admitted work and its settlement.
-					letGo: !running && !row.resumable && !acquiring.has(id) && row.status !== "pending",
-				};
-			},
-		),
+		...(rows ?? []).filter((row) => !row.released && (row.status !== "committed" || holding.has(row.operation)))
+			.map(
+				(row): OpenChange => {
+					const id = row.operation;
+					const ready = holding.has(id) ? recoverable.has(id) : row.resumable;
+					// Held work that is not recoverable is still running here.
+					const running = holding.has(id) && !ready;
+					return {
+						id,
+						status: row.status,
+						resumable: row.resumable,
+						state: running ? "working" : known(row.status),
+						act: ready ? "complete" : null,
+						// Paused executors still own admitted work and its settlement.
+						letGo: !running && !row.resumable && !acquiring.has(id) && row.status !== "pending",
+					};
+				},
+			),
 		// Held here with no receipt: still being admitted, or its receipt has
 		// left the window, which leaves its outcome unknown for good.
 		...session.pending.filter((id) => !receipted.has(id)).map((id): OpenChange => ({
