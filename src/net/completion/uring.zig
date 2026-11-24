@@ -553,8 +553,10 @@ pub const Backend = struct {
     /// long as a peek finds one. The inner backend's error is returned when
     /// nothing was reaped this call, once, as the epoll backend returns it. When
     /// ring completions are already in `out` it waits in `deferred_error`, so
-    /// they are not dropped.
+    /// they are not dropped. A call with no room left looks at nothing, so it
+    /// leaves `dirty` as it found it.
     fn serveListeners(self: *Backend, out: []completion.Completion, produced: usize) !usize {
+        if (produced == out.len) return 0;
         const got = self.inner.?.peek(out[produced..]) catch |err| {
             if (produced == 0) return err;
             if (self.deferred_error == null) self.deferred_error = err;

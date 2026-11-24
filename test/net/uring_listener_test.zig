@@ -378,6 +378,18 @@ test "io_uring listener set: a refused re-arm is no fault, and the next flush ar
     try f.accepted.append(std.testing.allocator, comp.result);
 }
 
+test "io_uring listener set: a drain with no room keeps the listeners' pending work" {
+    const f = try Fixture.init();
+    defer f.deinit();
+    try f.backend.flush();
+    f.backend.dirty = true;
+    var out: [1]completion.Completion = undefined;
+    // Twice, so the listener pass runs first on one of them.
+    try std.testing.expectEqual(@as(usize, 0), try f.backend.peek(out[0..0]));
+    try std.testing.expectEqual(@as(usize, 0), try f.backend.peek(out[0..0]));
+    try std.testing.expect(f.backend.dirty);
+}
+
 test "io_uring listener set: an inner backend error surfaces once, with ring completions kept" {
     const f = try Fixture.init();
     defer f.deinit();
