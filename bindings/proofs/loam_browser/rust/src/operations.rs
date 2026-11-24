@@ -61,6 +61,7 @@ pub async fn operations(saved: &str) -> Result<String, JsValue> {
 				.collect();
 			attachment
 				.start_live(Some(glowcap::loam::LiveMarker::decode(marker.try_into().unwrap())), 2)
+				.await
 				.unwrap();
 			let (rooted, _control) = attachment.restore(resource).await.unwrap();
 			host.publish("root", move || {

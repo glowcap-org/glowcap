@@ -16,10 +16,44 @@ impl LiveMarker {
 }
 
 impl Attachment {
-	/// Reserve capacity and begin a new lifetime. Drive normal attachment work
-	/// and exact recovery until `live_marker` returns the committed marker.
-	/// Live declarations refuse while startup is pending or failed.
-	pub fn start_live(&self, prior: Option<LiveMarker>, capacity: u32) -> Result<()> {
+	/// Reserve capacity, begin a new lifetime, and resolve with its confirmed
+	/// incarnation, or with the startup's exact failure. Startup shares the
+	/// attachment's storage lane with ordinary calls, and a commit that lands
+	/// while its marker read is outstanding sends it back to read again, so a
+	/// finished call never means a confirmed lifetime. Await this before work
+	/// that needs the lifetime; ordinary private calls are safe to start once it
+	/// resolves, and live declarations refuse before it does.
+	///
+	/// The wait follows the attachment's progress and the Host's release, with
+	/// no timer: a Host that closes settles it with the closed error. Dropping
+	/// the future abandons only the wait. Startup keeps running on the Host's
+	/// tasks and a second `start_live` on this attachment refuses, so a caller
+	/// that cancelled reads the outcome with `live_incarnation`, which stays
+	/// `None` until confirmation.
+	pub async fn start_live(&self, prior: Option<LiveMarker>, capacity: u32) -> Result<LiveIncarnation> {
+		self.begin_live(prior, capacity)?;
+		let owner = self.inner()?;
+		loop {
+			let changed = owner.progress_changed.notified();
+			let released = owner.host.release_signal();
+			tokio::pin!(changed, released);
+			changed.as_mut().enable();
+			released.as_mut().enable();
+			if let Some(incarnation) = self.live_incarnation()? {
+				return Ok(incarnation);
+			}
+			// A failed Host close keeps its handle and stops waking this wait.
+			if let Some(failure) = owner.host.failed_close() {
+				return Err(failure);
+			}
+			tokio::select! {
+				() = changed => {}
+				() = released => {}
+			}
+		}
+	}
+
+	fn begin_live(&self, prior: Option<LiveMarker>, capacity: u32) -> Result<()> {
 		let owner = self.inner()?;
 		owner.host.guard_handle()?;
 		let prior = prior.map(|marker| ffi::GlowcapLoamObject { key: marker.0 });
@@ -66,6 +100,10 @@ pub struct LiveIncarnation {
 	generation: core::num::NonZeroU64,
 }
 impl LiveIncarnation {
+	/// The lifetime's marker, to pass as `prior` when the next process starts.
+	pub fn marker(self) -> LiveMarker {
+		self.marker
+	}
 	pub fn encode(self) -> [u8; 41] {
 		let mut bytes = [0; 41];
 		bytes[..33].copy_from_slice(&self.marker.encode());
@@ -84,7 +122,7 @@ impl Attachment {
 		owner.host.guard_handle()?;
 		let mut generation = 0;
 		check(
-			// SAFETY: as `start_live` above, for `owner.raw.get()`; `generation` is a local out-parameter the callee
+			// SAFETY: as `begin_live` above, for `owner.raw.get()`; `generation` is a local out-parameter the callee
 			// writes.
 			unsafe { ffi::glowcap_loam_live_generation(owner.raw.get(), &mut generation) },
 		)?;

@@ -171,7 +171,7 @@ pub async fn create() -> Result<String, JsValue> {
 		let drops = Rc::new(Cell::new(0));
 		let continuation_state = Rc::new(continuations::State::default());
 		let attachment = store.attach(&host, vec![continuations::wrap(registration(&drops), &continuation_state)]).unwrap();
-		attachment.start_live(None, 2).unwrap();
+		attachment.start_live(None, 2).await.unwrap();
 		let (root, control) = attachment.restore(resource).await.unwrap();
 		continuation_state.target.borrow_mut().replace(root.clone());
 		assert!(store.close().await.is_err(), "live attachment preserves Store and database custody");
@@ -284,7 +284,7 @@ pub async fn reopen(saved: &str) -> Result<(), JsValue> {
 				.map(|v| v.as_u64().unwrap() as u8)
 				.collect();
 			let marker = glowcap::loam::LiveMarker::decode(marker.try_into().unwrap());
-			attachment.start_live(Some(marker), 2).unwrap();
+			attachment.start_live(Some(marker), 2).await.unwrap();
 			// The durable name resolves cold before any explicit resource restoration.
 			let (caller, session, accepted) = pair(&host).await;
 			let shared = session.fetch(&swiss).await.unwrap();

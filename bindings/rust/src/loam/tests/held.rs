@@ -6,26 +6,40 @@ use std::sync::{Arc, Condvar, Mutex};
 /// Holds every storage work until the test opens the gate.
 #[derive(Default)]
 pub(super) struct Gate {
-	state: Mutex<(bool, usize)>,
+	state: Mutex<State>,
 	changed: Condvar,
+}
+#[derive(Default)]
+struct State {
+	open: bool,
+	armed: bool,
+	entered: usize,
 }
 impl Gate {
 	pub(super) fn open(&self) {
-		self.state.lock().unwrap().0 = true;
+		self.state.lock().unwrap().open = true;
 		self.changed.notify_all();
 	}
+	/// Make a `Hold::ArmedReads` engine hold the next read it runs.
+	pub(super) fn arm(&self) {
+		self.state.lock().unwrap().armed = true;
+	}
 	pub(super) fn entered(&self) -> usize {
-		self.state.lock().unwrap().1
+		self.state.lock().unwrap().entered
 	}
 	/// Open the gate when the guard drops, so a failed assertion cannot
 	/// leave a held worker that the unwinding Host joins forever.
 	pub(super) fn opened_on_drop(self: &Arc<Self>) -> OpenOnDrop {
 		OpenOnDrop(Arc::clone(self))
 	}
+	/// Whether this read is the armed one. Later reads run.
+	fn take_armed(&self) -> bool {
+		std::mem::take(&mut self.state.lock().unwrap().armed)
+	}
 	fn hold(&self) {
 		let mut state = self.state.lock().unwrap();
-		state.1 += 1;
-		while !state.0 {
+		state.entered += 1;
+		while !state.open {
 			state = self.changed.wait(state).unwrap();
 		}
 	}
@@ -44,6 +58,9 @@ pub(super) enum Hold {
 	/// Only writes, after the commit has landed in the engine but before the
 	/// Host installs its completion.
 	AfterCommit,
+	/// Only the first read after the gate is armed, so a scenario can complete
+	/// writes and further reads while that read is outstanding.
+	ArmedReads,
 }
 struct Held {
 	inner: Arc<dyn Executor>,
@@ -57,8 +74,10 @@ impl Executor for Held {
 		// and the kind is fixed when the work is created.
 		let rc = unsafe { ffi::glowcap_loam_work_kind(work, &mut kind) };
 		assert_eq!(rc, crate::sys::OK);
-		if let Hold::BeforeRun = self.hold {
-			self.gate.hold();
+		match self.hold {
+			Hold::BeforeRun => self.gate.hold(),
+			Hold::ArmedReads if kind == 0 && self.gate.take_armed() => self.gate.hold(),
+			_ => {}
 		}
 		let code = self.inner.work_run(work);
 		if let (Hold::AfterCommit, 1) = (self.hold, kind) {

@@ -479,3 +479,53 @@ test "loam live reference hosted startup fences admission through exact unknown 
         }
     }
 }
+
+test "loam live reference an ordinary committed call does not confirm hosted startup" {
+    var fixture: Fixture = undefined;
+    try fixture.init();
+    defer fixture.deinit();
+    fixture.host.releaseCapabilityTerminal(fixture.root, null);
+    try fixture.attached.destroy();
+    try fixture.scope.deinit();
+    // A cold Store holds no resident marker, so startup must read it.
+    fixture.data.store.evict();
+    fixture.attached = try f.hosting.Attachment.create(a, &fixture.host, &fixture.data.store, &behaviors, .{});
+    const lease = try records.load(&fixture.data.store, &fixture.data.backend, fixture.id);
+    fixture.root = try fixture.attached.restore(lease);
+    try fixture.data.store.release(lease);
+    fixture.scope = try f.hosting.LiveScope.init(a, &fixture.host, &fixture.data.store, 2);
+    try fixture.scope.startHosted(fixture.attached, fixture.marker);
+    // Hold the startup's read of the previous marker.
+    try fixture.attached.advance();
+    const held = switch ((try fixture.attached.nextWork()).?) {
+        .read => |read| read,
+        else => return error.ExpectedMarkerRead,
+    };
+    try std.testing.expect(fixture.scope.result() == .pending);
+    // An ordinary write commits while the read is outstanding.
+    const put = try fixture.put("poke", 256);
+    defer put.deinit();
+    var committed = false;
+    for (0..128) |_| {
+        _ = try fixture.host.vat.driveIngressBudgeted(.local, 64);
+        try fixture.attached.advance();
+        while (try fixture.attached.nextWork()) |work| switch (work) {
+            .read => |read| try fixture.attached.completeRead(read.ticket, fixture.data.backend.read(read)),
+            .lookup => return error.UnexpectedLookup,
+            .write => |batch| {
+                try fixture.attached.completeWrite(batch.ticket, fixture.data.backend.commit(batch));
+                committed = true;
+            },
+        };
+        if (committed and put.result() == .ready) break;
+    }
+    try std.testing.expect(put.result() == .ready);
+    // The commit does not carry the lifetime start along.
+    try std.testing.expect(fixture.scope.result() == .pending);
+    // The held read now completes against an older snapshot, and startup retries.
+    try fixture.attached.completeRead(held.ticket, fixture.data.backend.read(held));
+    try std.testing.expect(fixture.scope.result() == .pending);
+    try fixture.drain();
+    try std.testing.expect(fixture.scope.result() == .ready);
+    try std.testing.expectEqual(@as(u64, 2), fixture.scope.result().ready.generation);
+}

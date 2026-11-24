@@ -18,6 +18,8 @@ mod release;
 #[cfg(feature = "tcp")]
 mod restore;
 #[cfg(feature = "tcp")]
+mod start_live;
+#[cfg(feature = "tcp")]
 mod unserved;
 #[cfg(feature = "tcp")]
 mod volatile;
@@ -237,8 +239,7 @@ async fn create_share_edit_restart_and_cold_reopen<E: Engine>(engine: EngineFn<E
 				let saved_resource = resource.encode();
 				let host = Host::from_seed([8; 32]).unwrap();
 				let mut attachment = store.attach(&host, vec![registration()]).unwrap();
-				attachment.start_live(None, 2).unwrap();
-				assert!(attachment.live_marker().unwrap().is_none());
+				attachment.start_live(None, 2).await.unwrap();
 				let (use_ref, control) = attachment.restore(resource).await.unwrap();
 				let (use_copy, control_copy) = (use_ref.clone(), control.clone());
 				host.publish("resource", move || {
@@ -383,7 +384,7 @@ async fn create_share_edit_restart_and_cold_reopen<E: Engine>(engine: EngineFn<E
 				.unwrap();
 				let host = Host::from_seed([8; 32]).unwrap();
 				let attachment = store.attach(&host, vec![registration()]).unwrap();
-				attachment.start_live(Some(live_marker), 2).unwrap();
+				attachment.start_live(Some(live_marker), 2).await.unwrap();
 				let (restored, restored_control) = attachment.restore(Resource::decode(saved_resource)).await.unwrap();
 				host.publish("control", move || {
 					let control = restored_control.clone();

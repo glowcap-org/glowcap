@@ -22,10 +22,12 @@ Releases before 0.1.7 are in the
 
 ### Changed
 
+- The Rust binding's `Attachment::start_live` is now async. It resolves with the confirmed `LiveIncarnation`, or the startup's exact failure, and settles with the closed error if its Host closes, where it used to return at once and leave you to poll `live_marker`. Await it, then use the incarnation or its new `marker()`. `live_marker` and `live_incarnation` stay as reads.
 - Dependencies move to their current releases. The development container takes Rust 1.100, Node 26.13.1, Bun 1.4.5, Playwright 1.65.1, uv 0.13.9, and ruff 0.17.6, so rebuild it. The Rooms server image takes the current Distroless base, the relay's TLS build takes Mbed TLS 4.3.0, and the iroh transport takes iroh 1.5. The CLI's REPL takes libvaxis fixes for key parsing, wrapping, and terminal restore.
 
 ### Fixed
 
+- A restarted `rooms-session` no longer exits with "session lifetime is still pending". Start waits for its lifetime to confirm before its first private write, so a slow or busy storage lane delays the start and no longer refuses it.
 - Reloading a Rooms page on a private room while its server restarts keeps you in that room. Before, a reload that found the server down sent you to the join card.
 - `glowcap ocapn listen --once` and `--publish` exit with the protocol-abort or timeout code when their one partner's session fails, rather than 0. In MCP and the REPL, `info` reports that session's cause as `listener_stopped` rather than "served its one partner".
 - A `rooms session` send, direct message, room join, or directory registration that saves while the session's supervisor is also saving now plans its change again and keeps it. Before, it reported a failure, even after the command had committed, and named a recovery that could never succeed. Saving a session access that keeps losing to other writes now says so and asks for another try, instead of reporting a peer failure.
