@@ -5,6 +5,9 @@ use glowcap::{CaptpVersion, ConnectOptions, Locator, Ref, Runtime};
 use rooms_application::room::authority::REQUEST_TIMEOUT_MS;
 use rooms_glowcap::client::{Client, Deadline, Error as ClientError};
 
+/// What a call says when the session did not answer within its deadline.
+pub(super) const NO_ANSWER: &str = "the session did not answer";
+
 /// A dialed session, the capability the link names, and where the link
 /// leads, which links to other capabilities of the same session reuse.
 pub(super) struct Reached<D> {
@@ -13,13 +16,27 @@ pub(super) struct Reached<D> {
 	pub locator: Locator,
 }
 
-/// A failed call is unreachable when the connection broke and refused when the
-/// peer answered without admitting the request.
-pub(super) fn refusal(error: ClientError) -> Error {
+/// A failed fetch of the capability a link names. The answer that the session
+/// holds no such publication, which `is_publication_not_found` names, is
+/// refused: the link is unknown or retired, and never recovers. Any other
+/// failure is no verdict on the link. A lost connection is unreachable, and a
+/// lookup that failed or was limited is the peer's own answer with the cause
+/// it carries, so a caller that retries a peer's answer retries it.
+pub(super) fn refused_or_failed(error: ClientError) -> Error {
+	match &error {
+		ClientError::Binding(binding) if binding.is_publication_not_found() => Error::Refused,
+		_ => failure(error),
+	}
+}
+
+/// A failed call that asked about an access that was reached. A broken
+/// connection is unreachable, and any other answer is the peer's own, with
+/// the advice it carries. Neither says the access is refused.
+pub(super) fn failure(error: ClientError) -> Error {
 	if error.connection_failed() {
 		Error::Unreachable(error)
 	} else {
-		Error::Refused
+		Error::Peer(error)
 	}
 }
 
@@ -42,11 +59,35 @@ pub(super) async fn reach<D: Deadline + Clone>(
 	let (connection, reference) = platform
 		.within(REQUEST_TIMEOUT_MS, reach)
 		.await
-		.ok_or(Error::Unreachable(ClientError::Timeout("the session did not answer")))??;
-	let reference = reference.map_err(refusal)?;
+		.ok_or(Error::Unreachable(ClientError::Timeout(NO_ANSWER)))??;
+	let reference = reference.map_err(refused_or_failed)?;
 	Ok(Reached {
 		client: Client::new(connection, platform),
 		reference,
 		locator: parsed.locator,
 	})
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn a_failed_describe_is_the_peers_answer_and_never_a_refused_access() {
+		let peer = failure(ClientError::RefusedObservation("rate-limited: wait".into()));
+		assert!(matches!(peer, Error::Peer(_)), "{peer:?}");
+		let lost = failure(ClientError::Timeout(NO_ANSWER));
+		assert!(matches!(lost, Error::Unreachable(_)), "{lost:?}");
+		// A fetch that failed or was limited is no verdict on the link: only the
+		// peer's typed "publication gone" answer is `Refused`. That answer is
+		// proved against a live session in `session_process`.
+		assert!(matches!(
+			refused_or_failed(ClientError::RefusedObservation("unknown".into())),
+			Error::Peer(_)
+		));
+		assert!(matches!(
+			refused_or_failed(ClientError::Timeout(NO_ANSWER)),
+			Error::Unreachable(_)
+		));
+	}
 }

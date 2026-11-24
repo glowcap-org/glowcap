@@ -12,6 +12,71 @@ use std::{
 	time::{Duration, Instant},
 };
 
+/// Assert that two secrets, such as session links, are equal without
+/// printing either, so a failure puts no link in the test's output.
+#[track_caller]
+pub fn assert_same_secret(found: impl AsRef<[u8]>, expected: impl AsRef<[u8]>, what: &str) {
+	assert!(found.as_ref() == expected.as_ref(), "{what}");
+}
+
+/// The forms a leaked session link takes: the whole link, its swissnum (the
+/// bearer secret, as the link type parses it and as the link writes it), that
+/// swissnum as `{:?}` prints a byte list, and as a JSON string escapes it. Every leak check in
+/// these tests goes through [`LinkSecret::assert_absent`], which never prints
+/// a form.
+pub struct LinkSecret {
+	forms: Vec<Vec<u8>>,
+}
+
+impl LinkSecret {
+	/// The secret of `link`, or none when `link` is not a session link.
+	pub fn try_of(link: &str) -> Option<Self> {
+		let link = link.trim();
+		let parsed = glowcap::parse_sturdyref(link, glowcap::CaptpVersion::V1_0).ok()?;
+		if parsed.swissnum.is_empty() {
+			return None;
+		}
+		let listed = format!("{:?}", parsed.swissnum).into_bytes();
+		let mut forms = vec![link.as_bytes().to_vec(), parsed.swissnum.clone(), listed];
+		// The swissnum as the link writes it, which a cut-down link keeps.
+		if let Some((_, tail)) = link.split_once("/s/") {
+			let written = tail.split(['?', '#']).next().unwrap_or_default().as_bytes().to_vec();
+			if !written.is_empty() && !forms.contains(&written) {
+				forms.push(written);
+			}
+		}
+		if let Some(Ok(escaped)) = std::str::from_utf8(&parsed.swissnum).ok().map(serde_json::to_string) {
+			let escaped = escaped.trim_matches('"').as_bytes().to_vec();
+			if !forms.contains(&escaped) {
+				forms.push(escaped);
+			}
+		}
+		Some(Self { forms })
+	}
+
+	#[track_caller]
+	pub fn of(link: &str) -> Self {
+		let Some(secret) = Self::try_of(link) else {
+			panic!("a test's session link is not a sturdyref with a swissnum");
+		};
+		secret
+	}
+
+	/// Whether `text` holds any form of the link.
+	pub fn is_in(&self, text: impl AsRef<[u8]>) -> bool {
+		let text = text.as_ref();
+		self.forms
+			.iter()
+			.any(|form| text.windows(form.len()).any(|window| window == form.as_slice()))
+	}
+
+	/// Assert that `text`, read from `place`, holds no form of the link.
+	#[track_caller]
+	pub fn assert_absent(&self, text: impl AsRef<[u8]>, place: &str) {
+		assert!(!self.is_in(text), "a session link reached {place}");
+	}
+}
+
 /// A `rooms-session` command with the test environment cleared.
 pub fn command() -> Command {
 	session_command(std::env::var_os("GLOWCAP_ROOMS_SESSION_TEST_BIN"))
@@ -41,26 +106,32 @@ fn session_command(installed: Option<std::ffi::OsString>) -> Command {
 	command
 }
 
+/// How long a process may take to announce it is ready, or a control call
+/// to finish, on a loaded host.
+const READY: Duration = Duration::from_secs(30);
+
 /// Start `command` and wait for the line that begins with `prefix`. Returns the
-/// process and the rest of that line.
+/// process and the rest of that line. The process's later output is read to
+/// its end, so a write after the ready line never meets a closed pipe.
 pub fn ready(mut command: Command, prefix: &str) -> (Process, String) {
 	let mut process = Process::new(command.stdout(Stdio::piped()).spawn().unwrap(), "session");
 	let output = process.child.stdout.take().unwrap();
 	let (send, receive) = mpsc::channel();
 	let prefix = prefix.to_owned();
-	std::thread::spawn(move || {
-		for line in BufReader::new(output).lines() {
-			let line = line.unwrap();
-			if let Some(value) = line.strip_prefix(&prefix) {
+	let pump = std::thread::spawn(move || {
+		let mut announced = false;
+		for line in BufReader::new(output).lines().map_while(Result::ok) {
+			if let Some(value) = line.strip_prefix(&prefix)
+				&& !announced
+			{
+				announced = true;
+				// tolerant: the receiver is gone once the test stopped waiting.
 				let _ = send.send(value.to_owned());
-				break;
 			}
 		}
 	});
-	let route = receive
-		.recv_timeout(Duration::from_secs(8))
-		.expect("product readiness deadline");
-	(process, route)
+	let route = receive.recv_timeout(READY).expect("product readiness deadline");
+	(process.pumped_by(pump), route)
 }
 
 /// One control call to the session whose state is `state`.
@@ -93,16 +164,17 @@ pub fn try_call(state: &Path, verb: &str, named: Value) -> Result<Value, String>
 			.spawn()
 			.unwrap(),
 		"session",
-	);
+	)
+	.within(READY);
+	// Read on a thread, so an answer past the pipe buffer never blocks the
+	// child before it exits.
+	let mut stdout = process.child.stdout.take().unwrap();
+	let reader = std::thread::spawn(move || {
+		let mut output = String::new();
+		stdout.read_to_string(&mut output).map(|_| output)
+	});
 	let status = process.wait();
-	let mut output = String::new();
-	process
-		.child
-		.stdout
-		.take()
-		.unwrap()
-		.read_to_string(&mut output)
-		.unwrap();
+	let output = reader.join().unwrap().unwrap();
 	if !status.success() {
 		return Err(format!("{named}: {output}"));
 	}
@@ -191,16 +263,18 @@ impl Peer {
 	pub fn relaunch(&mut self, fault: Option<&str>) {
 		let (process, link) = Self::launch_with(&self.arguments, fault);
 		self.process = process;
-		assert_eq!(link, self.link, "the restarted session announced a new link");
+		assert_same_secret(&link, &self.link, "the restarted session announced a new link");
 	}
 }
 
+/// Fields drop in order, so the sessions and the server are killed and
+/// reaped before their state directory is removed.
 pub struct Fixture {
-	pub temp: Scratch,
 	pub server: Process,
 	pub locator: String,
 	pub peers: Vec<Peer>,
 	pub room: String,
+	pub temp: Scratch,
 }
 
 impl Fixture {
@@ -242,11 +316,11 @@ impl Fixture {
 			});
 		}
 		Self {
-			temp,
 			server,
 			locator,
 			peers,
 			room: room.into(),
+			temp,
 		}
 	}
 
@@ -335,4 +409,60 @@ pub async fn attach(
 	rooms_services::session::attached::View::attach(runtime, rooms_platform::HostPlatform, link)
 		.await
 		.unwrap()
+}
+
+/// How many receipt places of the session `grants` manages are free: a new
+/// collaborator access named `label` says lines into `room` without keeping
+/// them, each holding a place, until the session refuses one as full. A place
+/// still held after `patience` counts as taken. The access stays issued, so
+/// its lines keep their places, and a second count sees only what the first
+/// left free. Pacing is waited out for at most [`READY`].
+pub async fn free_places(
+	grants: &rooms_services::session::attached::Grants<rooms_platform::HostPlatform>,
+	room: &str,
+	label: &str,
+	patience: Duration,
+) -> usize {
+	use rooms_application::content::session::{Preset, Terms, custody::MAX_EFFECTS};
+	let terms = Terms::new(Preset::Collaborator.values()).unwrap();
+	let issued = grants.issue(label, &terms).await.unwrap();
+	let holder = host().await;
+	let view = attach(&holder, &issued.link).await;
+	let deadline = Instant::now() + patience;
+	let paced = Instant::now() + READY;
+	let mut placed = 0;
+	'places: while placed < MAX_EFFECTS {
+		let (operation, text) = (format!("{label}-{placed}"), format!("{label} {placed}"));
+		loop {
+			let base = view.revision().await.unwrap();
+			match view.say_at(&operation, base, room, &text).await {
+				Ok(status) => {
+					assert_eq!(
+						status,
+						rooms_services::session::attached::EffectStatus::Committed,
+						"{label}: {operation}"
+					);
+					placed += 1;
+					break;
+				}
+				Err(rooms_services::session::attached::Error::Peer(error))
+					if error.failure_code() == Some(rooms_application::failure::FailureCode::RateLimited) =>
+				{
+					assert!(Instant::now() < paced, "{label}: the session paced every line");
+				}
+				Err(rooms_services::session::attached::Error::Peer(error))
+					if error.failure_code() == Some(rooms_application::failure::FailureCode::ReceiptsFull) =>
+				{
+					if placed > 0 || Instant::now() >= deadline {
+						break 'places;
+					}
+				}
+				Err(error) => panic!("{label}: {operation}: {error}"),
+			}
+			tokio::time::sleep(Duration::from_millis(200)).await;
+		}
+	}
+	drop(view);
+	holder.close(glowcap::PendingWork::Cancel).await.unwrap();
+	placed
 }

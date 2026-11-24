@@ -69,9 +69,9 @@ export async function admitCommand(
 
 	for (let attempt = 0;; attempt++) {
 		try {
-			return await session.perform(operation, async () => {
+			return await session.perform(operation, async (workspace) => {
 				// Read the authority at admission; observation is presentation.
-				const snapshot = await session.refresh();
+				const snapshot = await session.readNow();
 				const currentIntentJson = JSON.stringify(snapshot.intent);
 				if (
 					acceptedIntentJson != null && acceptedIntentJson !== currentIntentJson &&
@@ -88,7 +88,7 @@ export async function admitCommand(
 				}
 				validate?.(snapshot);
 				signal?.throwIfAborted();
-				const request = await session.workspace.prepareCommand(operation, snapshot.revision, name, args);
+				const request = await workspace().prepareCommand(operation, snapshot.revision, name, args);
 				if (signal?.aborted) {
 					request.free();
 					signal.throwIfAborted();

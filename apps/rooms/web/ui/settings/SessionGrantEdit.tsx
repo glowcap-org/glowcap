@@ -1,221 +1,184 @@
-// Drafts and retained requests belong to one actual held control.
-import { currentLabel, currentPermissions, managedAccessText as text } from "../../../lib/text/managed_access.ts";
+// Drafts and retained requests belong to one actual held control. The card
+// shows the control's edit as it stands now, whoever moved it last, and offers
+// what `access_card.ts` says can work. Every answer it shows derives from the
+// access owner's state, and its rows are `SessionGrantRows.tsx`'s.
+import { managedAccessText as text } from "../../../lib/text/managed_access.ts";
 import { useEffect, useState } from "react";
+import type { EditIntent, EditState } from "../session/managed/edit_state.ts";
 import {
 	controlName,
-	type EditIntent,
-	type HeldControl,
+	type DescribedControl,
 	knownLabel,
 	knownPermissions,
 	OWN_CONTROL,
-} from "../session/managed/access.ts";
-import { grantIdentity, type GrantView } from "../session/managed/access_powers.ts";
+} from "../session/managed/held_control.ts";
+import {
+	askListing,
+	cardGestures,
+	cardOffers,
+	listingAgain,
+	type ListingAnswer,
+	listingAsk,
+	pressRefused,
+} from "../session/managed/access_card.ts";
+import type { PressRefusal } from "../session/managed/press_answer.ts";
+import type { GrantView } from "../session/managed/access_powers.ts";
 import type { RoomsPermission } from "../../../lib/session_content_data.ts";
 import { useManagedSession } from "../session/managed/context.tsx";
 import { Button } from "../Button.tsx";
-import { Confirm } from "../Confirm.tsx";
-import { Field } from "../Field.tsx";
 import { Said } from "../Said.tsx";
 import { Submodal } from "../Submodal.tsx";
-import { Switch } from "../Switch.tsx";
-import { PermissionFields, permissionRefusal, permissionSummary } from "./PermissionFields.tsx";
-import { AccessStatusTag } from "./AccessStatusTag.tsx";
+import { PermissionFields, permissionRefusal } from "./PermissionFields.tsx";
 import { ShareControl } from "./ShareControl.tsx";
-import { LocalRefusal, refusalText } from "../../../lib/text/failure.ts";
+import { LocalRefusal } from "../../../lib/text/failure.ts";
 import { useChangeGroup, useCommitments, useCommitSettling } from "../commitment.tsx";
 import { useAsyncAction } from "../async_action.ts";
-import { Input } from "../Input.tsx";
-
-// Which press is running, so only that control turns busy while the rest of
-// the card waits on the one retained edit a control can hold.
-type Running = EditIntent["kind"] | "recover" | "reapply" | "discard";
+import { sessionTryNow } from "../../../lib/text/page.ts";
+import {
+	ActiveRow,
+	DescendantsSection,
+	EditAnswer,
+	LabelRow,
+	RemoveRow,
+	RevokeRow,
+	type RowProps,
+	type Running,
+} from "./SessionGrantRows.tsx";
 
 export function SessionGrantEditModal({ control, open, onClose }: {
-	control: HeldControl;
+	control: DescribedControl;
 	open: boolean;
 	onClose(): void;
 }) {
 	const { management } = useManagedSession();
 	const commitments = useCommitments();
 	const commit = useCommitSettling();
-	const original = control.pending;
-	const [base, setBase] = useState(original?.base ?? control.powers.revision ?? "");
+	// The edit as the card found it, so one that ends later shows how it ended.
+	const [opened, setOpened] = useState<EditState | undefined>(control.edit);
+	useEffect(() => {
+		if (open) setOpened(control.edit);
+	}, [open]);
+	const offers = cardOffers(management, control, opened);
+	const gestures = cardGestures(management, control);
+	const draft = offers.edit?.intent;
 	const [permissions, setPermissions] = useState<RoomsPermission[]>(
-		original?.intent.kind === "policy" ? original.intent.permissions : [...knownPermissions(control)],
+		draft?.kind === "policy" ? draft.permissions : [...knownPermissions(control)],
 	);
-	const [label, setLabel] = useState(
-		original?.intent.kind === "label" ? original.intent.label : knownLabel(control),
-	);
+	const [label, setLabel] = useState(draft?.kind === "label" ? draft.label : knownLabel(control));
 	const [running, setRunning] = useState<Running | null>(null);
 	const busy = running != null;
-	// What the last act said, kept with the act so its answer appears beside the
-	// control that asked rather than at the foot of the card.
-	const [outcome, setOutcome] = useState<{ on: Running; said: string; saved: boolean } | null>(
-		original?.reason ? { on: original.intent.kind, said: original.reason, saved: false } : null,
-	);
-	const said = (on: Running) => outcome?.on === on ? outcome : null;
-	const [, redraw] = useState(0);
+	// The last refused press, which the card shows by the rule `pressRefused`
+	// keeps.
+	const [refusal, setRefusal] = useState<PressRefusal | null>(null);
 	const [revoke, setRevoke] = useState(false);
 	const [removing, setRemoving] = useState(false);
 	const [removed, setRemoved] = useState(false);
 	const [descendants, setDescendants] = useState<{ rows: GrantView[]; cursor: Uint8Array | null } | null>(null);
+	const own = control.id === OWN_CONTROL;
 	// A control that describes nothing has had its access, or one above it,
-	// revoked; only removing it from the list is left.
-	const ended = !control.powers.available;
-	const status = ended ? "revoked" : control.powers.status ?? control.grant?.status;
+	// revoked, and only removing it from the list is left.
+	const powers = control.state.powers;
+	const ended = !powers.available;
+	const status = ended ? "revoked" : powers.status ?? control.state.grant?.status;
 	// Measured against what this viewer knows the access to have, which a
 	// committed edit updates even when the control cannot inspect.
 	const known = knownPermissions(control);
-	const labelChanged = label !== knownLabel(control);
 	const permissionsChanged = permissions.length !== known.length ||
 		permissions.some((value) => !known.includes(value));
+	// How the listing's last ask ended. A refused page shows by the rule
+	// `pressRefused` keeps.
+	const [listing, setListing] = useState<ListingAnswer | null>(null);
 	const inspect = useAsyncAction(async (signal, cursor?: Uint8Array) => {
-		const page = await management.inventory(control, cursor);
+		setListing(null);
+		const answer = await askListing(management, control, cursor);
 		if (signal.aborted) return;
+		setListing(answer);
+		if (answer.kind !== "page") return;
 		setDescendants((prior) => ({
-			rows: cursor == null ? page.rows : [...(prior?.rows ?? []), ...page.rows],
-			cursor: page.cursor,
+			rows: cursor == null ? answer.rows : [...(prior?.rows ?? []), ...answer.rows],
+			cursor: answer.cursor,
 		}));
 	});
+	// The first page is asked for when the card opens, and again at each reach
+	// of the access before a page lands, as `listingAsk` says.
+	const ask = open ? listingAsk(control, offers, descendants != null) : null;
 	useEffect(() => {
-		if (open && control.powers.inspect) void inspect.run();
-	}, [open]);
-	// The card's subject leaves with the row, so a draft has nothing left to save.
+		if (ask != null) void inspect.run();
+	}, [ask]);
+	// The card's subject leaves with the row, so a draft has nothing left to
+	// save. A refusal is the card's one refused press.
 	const remove = useAsyncAction(async (signal) => {
-		await management.forget(control);
+		setRefusal(null);
+		const refusal = await management.answer(control, gestures.remove);
 		if (signal.aborted) return;
+		if (refusal != null) {
+			setRefusal(refusal);
+			return;
+		}
 		setRemoved(true);
 		onClose();
 	});
-	const pending = control.pending;
-	const locked = busy || pending != null;
+	const locked = busy || !offers.inputs;
 	const group = `session-control-${control.id}`;
 	useChangeGroup(group, {
-		// An ended access takes no edit, so only a retained request is at stake.
-		dirty: !removed && (pending != null || (!ended && (labelChanged || permissionsChanged))),
-		discard: () => {
-			if (busy || (pending != null && pending.phase !== "conflict")) {
-				throw new LocalRefusal("settings-edit-unfinished");
-			}
-			management.finish(control);
+		// A draft counts only while the card takes it. A sent edit waits on the
+		// session, so closing the card leaves it to end on its own.
+		dirty: !removed &&
+			(offers.discard || (offers.inputs && (label !== knownLabel(control) || permissionsChanged))),
+		discard: async () => {
+			if (busy) throw new LocalRefusal("access-edit-submitting");
+			await gestures.close(offers);
 			setPermissions([...knownPermissions(control)]);
 			setLabel(knownLabel(control));
 		},
 		settling: commit.current,
 	});
-	const refresh = async () => {
-		await management.refresh(control);
-		redraw((value) => value + 1);
-	};
-	const submit = async (intent?: EditIntent, reapply = false) => {
+	/** Run `gesture` as `on` through the owner. Its outcome lands in the
+	 * owner's state, which the card reads, and its refusal is the card's answer. */
+	const run = async (on: Running, gesture: () => Promise<unknown>) => {
 		if (busy) return;
-		commit.begin();
-		const on: Running = reapply ? "reapply" : intent?.kind ?? "recover";
-		const kind: Running = intent?.kind ?? control.pending?.intent.kind ?? on;
 		setRunning(on);
-		setOutcome(null);
+		setRefusal(null);
 		try {
-			if (reapply) await management.reapply(control);
-			else if (intent != null) await management.prepare(control, intent, base);
-			const result = await management.submit(control);
-			setOutcome({ on: kind, said: result.reason, saved: result.phase === "committed" });
-			if (result.phase === "committed") {
-				management.finish(control);
-				await refresh();
-				setBase(control.powers.revision ?? "");
+			setRefusal(await management.answer(control, gesture));
+		} catch {
+			// tolerant: the owner reported the fault, and the card stays usable.
+		} finally {
+			setRunning(null);
+		}
+	};
+	const press = (intent: EditIntent) =>
+		void run(intent.kind, async () => {
+			commit.begin();
+			try {
+				const result = await gestures.press(intent, offers.base);
+				if (result.phase !== "ended" || result.outcome !== "committed") return;
 				setRevoke(false);
-				// A revoked access keeps its record, named and marked revoked,
-				// under the access it was created from. Its row here has nothing
-				// left to manage, so it leaves the list; a failed removal leaves
-				// the ended card offering Remove.
-				if (kind === "revoke" && !own) void remove.run();
-			} else if (result.phase === "conflict") await refresh();
-		} catch (error) {
-			setOutcome({ on: kind, said: refusalText(error), saved: false });
-		} finally {
-			setRunning(null);
-			commit.finish();
-			redraw((value) => value + 1);
-		}
+				// A revoked access keeps its record, named and marked revoked, under
+				// the access it was created from. Its row here has nothing left to
+				// manage, so it leaves the list, and a failed removal leaves the
+				// ended card offering Remove.
+				if (intent.kind === "revoke" && !own) void remove.run();
+			} finally {
+				commit.finish();
+			}
+		});
+	const act = {
+		discard: () =>
+			void run("discard", async () => {
+				await gestures.discard();
+				setPermissions([...knownPermissions(control)]);
+				setLabel(knownLabel(control));
+			}),
+		reapply: () => void run("reapply", () => gestures.reapply()),
+		checkAgain: () => void run("recover", () => gestures.checkAgain()),
 	};
-	const discard = async () => {
-		if (busy) return;
-		const kind = control.pending?.intent.kind ?? "discard";
-		setRunning("discard");
-		try {
-			management.finish(control);
-			await refresh();
-			setPermissions([...knownPermissions(control)]);
-			setLabel(knownLabel(control));
-			setBase(control.powers.revision ?? "");
-			setOutcome(null);
-		} catch (error) {
-			setOutcome({ on: kind, said: refusalText(error), saved: false });
-		} finally {
-			setRunning(null);
-		}
-	};
-	const editable = control.powers.editCeiling != null;
-	const powers = control.powers;
-	const own = control.id === OWN_CONTROL;
-	const answer = (on: Running) => {
-		const row = said(on);
-		if (pending?.intent.kind === on && (pending.phase === "conflict" || pending.phase === "uncertain")) {
-			const conflict = pending.phase === "conflict";
-			const diagnostic = row?.said || pending.reason;
-			return (
-				<div className="group session-edit-recovery">
-					<Said kind="warning">{diagnostic}</Said>
-					{conflict && control.grant != null && on === "label" && (
-						<p className="hint">{currentLabel(knownLabel(control))}</p>
-					)}
-					{conflict && control.grant != null && on === "policy" && (
-						<p className="hint">
-							{currentPermissions(permissionSummary(knownPermissions(control)))}
-						</p>
-					)}
-					<div className="actions">
-						{conflict
-							? (
-								<>
-									<Button
-										busy={running === "discard"}
-										disabled={busy}
-										variant="quiet"
-										onClick={() => void discard()}
-									>
-										{text.discard}
-									</Button>
-									<Button
-										busy={running === "reapply"}
-										disabled={busy || ended}
-										onClick={() => void submit(undefined, true)}
-									>
-										{text.reapply}
-									</Button>
-								</>
-							)
-							: (
-								<Button busy={running === "recover"} disabled={busy} onClick={() => void submit()}>
-									{text.recoverEdit}
-								</Button>
-							)}
-					</div>
-				</div>
-			);
-		}
-		// A committed revoke answers through the card's lead and status tag.
-		if (row == null || (on === "revoke" && row.saved && row.said === "")) return null;
-		if (row.said !== "") return <Said kind={row.saved ? "warning" : "failure"}>{row.said}</Said>;
-		return row.saved ? <Said kind="success">{text.committedEdit}</Said> : null;
-	};
-	// A retained edit still needs an answer when refresh removes its powers.
-	const labelAnswer = answer("label");
-	const policyAnswer = answer("policy");
-	const activeAnswer = answer("pause") ?? answer("resume");
-	const revokeAnswer = answer("revoke");
+	const refused = pressRefused(refusal, management, control);
+	const rows: RowProps = { control, offers, running, locked };
+	const answer = (on: EditIntent["kind"]) => <EditAnswer {...rows} on={on} act={act} />;
+	const answers = (...on: EditIntent["kind"][]) => offers.answer != null && on.includes(offers.answer.kind);
 	const powerless = powers.available && !powers.inspect && !powers.pause && !powers.resume && !powers.revoke &&
-		!editable && !powers.delegateControl;
+		powers.editCeiling == null && !powers.delegateControl;
 	return (
 		<Submodal
 			title={controlName(control, text)}
@@ -225,176 +188,98 @@ export function SessionGrantEditModal({ control, open, onClose }: {
 			onClose={() => commitments.request(onClose, { only: [group] })}
 		>
 			<p className="lead">{own ? text.ownEditLead : ended ? text.endedLead : text.editLead}</p>
+			{offers.failure != null && (
+				<div className="group session-edit-recovery">
+					<Said kind="failure">{offers.failure}</Said>
+					{offers.tryNow && (
+						<div className="actions">
+							<Button
+								busy={running === "reach"}
+								disabled={busy}
+								onClick={() => void run("reach", gestures.tryNow)}
+							>
+								{sessionTryNow}
+							</Button>
+						</div>
+					)}
+				</div>
+			)}
 			{powerless && <Said kind="warning">{text.powerless}</Said>}
-			{!powerless && control.grant == null && powers.available && <p className="hint">{text.uninspectable}</p>}
+			{!powerless && control.state.grant == null && powers.available && (
+				<p className="hint">{text.uninspectable}</p>
+			)}
 			<div className="group well">
 				<ul className="entries option-rows">
-					{(!ended || labelAnswer != null) && (
-						<li className="entry">
-							{ended ? <span className="entry-name">{text.label}</span> : (
-								<form
-									className="field-row"
-									onSubmit={(event) => {
-										event.preventDefault();
-										void submit({ kind: "label", label });
-									}}
-								>
-									<Field id="sessionGrantLabel" label={text.label}>
-										{(wiring) => (
-											<Input
-												id={wiring.id}
-												value={label}
-												maxLength={120}
-												placeholder={own ? text.ownControl : text.labelPlaceholder}
-												disabled={locked || !editable}
-												onChange={(event) => {
-													setLabel(event.currentTarget.value);
-													if (said("label") != null) setOutcome(null);
-												}}
-											/>
-										)}
-									</Field>
-									<Button
-										type="submit"
-										variant="quiet"
-										size="large"
-										busy={running === "label"}
-										disabled={locked || !editable || !labelChanged}
-									>
-										{text.saveLabel}
-									</Button>
-								</form>
-							)}
-							{labelAnswer}
-						</li>
-					)}
-					{own ? null : status === "revoked"
-						? (
-							<li className="entry">
-								<div className="entry-head" data-one-line>
-									<span className="entry-name">{text.statusLabel}</span>
-									<AccessStatusTag status="revoked" />
-								</div>
-								{activeAnswer}
-								{revokeAnswer}
-							</li>
-						)
-						: (
-							<li className="entry">
-								<div className="switch-row">
-									<span className="entry-name" id="sessionGrantActiveLabel">{text.activeLabel}</span>
-									<Switch
-										id="sessionGrantActive"
-										checked={status === "active"}
-										label={text.activeLabel}
-										aria-labelledby="sessionGrantActiveLabel"
-										busy={running === "pause" || running === "resume"}
-										disabled={locked ||
-											!(status === "active" ? control.powers.pause : control.powers.resume)}
-										onClick={() => void submit({ kind: status === "active" ? "pause" : "resume" })}
-									/>
-								</div>
-								<p className="hint">{status === "active" ? text.activeSaid : text.pausedNowSaid}</p>
-								{activeAnswer}
-							</li>
-						)}
-					{!own && (control.powers.revoke || revokeAnswer != null) && status !== "revoked" && (
-						<li className="entry">
-							{revoke
-								? (
-									<Confirm
-										label={text.revokeConfirm}
-										say={text.revokeSaid}
-										keep={text.keep}
-										commit={text.revoke}
-										busy={running === "revoke"}
-										onKeep={() => setRevoke(false)}
-										onCommit={() => void submit({ kind: "revoke" })}
-									/>
-								)
-								: (
-									<>
-										<div className="entry-head" data-one-line>
-											<span className="entry-name">{text.revokeRow}</span>
-											<div className="actions">
-												<Button
-													variant="quiet"
-													disabled={locked}
-													onClick={() => setRevoke(true)}
-												>
-													{text.revokeAsk}
-												</Button>
-											</div>
-										</div>
-										<p className="hint">{text.revokeRowSaid}</p>
-									</>
-								)}
-							{revokeAnswer}
-						</li>
+					{(!ended || answers("label")) && (
+						<LabelRow
+							{...rows}
+							ended={ended}
+							label={label}
+							setLabel={setLabel}
+							save={() => press({ kind: "label", label })}
+							answer={answer("label")}
+						/>
 					)}
 					{!own && (
-						<li className="entry">
-							{removing && !ended
-								? (
-									<Confirm
-										label={text.removeConfirm}
-										say={text.removeSaid}
-										keep={text.keep}
-										commit={text.remove}
-										busy={remove.busy}
-										onKeep={() => setRemoving(false)}
-										onCommit={() => void remove.run()}
-									/>
-								)
-								: (
-									<>
-										<div className="entry-head" data-one-line>
-											<span className="entry-name">{text.removeRow}</span>
-											<div className="actions">
-												<Button
-													key={ended ? "remove" : "ask"}
-													variant="quiet"
-													busy={remove.busy}
-													disabled={locked || remove.busy}
-													onClick={() => ended ? void remove.run() : setRemoving(true)}
-												>
-													{ended ? text.remove : text.removeAsk}
-												</Button>
-											</div>
-										</div>
-										<p className="hint">{ended ? text.endedSaid : text.removeRowSaid}</p>
-									</>
-								)}
-							{remove.why !== "" && <Said kind="failure">{remove.why}</Said>}
-						</li>
+						<ActiveRow
+							{...rows}
+							status={status}
+							press={press}
+							answers={
+								<>
+									{answer("pause")}
+									{answer("resume")}
+									{status === "revoked" && answer("revoke")}
+								</>
+							}
+						/>
+					)}
+					{!own && (powers.revoke || answers("revoke")) && status !== "revoked" && (
+						<RevokeRow
+							{...rows}
+							asking={revoke}
+							setAsking={setRevoke}
+							press={press}
+							answer={answer("revoke")}
+						/>
+					)}
+					{!own && (
+						<RemoveRow
+							{...rows}
+							ended={ended}
+							asking={removing}
+							setAsking={setRemoving}
+							remove={{ busy: remove.busy, run: () => void remove.run() }}
+						/>
 					)}
 				</ul>
-				{control.grant != null && control.grant.status !== control.grant.effectiveStatus && (
+				{control.state.grant != null && control.state.grant.status !== control.state.grant.effectiveStatus && (
 					<Said kind="warning">{text.ancestor}</Said>
 				)}
+				{refused != null && <Said kind="failure">{refused}</Said>}
 			</div>
-			{(control.grant != null || policyAnswer != null) && (
+			{(control.state.grant != null || answers("policy")) && (
 				<form
 					className="session-grant-permissions"
 					onSubmit={(event) => {
 						event.preventDefault();
-						void submit({ kind: "policy", permissions });
+						press({ kind: "policy", permissions });
 					}}
 				>
 					<h3 className="well-title overline" id="sessionGrantPermissionsTitle">{text.permissionsTitle}</h3>
 					<div className="group well" role="group" aria-labelledby="sessionGrantPermissionsTitle">
 						<PermissionFields
 							value={permissions}
-							ceiling={control.powers.editCeiling?.permissions ?? []}
-							disabled={locked || !editable}
+							ceiling={powers.editCeiling?.permissions ?? []}
+							disabled={locked || powers.editCeiling == null}
 							onChange={setPermissions}
 						/>
-						{policyAnswer}
+						{answer("policy")}
 						<div className="actions">
 							<Button
 								type="submit"
 								busy={running === "policy"}
-								disabled={locked || !editable || !permissionsChanged ||
+								disabled={locked || powers.editCeiling == null || !permissionsChanged ||
 									permissionRefusal(permissions) !== ""}
 							>
 								{text.savePermissions}
@@ -403,44 +288,22 @@ export function SessionGrantEditModal({ control, open, onClose }: {
 					</div>
 				</form>
 			)}
-			{answer("discard")}
-			{/* An empty list has nothing to manage, so the section appears once it has rows. */}
-			{control.powers.inspect && (descendants == null || descendants.rows.length !== 0) && (
-				<>
-					<h3 className="well-title overline" id="sessionGrantDescendantsTitle">{text.descendantsTitle}</h3>
-					<div className="group well" role="group" aria-labelledby="sessionGrantDescendantsTitle">
-						{descendants == null
-							? inspect.why === "" && <p className="empty">{text.loadingDescendants}</p>
-							: (
-								<ul className="entries">
-									{descendants.rows.map((row) => (
-										<li className="entry" key={grantIdentity(row)}>
-											<div className="entry-head" data-one-line>
-												<span className="entry-name">{row.label || text.unlabelled}</span>
-												<AccessStatusTag status={row.effectiveStatus} />
-											</div>
-										</li>
-									))}
-								</ul>
-							)}
-						{descendants != null && <p className="hint">{text.descriptive}</p>}
-						{descendants?.cursor != null && (
-							<div className="actions">
-								<Button
-									variant="quiet"
-									busy={inspect.busy}
-									disabled={inspect.busy}
-									onClick={() => void inspect.run(descendants.cursor!)}
-								>
-									{text.more}
-								</Button>
-							</div>
-						)}
-						{inspect.why !== "" && <Said kind="failure">{inspect.why}</Said>}
-					</div>
-				</>
+			{offers.inspect && (
+				<DescendantsSection
+					descendants={descendants}
+					inspect={{
+						busy: inspect.busy,
+						refused: pressRefused(
+							listing?.kind === "refused" ? listing.refusal : null,
+							management,
+							control,
+						),
+						again: listingAgain(offers, descendants != null, listing),
+						run: (cursor) => void inspect.run(cursor),
+					}}
+				/>
 			)}
-			{control.powers.delegateControl && (
+			{offers.share && (
 				<>
 					<h3 className="well-title overline" id="sessionGrantShareTitle">{text.shareTitle}</h3>
 					<div className="group well" role="group" aria-labelledby="sessionGrantShareTitle">

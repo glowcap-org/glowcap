@@ -12,13 +12,15 @@ type Choice = { id: string; operation: string };
 export class ManagedNavigation {
 	readonly #session: ManagedRoomsSession;
 	readonly #changed: () => void;
+	readonly #report: (error: unknown) => void;
 	#desired: Choice | null = null;
 	#pending: Choice | null = null;
 	#running: Promise<void> | null = null;
 	#stopped = false;
-	constructor(session: ManagedRoomsSession, changed = () => {}) {
+	constructor(session: ManagedRoomsSession, changed = () => {}, report: (error: unknown) => void = () => {}) {
 		this.#session = session;
 		this.#changed = changed;
+		this.#report = report;
 	}
 	get selected(): string | undefined {
 		return this.choice?.id;
@@ -32,6 +34,25 @@ export class ManagedNavigation {
 		this.#desired = { id, operation: crypto.randomUUID() };
 		this.#changed();
 		return this.#running ??= this.#drain().finally(() => {
+			this.#running = null;
+		});
+	}
+	/** `select` for a press whose commit already answered. The link's end
+	 * leaves the choice to the next link (`relink`) and is never the press's
+	 * failure. A select refused for any other reason still is. */
+	async selectAfterCommit(id: string): Promise<void> {
+		try {
+			await this.select(id);
+		} catch (error) {
+			if (!this.#session.linkEnded(error)) throw error;
+		}
+	}
+	/** A new link sends the choice a lost one kept: a selection that never went
+	 * out stays desired, so a press that ended with the link's loss still ends
+	 * on the conversation it chose. */
+	relink(): void {
+		if (this.#stopped || this.#desired == null || this.#running != null || this.#pending != null) return;
+		this.#running = this.#drain().catch((error: unknown) => this.#report(error)).finally(() => {
 			this.#running = null;
 		});
 	}
@@ -56,8 +77,12 @@ export class ManagedNavigation {
 					this.#pending = null;
 					// A revision conflict proves non-admission, not loss of the
 					// selected conversation. Keep the local choice visible while
-					// reporting its failed save. Exact-target refusal clears it.
-					if (!(error instanceof WorkspaceConflict) && this.#desired === choice) this.#desired = null;
+					// reporting its failed save. Exact-target refusal clears it. A choice
+					// the link's loss kept from going out stays for the next link.
+					const unsent = this.#session.linkEnded(error);
+					if (!(error instanceof WorkspaceConflict) && !unsent && this.#desired === choice) {
+						this.#desired = null;
+					}
 					this.#changed();
 				}
 				throw error;

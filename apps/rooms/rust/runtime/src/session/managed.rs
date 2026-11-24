@@ -30,6 +30,8 @@ mod recording;
 pub use received_lines::{LineMemory, LineReceiver, LineResize, ReceivedLine};
 mod changes;
 pub use changes::Wake as SessionChanges;
+mod command_reply;
+pub use command_reply::command_reply;
 mod opening;
 mod profile;
 pub mod realization;
@@ -97,13 +99,26 @@ struct State<P: Tasks + Deadline + Clone + 'static> {
 	refusals: refusals::Refusals,
 }
 impl<P: Tasks + Deadline + Clone + 'static> State<P> {
-	fn running(&self, id: &str) -> bool {
-		self.jobs.borrow().get(id).is_some_and(|job| job.failure.is_none())
+	/// Whether the session holds a job for `id`, running or paused.
+	fn holds(&self, id: &str) -> bool {
+		self.jobs.borrow().contains_key(id)
 	}
-	fn receipt_running(&self, id: &str, erasure: Option<&rooms_application::session::state::OperationId>) -> bool {
-		self.running(id)
-			|| (erasure.is_some_and(|operation| operation.text().as_str() == Some(id))
-				&& self.recording.borrow().as_ref().is_some_and(|sink| sink.erasing()))
+	/// Whether the request behind receipt `id` still runs, so its settlement can
+	/// still arrive: an executor job a worker observes or whose seat is reserved
+	/// and not yet started (a paused job does not run), or the history erasure
+	/// `record` selects. An erasure has no job, and its durable fact is the
+	/// record's pending erasure naming this receipt: it runs until it completes,
+	/// including between a failed attempt and its retry, because only the
+	/// recording owner's completion settles it. This is the one such answer.
+	/// Every verb, sweep, and status that asks about a receipt uses it, because
+	/// a job-only answer releases an erasure's receipt under it.
+	fn receipt_running(&self, id: &str, record: &content::MetadataRecord) -> bool {
+		self.jobs.borrow().get(id).is_some_and(|job| !job.is_paused())
+			|| record
+				.intent
+				.history_erasure
+				.as_ref()
+				.is_some_and(|operation| operation.text().as_str() == Some(id))
 	}
 }
 impl<P: Tasks + Deadline + Clone + 'static> Session<P> {
@@ -204,6 +219,12 @@ impl<P: Tasks + Deadline + Clone + 'static> Session<P> {
 		*reporter = Some(Box::new(report));
 		Ok(())
 	}
+	/// Whether the session holds a running or paused effect job for `id`, which
+	/// the process proofs read to see a seat freed.
+	#[cfg(feature = "test-support")]
+	pub fn holds_request(&self, id: &str) -> bool {
+		self.state.holds(id)
+	}
 	/// Bind private use and management after attachment restoration. Public
 	/// children are derived from these roots. Neither private endpoint is published.
 	pub fn bind(&self, root: Ref, control: Ref) -> Result<()> {
@@ -289,8 +310,9 @@ impl<P: Tasks + Deadline + Clone + 'static> Session<P> {
 		}
 		Ok(())
 	}
-	/// Wait for actual workers, retaining private results if settlement refuses.
-	/// Failure leaves the owner open for recovery. Callers must not close storage.
+	/// Wait for running workers, and retire each paused one with its receipt
+	/// kept. Failure leaves the owner open for recovery. Callers must not close
+	/// storage.
 	pub async fn close(&self) -> core::result::Result<(), crate::Error> {
 		self.state.closing.set(true);
 		// Closing blocks a new subscription, so no sweeper starts after this.
@@ -357,8 +379,13 @@ impl<P: Tasks + Deadline + Clone + 'static> Session<P> {
 				}
 				return Ok(());
 			}
-			if let Some(error) = self.state.jobs.borrow().values().find_map(|job| job.failure.clone()) {
-				return Err(error.into());
+			// A paused job runs only if its source resumes it, which no source
+			// can do once the session closes, so closing retires it as a
+			// restart would and its receipt stays. A running job settles or
+			// pauses within its observation deadline.
+			executor::retire_paused(&self.state);
+			if self.state.jobs.borrow().is_empty() {
+				continue;
 			}
 			changed.await;
 		}

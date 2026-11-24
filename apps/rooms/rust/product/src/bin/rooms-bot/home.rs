@@ -62,6 +62,10 @@ pub struct Listing {
 	pub memories: Vec<Memory>,
 	/// Memories past either bound, which the turn is told the number of.
 	pub unlisted: usize,
+	/// Memories whose file names are not text free of control characters.
+	/// The listing leaves them out, so no name reaches the prompt in a form
+	/// other than its own, and the turn logs how many.
+	pub unnamed: usize,
 }
 
 struct Entry {
@@ -124,16 +128,23 @@ fn newest_first(kept: &mut Vec<Entry>) {
 }
 
 /// The listing for one turn, never failing. A symlink, a special file, and a
-/// file that is not text are named without a summary. The scan keeps at most
-/// twice [`MAX_LISTED`] entries at a time, however many the directory holds.
+/// file that is not text are named without a summary, and a file whose name
+/// is not plain text is counted in [`Listing::unnamed`]. The scan keeps at
+/// most twice [`MAX_LISTED`] entries at a time, however many the directory
+/// holds.
 pub fn listing(root: &Path) -> Listing {
 	let mut total = 0;
+	let mut unnamed = 0;
 	let mut kept = Vec::new();
 	let Some(memory) = scan(root, |name, stat| {
+		let Some(file) = name.to_str().ok().filter(|file| !file.chars().any(char::is_control)) else {
+			unnamed += 1;
+			return;
+		};
 		total += 1;
 		kept.push(Entry {
 			modified: modified(stat),
-			file: name.to_string_lossy().into_owned(),
+			file: file.to_owned(),
 			name: name.to_owned(),
 			regular: kind(stat) == SFlag::S_IFREG,
 		});
@@ -159,6 +170,7 @@ pub fn listing(root: &Path) -> Listing {
 		});
 	}
 	listing.unlisted = total - listing.memories.len();
+	listing.unnamed = unnamed;
 	listing
 }
 
@@ -243,9 +255,24 @@ mod tests {
 					},
 				],
 				unlisted: 0,
+				unnamed: 0,
 			}
 		);
 		assert_eq!(count(&dir), 2, "a directory is not a memory");
+	}
+
+	#[test]
+	fn a_file_whose_name_is_not_plain_text_is_counted_and_never_named() {
+		use std::os::unix::ffi::OsStrExt;
+		let (dir, memory) = home();
+		write(&memory, "plain.md", b"kept\n", 0);
+		write(&memory, "line\nbreak.md", b"a\n", 1);
+		write(&memory, "bell\u{7}.md", b"a\n", 2);
+		std::fs::write(memory.join(std::ffi::OsStr::from_bytes(b"not-utf8-\xff.md")), b"a\n").unwrap();
+		let listed = listing(&dir);
+		let named: Vec<_> = listed.memories.iter().map(|memory| memory.file.as_str()).collect();
+		assert_eq!(named, ["plain.md"]);
+		assert_eq!((listed.unlisted, listed.unnamed), (0, 3));
 	}
 
 	#[test]

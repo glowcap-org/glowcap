@@ -1,9 +1,12 @@
 //! A bot under test: the real `rooms-bot` executable serving a bot directory
 //! against a directory that stands in for the session.
+use super::control::finish;
+use super::session_rig::LinkSecret;
 use rooms_testing::{child_process::Process, scratch::Scratch};
 use serde_json::{Value, json};
 use std::{
-	io::{BufRead, BufReader, Write},
+	cell::RefCell,
+	io::{BufRead, BufReader},
 	path::PathBuf,
 	process::{Command, Stdio},
 	sync::mpsc,
@@ -24,14 +27,71 @@ pub fn eventually<T>(what: &str, mut check: impl FnMut() -> Option<T>) -> T {
 	}
 }
 
+#[path = "rig/stand_in.rs"]
+mod stand_in;
+
 pub struct Rig {
 	_temp: Scratch,
 	pub dir: PathBuf,
 	pub rooms: PathBuf,
+	/// Every link this rig has been given, so no command's output and no
+	/// failure dump can carry one.
+	secrets: RefCell<Vec<LinkSecret>>,
+}
+
+/// When a test fails with a rig alive, whether by a timed-out wait or any
+/// other panic, print what the bot recorded. The scratch directory is gone by
+/// the time anyone reads the failure. A file that holds a link is named and
+/// not printed, since the dump would print the very leak a check caught.
+impl Drop for Rig {
+	fn drop(&mut self) {
+		if !std::thread::panicking() {
+			return;
+		}
+		let read = |path: PathBuf| held_back(&self.secrets.borrow(), std::fs::read_to_string(path));
+		eprintln!(
+			"--- bot.log ---\n{}\n--- status.json ---\n{}\n--- serve.out ---\n{}\n--- serve.err ---\n{}\n---",
+			read(self.dir.join("bot.log")),
+			read(self.dir.join("status.json")),
+			read(self.output_file()),
+			read(self.errors_file())
+		);
+	}
+}
+
+/// A recorded file as the failure dump prints it: its text, or a note that it
+/// holds a link or cannot be read.
+pub(super) fn held_back(secrets: &[LinkSecret], read: std::io::Result<String>) -> String {
+	match read {
+		Ok(text) if secrets.iter().any(|secret| secret.is_in(&text)) => "(holds a session link)".into(),
+		Ok(text) => text,
+		Err(error) => format!("(unreadable: {error})"),
+	}
 }
 
 pub struct Bot {
 	pub process: Process,
+}
+
+/// A bot still running when its test ends, by a failed assertion or a test
+/// that never stopped it, gets TERM first, because a bot that stops ends its
+/// harness's process group, and the harness and anything it started are in
+/// that group, apart from the bot's. The guard's kill follows if the bot
+/// outlasts the wait.
+impl Drop for Bot {
+	fn drop(&mut self) {
+		if !matches!(self.process.child.try_wait(), Ok(None)) {
+			return;
+		}
+		let pid = nix::unistd::Pid::from_raw(self.process.child.id() as i32);
+		// best-effort: a bot that exited since the check needs no signal, and
+		// the guard's kill ends one that cannot be signalled.
+		let _ = nix::sys::signal::kill(pid, nix::sys::signal::Signal::SIGTERM);
+		let until = Instant::now() + Duration::from_secs(10);
+		while matches!(self.process.child.try_wait(), Ok(None)) && Instant::now() < until {
+			std::thread::sleep(Duration::from_millis(20));
+		}
+	}
 }
 
 impl Bot {
@@ -61,6 +121,14 @@ impl Rig {
 			_temp: temp,
 			dir,
 			rooms,
+			secrets: RefCell::default(),
+		}
+	}
+
+	/// Remember `text`, when it is a session link, so no later output holds it.
+	fn learn(&self, text: &str) {
+		if let Some(secret) = LinkSecret::try_of(text) {
+			self.secrets.borrow_mut().push(secret);
 		}
 	}
 
@@ -95,13 +163,63 @@ impl Rig {
 		let bot = self.start_with(json!({"link": ["-"]}), extra, fault, Some(link));
 		let command_line = std::fs::read(format!("/proc/{}/cmdline", bot.process.child.id()));
 		if let Ok(command_line) = command_line {
-			let secret = link.rsplit('/').next().unwrap().as_bytes();
-			assert!(
-				!command_line.windows(secret.len()).any(|window| window == secret),
-				"the session link reached the bot's command line"
-			);
+			LinkSecret::of(link).assert_absent(command_line, "the bot's command line");
 		}
 		bot
+	}
+
+	/// Assert that no form of any of `links` is in anything the bot printed
+	/// or wrote: its standard output and error, its status, and every file in
+	/// its directory (the
+	/// log, the ledger, the config, the notes in `opens/`, the claims in
+	/// `turn-actions/`, and each conversation's prompt, settings, agent
+	/// environment, and verb outputs), apart from the stored link itself.
+	pub fn assert_keeps_no_link<'a>(&self, links: impl IntoIterator<Item = &'a str>) {
+		let (status, _) = self.run("status", json!({}));
+		let mut said = vec![("the output".to_owned(), self.output().into_bytes())];
+		let errors = std::fs::read(self.errors_file()).unwrap_or_default();
+		said.push(("the bot's standard error".to_owned(), errors));
+		said.push(("the status".to_owned(), status.to_string().into_bytes()));
+		let mut directories = vec![self.dir.clone()];
+		while let Some(directory) = directories.pop() {
+			let entries = std::fs::read_dir(&directory).unwrap_or_else(|error| {
+				panic!(
+					"the link scan cannot read a directory in the bot's directory: {}",
+					error.kind()
+				)
+			});
+			for entry in entries.map(Result::unwrap) {
+				let (path, name) = (entry.path(), entry.file_name());
+				said.push((
+					"a file name in the bot's directory".to_owned(),
+					name.as_encoded_bytes().to_vec(),
+				));
+				let name = name.to_string_lossy();
+				let kind = entry.file_type().unwrap();
+				if kind.is_dir() {
+					directories.push(path);
+				} else if name == "session.link" || name.starts_with(".session.link.tmp-") {
+					// The stored link itself, and the file it is staged in.
+				} else {
+					assert!(
+						kind.is_file(),
+						"the bot's directory holds a link or special file the scan cannot read"
+					);
+					// A file the bot replaced since the directory was listed is gone.
+					match std::fs::read(&path) {
+						Ok(bytes) => said.push((path.display().to_string(), bytes)),
+						Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+						Err(error) => panic!("the link scan cannot read a file: {}", error.kind()),
+					}
+				}
+			}
+		}
+		for link in links {
+			let secret = LinkSecret::of(link);
+			for (place, bytes) in &said {
+				secret.assert_absent(bytes, place);
+			}
+		}
 	}
 
 	/// Start `serve` with `link` replacing the stored link.
@@ -112,6 +230,66 @@ impl Rig {
 			None,
 			Some(link),
 		)
+	}
+
+	/// [`Rig::serve_replacing`] with the bot armed at `fault`.
+	pub fn serve_replacing_at(&self, link: &str, fault: &str) -> Bot {
+		self.start_with(
+			json!({"link": ["-"], "replace-link": ["true"]}),
+			json!({}),
+			Some(fault),
+			Some(link),
+		)
+	}
+
+	/// Start `serve` with `link` replacing the stored link and armed to end
+	/// itself at `fault`, and return at once, because it never reports serving.
+	pub fn serve_replacing_ended_at(&self, link: &str, fault: &str) -> Process {
+		let named = json!({"link": ["-"], "replace-link": ["true"]});
+		self.spawn(named, json!({}), Some(fault), Some(link)).0
+	}
+
+	/// Start `serve` with `link` replacing the stored link, armed at `fault`,
+	/// and return at once, for a replacement that waits before it serves.
+	pub fn serve_replacing_unreported(&self, link: &str, fault: Option<&str>) -> Bot {
+		let named = json!({"link": ["-"], "replace-link": ["true"]});
+		Bot {
+			process: self.spawn(named, json!({}), fault, Some(link)).0,
+		}
+	}
+
+	/// Start `serve` with a link the session will not serve, whether it refuses, pauses, or revokes the access, replacing the stored
+	/// one or not, and return at once, because it never reports serving.
+	pub fn serve_refused(&self, link: &str, replacing: bool) -> Process {
+		let mut named = json!({"link": ["-"]});
+		if replacing {
+			named["replace-link"] = json!(["true"]);
+		}
+		self.spawn(named, json!({}), None, Some(link)).0
+	}
+
+	/// Start `serve` on what is already stored, the link or the stand-in's
+	/// rooms directory, and return at once, for an access the session will
+	/// not serve.
+	pub fn serve_stored_refused(&self) -> Process {
+		let named = if self.dir.join("session.link").exists() {
+			json!({})
+		} else {
+			json!({"rooms-dir": [self.rooms]})
+		};
+		self.spawn(named, json!({}), None, None).0
+	}
+
+	/// Start `serve` on what is stored, armed at `fault`, and return at once,
+	/// for a start that waits or ends before it serves.
+	pub fn serve_stored_at(&self, fault: &str) -> Process {
+		self.spawn(json!({}), json!({}), Some(fault), None).0
+	}
+
+	/// Start `serve` with `link` armed to end itself at `fault`, and return at
+	/// once, because it never reports serving.
+	pub fn serve_ended_at(&self, link: &str, fault: &str) -> Process {
+		self.spawn(json!({"link": ["-"]}), json!({}), Some(fault), Some(link)).0
 	}
 
 	/// An executable stand-in for the `glowcap` the harness is told to run.
@@ -129,8 +307,46 @@ impl Rig {
 		self.start_with(named, extra, fault, None)
 	}
 
-	fn start_with(&self, mut named: Value, extra: Value, fault: Option<&str>, stdin: Option<&str>) -> Bot {
-		if !self.dir.join("config.json").exists() {
+	fn start_with(&self, named: Value, extra: Value, fault: Option<&str>, stdin: Option<&str>) -> Bot {
+		let (process, serving) = self.spawn(named, extra, fault, stdin);
+		serving
+			.recv_timeout(WAIT)
+			.expect("the bot never reported it was serving");
+		Bot { process }
+	}
+
+	/// Start the first `serve` against the stand-in session and return at
+	/// once, for a session the bot cannot yet read.
+	pub fn serve_unreached(&self) -> Process {
+		self.spawn(json!({"rooms-dir": [self.rooms]}), json!({}), None, None).0
+	}
+
+	fn output_file(&self) -> PathBuf {
+		self.dir.with_file_name("serve.out")
+	}
+
+	/// Everything every `serve` of this rig has printed on standard output,
+	/// which holds the failure line of one that ended with a failure.
+	pub fn output(&self) -> String {
+		std::fs::read_to_string(self.output_file()).unwrap_or_default()
+	}
+
+	fn errors_file(&self) -> PathBuf {
+		self.dir.with_file_name("serve.err")
+	}
+
+	/// Start `serve` and the channel that says when it reports serving.
+	fn spawn(
+		&self,
+		mut named: Value,
+		extra: Value,
+		fault: Option<&str>,
+		stdin: Option<&str>,
+	) -> (Process, mpsc::Receiver<()>) {
+		// Settings with no link stored beside them are not kept, so a link given
+		// to such a directory is a first start and names its settings again.
+		let first_link = stdin.is_some() && !self.dir.join("session.link").exists();
+		if first_link || !self.dir.join("config.json").exists() {
 			named["harness"] = json!(["fake"]);
 			named["glowcap"] = json!([self.glowcap()]);
 		}
@@ -138,9 +354,18 @@ impl Rig {
 			named[key] = value.clone();
 		}
 		let mut command = self.command(&request(&self.dir, "serve", named, &[]));
-		// A `view:` point arms the session view the harness's verbs attach,
-		// not the bot.
-		if let Some(point) = fault {
+		// A `view:` point arms the session view in the bot and in every verb
+		// the harness runs, since each inherits the variable, and a `once`
+		// point fires once in each of those processes. A bot point may follow
+		// it after a comma. Each variable arms one point, so a second point of
+		// either kind is refused.
+		let points: Vec<&str> = fault.into_iter().flat_map(|faults| faults.split(',')).collect();
+		let views = points.iter().filter(|point| point.starts_with("view:")).count();
+		assert!(
+			views <= 1 && points.len() - views <= 1,
+			"one view point and one bot point at most: {points:?}"
+		);
+		for point in points {
 			match point.strip_prefix("view:") {
 				Some(view) => command.env("GLOWCAP_ROOMS_VIEW_FAULT", view),
 				None => command.env("GLOWCAP_ROOMS_BOT_FAULT", point),
@@ -149,85 +374,115 @@ impl Rig {
 		if stdin.is_some() {
 			command.stdin(Stdio::piped());
 		}
-		let mut process = Process::new(command.stdout(Stdio::piped()).spawn().unwrap(), "bot").within(WAIT);
+		let mut process = Process::new(
+			command.stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().unwrap(),
+			"bot",
+		)
+		.within(WAIT);
 		if let Some(text) = stdin {
+			self.learn(text);
 			let mut input = process.child.stdin.take().unwrap();
-			std::io::Write::write_all(&mut input, format!("{text}\n").as_bytes()).unwrap();
+			// A bot that refuses before it reads its link closes its input,
+			// which is its answer, so the write may meet a closed pipe.
+			match std::io::Write::write_all(&mut input, format!("{text}\n").as_bytes()) {
+				Err(error) if error.kind() == std::io::ErrorKind::BrokenPipe => {}
+				written => written.unwrap(),
+			}
 		}
 		let stdout = process.child.stdout.take().unwrap();
 		let (ready, serving) = mpsc::channel();
-		std::thread::spawn(move || {
+		let mut sink = std::fs::OpenOptions::new()
+			.create(true)
+			.append(true)
+			.open(self.output_file())
+			.expect("opening the bot's output file");
+		// The process joins this copier when it exits, so the output file holds
+		// every line the bot printed by the time `wait` or `stop` returns.
+		let pump = std::thread::spawn(move || {
 			for line in BufReader::new(stdout).lines().map_while(Result::ok) {
+				std::io::Write::write_all(&mut sink, format!("{line}\n").as_bytes())
+					.expect("writing the bot's output file");
 				if line.starts_with("ROOMS-BOT-SERVING") {
+					// tolerant: the receiver is gone once a test stops waiting for serving.
 					let _ = ready.send(());
 				}
 			}
 		});
-		serving
-			.recv_timeout(WAIT)
-			.expect("the bot never reported it was serving");
-		Bot { process }
+		// Standard error goes to a file a link scan reads, and a failing test
+		// prints it through the rig's dump with the links held back.
+		let stderr = process.child.stderr.take().unwrap();
+		let mut errors = std::fs::OpenOptions::new()
+			.create(true)
+			.append(true)
+			.open(self.errors_file())
+			.expect("opening the bot's error file");
+		let copier = std::thread::spawn(move || {
+			for line in BufReader::new(stderr).lines().map_while(Result::ok) {
+				std::io::Write::write_all(&mut errors, format!("{line}\n").as_bytes())
+					.expect("writing the bot's error file");
+			}
+		});
+		(process.pumped_by(pump).pumped_by(copier), serving)
 	}
 
 	/// Run a command to its end and return its stdout and success.
 	pub fn run(&self, verb: &str, named: Value) -> (Value, bool) {
-		let output = self.command(&request(&self.dir, verb, named, &[])).output().unwrap();
-		let line = String::from_utf8(output.stdout).unwrap();
-		(
-			serde_json::from_str(line.trim()).unwrap_or(Value::Null),
-			output.status.success(),
+		finish(
+			self.command(&request(&self.dir, verb, named, &[])),
+			None,
+			&self.secrets.borrow(),
 		)
 	}
 
-	/// Run a command to its end with environment variables set.
-	pub fn run_env(&self, verb: &str, named: Value, env: &[(&str, &str)]) -> (Value, bool) {
-		let output = self
-			.command(&request(&self.dir, verb, named, &[]))
-			.envs(env.iter().copied())
-			.output()
+	/// Start a `status` that holds the lease as a reader until a contender
+	/// meets it or [`Rig::release_probe`], and return once it says it holds.
+	pub fn probe_holding(&self) -> Process {
+		let marker = self.dir.join("probe-held");
+		let child = self
+			.command(&request(&self.dir, "status", json!({}), &[]))
+			.env("GLOWCAP_ROOMS_BOT_FAULT", "probe-held")
+			.stdout(Stdio::piped())
+			.spawn()
 			.unwrap();
-		let line = String::from_utf8(output.stdout).unwrap();
-		(
-			serde_json::from_str(line.trim()).unwrap_or(Value::Null),
-			output.status.success(),
-		)
+		// Guarded before the wait, so a wait that fails still reaps the probe.
+		let probe = Process::new(child, "status").within(WAIT);
+		eventually("the probe to hold the lease", || marker.exists().then_some(()));
+		probe
+	}
+
+	/// Let a probe that [`Rig::probe_holding`] started end its hold.
+	pub fn release_probe(&self) {
+		std::fs::write(self.dir.join("probe-release"), b"").unwrap();
+	}
+
+	/// Run a command to its end with environment variables set.
+	pub fn run_env<V: AsRef<std::ffi::OsStr>>(&self, verb: &str, named: Value, env: &[(&str, V)]) -> (Value, bool) {
+		let mut command = self.command(&request(&self.dir, verb, named, &[]));
+		command.envs(env.iter().map(|(name, value)| (name, value.as_ref())));
+		finish(command, None, &self.secrets.borrow())
 	}
 
 	/// Run a turn's verb to its end as the harness of a turn in
 	/// `conversation` would.
 	pub fn run_turn(&self, conversation: &str, verb: &str, named: Value, arguments: &[&str]) -> (Value, bool) {
 		let body = json!({"verb": verb, "state": "", "named": named, "arguments": arguments}).to_string();
-		let output = self
-			.command(&body)
+		let mut command = self.command(&body);
+		command
 			.env("GLOWCAP_ROOMS_TURN_BOT", &self.dir)
 			.env("GLOWCAP_ROOMS_TURN_CONVERSATION", conversation)
-			.output()
-			.unwrap();
-		let line = String::from_utf8(output.stdout).unwrap();
-		(
-			serde_json::from_str(line.trim()).unwrap_or(Value::Null),
-			output.status.success(),
-		)
+			// No turn of this id is in a ledger, so a note it writes is the
+			// serving loop's at once.
+			.env("GLOWCAP_ROOMS_TURN_ID", u64::MAX.to_string());
+		finish(command, None, &self.secrets.borrow())
 	}
 
 	/// Run a command with `input` on standard input to its end.
 	pub fn run_fed(&self, verb: &str, named: Value, input: &str) -> (Value, bool) {
-		let mut child = self
-			.command(&request(&self.dir, verb, named, &[]))
-			.stdin(Stdio::piped())
-			.stdout(Stdio::piped())
-			.spawn()
-			.unwrap();
-		let mut stdin = child.stdin.take().unwrap();
-		// best-effort: a command that refuses before it reads exits without
-		// taking its input, and its exit is what the test reads.
-		let _ = stdin.write_all(input.as_bytes());
-		drop(stdin);
-		let output = child.wait_with_output().unwrap();
-		let line = String::from_utf8(output.stdout).unwrap();
-		(
-			serde_json::from_str(line.trim()).unwrap_or(Value::Null),
-			output.status.success(),
+		self.learn(input);
+		finish(
+			self.command(&request(&self.dir, verb, named, &[])),
+			Some(input),
+			&self.secrets.borrow(),
 		)
 	}
 
@@ -235,152 +490,6 @@ impl Rig {
 		let (status, ok) = self.run("status", json!({}));
 		assert!(ok, "status failed: {status}");
 		status
-	}
-
-	/// Append one event row, as the session would deliver it.
-	pub fn push(&self, row: Value) {
-		let mut file = std::fs::OpenOptions::new()
-			.create(true)
-			.append(true)
-			.open(self.rooms.join("inbox.jsonl"))
-			.unwrap();
-		writeln!(file, "{row}").unwrap();
-	}
-
-	/// A direct line from the other person, which names no sender.
-	pub fn direct(&self, at: u64, conversation: &str, text: &str) {
-		self.push(json!({"at": at, "conversation": conversation, "kind": "direct", "text": text}));
-	}
-
-	pub fn room(&self, at: u64, conversation: &str, text: &str, mentions_bot: bool) {
-		self.push(
-			json!({"at": at, "conversation": conversation, "kind": "room", "sender": "ann",
-			"text": text, "mentions": {"member": mentions_bot}}),
-		);
-	}
-
-	/// Every line the bot has sent, in order.
-	pub fn sent(&self) -> Vec<Value> {
-		let Ok(text) = std::fs::read_to_string(self.rooms.join("outbox.jsonl")) else {
-			return Vec::new();
-		};
-		text.lines().map(|line| serde_json::from_str(line).unwrap()).collect()
-	}
-
-	pub fn wait_for_replies(&self, count: usize) -> Vec<Value> {
-		eventually(&format!("{count} sent line(s)"), || {
-			let sent = self.sent();
-			(sent.len() >= count).then_some(sent)
-		})
-	}
-
-	/// Wait until the durable cursor reaches event `at` and no turn is open
-	/// or waiting. The stand-in writes the cursor after event `at` as `e`
-	/// and `at` in hexadecimal.
-	pub fn wait_for_cursor(&self, at: u64) {
-		eventually(&format!("cursor {at}"), || {
-			let status = self.status();
-			let cursor = status["status"]["cursor"].as_str()?;
-			let reached = cursor
-				.strip_prefix('e')
-				.and_then(|hex| u64::from_str_radix(hex, 16).ok());
-			let idle = status["status"]["open_turns"] == 0 && status["status"]["queued"] == 0;
-			(reached >= Some(at) && idle).then_some(())
-		});
-	}
-
-	/// Every send, observe, keep, and release call the bot made, in order.
-	pub fn calls(&self) -> Vec<Value> {
-		let Ok(text) = std::fs::read_to_string(self.rooms.join("calls.jsonl")) else {
-			return Vec::new();
-		};
-		text.lines().map(|line| serde_json::from_str(line).unwrap()).collect()
-	}
-
-	/// The operations of the calls named `call`, in order.
-	pub fn operations(&self, call: &str) -> Vec<String> {
-		self.calls()
-			.iter()
-			.filter(|row| row["call"] == call)
-			.map(|row| row["operation"].as_str().unwrap().to_owned())
-			.collect()
-	}
-
-	/// The `(call, operation, base)` of every send, observe, and keep call.
-	pub fn call_log(&self) -> Vec<(String, String, u64)> {
-		self.calls()
-			.iter()
-			.map(|row| {
-				(
-					row["call"].as_str().unwrap().to_owned(),
-					row["operation"].as_str().unwrap().to_owned(),
-					row["base"].as_u64().unwrap(),
-				)
-			})
-			.collect()
-	}
-
-	/// The receipts the stand-in holds.
-	pub fn receipts(&self) -> Vec<Value> {
-		match std::fs::read(self.rooms.join("receipts.json")) {
-			Ok(bytes) => serde_json::from_slice(&bytes).unwrap(),
-			Err(_) => Vec::new(),
-		}
-	}
-
-	/// `count` commands from someone else in the session, each holding a
-	/// settled receipt as any session command does. Each lets the oldest
-	/// receipt that may go go first, the way the stand-in does: never one
-	/// still running, nor a committed line nobody kept. One left unknown goes.
-	pub fn crowd(&self, count: usize) {
-		use rooms_application::content::session::custody::MAX_EFFECTS;
-		let mut receipts = self.receipts();
-		for n in 0..count {
-			if receipts.len() == MAX_EFFECTS {
-				let oldest = receipts
-					.iter()
-					.position(|receipt| {
-						receipt["status"] != "pending" && (receipt["status"] != "committed" || receipt["kept"] == true)
-					})
-					.expect("someone else's command was refused for a full set of receipts");
-				receipts.remove(oldest);
-			}
-			receipts.push(
-				json!({"operation": format!("other-{n}"), "base": 0, "conversation": "elsewhere",
-				"text": "x", "status": "committed", "kept": true}),
-			);
-		}
-		std::fs::write(self.rooms.join("receipts.json"), serde_json::to_vec(&receipts).unwrap()).unwrap();
-	}
-
-	/// Make the stand-in's activity unable to say whether any line posted.
-	pub fn lose_echoes(&self) {
-		std::fs::write(self.rooms.join("echo-fault"), "").unwrap();
-	}
-
-	/// Make every echo read as one across a session restart, where only the
-	/// receipt can tell.
-	pub fn restart_echoes(&self) {
-		std::fs::write(self.rooms.join("echo-fault"), "restarted").unwrap();
-	}
-
-	/// Outcomes the stand-in injects into the next send, observe, or keep calls.
-	pub fn send_faults(&self, faults: &[&str]) {
-		std::fs::write(self.rooms.join("send-faults"), faults.join("\n") + "\n").unwrap();
-	}
-
-	/// A failure every read gets until it is cleared with `None`.
-	pub fn events_fault(&self, fault: Option<&str>) {
-		let path = self.rooms.join("events-fault");
-		match fault {
-			Some(fault) => std::fs::write(path, fault).unwrap(),
-			None => std::fs::remove_file(path).unwrap(),
-		}
-	}
-
-	/// How many reads the `events-fault` refused.
-	pub fn refused_reads(&self) -> usize {
-		std::fs::read_to_string(self.rooms.join("refused-reads")).map_or(0, |text| text.lines().count())
 	}
 
 	/// The ledger as the bot last wrote it.
@@ -444,4 +553,16 @@ pub fn gone(pid: i32) -> bool {
 		std::thread::sleep(Duration::from_millis(20));
 	}
 	false
+}
+
+/// How many times the fake harness started in a conversation's directory.
+pub fn runs(workdir: &std::path::Path) -> usize {
+	std::fs::read_to_string(workdir.join("runs.log")).map_or(0, |log| log.lines().count())
+}
+
+/// The text of each of `sent`, the lines the session accepted.
+pub fn texts(sent: &[Value]) -> Vec<String> {
+	sent.iter()
+		.map(|line| line["text"].as_str().unwrap().to_owned())
+		.collect()
 }

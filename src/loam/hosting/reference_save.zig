@@ -35,12 +35,24 @@ pub const Save = opaque {
     /// save whose result failed as `RestorationFailed` has one.
     pub fn restorationCause(self: *Save) driver.Broken {
         const failure = state(self).enliven.?.result().failed;
-        return .{ .detail = failure.message, .cause = failure.cause };
+        return fetchFailure(failure.kind, .{ .detail = failure.message, .cause = failure.cause });
     }
     pub fn deinit(self: *Save) void {
         state(self).deinit();
     }
 };
+
+/// What a restoration whose fetch failed as `kind` with `failure` names as
+/// its cause. A fetch whose session closed under it with no cause of its own
+/// names that closure, seen from this side.
+pub fn fetchFailure(kind: driver.VowFailure, failure: driver.Broken) driver.Broken {
+    var named = failure;
+    if (kind == .closed and named.cause.origin == .unspecified) {
+        named.cause.origin = .local;
+        named.cause.reason = .closed;
+    }
+    return named;
+}
 
 pub fn state(save: *Save) *State {
     return @ptrCast(@alignCast(save));

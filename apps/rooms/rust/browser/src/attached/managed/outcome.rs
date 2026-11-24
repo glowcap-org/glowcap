@@ -53,16 +53,5 @@ pub(super) fn command(
 }
 
 pub(super) fn failed(error: rooms_glowcap::client::Error) -> Result<JsValue> {
-	use rooms_glowcap::client::Error;
-	let conflict = matches!(&error, Error::WorkspaceConflict | Error::ControlConflict(_));
-	// Only a proved absence is a refusal: a bare break, a closed connection,
-	// or a missed deadline leaves the outcome unknown and the request held.
-	let status = if conflict {
-		"conflict"
-	} else if error.known_absent() {
-		"refused"
-	} else {
-		"uncertain"
-	};
-	submission(status, Some(&error.into()))
+	submission(error.submission_status().wire(), Some(&error.into()))
 }

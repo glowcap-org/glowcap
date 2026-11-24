@@ -11,4 +11,5 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
+rooms-glowcap = { path = "../glowcap" }
 tokio.workspace = true

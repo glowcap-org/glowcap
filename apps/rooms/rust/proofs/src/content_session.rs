@@ -396,7 +396,7 @@ fn workspace() {
 	let original = custody.remove_room_access(key(1, 1)).unwrap();
 	let receipt = custody::EffectReceipt::<References> {
 		introduction: None,
-		adopted: false,
+		disposition: custody::Disposition::Held,
 		outgoing: None,
 		operation: rooms_application::session::state::OperationId::new("op".into()).unwrap(),
 		canonical_intent: rooms_application::fields::Text::new("canonical intent".into()).unwrap(),

@@ -19,7 +19,8 @@ export async function roomBearer(
 	if (row?.kind !== "room" || !session.permits("shareCustody")) return null;
 	const key = kind === "link" ? row.access : kind === "manager" ? row.control : row.moderator;
 	if (key == null) return null;
-	return await session.workspace.custodyRecipe(coordinate(kind === "manager" ? "roomControl" : "roomAccess", key));
+	const held = coordinate(kind === "manager" ? "roomControl" : "roomAccess", key);
+	return await session.request((workspace) => workspace.custodyRecipe(held));
 }
 
 /** The link a lasting archive share was offered as, or null while the
@@ -27,5 +28,5 @@ export async function roomBearer(
 export async function archiveShareBearer(session: ManagedRoomsSession, id: string): Promise<string | null> {
 	const share = session.current?.intent.archiveShares?.find((row) => row.id === id);
 	if (share == null || !session.permits("shareCustody")) return null;
-	return await session.workspace.custodyRecipe(coordinate("archiveAccess", share.access));
+	return await session.request((workspace) => workspace.custodyRecipe(coordinate("archiveAccess", share.access)));
 }

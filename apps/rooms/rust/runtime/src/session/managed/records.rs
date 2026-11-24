@@ -4,6 +4,7 @@ use glowcap::{
 	loam::{self, BoundResource, Call, GraphField, GraphPage, Invocation, PageSchema},
 };
 use rooms_application::content::session::{custody, records, workspace};
+use rooms_application::failure::FailureCode;
 
 pub struct References;
 pub struct Metadata;
@@ -94,7 +95,7 @@ pub type Record = workspace::Record<References, BoundResource>;
 /// Decode candidate locations without acquiring upstream capabilities. The
 /// prepared graph owns exact committed edge custody until atomic replacement.
 pub fn decode(input: Invocation<'_>) -> Result<Record> {
-	decode_with(input, |page, coordinate, field| {
+	decode_with(input, unreadable, |page, coordinate, field| {
 		Ok(restored(coordinate, Field::Retained(Location { page, field })))
 	})
 }
@@ -104,12 +105,27 @@ pub fn decode(input: Invocation<'_>) -> Result<Record> {
 /// decoded intent and field-location spines through this callback. Loam owns
 /// prepared page bytes. Neither decode nor its locations grant invocation.
 pub fn metadata(input: Invocation<'_>) -> Result<workspace::Record<Metadata, BoundResource>> {
-	decode_with(input, |page, coordinate, field| {
+	decode_with(input, unreadable, |page, coordinate, field| {
 		Ok(located(coordinate, Location { page, field }))
 	})
 }
+/// Decode the saved graph as the session opens. Only here is a body the
+/// codec cannot parse refused as saved data in another stored form, because
+/// only an open reads data an earlier version may have written. The open
+/// that reaches this has already called `start_live` (`opening.rs`), which
+/// proposes a new lifetime marker to the store's write lane, and the private
+/// call carrying this decode drives that lane. A refused open can therefore
+/// leave the new marker committed in place of the prior one. The marker
+/// carries no capability, and nothing of the session's records changes.
+pub fn opened(input: Invocation<'_>) -> Result<()> {
+	decode_with(input, unreadable_at_open, |page, coordinate, field| {
+		Ok(located(coordinate, Location { page, field }))
+	})
+	.map(drop)
+}
 fn decode_with<R: custody::References>(
 	input: Invocation<'_>,
+	refused: fn(records::Error) -> glowcap::Error,
 	restore: impl FnMut(
 		usize,
 		custody::Coordinate,
@@ -139,8 +155,31 @@ fn decode_with<R: custody::References>(
 		&graph,
 		restore,
 	)
-	.map_err(|_| loam::refusal("invalid session graph"))
+	.map_err(refused)
 }
+/// A saved graph the codec refused as the session opens, as the refusal the
+/// session answers with. Loam checked each record's checksum before the codec
+/// read it, so a body the codec cannot parse was written whole in another
+/// stored form.
+fn unreadable_at_open(error: records::Error) -> glowcap::Error {
+	match error {
+		records::Error::Json(_) => loam::refusal(FailureCode::SessionStateUnreadable.line(OTHER_FORM)),
+		error => unreadable(error),
+	}
+}
+/// A saved graph the codec refused once the session is open. The open read
+/// every body, so one that does not parse now was written by this run, and
+/// the refusal says so without naming another stored form.
+fn unreadable(error: records::Error) -> glowcap::Error {
+	match error {
+		records::Error::Json(_) => loam::refusal("a saved record this session wrote does not decode"),
+		records::Error::Capacity | records::Error::Format | records::Error::Fields => {
+			loam::refusal("invalid session graph")
+		}
+	}
+}
+/// The detail of a saved record in a stored form this codec does not read.
+pub const OTHER_FORM: &str = "a saved record is in another stored form";
 
 /// The codec owns page ordering and the intent fence, which advances only when
 /// this write changes the intent. These temporary spines borrow its payloads
@@ -347,4 +386,34 @@ pub fn settle_effect(
 		.chain(pages.iter().skip(end).map(GraphPage::Keep))
 		.collect();
 	call.replace_graph(input.payload, &candidate)
+}
+
+#[cfg(test)]
+mod tests {
+	use super::{OTHER_FORM, records, unreadable, unreadable_at_open};
+	use rooms_application::failure::{Failure, FailureCode};
+
+	/// Only a body in another form, read as the session opens, names the
+	/// code. A graph whose pages parse but do not fit together is a different
+	/// cause, and so is a body that does not parse once the session is open.
+	#[test]
+	fn only_a_body_in_another_form_is_refused_as_unreadable_saved_data() {
+		let other_form = || records::Error::Json(serde_json::from_str::<u8>("{}").unwrap_err());
+		assert_eq!(
+			unreadable_at_open(other_form()).message(),
+			Some(FailureCode::SessionStateUnreadable.line(OTHER_FORM).as_str())
+		);
+		let refused = unreadable(other_form());
+		assert_eq!(Failure::parse(refused.message().unwrap()), None, "{refused}");
+		let others: [fn() -> records::Error; 3] = [
+			|| records::Error::Capacity,
+			|| records::Error::Format,
+			|| records::Error::Fields,
+		];
+		for error in others {
+			for refused in [unreadable(error()), unreadable_at_open(error())] {
+				assert_eq!(Failure::parse(refused.message().unwrap()), None, "{refused}");
+			}
+		}
+	}
 }

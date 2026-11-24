@@ -70,6 +70,7 @@ pub fn run() {
 	outgoing::run();
 	bridge::run();
 	terminal_refusals();
+	earlier_receipt_form();
 	let mut custody = custody::Custody::<References>::default();
 	custody
 		.insert_directory_access(custody::Held {
@@ -94,7 +95,7 @@ pub fn run() {
 			opening: Text::new("opening".into()).unwrap(),
 			registration: Text::new("00000000-0000-4000-8000-000000000001".into()).unwrap(),
 		}),
-		adopted: false,
+		disposition: custody::Disposition::Held,
 		outgoing: None,
 		operation: Text::new("operation".into()).unwrap(),
 		canonical_intent: Text::new("x".repeat(60000).into()).unwrap(),
@@ -232,7 +233,7 @@ fn terminal_refusals() {
 			introduction: None,
 			operation: Text::new("refused".into()).unwrap(),
 			outgoing: None,
-			adopted: false,
+			disposition: custody::Disposition::Held,
 			canonical_intent: Text::new("original intent".into()).unwrap(),
 			resource_generation: nz(1),
 			source: custody::Held {
@@ -250,9 +251,46 @@ fn terminal_refusals() {
 			panic!("known absence must remain distinct from uncertainty")
 		};
 		assert_eq!(reason.text().as_str(), Some(diagnostic));
-		assert!(!decoded.adopted);
+		assert_eq!(decoded.disposition, custody::Disposition::Held);
 		assert_eq!(decoded.source.reference.0, 7);
 	}
+}
+
+/// A receipt in the stored form 0.1.8 wrote, an `adopted` flag where
+/// `disposition` is now, is a body the codec cannot parse. The session reports
+/// that as saved data in another form and reads nothing from it.
+fn earlier_receipt_form() {
+	use serde_json::{Map, Value, json};
+	let receipt = custody::EffectReceipt::<References> {
+		introduction: None,
+		operation: Text::new("earlier".into()).unwrap(),
+		outgoing: None,
+		disposition: custody::Disposition::Held,
+		canonical_intent: Text::new("original intent".into()).unwrap(),
+		resource_generation: nz(1),
+		source: custody::Held {
+			key: key(1, 1),
+			reference: Source(7),
+		},
+		targets: List::default(),
+		outcome: custody::Outcome::Unresolved,
+	};
+	let pages = records::encode_effect(&receipt).unwrap();
+	assert_eq!(pages.len(), 1, "the fixture is one page");
+	let mut page = restored(&pages[0]);
+	// The page header is binary, and the body is the JSON object after it.
+	let body = (0..page.payload.len())
+		.find(|&at| serde_json::from_slice::<Map<String, Value>>(&page.payload[at..]).is_ok())
+		.expect("a JSON body");
+	let mut earlier: Map<String, Value> = serde_json::from_slice(&page.payload[body..]).unwrap();
+	assert_eq!(earlier.remove("disposition"), Some(json!("held")));
+	earlier.insert("adopted".into(), json!(false));
+	page.payload.truncate(body);
+	page.payload.extend(serde_json::to_vec(&earlier).unwrap());
+	assert!(matches!(
+		records::decode_effect(vec![page]),
+		Err(records::Error::Json(_))
+	));
 }
 
 fn graph(encoded: &records::Encoded<'_, References, i32>) {

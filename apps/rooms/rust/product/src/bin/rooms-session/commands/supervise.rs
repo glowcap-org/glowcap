@@ -1,13 +1,38 @@
 //! Supervise only the process this start creates. Workspace and lifecycle leases
 //! make concurrent starts explicit. Settings are durable before process launch.
 use super::{Failure, Options, request, workspace};
-use rooms_application::failure::Retry;
+use rooms_application::failure::{FailureCode, Retry};
 use rooms_application::server::operations::listeners;
 use rooms_platform::serving::{Family, Transport};
 use serde_json::{Value, json};
 use std::os::unix::process::CommandExt;
 use std::{collections::BTreeMap, path::Path, process::Stdio, time::Duration};
 use tokio::process::Command;
+
+/// A directory whose saved session data this version cannot read, whether an
+/// older workspace file or records the session refused at open. The words are
+/// the catalog's, which `session serve` prints for the same code.
+fn other_form() -> Failure {
+	let definition = FailureCode::SessionStateUnreadable.definition();
+	Failure::new(
+		definition.code.wire(),
+		definition.retry,
+		format!("{} {}", definition.summary, definition.action.unwrap_or_default()),
+	)
+}
+
+/// A session process that exited while starting. Its status names the cause
+/// it refused with when it has one, and otherwise its log does.
+fn exited(status: std::process::ExitStatus) -> Failure {
+	if status.code() == Some(crate::STATE_UNREADABLE) {
+		return other_form();
+	}
+	Failure::new(
+		"closed",
+		Retry::AfterStateChange,
+		format!("session exited ({status}); inspect control.log"),
+	)
+}
 
 /// Lay what this start names over what the workspace stored. A stored
 /// listener option belongs to the transport it was given for, so a start
@@ -81,9 +106,7 @@ pub async fn start(options: &Options) -> Result<Value, Failure> {
 	let settings = tokio::task::spawn_blocking(move || {
 		use rooms_platform::storage::atomic;
 		if state.join("state.json").exists() {
-			return Err(Failure::invalid(
-				"this directory holds a different workspace format; preserve it and choose a new --dir",
-			));
+			return Err(other_form());
 		}
 		let path = state.join("peer-options.json");
 		let raw = rooms_platform::storage::read(&path, 16 * 1024)
@@ -151,11 +174,7 @@ pub async fn start(options: &Options) -> Result<Value, Failure> {
 				let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
 				loop {
 					if let Some(status) = child.try_wait()? {
-						return Err(Failure::new(
-							"closed",
-							Retry::AfterStateChange,
-							format!("session exited ({status}); inspect control.log"),
-						));
+						return Err(exited(status));
 					}
 					if tokio::net::UnixStream::connect(options.state.join("control.sock"))
 						.await
@@ -217,6 +236,18 @@ pub fn state_path(root: &Path, nick: &str) -> Result<std::path::PathBuf, Failure
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	/// The status the session process exits with for unreadable saved data is
+	/// the one `session start` reads as that cause, and no other status is.
+	#[test]
+	fn a_session_that_refused_its_saved_data_is_reported_with_that_cause() {
+		use std::os::unix::process::ExitStatusExt;
+		let refused = exited(std::process::ExitStatus::from_raw(crate::STATE_UNREADABLE << 8));
+		assert_eq!(refused.class, FailureCode::SessionStateUnreadable.wire());
+		assert_eq!(refused.message, other_form().message);
+		let failed = exited(std::process::ExitStatus::from_raw(1 << 8));
+		assert_eq!(failed.class, "closed");
+	}
 
 	fn settled(stored: &[(&str, &str)], named: &[(&str, &str)]) -> Vec<(String, String)> {
 		let mut settings = stored.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())).collect();

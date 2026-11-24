@@ -8,6 +8,7 @@ use super::{
 use serde_json::Value;
 use std::ffi::OsString;
 
+/// The Pi adapter.
 pub struct Pi;
 
 /// What a provider error message means. Pi reports `<status>: <body>` for
@@ -21,7 +22,7 @@ fn kind(message: &str) -> FailureKind {
 		return kind;
 	}
 	if message.contains("OAuth refresh failed") {
-		return FailureKind::Auth;
+		return FailureKind::SignIn;
 	}
 	FailureKind::Crash
 }
@@ -157,19 +158,21 @@ impl Harness for Pi {
 		}
 	}
 
-	/// A missing key, an unknown model or provider, and an unknown session exit
-	/// 1 with the reason on stderr. A signal or any other status is a crash.
+	/// A missing key and an unknown model or provider exit 1 with the reason on
+	/// stderr. An unknown session is a crash, so a run that never reached its
+	/// session starts a fresh one, as the other harnesses' lost sessions do. A
+	/// signal or any other status is a crash.
 	fn exit(&self, code: Option<i32>, stderr_tail: &str) -> Option<(FailureKind, String)> {
 		if code == Some(0) {
 			return None;
 		}
-		let refused = ["Model \"", "Unknown provider", "No session found matching"]
+		let refused = ["Model \"", "Unknown provider"]
 			.iter()
 			.any(|text| stderr_tail.contains(text));
 		let kind = if stderr_tail.contains("No API key found") {
-			FailureKind::Auth
+			FailureKind::SignIn
 		} else if refused {
-			FailureKind::Refused
+			FailureKind::Declined
 		} else {
 			FailureKind::Crash
 		};

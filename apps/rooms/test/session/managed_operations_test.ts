@@ -3,8 +3,15 @@ import "../support/match_media.ts";
 import { ManagedReads } from "../../web/ui/session/managed/reads.ts";
 import { assert, assertEquals } from "../assert.ts";
 import { deferred, snapshot, viewer } from "../support/managed_viewer.ts";
+import { actionSession, fakeHandle, oneLink, oneLinkDoor, ownerEntry, unread } from "../support/managed_link.ts";
+import type { OperationsSession } from "../../web/ui/session/managed/operations.ts";
+import type { ManagedEffects } from "../../web/ui/session/managed/effects.ts";
+import { ManagedActions } from "../../web/ui/session/managed/actions.ts";
+import type { ManagedNavigation } from "../../web/ui/session/managed/navigation.ts";
+import type { ManagedDrafts } from "../../web/ui/session/managed/drafts.ts";
+import type { ManagedOpenings } from "../../web/ui/session/managed/openings.ts";
+import type { ManagedOperation } from "../../web/ui/session/managed/operation.ts";
 import type { ManagedRoomsSession } from "../../web/ui/session/managed/session.ts";
-import type { RoomsPageContext } from "../../web/ui/page.ts";
 
 const { RoomsPage } = await import("../../web/ui/page.ts");
 const { managedOperations } = await import("../../web/ui/session/managed/operations.ts");
@@ -32,7 +39,7 @@ Deno.test("Operations acquisition keeps every refusal and commits no partial bun
 		},
 	});
 	const page = new RoomsPage();
-	const operations = managedOperations(page as RoomsPageContext, session);
+	const operations = managedOperations(page, session);
 	try {
 		const requested = formatOpsBundle(
 			new Map([
@@ -93,23 +100,24 @@ Deno.test("membership snapshots preserve journal history and report changed or r
 Deno.test("operations possession follows custody and replacement clears the old inventory", () => {
 	const page = new RoomsPage();
 	const current = snapshot();
-	const session = {
+	// The projection reads most of the session, so it stands in for the whole class.
+	const session = fakeHandle<ManagedRoomsSession>({
 		reads: new ManagedReads(),
 		current,
-		effects: {
+		effects: fakeHandle<ManagedEffects>({
 			cancelledConversations: [],
 			standingVersion: "",
 			roomStandingPending: () => false,
 			standing: (_name: string, _target: string | null, accepted: string | null) => accepted,
-		},
+		}),
 		access: { status: "active" },
 		pending: [],
 		pendingOperations: [],
 		recoverable: [],
-		actions: { pending: [], recoverable: [], cancelledConversations: [] },
-		openings: { destination: null },
-		navigation: {},
-	} as unknown as ManagedRoomsSession;
+		actions: fakeHandle<ManagedActions>({ pending: [], recoverable: [], cancelledConversations: [] }),
+		openings: fakeHandle<ManagedOpenings>({ destination: null }),
+		navigation: fakeHandle<ManagedNavigation>({}),
+	});
 	const files = presentationFiles(page.projection, () => null);
 	const projection = new ManagedProjection(page, session, files, () => {}, () => {});
 	const apply = () => {
@@ -144,23 +152,24 @@ for (const change of ["replace", "drop", "newer"] as const) {
 		const second = deferred<unknown[]>();
 		let reads = 0;
 		let freed = 0;
-		const session = {
-			reads: new ManagedReads(),
-			current,
-			effects: {
-				standingVersion: "",
-				roomStandingPending: () => false,
-				standing: (_name: string, _target: string | null, accepted: string | null) => accepted,
-			},
-			workspace: {
+		const session: OperationsSession = {
+			...oneLinkDoor({
 				operationsReader: () => {
 					const answer = reads++ === 0 ? first : second;
 					return Promise.resolve({ snapshot: () => answer.promise, free: () => freed++ });
 				},
-			},
-		} as unknown as ManagedRoomsSession;
+			}),
+			reads: new ManagedReads(),
+			current,
+			candidateBeforeSending: unread("candidateBeforeSending"),
+			...ownerEntry({ current }),
+			completeOperation: unread("completeOperation"),
+			readBeforeSending: unread("readBeforeSending"),
+			subscribe: unread("subscribe"),
+			actions: { operations: unread("operations"), replace: unread("replace"), run: unread("run") },
+		};
 		const page = new RoomsPage();
-		const operations = managedOperations(page as RoomsPageContext, session);
+		const operations = managedOperations(page, session);
 		const old = operations.refreshOpsCap("listeners");
 		if (change === "replace") current.intent.operations[0].handle.key = "replacement";
 		else if (change === "drop") current.intent.operations = [];
@@ -200,62 +209,76 @@ Deno.test("peering publication and revoke update the pane from its held leases",
 	});
 	current.intent.operations = [{ kind: "peering", handle: { role: "operations", key: "publisher" } }];
 	const page = new RoomsPage();
-	const session = {
+	const sent: [string, string[]][] = [];
+	const door = oneLinkDoor({
+		// No durable address, so the pane governs no directory it can name.
+		custodyRecipe: () => Promise.resolve(null),
+		peeringSnapshot: () =>
+			Promise.resolve(current.intent.peering.map((row) => ({
+				id: row.id,
+				name: row.name,
+				source: row.directory,
+				phase: "live",
+			}))),
+	});
+	// The projection reads most of the session, so it stands in for the whole class.
+	const session = fakeHandle<ManagedRoomsSession>({
 		reads: new ManagedReads(),
 		current,
-		effects: {
+		effects: fakeHandle<ManagedEffects>({
 			standingVersion: "",
 			roomStandingPending: () => false,
 			cancelledConversations: [],
 			standing: (_name: string, _target: string | null, accepted: string | null) => accepted,
-		},
+		}),
 		access: { status: "active" },
 		pending: [],
 		pendingOperations: [],
 		recoverable: [],
-		openings: { destination: null },
-		navigation: {},
-		drafts: { value: (_id: string, text: string) => text },
-		workspace: {
-			// No durable address, so the pane governs no directory it can name.
-			custodyRecipe: () => Promise.resolve(null),
-			peeringSnapshot: () =>
-				Promise.resolve(current.intent.peering.map((row) => ({
-					id: row.id,
-					name: row.name,
-					source: row.directory,
-					phase: "live",
-				}))),
-		},
-		command: () => Promise.resolve({}),
-		completeResult: () => {
-			current.intent.peering.push({
-				id: "publication",
-				directory: "foreign",
-				name: "annex-here",
-				room: "room-access",
-				lease: "exact-lease",
-			});
-			return Promise.resolve();
-		},
-		actions: {
-			pending: [],
-			recoverable: [],
-			cancelledConversations: [],
-			run: (name: string, args: string[]) => {
-				assertEquals([name, args], ["revokePeeredRoom", ["publication", JSON.stringify("exact-lease")]]);
-				current.intent.peering = [];
-				return Promise.resolve();
-			},
-		},
-	} as unknown as ManagedRoomsSession;
+		openings: fakeHandle<ManagedOpenings>({ destination: null }),
+		navigation: fakeHandle<ManagedNavigation>({}),
+		drafts: fakeHandle<ManagedDrafts>({ value: (_id: string, text: string) => text }),
+		...door,
+		...ownerEntry({ current, requestNow: door.requestNow }),
+		// The real actions, over the owner entry the pieces below stand in for.
+		actions: new ManagedActions(
+			actionSession({}, {
+				current,
+				command: (name: string, args: string[]) => {
+					sent.push([name, args]);
+					return Promise.resolve(fakeHandle<ManagedOperation>({}));
+				},
+				completeResult: () => {
+					const [name, args] = sent[sent.length - 1];
+					if (name === "publishPeeredRoom") {
+						current.intent.peering.push({
+							id: "publication",
+							directory: "foreign",
+							name: "annex-here",
+							room: "room-access",
+							lease: "exact-lease",
+						});
+					} else {
+						assertEquals([name, args], ["revokePeeredRoom", [
+							"publication",
+							JSON.stringify("exact-lease"),
+						]]);
+						current.intent.peering = [];
+					}
+					return Promise.resolve();
+				},
+			}),
+			oneLink({}),
+		),
+	});
 	const files = presentationFiles(page.projection, () => null);
 	try {
 		new ManagedProjection(page, session, files, () => {}, () => {}).apply();
 		const operations = managedOperations(page, session);
 		await operations.refreshOpsCap("peering");
 		assertEquals(page.projection.get().peering?.publications, []);
-		const room = store.convByPersistId(page.projection, "source-room")!;
+		const room = store.convByPersistId(page.projection, "source-room");
+		assert(room != null, "the source room is shown");
 		assertEquals(await operations.publishPeeredRoom(room.key, "annex-here"), "");
 		assertEquals(page.projection.get().peering?.publications, [{
 			id: "publication",

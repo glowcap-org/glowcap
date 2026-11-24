@@ -20,6 +20,7 @@ import {
 	type RoomsErrorCode,
 	roomsErrorIn,
 	type RoomsFailureRetry,
+	SESSION_UNREACHABLE,
 	structuredFailure,
 } from "../error_codes.ts";
 import { retryCountdown, retryLimit } from "./admission.ts";
@@ -49,6 +50,10 @@ export class LocalRefusal extends Error {
 		this.code = `local-${key}`;
 		this.retry = definition.retry;
 		this.stage = options?.stage ?? null;
+	}
+	/** Whether `error` is the refusal named `key`. */
+	static is(error: unknown, key: LocalRefusalKey): error is LocalRefusal {
+		return error instanceof LocalRefusal && error.code === `local-${key}`;
 	}
 }
 
@@ -141,6 +146,40 @@ export function renderFailure(view: FailureView): string {
 	return `${said} (${cause})`;
 }
 
+/** Whether asking again, unchanged, can meet a different answer, so a notice
+ * of `view` may offer to try now. A refusal that never changes, or one that
+ * changes only for a different request, names its step instead. */
+export function tryNowCanHelp(view: FailureView): boolean {
+	return view.retry !== "never" && view.retry !== "after-request-change";
+}
+
+/** A summary and the one step it names, when the words alone name one. */
+export interface FailureSaid {
+	readonly summary: string;
+	readonly action: string | null;
+}
+/** A surface's own words for a failure, with the step that is true there. A
+ * `retry` replaces the code's own where the change the catalog waits for is
+ * out of reach from this surface, so asking again here cannot meet it. */
+export type FailureWords = FailureSaid & { readonly retry?: FailureRetry };
+/** What one surface calls the failures it can say more exactly than the layer
+ * that reported them, by code. A code names a more exact failure, with that
+ * code's catalog words: a layer says a peer could not be reached, and the act
+ * knows whether it reached for a member or a session. Words are the surface's
+ * own, where the catalog's are about another subject. */
+export type FailureRewording = ReadonlyMap<RoomsErrorCode, RoomsErrorCode | FailureWords>;
+/** `view` as `rewording` says it, keeping its detail. Any other failure keeps
+ * its own words, which already name what happened. */
+export function reworded(
+	view: FailureView,
+	rewording: ReadonlyMap<string, RoomsErrorCode | FailureWords>,
+): FailureView {
+	const entry = rewording.get(view.code);
+	if (entry == null) return view;
+	if (typeof entry === "string") return { ...view, code: entry, ...ROOMS_FAILURES[entry] };
+	return { ...view, summary: entry.summary, action: entry.action, retry: entry.retry ?? view.retry };
+}
+
 /** A failure in the reader's words, with its cause kept.
  *
  * A caught failure is a glowcap or Rooms error carrying a code, and a person reads a
@@ -222,20 +261,14 @@ export function transportBreak(error: unknown): string | null {
 	return failure?.status === -8 ? failure.reason : null;
 }
 
-/** Whether a call failed because the connection it travelled on is gone: the
- * connection closed under it (-7), or the reach broke on the way. False for
- * anything the other side answered. */
+/** Whether a call to the attached session failed because this side's own
+ * connection to it is gone, which Rust names `session-unreachable` with no
+ * binding status: the connection closed or broke under the call, a dial never
+ * reached the session, or the session missed one more request after a
+ * deadline. A failure with a binding status is a line a peer wrote, the
+ * session's own among them, so it is false even when it carries that code. */
 export function connectionLost(error: unknown): boolean {
-	return structuredFailure(error)?.status === -7 || transportBreak(error) != null;
-}
-
-/** What one act calls the failures it can name more exactly than the layer
- * that reported them. That layer says a peer could not be reached. The act
- * knows whether it reached for a member or a session. */
-export type FailureNames = ReadonlyMap<RoomsErrorCode, RoomsErrorCode>;
-export function namedFailure(view: FailureView, names: ReadonlyMap<string, RoomsErrorCode>): FailureView {
-	const named = names.get(view.code);
-	return named == null ? view : { ...view, code: named, ...ROOMS_FAILURES[named] };
+	return roomsErrorIn(error)?.code === SESSION_UNREACHABLE && structuredFailure(error)?.status == null;
 }
 
 /** What a session capability has to look like before it is worth trying.

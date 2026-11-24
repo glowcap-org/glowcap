@@ -11,6 +11,7 @@ use std::{ffi::OsString, path::PathBuf};
 /// What Codex says when the account cannot use the requested model.
 const MODEL_REFUSAL: &str = "is not supported when using Codex with a ChatGPT account";
 
+/// The Codex adapter.
 pub struct Codex {
 	/// The operator's sign-in file, when its directory could be found.
 	auth: Option<PathBuf>,
@@ -37,15 +38,32 @@ fn toml_string(text: &str) -> String {
 	serde_json::Value::from(text).to_string().replace('\u{7f}', "\\u007f")
 }
 
-/// Only the model refusal has a recorded shape. An expired sign-in and a usage
-/// limit have not been recorded, so they stay crashes until a stream shows
-/// their messages.
+/// What a Codex failure message means. Codex gives only text, so the kind
+/// comes from the model refusal's recorded wording, from an HTTP status the
+/// text names first as `status <number>` or `status: <number>`, which
+/// `status_kind` maps, or from Codex's usage-limit wording. Anything else is
+/// a crash, and the room and `status` read only fixed words for it. A
+/// signed-out Codex ends its turn with `turn.failed` and the message
+/// `unexpected status 401 Unauthorized: ...`, which the status names.
 fn kind(message: &str) -> FailureKind {
 	if message.contains(MODEL_REFUSAL) {
-		FailureKind::Refused
-	} else {
-		FailureKind::Crash
+		return FailureKind::Declined;
 	}
+	if message.contains("usage limit") || message.contains("usage_limit_reached") {
+		return FailureKind::UsageLimit;
+	}
+	// Codex leads with the status it reports, and a body after it may say
+	// "status" in other ways, so the first one that names a number decides.
+	message
+		.split("status")
+		.skip(1)
+		.find_map(|rest| {
+			let rest = rest.trim_start_matches(':').trim_start();
+			let digits: String = rest.chars().take_while(char::is_ascii_digit).collect();
+			digits.parse::<u64>().ok()
+		})
+		.and_then(super::lines::status_kind)
+		.unwrap_or(FailureKind::Crash)
 }
 
 impl Harness for Codex {

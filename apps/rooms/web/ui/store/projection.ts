@@ -319,6 +319,10 @@ export interface State {
 	aboutMember: MemberRef | null;
 	/** The rest of a long refusal, while its card is up. */
 	errorDetail: { title: string; text: string } | null;
+	/** Whether opening this browser's saved session found it in a form this
+	 * version can't read. Only deleting this browser's data clears it, and that
+	 * reloads the page. */
+	savedSessionUnreadable: boolean;
 	/** Whether the card about the conversation on screen is up. */
 	aboutConv: boolean;
 	/** Whether that card opened already asking to leave the conversation. */
@@ -402,6 +406,7 @@ export function initialState(): State {
 		aboutDirLeave: false,
 		aboutMember: null,
 		errorDetail: null,
+		savedSessionUnreadable: false,
 		aboutConv: false,
 		aboutConvLeave: false,
 		aboutConvPane: "about",

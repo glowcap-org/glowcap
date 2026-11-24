@@ -12,7 +12,7 @@
 //!   echo read as a restarted session's.
 //! - `receipts.json` holds the receipts, as `receipts` describes. An
 //!   operation sent again at its base is answered from its receipt, and at
-//!   another base it is refused.
+//!   another base it is refused, and a look at it there finds nothing applied.
 //! - `workspace.json` holds the revision a send is based on and the fence.
 //!   A committed line moves the revision. Keeping a line changes the
 //!   workspace, as a session's adoption does, so it moves both, and so does
@@ -20,28 +20,59 @@
 //!   and one based before the fence answers a conflict and holds nothing.
 //! - `calls.jsonl` logs every send, observe, keep, and release call, in order.
 //! - `typing.jsonl` logs every typing notice as its conversation and level.
-//! - `events-fault`, while it holds `paused`, `revoked`, `refused`, or
-//!   `unreachable`, fails every read that way, and `refused-reads` gets one
+//! - `events-fault`, while it holds `paused`, `revoked`, `denied`, or
+//!   `unreachable`, fails every read that way, and `failed-reads` gets one
 //!   line for each read it failed.
 //! - `send-faults` holds outcomes to inject, one per line. Each send,
-//!   observe, keep, or release call takes the first. `refused`, `unreachable`,
-//!   `paused`, and `revoked` fail the call and change nothing. On a send,
-//!   `pending` commits the line and answers pending, and `uncertain` commits
-//!   it and fails uncertain. `lost` holds no receipt and fails uncertain, as
-//!   a send the session never received. `unknown` commits the line and
+//!   observe, keep, or release call takes the first. `refused` (the one
+//!   request), `denied` (the access), `unreachable`, `paused`, and `revoked`
+//!   fail the call and change nothing. The three access states also set
+//!   `events-fault`, so reads fail the same way until it is cleared. On a
+//!   send, `pending` posts the line and answers pending, and its receipt runs
+//!   until the next look finds it committed, and `uncertain` commits it and
+//!   fails uncertain. `lost` holds no receipt and fails uncertain, as
+//!   a send the session never received. `late` does the same and parks the
+//!   send in `late.jsonl`, and the next call that takes `land` commits every
+//!   parked send first, as a send still on its way does. `unknown` commits the line and
 //!   leaves its receipt unknown, and `vanished` leaves the receipt unknown
 //!   and commits nothing. `conflict` changes the workspace first, as another
 //!   member's command can, so the send is fenced out and answers a conflict.
 //!   On an observe, `pending` answers pending, and `conflict` answers a
-//!   conflict, as for a receipt that says its send committed nothing. `ok`
-//!   lets a call through.
+//!   conflict, as for a receipt that says its send committed nothing. A
+//!   release answers `executor-running`. `ok` lets a call through.
 //! - `files/<token>-<index>` holds the bytes of an attachment a row names. A
 //!   fetch copies them.
 //! - `open-answers` holds how each direct-message open settles when it is
 //!   looked at again, one per line: `opened`, `reused`, `unapplied`,
-//!   `released`, `pending`, `unknown`, or a failure as in `send-faults`. Each look takes the first
-//!   and is logged in `calls.jsonl` as `settle-open`, and with none left a
-//!   look is refused.
+//!   `released`, `pending`, `unknown`, or a failure as in `send-faults`. Each
+//!   look takes the first and is logged in `calls.jsonl` as `settle-open`, and
+//!   with none left a look is refused.
+//! - `release-answers` holds how each request to give an open's receipt back
+//!   is answered, one per line: `released`, `executor-running`, or a failure
+//!   as in `send-faults`. Each takes the first and is logged as
+//!   `release-open`, and with none left it answers released, as the session
+//!   answers for a receipt it does not hold.
+//! - `action-answers` holds how each agent's action settles when the session
+//!   is asked about it, one per line: `gone`, `kept`, `kept-incomplete`, `unapplied`, `released`,
+//!   `pending`, `unknown`, or a failure as in `send-faults`. Each look takes
+//!   the first and is logged as `settle-action`, and with none left a look is
+//!   refused. Giving an action's receipt back takes from `release-answers` and
+//!   is logged as `release-action`.
+//! - `fetch-faults`: `hang` makes the next fetch of a file never answer.
+//!   Each fetch is logged as `fetch`.
+//! - `held-actions` and `held-opens` hold the operations of the agent's
+//!   actions and of direct-message opens whose receipts keep a place, one per
+//!   line. They share the receipts' window, so they count against
+//!   `MAX_EFFECTS`, and the list of held receipts names them after the
+//!   receipts.json lines that keep a place. A look or release that settles
+//!   one drops it.
+//! - `held-answers` holds how each list of held receipts is answered, and
+//!   `holder-answers` how each ask of whose receipt an operation is, one per
+//!   line: a failure as in `send-faults`, `ok` to answer, or for a list
+//!   `wait`, which writes `held-asked` and answers once `held-go` exists,
+//!   or fails after [`HELD_WAIT`].
+//!   Each takes the first, and with none left the list lists and the ask
+//!   answers this access.
 //!
 //! ```text
 //! {"at":1,"conversation":"c1","kind":"direct","text":"hi"}
@@ -53,15 +84,16 @@
 //! ```
 //!
 //! `sender` is `own`, `room`, or a nickname, and a direct row leaves it out
-//! for the other person, whose nickname `peer` gives. `revised` marks an edit. `unreadable` stands for a
-//! row whose cursor reads and whose event does not.
+//! for the other person. `revised` marks an edit. `unreadable` stands for a row
+//! whose cursor reads and whose event does not.
+mod lines;
 mod receipts;
+mod window;
 
 use super::{
-	Attachment, Base, Batch, Body, Change, ConversationId, Cursor, Echo, Incoming, Kind, Line, Mentions, Outcome,
-	Outgoing, Rooms, RoomsError, RoomsErrorKind, Sender, Settled,
+	ActionSettled, Attachment, Base, Batch, Body, Change, ConversationId, Cursor, Echo, Handback, Incoming, Kind, Line,
+	Mentions, OpenSettled, Outcome, Outgoing, Rooms, RoomsError, RoomsErrorKind, Sender, Standing, Typing, Wait,
 };
-use receipts::{Receipt, Status};
 use serde::{Deserialize, Serialize};
 use std::{
 	io::Write,
@@ -73,6 +105,9 @@ use tokio::time::{Instant, sleep};
 const POLL: Duration = Duration::from_millis(20);
 /// How long a waiting read lasts before it returns an empty batch.
 const WAIT: Duration = Duration::from_secs(5);
+/// How long a `wait` answer to the list of held receipts waits for `held-go`
+/// before it fails, so a test that never writes the file ends.
+const HELD_WAIT: Duration = Duration::from_secs(30);
 /// The most events one read returns.
 pub const BATCH: usize = 64;
 
@@ -95,8 +130,6 @@ struct Row {
 	#[serde(default)]
 	notice: bool,
 	sender: Option<String>,
-	/// The other person's nickname on a direct row.
-	peer: Option<String>,
 	#[serde(default)]
 	revised: bool,
 	#[serde(default)]
@@ -139,11 +172,21 @@ fn failure(name: &str) -> Option<RoomsError> {
 		// Pacing proves nothing was dispatched, and advises a wait.
 		return Some(RoomsError {
 			retry_after: Some(Duration::from_millis(1)),
+			refused_before_dispatch: true,
 			..RoomsError::new(RoomsErrorKind::Unreachable, "the stand-in injected paced")
+		});
+	}
+	if name == "too-large" {
+		// An admission refusal, such as a request too large for the work
+		// allowance, also proves nothing was dispatched.
+		return Some(RoomsError {
+			refused_before_dispatch: true,
+			..RoomsError::new(RoomsErrorKind::Refused, "the stand-in injected too-large")
 		});
 	}
 	let kind = match name {
 		"refused" => RoomsErrorKind::Refused,
+		"denied" => RoomsErrorKind::Denied,
 		"paused" => RoomsErrorKind::Paused,
 		"revoked" => RoomsErrorKind::Revoked,
 		"unreachable" => RoomsErrorKind::Unreachable,
@@ -211,7 +254,7 @@ impl Files {
 					Some("own") => Sender::Own,
 					Some("room") => Sender::System,
 					Some(name) => Sender::Member(name.to_owned()),
-					None => Sender::Peer(row.peer.clone()),
+					None => Sender::Peer,
 				},
 				change: if row.revised { Change::Revised } else { Change::Said },
 				text: row.text,
@@ -231,7 +274,7 @@ impl Files {
 		if let Some(name) = self.events_fault()
 			&& let Some(error) = failure(&name)
 		{
-			append(&self.directory.join("refused-reads"), &name)?;
+			append(&self.directory.join("failed-reads"), &name)?;
 			return Err(error);
 		}
 		let from = position(after)?;
@@ -266,9 +309,18 @@ impl Files {
 		Some(text.trim().to_owned())
 	}
 
-	/// Take the next injected send outcome.
+	/// Take the next injected send outcome. A fault that is a state of the
+	/// access also leaves reads failing that way, as a real session whose
+	/// access changed would, until a test clears `events-fault`.
 	fn next_fault(&self) -> Result<Option<String>, RoomsError> {
-		self.take("send-faults")
+		let fault = self.take("send-faults")?;
+		if let Some(name) = fault
+			.as_deref()
+			.filter(|name| matches!(*name, "paused" | "revoked" | "denied"))
+		{
+			std::fs::write(self.directory.join("events-fault"), name).map_err(unreachable)?;
+		}
+		Ok(fault)
 	}
 
 	/// Take the first line of the file `name`, or none when it holds none.
@@ -286,6 +338,39 @@ impl Files {
 		let rest: String = lines.map(|line| format!("{line}\n")).collect();
 		std::fs::write(&path, rest).map_err(unreachable)?;
 		Ok(Some(first.trim().to_owned()))
+	}
+
+	/// The operations the file `name` (`held-actions` or `held-opens`) says
+	/// keep a place.
+	fn listed(&self, name: &str) -> Result<Vec<String>, RoomsError> {
+		match std::fs::read_to_string(self.directory.join(name)) {
+			Ok(text) => Ok(text
+				.lines()
+				.filter(|line| !line.trim().is_empty())
+				.map(str::to_owned)
+				.collect()),
+			Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Vec::new()),
+			Err(error) => Err(unreachable(error)),
+		}
+	}
+
+	/// The operations of the agent's actions and opens, whose receipts keep a
+	/// place in the same window as the lines'.
+	fn places(&self) -> Result<Vec<String>, RoomsError> {
+		let mut places = self.listed("held-actions")?;
+		places.extend(self.listed("held-opens")?);
+		Ok(places)
+	}
+
+	/// Drop `operation` from the file `name`, whose receipt keeps no place now.
+	fn free(&self, name: &str, operation: &str) -> Result<(), RoomsError> {
+		let rest: String = self
+			.listed(name)?
+			.into_iter()
+			.filter(|held| held != operation)
+			.map(|held| format!("{held}\n"))
+			.collect();
+		std::fs::write(self.directory.join(name), rest).map_err(unreachable)
 	}
 
 	fn sent(&self) -> Result<Vec<Sent>, RoomsError> {
@@ -313,6 +398,35 @@ impl Files {
 			.map_err(unreachable)
 	}
 
+	/// Log a look at an open, which names its peer and has no text.
+	fn log_open(
+		&self,
+		verb: &str,
+		operation: &str,
+		base: Base,
+		introduction: &rooms_services::session::attached::Introduction,
+	) -> Result<(), RoomsError> {
+		let conversation = ConversationId::new(introduction.peer.as_str());
+		let look = Outgoing {
+			conversation: &conversation,
+			text: "",
+			operation,
+		};
+		self.log(verb, &look, base)
+	}
+
+	/// Log a call about the agent's action under `operation`, which names no
+	/// conversation or base.
+	fn log_action(&self, verb: &str, operation: &str) -> Result<(), RoomsError> {
+		let nowhere = ConversationId::new("");
+		let look = Outgoing {
+			conversation: &nowhere,
+			text: "",
+			operation,
+		};
+		self.log(verb, &look, Base(0))
+	}
+
 	fn log(&self, call: &str, line: &Outgoing<'_>, base: Base) -> Result<(), RoomsError> {
 		append(
 			&self.directory.join("calls.jsonl"),
@@ -325,64 +439,14 @@ impl Files {
 			},
 		)
 	}
-
-	/// Take the next injected fault, failing the call for one that fails it.
-	fn fault(&self) -> Result<Option<String>, RoomsError> {
-		let fault = self.next_fault()?;
-		match fault.as_deref().and_then(failure) {
-			Some(error) => Err(error),
-			None => Ok(fault),
-		}
-	}
-
-	/// The receipt of the same operation, or a refusal when it was sent with
-	/// another base or line, the way a session refuses a changed intent.
-	fn receipt(receipts: &[Receipt], line: &Outgoing<'_>, base: Base) -> Result<Option<usize>, RoomsError> {
-		let Some(index) = receipts.iter().position(|held| held.operation == line.operation) else {
-			return Ok(None);
-		};
-		let held = &receipts[index];
-		if held.base != base.0 || held.text != line.text || held.conversation != line.conversation.as_str() {
-			return Err(RoomsError::new(
-				RoomsErrorKind::Refused,
-				"effect witness or intent differs",
-			));
-		}
-		Ok(Some(index))
-	}
-
-	fn commit(&self, line: &Outgoing<'_>) -> Result<(), RoomsError> {
-		append(
-			&self.directory.join("outbox.jsonl"),
-			&Sent {
-				operation: line.operation.to_owned(),
-				conversation: line.conversation.as_str().to_owned(),
-				text: line.text.to_owned(),
-			},
-		)?;
-		self.moved(false)
-	}
-}
-
-fn answer(status: Status) -> Outcome {
-	match status {
-		Status::Committed => Outcome::Committed,
-		Status::Pending => Outcome::Pending,
-		Status::Unknown => Outcome::Unknown,
-		Status::Unsent => Outcome::Conflict,
-	}
-}
-
-fn uncertain(why: &str) -> RoomsError {
-	RoomsError::new(RoomsErrorKind::Uncertain, format!("the stand-in {why}"))
 }
 
 impl Rooms for Files {
-	async fn events(&self, after: &Cursor, wait: bool) -> Result<Batch, RoomsError> {
+	async fn events(&self, after: &Cursor, wait: Wait) -> Result<Batch, RoomsError> {
 		let ends = Instant::now() + WAIT;
 		loop {
 			let batch = self.read(after)?;
-			if !wait || batch.cursor != *after || Instant::now() >= ends {
+			if wait == Wait::Poll || batch.cursor != *after || Instant::now() >= ends {
 				return Ok(batch);
 			}
 			sleep(POLL).await;
@@ -394,107 +458,25 @@ impl Rooms for Files {
 	}
 
 	async fn send(&self, line: &Outgoing<'_>, base: Base) -> Result<Outcome, RoomsError> {
-		self.log("send", line, base)?;
-		let fault = self.fault()?;
-		let mut receipts = receipts::read(&self.directory)?;
-		if let Some(index) = Self::receipt(&receipts, line, base)? {
-			return Ok(answer(receipts[index].status));
-		}
-		if fault.as_deref() == Some("conflict") {
-			self.moved(true)?;
-		}
-		let workspace = self.workspace()?;
-		if base.0 > workspace.revision {
-			return Err(RoomsError::new(
-				RoomsErrorKind::Refused,
-				"the base is past the revision",
-			));
-		}
-		if base.0 < workspace.fence {
-			return Ok(Outcome::Conflict);
-		}
-		let (status, posts) = match fault.as_deref() {
-			Some("lost") => return Err(uncertain("lost the send")),
-			Some("unknown") => (Status::Unknown, true),
-			Some("vanished") => (Status::Unknown, false),
-			_ => (Status::Committed, true),
-		};
-		let receipt = Receipt {
-			operation: line.operation.to_owned(),
-			base: base.0,
-			conversation: line.conversation.as_str().to_owned(),
-			text: line.text.to_owned(),
-			status,
-			kept: false,
-		};
-		receipts::reserve(&mut receipts, receipt)?;
-		receipts::write(&self.directory, &receipts)?;
-		if posts {
-			self.commit(line)?;
-		}
-		match fault.as_deref() {
-			Some("pending") => Ok(Outcome::Pending),
-			Some("uncertain") => Err(uncertain("injected uncertain")),
-			_ => Ok(answer(status)),
-		}
+		self.send_line(line, base)
 	}
 
 	async fn observe(&self, line: &Outgoing<'_>, base: Base) -> Result<Outcome, RoomsError> {
-		self.log("observe", line, base)?;
-		match self.fault()?.as_deref() {
-			Some("pending") => return Ok(Outcome::Pending),
-			Some("conflict") => return Ok(Outcome::Conflict),
-			_ => {}
-		}
-		let receipts = receipts::read(&self.directory)?;
-		Ok(match Self::receipt(&receipts, line, base)? {
-			Some(index) => answer(receipts[index].status),
-			None => Outcome::Absent,
-		})
+		self.observe_line(line, base)
 	}
 
 	async fn keep(&self, line: &Outgoing<'_>, base: Base) -> Result<(), RoomsError> {
-		self.log("keep", line, base)?;
-		self.fault()?;
-		let mut receipts = receipts::read(&self.directory)?;
-		let Some(index) = Self::receipt(&receipts, line, base)? else {
-			return Ok(());
-		};
-		if receipts[index].status != Status::Committed {
-			return Err(RoomsError::new(
-				RoomsErrorKind::Refused,
-				"the command has no committed line",
-			));
-		}
-		if receipts[index].kept {
-			return Ok(());
-		}
-		receipts[index].kept = true;
-		receipts::write(&self.directory, &receipts)?;
-		self.moved(true)
+		self.keep_line(line, base)
 	}
 
-	async fn release(&self, line: &Outgoing<'_>, base: Base) -> Result<(), RoomsError> {
-		self.log("release", line, base)?;
-		self.fault()?;
-		let mut receipts = receipts::read(&self.directory)?;
-		let Some(index) = Self::receipt(&receipts, line, base)? else {
-			return Ok(());
-		};
-		if receipts[index].status == Status::Pending {
-			return Err(RoomsError::new(
-				RoomsErrorKind::Refused,
-				"the original executor remains retained; recover it before releasing",
-			));
-		}
-		receipts.remove(index);
-		receipts::write(&self.directory, &receipts)
+	async fn release(&self, line: &Outgoing<'_>, base: Base) -> Result<Handback, RoomsError> {
+		self.release_line(line, base)
 	}
 
-	async fn typing(&self, conversation: &ConversationId, on: bool) -> Result<(), RoomsError> {
+	async fn typing(&self, conversation: &ConversationId, typing: Typing) -> Result<(), RoomsError> {
 		append(
 			&self.directory.join("typing.jsonl"),
-			&serde_json::json!({"conversation": conversation.as_str(), "on": on}),
+			&serde_json::json!({"conversation": conversation.as_str(), "on": typing == Typing::Show}),
 		)
 	}
 
@@ -514,6 +496,10 @@ impl Rooms for Files {
 	}
 
 	async fn fetch(&self, attachment: &Attachment, destination: &Path) -> Result<u64, RoomsError> {
+		self.log_action("fetch", &attachment.name)?;
+		if self.take("fetch-faults")?.as_deref() == Some("hang") {
+			return std::future::pending().await;
+		}
 		let source = self
 			.directory
 			.join("files")
@@ -524,36 +510,132 @@ impl Rooms for Files {
 		std::fs::copy(&source, destination).map_err(|error| RoomsError::new(RoomsErrorKind::Refused, error))
 	}
 
+	/// The directory stand-in has one access, which sent everything in it.
+	async fn holder(&self, _operation: &str) -> Result<super::Holder, RoomsError> {
+		if let Some(error) = self.take("holder-answers")?.as_deref().and_then(failure) {
+			return Err(error);
+		}
+		Ok(super::Holder::Mine)
+	}
+
+	async fn held(&self) -> Result<Vec<String>, RoomsError> {
+		let answer = self.take("held-answers")?;
+		if answer.as_deref() == Some("wait") {
+			std::fs::write(self.directory.join("held-asked"), "").map_err(unreachable)?;
+			let ends = Instant::now() + HELD_WAIT;
+			while !self.directory.join("held-go").exists() {
+				if Instant::now() >= ends {
+					return Err(unreachable("held-go never appeared"));
+				}
+				sleep(POLL).await;
+			}
+		}
+		if let Some(error) = answer.as_deref().and_then(failure) {
+			return Err(error);
+		}
+		let mut held = window::keeping(&receipts::read(&self.directory)?)?;
+		held.extend(self.places()?);
+		Ok(held)
+	}
+
 	async fn settle_open(
 		&self,
 		operation: &str,
 		base: Base,
 		introduction: &rooms_services::session::attached::Introduction,
-	) -> Result<Settled, RoomsError> {
-		let conversation = ConversationId::new(introduction.peer.as_str());
-		let look = Outgoing {
-			conversation: &conversation,
-			text: "",
-			operation,
-		};
-		self.log("settle-open", &look, base)?;
+	) -> Result<OpenSettled, RoomsError> {
+		self.log_open("settle-open", operation, base, introduction)?;
 		let answer = self.take("open-answers")?;
 		if let Some(error) = answer.as_deref().and_then(failure) {
 			return Err(error);
 		}
 		let conversation = format!("direct-{}", introduction.peer);
-		match answer.as_deref() {
-			Some("opened") => Ok(Settled::Opened(conversation)),
-			Some("reused") => Ok(Settled::Reused(conversation)),
-			Some("unapplied") => Ok(Settled::Unapplied),
-			Some("released") => Ok(Settled::Released),
-			Some("pending") => Ok(Settled::Pending),
-			Some("unknown") => Ok(Settled::Unknown),
-			_ => Err(RoomsError::new(
-				RoomsErrorKind::Refused,
-				"the stand-in has no answer for this open",
-			)),
+		let settled = match answer.as_deref() {
+			Some("opened") => OpenSettled::Opened(conversation),
+			Some("reused") => OpenSettled::Reused(conversation),
+			Some("unapplied") => OpenSettled::Unapplied,
+			Some("released") => OpenSettled::Released,
+			Some("pending") => return Ok(OpenSettled::Pending),
+			Some("unknown") => return Ok(OpenSettled::Unknown),
+			_ => {
+				return Err(RoomsError::new(
+					RoomsErrorKind::Refused,
+					"the stand-in has no answer for this open",
+				));
+			}
+		};
+		self.free("held-opens", operation)?;
+		Ok(settled)
+	}
+
+	async fn release_open(
+		&self,
+		operation: &str,
+		base: Base,
+		introduction: &rooms_services::session::attached::Introduction,
+	) -> Result<Handback, RoomsError> {
+		self.log_open("release-open", operation, base, introduction)?;
+		let answer = self.take("release-answers")?;
+		if let Some(error) = answer.as_deref().and_then(failure) {
+			return Err(error);
 		}
+		released(answer.as_deref(), || self.free("held-opens", operation))
+	}
+
+	async fn settle_action(&self, operation: &str) -> Result<ActionSettled, RoomsError> {
+		self.log_action("settle-action", operation)?;
+		let answer = self.take("action-answers")?;
+		if let Some(error) = answer.as_deref().and_then(failure) {
+			return Err(error);
+		}
+		let settled = match answer.as_deref() {
+			Some("gone") => ActionSettled::Gone,
+			Some("kept") => ActionSettled::Kept(Standing::Whole),
+			Some("kept-incomplete") => ActionSettled::Kept(Standing::Partial),
+			Some("unapplied") => ActionSettled::Unapplied,
+			Some("released") => ActionSettled::Released,
+			_ => return unsettled_action(answer.as_deref()),
+		};
+		self.free("held-actions", operation)?;
+		Ok(settled)
+	}
+
+	async fn release_action(&self, operation: &str) -> Result<Handback, RoomsError> {
+		self.log_action("release-action", operation)?;
+		let answer = self.take("release-answers")?;
+		if let Some(error) = answer.as_deref().and_then(failure) {
+			return Err(error);
+		}
+		released(answer.as_deref(), || self.free("held-actions", operation))
+	}
+}
+
+/// A release's answer: `executor-running` keeps the receipt, and `released`
+/// or no answer gives it back and frees its place, as the session answers
+/// for a receipt it holds with no running work or does not hold at all.
+fn released(answer: Option<&str>, free: impl FnOnce() -> Result<(), RoomsError>) -> Result<Handback, RoomsError> {
+	match answer {
+		Some("executor-running") => Ok(Handback::Running),
+		Some("released") | None => {
+			free()?;
+			Ok(Handback::Taken)
+		}
+		Some(other) => Err(RoomsError::new(
+			RoomsErrorKind::Refused,
+			format!("the stand-in has no release answer {other}"),
+		)),
+	}
+}
+
+/// An action's look that leaves its receipt where it is.
+fn unsettled_action(answer: Option<&str>) -> Result<ActionSettled, RoomsError> {
+	match answer {
+		Some("pending") => Ok(ActionSettled::Pending),
+		Some("unknown") => Ok(ActionSettled::Unknown),
+		_ => Err(RoomsError::new(
+			RoomsErrorKind::Refused,
+			"the stand-in has no answer for this action",
+		)),
 	}
 }
 

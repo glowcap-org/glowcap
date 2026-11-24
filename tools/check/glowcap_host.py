@@ -247,7 +247,10 @@ def lifecycle(deploy, root):
     log, env, workspace, call = deploy.log, deploy.env, deploy.workspace, deploy.call
     call("doctor")
     assert not workspace.exists(), "doctor created state"
-    bot_example(root / "share/glowcap/deployment/docker-compose.override.yml.example")
+    bot_example(
+        root / "share/glowcap/deployment/docker-compose.override.yml.example",
+        root / "share/glowcap/deployment/bot.Dockerfile.example",
+    )
     before_up = log.read_text()
     started = call("up", "--image", "example/rooms:test")
     page = "Open the page:\nhttps://glowcap.org/rooms/app/?server=http%3A%2F%2Flocalhost%3A8080%2F"

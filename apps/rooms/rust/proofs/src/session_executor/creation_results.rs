@@ -373,7 +373,9 @@ pub(super) async fn run() {
 					(2, 2),
 					"malformed observation never redispatches"
 				);
-				assert!(owner.close().await.is_err());
+				// Closing retires the paused executor and keeps its receipt, as a
+				// restart does.
+				owner.close().await.unwrap();
 				drop(owner);
 				attachment.close().await.unwrap();
 				dialed.close(PendingWork::Cancel).await.unwrap();

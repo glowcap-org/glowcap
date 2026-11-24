@@ -129,7 +129,7 @@ pub(super) fn admit<P: Tasks + Deadline + Clone + 'static>(
 		.entrance
 		.map(|coordinate| resolve(call, coordinate))
 		.transpose()?;
-	let reserved = Seat::reserve(owner, request.id())?;
+	let reserved = Seat::reserve(owner, request.id(), record.effects.as_slice())?;
 	let targets = [operator, seat];
 	let (reservation, pending) = call.reserve_continuation_copying(&targets)?;
 	let source = reservation.source()?;

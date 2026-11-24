@@ -9,136 +9,60 @@
 //! watches, and the loop then waits a bounded time for them to stop.
 //!
 //! A turn starts only while the bot's access is active. When the session
-//! reports it paused, revoked, or refused, a second signal ends every turn
-//! that is thinking, and each goes back to the front of its conversation to
-//! run again once the access works.
+//! reports it paused or revoked (`env::access_of`), a second signal ends every
+//! turn that is thinking, and each goes back to the front of its conversation
+//! to run again once the access works. A revoked access is final for its link:
+//! the loop stops as it does for a signal and returns [`Error::Access`].
 mod backoff;
 mod deliver;
-mod handover;
+mod env;
 mod head;
 mod intake;
 mod lanes;
-mod reason;
+mod reaching;
+mod read;
 mod reset;
+mod settle_old;
 mod think;
 
 use super::{
 	classify::Seq,
-	config::Config,
-	conversations::Conversations,
-	error::Error,
+	error::{Error, LinkStage},
 	gate::Gate,
-	group::{self, Reaped},
-	harness::Harness,
 	ledger::{Content, Ledger, Part, Phase, TurnId},
 	reply,
-	rooms::{ConversationId, Cursor, READ_DEADLINE, Rooms, RoomsError, RoomsErrorKind},
-	sessions::Sessions,
-	status::{Access, Activity, Facts},
+	rooms::{ConversationId, Cursor, READ_DEADLINE, Rooms, RoomsError, RoomsErrorKind, Wait},
+	status::{Access, Activity},
 	store::Store,
+	words,
 };
 pub use backoff::Backoff;
+pub use deliver::{receipt, settle_replaced};
+pub use env::{Core, Env, Publishing};
+pub(crate) use env::{access_of, ends_serving};
 use futures_util::{StreamExt, stream::FuturesUnordered};
-pub use handover::hand_over;
 pub use head::head;
-use lanes::Lanes;
+use lanes::{Lanes, Left};
+use reaching::{Reached, Reaching};
+use read::{ReadPace, read_backoff};
+pub use settle_old::settle_old_lines;
 use std::{
-	cell::{Cell, RefCell},
 	collections::{BTreeMap, BTreeSet, btree_map::Entry},
 	future::{Future, pending},
 	pin::Pin,
 	time::Duration,
 };
 use tokio::{
-	sync::{Notify, watch},
+	sync::watch,
 	time::{Instant, sleep, sleep_until, timeout},
 };
 
 /// Turns running the harness at once across conversations.
 pub const MAX_TURNS: usize = 2;
-/// Triggers waiting for room in the ledger. Past it the bot stops reading,
-/// and the session keeps what it has not delivered.
-const MAX_QUEUED: usize = 256;
 /// How long shutdown waits for running turns to stop.
 const STOP_GRACE: Duration = Duration::from_secs(15);
 /// The longest reason a failure line gives.
 const MAX_REASON_BYTES: usize = 300;
-
-pub struct Env<'a, R: Rooms> {
-	pub rooms: &'a R,
-	pub store: &'a Store,
-	pub config: &'a Config,
-	pub harness: &'a dyn Harness,
-	pub ledger: RefCell<Ledger>,
-	pub sessions: RefCell<Sessions>,
-	pub conversations: RefCell<Conversations>,
-	pub facts: RefCell<Facts>,
-	/// Woken when a failed call first finds the access paused, revoked, or
-	/// refused, from a read or from a send, so the loop ends what is
-	/// thinking at once.
-	pub halted: Notify,
-	/// Counts changes of `facts.access`, so a call that began before one
-	/// can tell its answer is older than the access state.
-	pub access_changes: Cell<u64>,
-}
-
-impl<R: Rooms> Env<'_, R> {
-	/// Write the status file with what the ledger says now.
-	pub fn publish(&self) {
-		let ledger = self.ledger.borrow();
-		let mut facts = self.facts.borrow_mut();
-		facts.cursor = ledger.cursor().clone();
-		facts.open_turns = ledger.open().len();
-		facts.sending = ledger.sending();
-		facts.turns_finished = ledger.finished();
-		facts.publish(self.store);
-	}
-
-	/// Record what a failed call says about the bot's access.
-	pub fn access_failed(&self, during: Activity, error: &RoomsError) {
-		let mut facts = self.facts.borrow_mut();
-		if let Some(access) = access_of(error.kind) {
-			if facts.access != access {
-				self.halted.notify_one();
-				self.access_changes.set(self.access_changes.get() + 1);
-			}
-			facts.access = access;
-		}
-		facts.failed(during, error);
-	}
-
-	/// A call succeeded, so access is active and that activity has recovered.
-	pub fn access_active(&self, during: Activity) {
-		let mut facts = self.facts.borrow_mut();
-		if facts.access != Access::Active {
-			self.access_changes.set(self.access_changes.get() + 1);
-		}
-		facts.access = Access::Active;
-		facts.recovered(during);
-	}
-
-	/// A call that began when `access_changes` read `began` succeeded. It
-	/// marks the access active only when nothing changed the access since,
-	/// so a send already on its way when a read found the access paused
-	/// does not open it again.
-	pub fn access_active_since(&self, began: u64, during: Activity) {
-		if self.access_changes.get() == began {
-			self.access_active(during);
-		} else {
-			self.facts.borrow_mut().recovered(during);
-		}
-	}
-}
-
-/// What an access error says about the grant, when it says anything.
-fn access_of(kind: RoomsErrorKind) -> Option<Access> {
-	match kind {
-		RoomsErrorKind::Paused => Some(Access::Paused),
-		RoomsErrorKind::Revoked => Some(Access::Revoked),
-		RoomsErrorKind::Refused => Some(Access::Refused),
-		RoomsErrorKind::Unreachable | RoomsErrorKind::Uncertain | RoomsErrorKind::Exists => None,
-	}
-}
 
 /// Resolve once `stop` holds true. A stop whose sender is gone never resolves,
 /// so a dropped sender is never read as a stop.
@@ -175,7 +99,17 @@ pub fn operation() -> Result<String, Error> {
 
 /// The line posted in place of an answer, with its reason cut to a short line.
 pub fn failure_line(reason: &str) -> String {
-	format!("I could not answer that: {}.", reply::prefix(reason, MAX_REASON_BYTES))
+	format!(
+		"{}: {}.",
+		words::COULD_NOT_ANSWER,
+		reply::prefix(reason, MAX_REASON_BYTES)
+	)
+}
+
+/// Log a stage's failure and show it in `status`.
+pub fn report_failure<R: Rooms>(env: &Env<'_, R>, id: TurnId, during: Activity, error: &Error) {
+	env.store.log(&format!("turn {}: {error}", id.0));
+	env.facts.borrow_mut().failed(during, error);
 }
 
 /// A one-line failure reply with its own operation.
@@ -231,7 +165,11 @@ struct Loop<'a, R: Rooms> {
 	/// Until then the loop neither reads nor starts turns, after a state
 	/// write failed.
 	held: Option<(Instant, Backoff)>,
-	/// Who may start work, and how much.
+	/// Replies a previous bot left sending. They go out once the session
+	/// has answered a read, because a send under access it has not accepted
+	/// would give up the reply.
+	unsent: Vec<(TurnId, ConversationId)>,
+	/// How many turns each conversation has started this hour.
 	gate: Gate,
 	/// Ends the turns that are thinking. Each halt sends on it and puts a new
 	/// channel in its place, so a turn started afterwards is not ended.
@@ -257,8 +195,9 @@ impl<'a, R: Rooms> Loop<'a, R> {
 			if let Entry::Vacant(slot) = self.began.entry(id) {
 				slot.insert(Instant::now());
 				self.env.store.log(&format!(
-					"turn {} started in conversation {}",
+					"turn {} {} {}",
 					id.0,
+					words::TURN_STARTED,
 					conversation.as_str()
 				));
 			}
@@ -293,10 +232,16 @@ impl<'a, R: Rooms> Loop<'a, R> {
 		std::mem::replace(&mut self.halt, next).send_replace(true);
 	}
 
+	/// Whether a turn may think now: the link is reached and the access is
+	/// active.
+	fn may_think(&self) -> bool {
+		self.env.is_linked() && self.env.facts.borrow().access == Access::Active
+	}
+
 	/// Start the oldest waiting turn of an idle conversation while a harness
 	/// slot is free and the access is active.
 	fn start_turns(&mut self) {
-		if self.env.facts.borrow().access != Access::Active {
+		if !self.may_think() {
 			return;
 		}
 		while self.thinking < MAX_TURNS && !self.stopped() {
@@ -305,6 +250,18 @@ impl<'a, R: Rooms> Loop<'a, R> {
 			};
 			self.lanes.started(&conversation);
 			self.spawn(id, conversation, Stage::Think, Duration::ZERO);
+		}
+	}
+
+	/// Start the resumed replies once the link is reached. A read has just
+	/// answered, so the access is active, and one that changes later is held by
+	/// the delivery loop's wait for an active access.
+	fn start_sends(&mut self) {
+		if !self.env.is_linked() {
+			return;
+		}
+		for (id, conversation) in std::mem::take(&mut self.unsent) {
+			self.spawn(id, conversation, Stage::Deliver, Duration::ZERO);
 		}
 	}
 
@@ -326,8 +283,9 @@ impl<'a, R: Rooms> Loop<'a, R> {
 	fn thought(&mut self, id: TurnId, conversation: &ConversationId, outcome: &str) {
 		if let Some(began) = self.began.remove(&id) {
 			self.env.store.log(&format!(
-				"turn {} finished in conversation {} after {:.1} seconds: {outcome}",
+				"turn {} {} {} after {:.1} seconds: {outcome}",
 				id.0,
+				words::TURN_FINISHED,
 				conversation.as_str(),
 				began.elapsed().as_secs_f64()
 			));
@@ -355,67 +313,54 @@ impl<'a, R: Rooms> Loop<'a, R> {
 				);
 				self.thought(id, &conversation, if failed { "failed" } else { "answered" });
 				self.retries.remove(&id);
-				self.env.facts.borrow_mut().recovered(Activity::Thinking);
 				self.spawn(id, conversation, Stage::Deliver, Duration::ZERO);
 			}
 			Ok(Step::Finished) => {
 				self.retries.remove(&id);
-				{
-					let mut facts = self.env.facts.borrow_mut();
-					facts.recovered(Activity::Thinking);
-					facts.recovered(Activity::Saving);
-				}
+				self.env.facts.borrow_mut().recovered(Activity::Saving);
 				self.lanes.release(&conversation);
 			}
-			Ok(Step::Stopped) if stage == Stage::Think && !self.stopped() => {
-				self.thought(id, &conversation, "halted, because the access stopped working");
-				self.lanes.halted(&conversation, id);
-			}
+			Ok(Step::Stopped) if stage == Stage::Think && !self.stopped() => self.halted(id, &conversation),
 			Ok(Step::Stopped) => self.thought(id, &conversation, "stopped"),
 			Err(error) => self.turn_failed(id, conversation, stage, error),
 		}
 		self.publish();
 	}
 
-	/// A stage that failed is tried again after a wait. A thinking turn whose
-	/// failure will not clear posts a failure line instead.
+	/// A stage that failed is tried again after a wait. A thinking turn that
+	/// failed while it may not think, as one whose halt could not record its
+	/// cut-off, goes back to its conversation and starts again with the
+	/// others once the access is active.
 	fn turn_failed(&mut self, id: TurnId, conversation: ConversationId, stage: Stage, error: Error) {
-		self.env.store.log(&format!("turn {}: {error}", id.0));
 		let during = match stage {
 			Stage::Think => Activity::Thinking,
 			Stage::Deliver => Activity::Saving,
 		};
-		self.env.facts.borrow_mut().failed(during, &error);
-		let phase = self.env.ledger.borrow().phase(id).cloned();
-		match phase {
-			None => {
-				self.thought(id, &conversation, "left the ledger");
-				self.retries.remove(&id);
-				self.lanes.release(&conversation);
-				return;
-			}
-			Some(Phase::Running { .. }) if !error.is_transient() => {
-				let failed = failure_part("something went wrong on my side").and_then(|part| {
-					self.env
-						.ledger
-						.borrow_mut()
-						.answer(self.env.store, id, Content::Failure, vec![part])
-				});
-				match failed {
-					Ok(()) => {
-						self.thought(id, &conversation, "failed");
-						return self.spawn(id, conversation, Stage::Deliver, Duration::ZERO);
-					}
-					Err(error) => self
-						.env
-						.store
-						.log(&format!("turn {}: fixing its failure line: {error}", id.0)),
-				}
-			}
-			Some(_) => {}
+		report_failure(self.env, id, during, &error);
+		if self.env.ledger.borrow().phase(id).is_none() {
+			self.thought(id, &conversation, "left the ledger");
+			self.retries.remove(&id);
+			self.env.replies.borrow_mut().remove(&id);
+			self.env.unsaved.borrow_mut().remove(&id);
+			self.lanes.release(&conversation);
+			return;
+		}
+		if stage == Stage::Think && !self.may_think() {
+			self.halted(id, &conversation);
+			return;
 		}
 		let wait = self.retries.entry(id).or_insert_with(Backoff::standard).next();
 		self.spawn(id, conversation, stage, wait);
+	}
+
+	/// Park a thinking turn the halt ended, to start again once the access is
+	/// active. A halt gives the run after it a whole deadline, so the turn's
+	/// deadline is dropped here whichever way the turn reached the halt: its
+	/// think ended, failed, or was still waiting out a retry.
+	fn halted(&mut self, id: TurnId, conversation: &ConversationId) {
+		self.env.replies.borrow_mut().remove(&id);
+		self.thought(id, conversation, words::HALTED);
+		self.lanes.halted(conversation, id);
 	}
 
 	/// A state write the loop needs failed. Wait before trying again.
@@ -433,10 +378,22 @@ impl<'a, R: Rooms> Loop<'a, R> {
 		if self.held.as_ref().is_some_and(|(until, _)| Instant::now() < *until) {
 			return Ok(());
 		}
-		let settled = intake::admit(self).and_then(|()| {
-			self.start_turns();
-			self.advance()
-		});
+		let settled = intake::admit(self)
+			.and_then(|()| {
+				self.start_turns();
+				self.advance()
+			})
+			.and_then(|()| {
+				// The cursor update dropped finished rows that kept the oldest
+				// unheld trigger out, so it gets its turn now and not at the
+				// next read.
+				if self.lanes.oldest_waiting().is_none() || !self.env.ledger.borrow().has_room() {
+					return Ok(());
+				}
+				intake::admit(self)?;
+				self.start_turns();
+				self.advance()
+			});
 		match settled {
 			Ok(()) => {
 				if self.held.take().is_some() {
@@ -454,27 +411,7 @@ impl<'a, R: Rooms> Loop<'a, R> {
 	}
 }
 
-/// End harness groups a killed bot left running, where their leader is
-/// confirmed, and clear every record.
-fn reap(store: &Store) -> Result<(), Error> {
-	let groups = store.groups()?;
-	let entries = std::fs::read_dir(&groups).map_err(Error::io("listing harness group records"))?;
-	for entry in entries {
-		let path = entry.map_err(Error::io("listing harness group records"))?.path();
-		match group::reap(&path) {
-			Reaped::Gone => {}
-			Reaped::Ended(id) => store.log(&format!("ended harness group {id}, left running by a killed bot")),
-			Reaped::Left(id, why) => store.log(&format!("left harness group {id} alone: {why}")),
-			Reaped::Discarded(why) => store.log(&format!("discarded {}: {why}", path.display())),
-		}
-		if let Err(error) = group::forget(&path) {
-			store.log(&format!("removing {}: {error}", path.display()));
-		}
-	}
-	Ok(())
-}
-
-/// Hand every turn a previous bot left open back to its lane, oldest first.
+/// Return every turn a previous bot left open to its lane, oldest first.
 /// A conversation runs one turn at a time, so a delivering turn behind an
 /// earlier open turn of its conversation is refused.
 fn resume<R: Rooms>(state: &mut Loop<'_, R>) -> Result<(), Error> {
@@ -484,15 +421,15 @@ fn resume<R: Rooms>(state: &mut Loop<'_, R>) -> Result<(), Error> {
 		let phase = state.env.ledger.borrow().phase(id).cloned();
 		match phase {
 			Some(Phase::Running { asked, .. }) => {
-				state.lanes.resume(&asked.conversation, id, false);
+				state.lanes.resume(&asked.conversation, id, Left::Waiting);
 				seen.insert(asked.conversation);
 			}
 			Some(Phase::Sending { conversation, .. }) => {
 				if !seen.insert(conversation.clone()) {
 					return Err(Ledger::invariant("a reply is sending behind an earlier turn"));
 				}
-				state.lanes.resume(&conversation, id, true);
-				state.spawn(id, conversation, Stage::Deliver, Duration::ZERO);
+				state.lanes.resume(&conversation, id, Left::Delivering);
+				state.unsent.push((id, conversation));
 			}
 			Some(Phase::Done { .. }) | None => {}
 		}
@@ -500,145 +437,184 @@ fn resume<R: Rooms>(state: &mut Loop<'_, R>) -> Result<(), Error> {
 	Ok(())
 }
 
-/// The wait after a failed read, and what it says about access.
-fn read_failed<R: Rooms>(
-	env: &Env<'_, R>,
-	error: &RoomsError,
-	standard: &mut Backoff,
-	slow: &mut Backoff,
-	reported: &mut Option<String>,
-) -> Duration {
-	env.access_failed(Activity::Receiving, error);
-	env.publish();
-	read_backoff(env.store, "receiving", error, [standard, slow], reported)
-}
-
-/// The wait after a failed read of activity. Paused, revoked, and refused
-/// access changes only when a person acts, so it waits on the slow steps
-/// and a connection failure on the standard ones. The log names a failure
-/// once, after `during`. `reported` holds the one it last named, so a read
-/// that fails the same way again adds no line.
-fn read_backoff(
-	store: &Store,
-	during: &str,
-	error: &RoomsError,
-	[standard, slow]: [&mut Backoff; 2],
-	reported: &mut Option<String>,
-) -> Duration {
-	let text = error.to_string();
-	if reported.as_deref() != Some(text.as_str()) {
-		store.log(&format!("{during}: {text}"));
-		*reported = Some(text);
-	}
-	match access_of(error.kind) {
-		Some(_) => slow.next(),
-		None => standard.next(),
-	}
-}
-
 enum Woke {
 	Stop,
 	Turn(Ended),
 	/// The access stopped serving, so what is thinking ends.
 	Halted,
-	Read(Result<Result<super::rooms::Batch, RoomsError>, tokio::time::error::Elapsed>),
+	Read(Result<super::rooms::Batch, RoomsError>),
 	Held,
 }
 
-/// Serve until `shutdown`. `announce` runs once the loop is ready.
+/// What reading the session carries between reads: the link's storing, the
+/// waits, and what the last read said.
+struct Reads<F> {
+	pace: ReadPace,
+	reaching: Reaching,
+	/// Stores what the session's first answer stores: see [`serve`].
+	reached: F,
+}
+
+/// Serve until `shutdown`. `reached` runs once the session has first
+/// answered a read, with its failure ending the loop, and the link is stored
+/// from then on. `stage` says how the link stands until then, and
+/// `env::ends_serving` says which answers end the loop at each stage.
 pub async fn serve<'a, R: Rooms>(
 	env: &'a Env<'a, R>,
 	mut shutdown: watch::Receiver<bool>,
-	announce: impl FnOnce(),
+	stage: LinkStage,
+	reached: impl FnMut() -> Result<(), Error>,
 ) -> Result<(), Error> {
-	reap(env.store)?;
 	let (stop, stop_signal) = watch::channel(false);
-	let read = {
-		let ledger = env.ledger.borrow();
-		Read {
-			cursor: ledger.cursor().clone(),
-			seq: ledger.cursor_seq(),
-		}
-	};
-	let mut state = Loop {
-		env,
-		stop: stop_signal,
-		lanes: Lanes::default(),
-		turns: FuturesUnordered::new(),
-		thinking: 0,
-		retries: BTreeMap::new(),
-		began: BTreeMap::new(),
-		read,
-		held: None,
-		gate: Gate::default(),
-		halt: watch::channel(false).0,
-	};
+	let mut state = Loop::new(env, stop_signal);
 	resume(&mut state)?;
 	state.publish();
-	announce();
-	let (mut standard, mut slow) = (Backoff::standard(), Backoff::slow());
-	let mut read_at = Instant::now();
-	// After a failed read the next one returns at once, so access that came
-	// back shows as active without waiting out a read of a quiet session.
-	let mut failing = false;
-	let mut reported = None;
+	let mut reads = Reads {
+		pace: ReadPace::new(),
+		reaching: Reaching::new(stage),
+		reached,
+	};
 	let outcome = loop {
 		if let Err(error) = state.settle() {
 			break Err(error);
 		}
-		let reading = state.lanes.waiting() < MAX_QUEUED && state.held.is_none();
-		let after = state.read.cursor.clone();
-		let held_until = state.held.as_ref().map(|(until, _)| *until);
-		let woke = tokio::select! {
-			biased;
-			() = stopping(&mut shutdown) => Woke::Stop,
-			() = env.halted.notified() => Woke::Halted,
-			Some(ended) = state.turns.next(), if !state.turns.is_empty() => Woke::Turn(ended),
-			() = async { sleep_until(held_until.unwrap_or_else(Instant::now)).await }, if held_until.is_some() => Woke::Held,
-			read = async {
-				sleep_until(read_at).await;
-				timeout(READ_DEADLINE, env.rooms.events(&after, !failing)).await
-			}, if reading => Woke::Read(read),
-		};
-		match woke {
+		if let Err(error) = state.revoked(&reads.reaching) {
+			break Err(error);
+		}
+		let (woke, began) = state.wake(&mut shutdown, &reads.pace).await;
+		let step = match woke {
 			Woke::Stop => break Ok(()),
-			Woke::Halted => state.halt_thinking(),
-			Woke::Turn(ended) => state.ended(ended),
-			Woke::Held => {}
-			Woke::Read(Ok(Ok(batch))) => {
-				failing = false;
-				standard.reset();
-				slow.reset();
-				if reported.take().is_some() {
-					env.store.log("receiving: reading events works again");
-				}
-				env.access_active(Activity::Receiving);
-				intake::take(&mut state, batch);
+			Woke::Halted => {
+				state.halt_thinking();
+				Ok(())
 			}
-			Woke::Read(Ok(Err(error))) => {
-				failing = true;
-				read_at = Instant::now() + read_failed(env, &error, &mut standard, &mut slow, &mut reported);
+			Woke::Turn(ended) => {
+				state.ended(ended);
+				Ok(())
 			}
-			Woke::Read(Err(_)) => {
-				failing = true;
-				let error = RoomsError::new(RoomsErrorKind::Unreachable, "a read of events did not finish in time");
-				read_at = Instant::now() + read_failed(env, &error, &mut standard, &mut slow, &mut reported);
-			}
+			Woke::Held => Ok(()),
+			Woke::Read(read) => state.read_done(&mut reads, began, read),
+		};
+		if let Err(error) = step {
+			break Err(error);
 		}
 	};
-	stop.send_replace(true);
-	state.halt_thinking();
-	// Every stage watches the stop signal. Wait for them so no harness
-	// outlives the bot, but not forever. Dropping a stage ends its group.
-	let drained = timeout(STOP_GRACE, async {
-		while let Some(ended) = state.turns.next().await {
-			state.ended(ended);
-		}
-	})
-	.await;
-	if drained.is_err() {
-		env.store.log("running turns did not stop in time and were ended");
-	}
-	state.publish();
+	state.drain(&stop).await;
 	outcome
+}
+
+impl<'a, R: Rooms> Loop<'a, R> {
+	fn new(env: &'a Env<'a, R>, stop: watch::Receiver<bool>) -> Self {
+		let ledger = env.ledger.borrow();
+		Self {
+			env,
+			stop,
+			lanes: Lanes::default(),
+			turns: FuturesUnordered::new(),
+			thinking: 0,
+			retries: BTreeMap::new(),
+			began: BTreeMap::new(),
+			read: Read {
+				cursor: ledger.cursor().clone(),
+				seq: ledger.cursor_seq(),
+			},
+			held: None,
+			unsent: Vec::new(),
+			gate: Gate::new(env.config.conversation_limit),
+			halt: watch::channel(false).0,
+		}
+	}
+
+	/// A send can meet a revoked access while reads are stopped, so the
+	/// access ends serving wherever it was seen.
+	fn revoked(&self, reaching: &Reaching) -> Result<(), Error> {
+		if self.env.facts.borrow().access != Access::Revoked {
+			return Ok(());
+		}
+		let cause = "this access was revoked".to_owned();
+		self.env.store.log(&format!("serving: {cause}"));
+		Err(Error::access_ended(reaching.stage(self.env), cause))
+	}
+
+	/// Wait for the next thing the loop acts on, and say how many access
+	/// changes had happened when a read in it began, so a read that began
+	/// before a send found the access stopped does not open it again.
+	async fn wake(&mut self, shutdown: &mut watch::Receiver<bool>, pace: &ReadPace) -> (Woke, u64) {
+		let env = self.env;
+		let reading = read::wanted(self.lanes.waiting(), env.facts.borrow().access, self.held.is_some());
+		let after = self.read.cursor.clone();
+		let began = env.access_changes.get();
+		let held_until = self.held.as_ref().map(|(until, _)| *until);
+		let woke = tokio::select! {
+			biased;
+			() = stopping(shutdown) => Woke::Stop,
+			() = env.halted.notified() => Woke::Halted,
+			Some(ended) = self.turns.next(), if !self.turns.is_empty() => Woke::Turn(ended),
+			() = sleep_until(held_until.unwrap_or_else(Instant::now)), if held_until.is_some() => Woke::Held,
+			read = async {
+				sleep_until(pace.read_at).await;
+				timeout(READ_DEADLINE, env.rooms.events(&after, if pace.failing { Wait::Poll } else { Wait::Hold })).await
+			}, if reading => Woke::Read(read.unwrap_or_else(|_| {
+				Err(RoomsError::new(RoomsErrorKind::Unreachable, "a read of events did not finish in time"))
+			})),
+		};
+		(woke, began)
+	}
+
+	/// Act on what a read answered. A read that succeeded stores the link
+	/// first, and the batch is taken once it is stored.
+	fn read_done<F: FnMut() -> Result<(), Error>>(
+		&mut self,
+		reads: &mut Reads<F>,
+		began: u64,
+		read: Result<super::rooms::Batch, RoomsError>,
+	) -> Result<(), Error> {
+		let env = self.env;
+		match read {
+			Ok(batch) => {
+				reads.pace.read(env);
+				env.access_active_since(began, Activity::Receiving);
+				match reads.reaching.run(env, &mut reads.reached) {
+					Reached::Go => {}
+					// The next read returns at once, on the backoff, and not
+					// after a wait on a quiet session.
+					Reached::Again(wait) => {
+						reads.pace.retry_after(wait);
+						return Ok(());
+					}
+					Reached::End(error) => return Err(error),
+				}
+				self.start_sends();
+				intake::take(self, batch);
+				Ok(())
+			}
+			Err(error) if ends_serving(error.kind) => {
+				env.access_failed(Activity::Receiving, &error);
+				env.store.log(&format!("receiving: {error}"));
+				Err(Error::access_ended(reads.reaching.stage(env), error.to_string()))
+			}
+			Err(error) => {
+				reads.pace.failed(env, &error);
+				Ok(())
+			}
+		}
+	}
+
+	/// End the loop: stop every stage, and wait for them so no harness
+	/// outlives the bot, but not forever. Dropping a stage ends its group,
+	/// which does not reach the agent's tool commands (`group.rs`).
+	async fn drain(&mut self, stop: &watch::Sender<bool>) {
+		stop.send_replace(true);
+		self.halt_thinking();
+		let drained = timeout(STOP_GRACE, async {
+			while let Some(ended) = self.turns.next().await {
+				self.ended(ended);
+			}
+		})
+		.await;
+		if drained.is_err() {
+			self.env.store.log("running turns did not stop in time and were ended");
+		}
+		self.publish();
+	}
 }

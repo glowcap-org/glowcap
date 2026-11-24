@@ -1,5 +1,7 @@
 //! Ordinary turns, what does not trigger one, and what the bot refuses.
 use super::rig::{Rig, eventually};
+use super::session_rig::LinkSecret;
+use super::words;
 use serde_json::json;
 
 #[test]
@@ -43,7 +45,7 @@ fn a_direct_message_gets_one_reply_and_the_next_turn_resumes_the_harness_session
 	let sessions: serde_json::Value =
 		serde_json::from_slice(&std::fs::read(rig.dir.join("sessions.json")).unwrap()).unwrap();
 	let session = sessions["fake"]["c1"].as_str().unwrap().to_owned();
-	assert!(session.starts_with("fake-"), "{sessions}");
+	assert!(session.starts_with("fa4e0000-"), "{sessions}");
 
 	// The second turn hands the harness the session the first one reported.
 	rig.direct(2, "c1", "reply:again");
@@ -87,11 +89,11 @@ fn the_finished_count_survives_a_restart_and_the_log_times_and_names_each_turn()
 		let stamp = line.split_once(' ').map(|(stamp, _)| stamp);
 		assert!(stamp.is_some_and(is_utc_stamp), "a log line has no UTC time: {line}");
 	}
-	assert!(log.contains(" turn 0 started in conversation c1"), "{log}");
-	assert!(log.contains(" turn 1 started in conversation c1"), "{log}");
+	assert!(log.contains(&format!(" turn 0 {} c1", words::TURN_STARTED)), "{log}");
+	assert!(log.contains(&format!(" turn 1 {} c1", words::TURN_STARTED)), "{log}");
 	let finished = log
 		.lines()
-		.filter(|line| line.contains("finished in conversation c1 after ") && line.ends_with(": answered"))
+		.filter(|line| line.contains(&format!("{} c1 after ", words::TURN_FINISHED)) && line.ends_with(": answered"))
 		.count();
 	assert_eq!(finished, 2, "{log}");
 	assert!(!log.contains("private words"), "the log holds message text: {log}");
@@ -223,7 +225,8 @@ fn a_first_run_refused_for_its_agent_and_permission_stores_nothing() {
 	assert_eq!(refused["error"]["class"], "config");
 	let message = refused["error"]["message"].as_str().unwrap();
 	assert!(message.contains("--permission"), "{message}");
-	assert!(!message.contains(link), "the refusal quoted the link");
+	LinkSecret::of(link).assert_absent(message, "the refusal");
+	rig.assert_keeps_no_link([link]);
 	for stored in ["session.link", "config.json", "turns.json", "peer.json"] {
 		assert!(!rig.dir.join(stored).exists(), "a refused first run stored {stored}");
 	}
@@ -258,4 +261,63 @@ fn a_damaged_or_missing_ledger_is_refused_and_left_for_inspection() {
 		"{refused}"
 	);
 	assert!(!ledger.exists() && rig.sent().is_empty());
+}
+
+/// More conversations than the ledger has rows each ask once, one more asks,
+/// and then each of the first asks again. Every one of them is answered,
+/// across a restart in the middle, and none waits for good behind finished
+/// turns. The ledger holds at most `MAX_ROWS` rows, which `ROWS` equals, and a
+/// unit test of the ledger holds the two together.
+#[test]
+fn more_conversations_than_ledger_rows_are_all_answered_across_a_restart() {
+	const ROWS: u64 = 32;
+	let rig = Rig::new("bot-crowd");
+	let last = 2 * ROWS + 1;
+	let bot = rig.serve(json!({}), None);
+	// One write, so the bot reads every trigger before any turn ends.
+	let rows: String = (1..=last)
+		.map(|at| {
+			let conversation = match at {
+				at if at <= ROWS => format!("c{at}"),
+				at if at == ROWS + 1 => "x".to_owned(),
+				at => format!("c{}", at - ROWS - 1),
+			};
+			let row =
+				json!({"at": at, "conversation": conversation, "kind": "direct", "text": format!("reply:line {at}")});
+			format!("{row}\n")
+		})
+		.collect();
+	std::io::Write::write_all(
+		&mut std::fs::OpenOptions::new()
+			.append(true)
+			.create(true)
+			.open(rig.rooms.join("inbox.jsonl"))
+			.unwrap(),
+		rows.as_bytes(),
+	)
+	.unwrap();
+	eventually("some turns to finish", || {
+		(rig.status()["status"]["turns_finished"].as_u64()? >= 8).then_some(())
+	});
+	assert!(bot.stop().success(), "the bot exited with a failure");
+	let bot = rig.serve(json!({}), None);
+	rig.wait_for_cursor(last);
+	assert!(bot.stop().success(), "the bot exited with a failure");
+	let sent = rig.sent();
+	let answered: std::collections::BTreeSet<_> = sent
+		.iter()
+		.map(|line| line["conversation"].as_str().unwrap().to_owned())
+		.collect();
+	assert_eq!(answered.len() as u64, ROWS + 1, "a conversation was never answered");
+	assert!(
+		answered.contains("x"),
+		"the conversation that waited was never answered"
+	);
+	let texts = rig.texts();
+	for at in 1..=last {
+		assert!(
+			texts.contains(&format!("line {at}")),
+			"trigger {at} was never answered: {texts:?}"
+		);
+	}
 }

@@ -9,12 +9,7 @@ impl RoomsManagedWorkspace {
 	/// Replace the selected view atomically, retaining independently held control.
 	#[wasm_bindgen(js_name = prepareSelectWorkspace)]
 	pub fn prepare_select_workspace(&self, id: js_sys::JsString, access: &RoomsManagedWorkspace) -> js_sys::Promise {
-		self.prepare_saved(
-			id,
-			Some((access.workspace.reference().clone(), access.home.clone())),
-			None,
-			true,
-		)
+		self.prepare_saved(id, Some(access.publication()), None, true)
 	}
 	#[wasm_bindgen(js_name = prepareSaveAccess)]
 	pub fn prepare_save_access(
@@ -23,21 +18,11 @@ impl RoomsManagedWorkspace {
 		access: &RoomsManagedWorkspace,
 		control: &RoomsManagedControl,
 	) -> js_sys::Promise {
-		self.prepare_saved(
-			id,
-			Some((access.workspace.reference().clone(), access.home.clone())),
-			Some((control.reference().clone(), control.home.clone())),
-			false,
-		)
+		self.prepare_saved(id, Some(access.publication()), Some(control.publication()), false)
 	}
 	#[wasm_bindgen(js_name = prepareSaveWorkspace)]
 	pub fn prepare_save_workspace(&self, id: js_sys::JsString, access: &RoomsManagedWorkspace) -> js_sys::Promise {
-		self.prepare_saved(
-			id,
-			Some((access.workspace.reference().clone(), access.home.clone())),
-			None,
-			false,
-		)
+		self.prepare_saved(id, Some(access.publication()), None, false)
 	}
 	/// Release one row's saved management control. A row that also holds use
 	/// keeps it. A row left holding nothing leaves the intent. Answers `null`
@@ -80,20 +65,15 @@ impl RoomsManagedWorkspace {
 	}
 	#[wasm_bindgen(js_name = prepareSaveControl)]
 	pub fn prepare_save_control(&self, id: js_sys::JsString, control: &RoomsManagedControl) -> js_sys::Promise {
-		self.prepare_saved(
-			id,
-			None,
-			Some((control.reference().clone(), control.home.clone())),
-			false,
-		)
+		self.prepare_saved(id, None, Some(control.publication()), false)
 	}
 }
 impl RoomsManagedWorkspace {
 	fn prepare_saved(
 		&self,
 		id: js_sys::JsString,
-		access: Option<(Ref, PublicationHome)>,
-		control: Option<(Ref, PublicationHome)>,
+		access: Option<Publication>,
+		control: Option<Publication>,
 		replace_view: bool,
 	) -> js_sys::Promise {
 		let id = match scalar(id, 1024) {
@@ -103,20 +83,8 @@ impl RoomsManagedWorkspace {
 		let workspace = self.workspace.clone();
 		let driver = self.driver.clone();
 		self.driver.submit(id.len(), move |environment| async move {
-			let access = match access {
-				Some((reference, home)) => {
-					let uri = home.recipe(&environment, &reference).await?;
-					Some((reference, uri))
-				}
-				None => None,
-			};
-			let control = match control {
-				Some((reference, home)) => {
-					let uri = home.recipe(&environment, &reference).await?;
-					Some((reference, uri))
-				}
-				None => None,
-			};
+			let access = imported(access).await?;
+			let control = imported(control).await?;
 			let mut snapshot = workspace.snapshot().await.map_err(RuntimeError::from)?;
 			let existing = snapshot
 				.intent
@@ -124,6 +92,20 @@ impl RoomsManagedWorkspace {
 				.as_slice()
 				.iter()
 				.position(|row| row.id.text().as_str() == Some(&id));
+			// Row ids are never reused: the page names each control row it saves
+			// with a fresh `crypto.randomUUID()` (the Hold card's press and
+			// `AccessShare.prepare`), and `AccessStorage.save` refuses a control
+			// whose row was forgotten, because the page let go of it. So a row
+			// that already holds a control is this control's earlier save,
+			// written although its answer was lost, and saving it again has
+			// nothing left to do.
+			if control.is_some()
+				&& access.is_none()
+				&& !replace_view
+				&& existing.is_some_and(|index| snapshot.intent.accesses.as_slice()[index].control.is_some())
+			{
+				return Ok(JsValue::NULL);
+			}
 			if existing.is_some() && !replace_view {
 				return Err(RuntimeError::invalid(
 					"Access row already exists; recover its original request",
@@ -182,5 +164,14 @@ impl RoomsManagedWorkspace {
 			let acquisition = driver.hold(acquisition, bytes)?;
 			Ok(RoomsManagedAcquisition { driver, acquisition }.into())
 		})
+	}
+}
+
+/// The reference a saved row imports for `publication`, and the link that
+/// redeems it at its original home.
+async fn imported(publication: Option<Publication>) -> Result<Option<(Ref, Option<String>)>> {
+	match publication {
+		Some(publication) => Ok(Some((publication.reference().clone(), publication.recipe().await?))),
+		None => Ok(None),
 	}
 }

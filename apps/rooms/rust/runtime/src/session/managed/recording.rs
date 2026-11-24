@@ -82,7 +82,6 @@ pub(super) trait Sink {
 		>,
 		session: Option<glowcap::Session>,
 	);
-	fn erasing(&self) -> bool;
 	fn retry(&self);
 	fn reader(&self) -> &Ref;
 	fn record(&self, origin: &InboxOrigin, line: &Line<'_>, files: &[Attachment<Ref>]) -> Option<Coordinates>;
@@ -263,9 +262,6 @@ impl<P: Platform> Sink for Recording<P> {
 	}
 	fn retry(&self) {
 		self.retention.retry();
-	}
-	fn erasing(&self) -> bool {
-		self.retention.is_running()
 	}
 	fn reader(&self) -> &Ref {
 		&self.reader

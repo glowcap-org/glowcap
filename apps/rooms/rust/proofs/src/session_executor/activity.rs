@@ -52,6 +52,15 @@ pub(super) async fn run(
 	let at = reply["at"].as_u64().expect("the journal's time for the event");
 	assert!((before..=wall()).contains(&at), "{at}");
 	assert_eq!(reply["head"], token, "the newest event is where the journal ends");
+	// A cursor from another run of the session names that run, by its code.
+	let (incarnation, _) = token.split_once(':').unwrap();
+	let foreign = format!("{}:0", "0".repeat(incarnation.len()));
+	let stale = reader.read(&foreign, false).await.unwrap_err();
+	assert_eq!(
+		stale.failure_code(),
+		Some(rooms_application::failure::FailureCode::ActivityCursorStale),
+		"{stale}"
+	);
 	let policy = rooms_glowcap::policy::descriptor().unwrap();
 	let terms = policy
 		.value_for_kind(

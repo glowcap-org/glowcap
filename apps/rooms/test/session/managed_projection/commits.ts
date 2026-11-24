@@ -1,18 +1,18 @@
 // Receipt knowledge is projected even when workspace refresh or recovery fails.
+import { operationOf } from "../../support/managed_link.ts";
 import { assert, assertEquals } from "../../assert.ts";
 import { fixture, room } from "./fixture.ts";
 import * as store from "../../../web/ui/store.ts";
-import { ManagedOperation, ResultAcquisitionError } from "../../../web/ui/session/managed/operation.ts";
-import type { RoomsManagedCommand } from "../../../../../zig-out/wasm/rooms/rooms_browser.js";
+import { ResultAcquisitionError } from "../../../web/ui/session/managed/operation.ts";
 
 Deno.test("commit observation settles a pending bubble without names or a new workspace revision", async () => {
 	const f = fixture(room());
 	let status = "pending";
 	let interrupted = false;
-	const operation = new ManagedOperation("send", {
+	const operation = operationOf("send", {
 		status: () => interrupted ? Promise.reject(new Error("status unavailable")) : Promise.resolve(status),
 		free() {},
-	} as unknown as RoomsManagedCommand);
+	});
 	f.operations.push(operation);
 	const key = f.selected().key;
 	const original = store.chatItem(f.page.projection, "ada", "delivered", true, "unconfirmed");

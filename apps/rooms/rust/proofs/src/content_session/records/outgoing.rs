@@ -37,7 +37,7 @@ pub(super) fn run() {
 		introduction: None,
 		operation: Text::new("pending-sender".into()).unwrap(),
 		outgoing: Some(update()),
-		adopted: false,
+		disposition: custody::Disposition::Held,
 		canonical_intent: Text::new("original intent".into()).unwrap(),
 		resource_generation: nz(1),
 		source: custody::Held {
@@ -107,7 +107,7 @@ pub(super) fn run() {
 				introduction: None,
 				operation: Text::new("second-sender".into()).unwrap(),
 				outgoing: Some(second),
-				adopted: false,
+				disposition: custody::Disposition::Held,
 				canonical_intent: Text::new("second intent".into()).unwrap(),
 				resource_generation: nz(1),
 				source: custody::Held {
@@ -219,7 +219,7 @@ fn diagnostic_reservation() {
 			introduction: None,
 			operation: Text::new("pending-diagnostic".into()).unwrap(),
 			outgoing: None,
-			adopted: false,
+			disposition: custody::Disposition::Held,
 			canonical_intent: Text::new(intent.into()).unwrap(),
 			resource_generation: nz(1),
 			source: custody::Held {

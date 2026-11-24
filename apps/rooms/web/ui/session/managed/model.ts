@@ -15,7 +15,7 @@ export interface Coordinate {
 /** Whether a parsed receipt value is a coordinate: a named role and held key. */
 export function isCoordinate(raw: unknown): raw is Coordinate {
 	return raw != null && typeof raw === "object" &&
-		typeof (raw as Coordinate).role === "string" && typeof (raw as Coordinate).key === "string";
+		"role" in raw && typeof raw.role === "string" && "key" in raw && typeof raw.key === "string";
 }
 export function coordinate(role: string, key: FieldKey): string {
 	return JSON.stringify({ role, key });

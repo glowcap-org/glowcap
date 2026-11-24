@@ -90,9 +90,9 @@ an earlier run out of the new one.
 
 Checking a change's status, reading its receipt or adopting its result needs
 the original change's permissions and its exact source witness. A
-collaborator can finish their own drafts and actions. Listing pending changes,
-recovering the original request, resuming its executor and releasing a
-receipt all need `ResolvePending`.
+collaborator can finish their own drafts and actions, read back the original
+request of their own receipts, and release those receipts. Listing pending changes
+and resuming an executor need `ResolvePending`.
 
 A receipt can be final while its executor is still held, when the outcome
 commits before the worker sees the reply. Recovery carries that same executor

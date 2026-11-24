@@ -102,7 +102,7 @@ fn candidate(target: Ref, revision: u64) -> workspace::Record<References, ()> {
 		effects: List::new(vec![custody::EffectReceipt {
 			introduction: None,
 			outgoing: None,
-			adopted: false,
+			disposition: custody::Disposition::Held,
 			operation: Text::new("saved-effect".into()).unwrap(),
 			canonical_intent: Text::new(format!("{revision}{}", "x".repeat(60000)).into()).unwrap(),
 			resource_generation: nz(7 + revision),

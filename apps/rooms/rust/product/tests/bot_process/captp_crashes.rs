@@ -4,6 +4,7 @@
 use super::captp::{ROOM, World};
 use super::rig::eventually;
 use super::session_rig::call_when_paced;
+use super::words;
 use serde_json::json;
 
 /// Wait for `text` in the private conversation, then for the bot to close
@@ -28,15 +29,15 @@ pub(super) fn once_and_still_open(world: &World, texts: &[&str]) {
 	}
 	let failures = seen
 		.iter()
-		.filter(|line| line.text.starts_with("I could not answer that"))
+		.filter(|line| line.text.starts_with(words::COULD_NOT_ANSWER))
 		.count();
 	assert_eq!(failures, 0, "a failure line was posted: {seen:?}");
 	still_open(world);
 	assert_eq!(world.rig.status()["status"]["unconfirmed"], 0);
 	let log = world.rig.log();
-	assert!(!log.contains("would not keep it"), "{log}");
-	assert!(!log.contains("kept the receipt"), "{log}");
-	assert!(!log.contains("the old access"), "{log}");
+	assert!(!log.contains(words::NOT_KEPT), "{log}");
+	assert!(!log.contains(words::RECEIPT_LEFT), "{log}");
+	assert!(!log.contains(words::OLD_ACCESS_STOPPED), "{log}");
 }
 
 /// The bot's session still takes a command of its own, so no receipt the bot
@@ -76,10 +77,10 @@ fn a_bot_killed_after_the_send_with_commands_in_between_posts_once() {
 	once_and_still_open(&world, &["after the send"]);
 	let log = world.rig.log();
 	assert!(
-		!log.contains("holds no receipt for operation"),
+		!log.contains(words::NO_RECEIPT),
 		"a committed send was sent again: {log}"
 	);
-	world.fixture.finish();
+	world.finish();
 }
 
 #[test]
@@ -91,8 +92,8 @@ fn a_bot_killed_before_its_send_left_posts_once_after_restart() {
 	world.stopped(bot);
 	once_and_still_open(&world, &["never received"]);
 	let log = world.rig.log();
-	assert!(log.contains("holds no receipt for operation"), "{log}");
-	world.fixture.finish();
+	assert!(log.contains(words::NO_RECEIPT), "{log}");
+	world.finish();
 }
 
 #[test]
@@ -106,10 +107,10 @@ fn a_bot_killed_after_the_commit_and_a_send_slower_than_its_deadline_each_post_o
 	world.stopped(bot);
 	once_and_still_open(&world, &["after the commit", "slower than its deadline"]);
 	let log = world.rig.log();
-	assert!(log.contains("the session did not answer in time"), "{log}");
+	assert!(log.contains(words::UNANSWERED), "{log}");
 	assert!(
-		!log.contains("holds no receipt for operation"),
+		!log.contains(words::NO_RECEIPT),
 		"a committed send was sent again: {log}"
 	);
-	world.fixture.finish();
+	world.finish();
 }

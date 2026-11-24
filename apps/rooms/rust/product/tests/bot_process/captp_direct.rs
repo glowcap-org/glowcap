@@ -1,33 +1,29 @@
 //! `say --dm` against a real session: a member who addressed the bot in a
 //! room is answered privately, in one direct conversation that later turns
 //! reuse, reopen once it is closed, and open at most once, and that the
-//! member's own new opening arrives as a new one beside the closed one.
-use super::captp::{ROOM, World, action};
+//! member's own new opening arrives as a new one beside the closed one. In
+//! that direct conversation `--dm` to the same member posts in place, in the
+//! conversation the turn is in, so a nickname another member took since does
+//! not redirect it.
+use super::captp::{FRIEND, World, action};
+use super::captp_crashes::answered;
 use super::rig::eventually;
-use super::session_rig::{call, call_when_paced, host, run_within};
-use rooms_application::content::session::{Preset, Terms};
-use rooms_platform::HostPlatform;
-use rooms_services::session::attached::Grants;
+use super::session_rig::{call, run_within};
+use super::words;
+use rooms_application::content::session::custody::MAX_EFFECTS;
 use serde_json::{Value, json};
 use std::time::Duration;
 
-const FRIEND: &str = "bot-friend";
-
 /// The other member addresses the bot in the room with one turn of actions,
 /// and the bot's reply there, one exit per action, once it arrives.
-fn turn(world: &World, actions: &[Value]) -> String {
+pub(super) fn turn(world: &World, actions: &[Value]) -> String {
 	let before = replies(world).len();
+	clear_outputs(world);
 	world.room(&format!("@bot-host act:{}", Value::Array(actions.to_vec())));
 	eventually("the turn's reply in the room", || replies(world).get(before).cloned())
 }
 
-/// A turn of one action the bot carries out, or a failure that shows what the
-/// action printed and what the bot logged.
-fn answered(world: &World, actions: &[Value]) {
-	assert_eq!(turn(world, actions), "exit=0", "{}", world.rig.evidence());
-}
-
-fn replies(world: &World) -> Vec<String> {
+pub(super) fn replies(world: &World) -> Vec<String> {
 	world
 		.seen()
 		.into_iter()
@@ -36,7 +32,37 @@ fn replies(world: &World) -> Vec<String> {
 		.collect()
 }
 
-fn say(peer: &str, text: &str) -> Value {
+/// What the action at `at` of the latest turn printed, in whichever
+/// conversation's working directory it ran.
+pub(super) fn output(world: &World, at: usize) -> Value {
+	let path = eventually("the turn's output", || {
+		let work = std::fs::read_dir(world.rig.dir.join("work")).unwrap().flatten();
+		work.map(|conversation| conversation.path().join(format!("act-{at}.out")))
+			.find(|path| path.exists())
+	});
+	serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap()
+}
+
+/// Remove the outputs earlier turns left, so the next turn's are the only ones.
+fn clear_outputs(world: &World) {
+	let work = match std::fs::read_dir(world.rig.dir.join("work")) {
+		Ok(work) => work,
+		// No turn has run yet, so nothing is left over.
+		Err(error) if error.kind() == std::io::ErrorKind::NotFound => return,
+		Err(error) => panic!("listing the working directories: {error}"),
+	};
+	for conversation in work.flatten() {
+		for file in std::fs::read_dir(conversation.path()).unwrap().flatten() {
+			let name = file.file_name();
+			let name = name.to_string_lossy();
+			if name.starts_with("act-") && (name.ends_with(".out") || name.ends_with(".err")) {
+				std::fs::remove_file(file.path()).unwrap();
+			}
+		}
+	}
+}
+
+pub(super) fn say(peer: &str, text: &str) -> Value {
 	action("say", json!({"dm": [peer], "text": [text]}), &[])
 }
 
@@ -56,29 +82,43 @@ fn opens(world: &World) -> usize {
 #[test]
 fn a_member_answered_privately_from_a_room_gets_one_direct_conversation() {
 	let world = World::new("bot-live-dm");
-	let management = std::fs::read_to_string(world.fixture.peers[0].state.join("management.sturdyref")).unwrap();
 	let link = run_within(Duration::from_secs(30), async {
-		let issuer = host().await;
-		let grants = Grants::attach(&issuer, HostPlatform, &management).await.unwrap();
-		let terms = Terms::new(Preset::Collaborator.values()).unwrap();
+		let (issuer, grants, terms) = world.issuer().await;
 		let issued = grants.issue("the bot", &terms).await.unwrap();
 		issuer.close(glowcap::PendingWork::Cancel).await.unwrap();
 		issued.link
 	});
 	let bot = world.rig.serve_linked(&link, json!({}));
-	answered(&world, &[say(FRIEND, "answered privately")]);
-	let first = world.rig.act_output(0);
+	assert_eq!(
+		turn(&world, &[say(FRIEND, "answered privately")]),
+		"exit=0",
+		"{}",
+		world.rig.evidence()
+	);
+	let first = output(&world, 0);
 	assert_eq!(first["ok"], true, "{first}");
 	assert!(first["opened"]["operation"].is_string(), "{first}");
-	world.await_line("direct", "answered privately");
+	answered(&world, "answered privately");
 	// The member's answer reaches the bot through the same access.
 	world.dm_again("reply:heard privately");
-	world.await_line("direct", "heard privately");
-	answered(&world, &[say("Bot-Friend", "again privately")]);
-	let second = world.rig.act_output(0);
+	answered(&world, "heard privately");
+	// A direct turn reaches its own other person through its own conversation.
+	clear_outputs(&world);
+	world.dm_again(&format!("act:{}", Value::Array(vec![say("BOT-friend", "in place")])));
+	answered(&world, "in place");
+	let in_place = output(&world, 0);
+	assert_eq!(in_place["conversation"], first["conversation"], "{in_place}");
+	assert_eq!(in_place["opened"], Value::Null, "{in_place}");
+	assert_eq!(
+		turn(&world, &[say("Bot-Friend", "again privately")]),
+		"exit=0",
+		"{}",
+		world.rig.evidence()
+	);
+	let second = output(&world, 0);
 	assert_eq!(second["opened"], Value::Null, "{second}");
 	assert_eq!(second["conversation"], first["conversation"], "{second}");
-	world.await_line("direct", "again privately");
+	answered(&world, "again privately");
 	let left = call(world.friend(), "leave", json!({"conversation": [world.direct()]}));
 	assert_eq!(left["status"], "committed", "{left}");
 	let directs = || -> Vec<(Value, Value)> {
@@ -95,12 +135,17 @@ fn a_member_answered_privately_from_a_room_gets_one_direct_conversation() {
 		(directs() == [(first["conversation"].clone(), json!(true))]).then_some(())
 	});
 	world.dm_again("reply:heard after reopening");
-	world.await_line("direct", "heard after reopening");
-	answered(&world, &[say(FRIEND, "still one conversation")]);
-	let third = world.rig.act_output(0);
+	answered(&world, "heard after reopening");
+	assert_eq!(
+		turn(&world, &[say(FRIEND, "still one conversation")]),
+		"exit=0",
+		"{}",
+		world.rig.evidence()
+	);
+	let third = output(&world, 0);
 	assert_eq!(third["opened"], Value::Null, "{third}");
 	assert_ne!(third["conversation"], first["conversation"], "{third}");
-	world.await_line("direct", "still one conversation");
+	answered(&world, "still one conversation");
 	assert_eq!(
 		directs(),
 		[
@@ -111,7 +156,7 @@ fn a_member_answered_privately_from_a_room_gets_one_direct_conversation() {
 	let log = world.rig.log();
 	assert_eq!(opens(&world), 1, "{log}");
 	assert!(
-		!log.contains("showing typing") && !log.contains("show typing"),
+		!log.contains(words::COULD_NOT_SHOW_TYPING) && !log.contains(words::COULD_NOT_STOP_TYPING),
 		"a typing notice failed: {log}"
 	);
 	world.stopped(bot);
@@ -119,23 +164,128 @@ fn a_member_answered_privately_from_a_room_gets_one_direct_conversation() {
 	assert_eq!(world.count("direct", "again privately"), 1);
 	assert_eq!(world.count("direct", "heard privately"), 1);
 	assert_eq!(world.count("direct", "heard after reopening"), 1);
-	world.fixture.finish();
+	world.finish();
+}
+
+/// An open is an effect, so a `--dm` that cannot write its first log line is
+/// refused before any note is written for the serving loop to send.
+#[test]
+fn a_direct_open_is_refused_when_its_log_line_cannot_be_written() {
+	let world = World::new("bot-live-dm-unlogged");
+	let bot = world.serve();
+	let log = world.rig.dir.join("bot.log");
+	std::fs::remove_file(&log).unwrap();
+	// A directory where the log goes makes every append fail.
+	std::fs::create_dir(&log).unwrap();
+	assert_eq!(turn(&world, &[say(FRIEND, "never opened")]), "exit=1");
+	let refused = output(&world, 0);
+	let message = refused["error"]["message"].as_str().unwrap();
+	assert!(message.contains(words::OPENING_LOG_FAILED), "{refused}");
+	let notes = std::fs::read_dir(world.rig.dir.join("opens")).map_or(0, |notes| notes.count());
+	assert_eq!(notes, 0, "a note was left for the serving loop to send");
+	std::fs::remove_dir(&log).unwrap();
+	world.stopped(bot);
+	assert_eq!(world.count("direct", "never opened"), 0);
+	world.finish();
+}
+
+/// A `--dm` open that provably sent nothing forgets its note and tells the
+/// agent it failed, so the serving loop never sends it afterward. Each verb
+/// is its own process, so the fault is armed for this one open.
+#[test]
+fn an_open_that_sent_nothing_forgets_its_note_and_the_loop_never_sends_it() {
+	let world = World::new("bot-live-dm-unsent");
+	let bot = world.serve_at(Some("view:introduce-unsent"));
+	assert_eq!(turn(&world, &[say(FRIEND, "not yet")]), "exit=1");
+	let refused = output(&world, 0);
+	assert!(refused["error"]["operation"].is_null(), "{refused}");
+	let notes = std::fs::read_dir(world.rig.dir.join("opens")).map_or(0, |notes| notes.count());
+	assert_eq!(notes, 0, "a note outlived an open that sent nothing");
+	assert_eq!(world.rig.status()["status"]["unsettled_opens"], 0);
+	// With no note left, no settle pass has an open to send.
+	assert_eq!(opens(&world), 0, "{}", world.rig.log());
+	world.stopped(bot);
+	assert_eq!(world.count("direct", "not yet"), 0);
+	world.finish();
+}
+
+/// An open that sent nothing whose note cannot be removed still prints its own
+/// failure, marked as settled by the bot, because the serving loop looks at
+/// the note that stayed and may send it. The removal failing is not the
+/// agent's failure (fault `drop-note`, which only the verb reaches).
+#[test]
+fn an_open_whose_note_cannot_be_dropped_prints_its_outcome_and_the_loop_settles_the_note() {
+	let world = World::new("bot-live-dm-note-stays");
+	let bot = world.serve_at(Some("view:introduce-unsent,drop-note"));
+	assert_eq!(turn(&world, &[say(FRIEND, "note stays")]), "exit=1");
+	let refused = output(&world, 0);
+	assert_eq!(refused["error"]["settling"], "bot", "{refused}");
+	assert_eq!(refused["ok"], false, "{refused}");
+	assert!(
+		world.rig.log().contains("could not drop the note of the open"),
+		"{}",
+		world.rig.log()
+	);
+	let notes = || std::fs::read_dir(world.rig.dir.join("opens")).map_or(0, |notes| notes.count());
+	eventually("the loop to settle the note", || (notes() == 0).then_some(()));
+	world.stopped(bot);
+	world.finish();
+}
+
+/// An open whose outcome the call could not prove unsent keeps its note and
+/// names its operation, and the serving loop looks at it again.
+#[test]
+fn an_open_that_may_have_been_sent_keeps_its_note_for_the_loop_to_settle() {
+	let world = World::new("bot-live-dm-lost");
+	let bot = world.serve_at(Some("view:open-lost"));
+	assert_eq!(turn(&world, &[say(FRIEND, "maybe")]), "exit=1");
+	let lost = output(&world, 0);
+	assert!(lost["error"]["operation"].is_string(), "{lost}");
+	let notes = || std::fs::read_dir(world.rig.dir.join("opens")).unwrap().count();
+	eventually("the loop to settle the kept note", || (notes() == 0).then_some(()));
+	eventually("the lane to free", || {
+		(world.rig.status()["status"]["sending"] == 0).then_some(())
+	});
+	world.stopped(bot);
+	// The open failed before its line, so the line never posts, and the
+	// open's receipt was settled and holds no place.
+	assert_eq!(world.count("direct", "maybe"), 0);
+	assert_eq!(
+		world.free_places(),
+		MAX_EFFECTS,
+		"the open's receipt still holds a place"
+	);
+	let log = world.rig.log();
+	assert_eq!(
+		log.matches(&format!("{} a direct conversation", words::MAY_HAVE_OPENED))
+			.count(),
+		1,
+		"{log}"
+	);
+	// Only a kept note is looked at again by the loop.
+	assert!(log.contains("the direct-message open under operation"), "{log}");
+	world.finish();
 }
 
 /// The member can answer in a direct conversation the bot opened. Once the
 /// bot closes it, it is opened again under the same id, and a nickname nobody
-/// in the room wrote under is refused before anything is sent.
+/// holds in the directory is refused before anything is sent.
 #[test]
 fn a_closed_direct_conversation_is_reopened_and_an_unknown_member_is_refused() {
 	let world = World::new("bot-live-dm-reopen");
 	let bot = world.serve();
-	answered(&world, &[say(FRIEND, "before closing")]);
-	let first = world.rig.act_output(0);
+	assert_eq!(
+		turn(&world, &[say(FRIEND, "before closing")]),
+		"exit=0",
+		"{}",
+		world.rig.evidence()
+	);
+	let first = output(&world, 0);
 	let conversation = first["conversation"].as_str().unwrap().to_owned();
-	world.await_line("direct", "before closing");
+	answered(&world, "before closing");
 	// The member answers there once the session has installed the route back.
 	world.dm_again("reply:heard privately");
-	world.await_line("direct", "heard privately");
+	answered(&world, "heard privately");
 	let actions = [
 		action("command", json!({}), &["closeDirect", conversation.as_str()]),
 		say(FRIEND, "after reopening"),
@@ -146,54 +296,24 @@ fn a_closed_direct_conversation_is_reopened_and_an_unknown_member_is_refused() {
 		reply.starts_with("exit=0 exit=0 exit=") && reply != "exit=0 exit=0 exit=0",
 		"{reply}"
 	);
-	let reopened = world.rig.act_output(1);
+	let reopened = output(&world, 1);
 	assert_eq!(reopened["conversation"], conversation.as_str(), "{reopened}");
 	assert!(reopened["opened"]["operation"].is_string(), "{reopened}");
-	let refused = world.rig.act_output(2);
+	let refused = output(&world, 2);
 	assert_eq!(
 		(&refused["ok"], &refused["error"]["opening"]),
 		(&json!(false), &json!(true)),
 		"{refused}"
 	);
 	let message = refused["error"]["message"].as_str().unwrap();
-	assert!(message.contains("nobody-here has not written in it"), "{refused}");
-	world.await_line("direct", "after reopening");
+	assert!(
+		message.contains(&words::not_reached("nobody-here")) && message.contains(words::RUN_WORKSPACE),
+		"{refused}"
+	);
+	answered(&world, "after reopening");
 	assert_eq!(opens(&world), 2, "{}", world.rig.log());
 	world.stopped(bot);
 	assert_eq!(world.count("direct", "after reopening"), 1);
 	assert_eq!(world.count("direct", "never posted"), 0);
-	world.fixture.finish();
-}
-
-/// An introduction whose route the bot cannot keep gives its receipt back
-/// and posts nothing, and the next open introduces again and posts once.
-#[test]
-fn an_open_that_cannot_keep_its_route_releases_its_receipt_and_the_next_one_opens() {
-	let world = World::new("bot-live-dm-unopened");
-	let bot = world.serve_at(Some("view:adopt-direct"));
-	assert_ne!(turn(&world, &[say(FRIEND, "not posted")]), "exit=0");
-	let unopened = world.rig.act_output(0);
-	assert_eq!(
-		(&unopened["error"]["class"], &unopened["error"]["opening"]),
-		(&json!("unopened"), &json!(true)),
-		"{unopened}"
-	);
-	assert!(
-		!unopened["error"]["message"].as_str().unwrap().contains("still held"),
-		"{unopened}"
-	);
-	world.stopped(bot);
-	let bot = world.serve();
-	answered(&world, &[say(FRIEND, "posted after")]);
-	world.await_line("direct", "posted after");
-	world.stopped(bot);
-	assert_eq!(world.count("direct", "not posted"), 0);
-	assert_eq!(world.count("direct", "posted after"), 1);
-	let owner = call_when_paced(
-		&world.fixture.peers[0].state,
-		"reply",
-		json!({"room": [ROOM], "text": ["the owner still commands"]}),
-	);
-	assert_eq!(owner["status"], "committed", "{owner}");
-	world.fixture.finish();
+	world.finish();
 }

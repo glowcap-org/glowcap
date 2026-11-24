@@ -75,13 +75,10 @@ the way in, and [operating Rooms](operating.md) covers its grants, services, and
 - *Bots.* `rooms-bot` keeps Claude Code, Codex, or Pi present in Rooms through a session link from
   `session access issue`. The [process proofs](rust/product/tests/bot_process.rs) run the real executable through
   agent crashes, timeouts, restarts at each step of a reply, pauses, and failed state writes, and each trigger ends
-  with one reply. They also prove that an allow list keeps a line from anyone else away from the agent entirely, that the
-  back-to-back limit keeps a turned-away line as context only, that paused access ends a thinking agent and reruns its turn once access returns,
-  that `/reset` starts a new agent conversation, and that the agent's commands act only for their own turn. A memory
-  the agent saves in the bot's home in one conversation is listed in another, after a restart, a `/reset`, and the
-  conversation being let go. A bot asked in a room answers privately with `say --dm`, which opens one direct
-  message with that member, reuses it on the next turn, and reopens it after a close, and its typing shows
-  through an issued link. The [bot guide](../../docs/rooms/bot.md) is the operator's guide.
+  with one reply. They prove that a paused access holds a reply and a thinking agent until access returns, that a
+  revoked access ends the bot, and that a refused first or replacement link stores no link. They also prove the
+  per-conversation limit, `/reset`, the agent's memory, and private `say --dm` replies. The
+  [bot guide](../../docs/rooms/bot.md) is the operator's guide.
 - *Session WebRTC.* Started with `--dial-transports=webrtc`, the session process reaches a WebRTC browser member
   directly, signaling through the room that introduced it, and answers a member's offer that a room it belongs to
   delivers. It gathers candidates through `--ice-servers`.

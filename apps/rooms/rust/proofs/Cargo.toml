@@ -23,7 +23,7 @@ unsafe_op_in_unsafe_fn = "deny"
 undocumented_unsafe_blocks = "deny"
 
 [features]
-async-host = ["glowcap/browser", "dep:rooms-glowcap", "dep:rooms-runtime", "dep:rooms-browser", "dep:wasm-bindgen", "dep:wasm-bindgen-futures", "dep:js-sys", "dep:gloo-timers", "dep:tokio", "dep:web-sys", "dep:futures-util"]
+async-host = ["glowcap/browser", "dep:rooms-glowcap", "dep:rooms-runtime", "dep:rooms-browser", "dep:rooms-testing", "dep:wasm-bindgen", "dep:wasm-bindgen-futures", "dep:js-sys", "dep:gloo-timers", "dep:tokio", "dep:web-sys", "dep:futures-util"]
 
 [lib]
 # Native tests consume the library. Wasm proof builds explicitly request the
@@ -40,6 +40,8 @@ serde_json.workspace = true
 rooms-runtime = { path = "../runtime", optional = true }
 rooms-glowcap = { path = "../glowcap", optional = true }
 rooms-browser = { path = "../browser", optional = true }
+# The session executor proofs hold transport writes with its write gate.
+rooms-testing = { path = "../testing", optional = true }
 wasm-bindgen = { workspace = true, optional = true }
 wasm-bindgen-futures = { workspace = true, optional = true }
 js-sys = { workspace = true, optional = true }
@@ -55,7 +57,7 @@ glowcap = { workspace = true, features = ["loam"] }
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 rooms-services = { path = "../services" }
 rooms-platform = { path = "../platform" }
-rooms-runtime = { path = "../runtime" }
+rooms-runtime = { path = "../runtime", features = ["test-support"] }
 rooms-glowcap = { path = "../glowcap" }
 rooms-testing = { path = "../testing" }
 glowcap = { workspace = true, features = ["tcp"] }

@@ -23,6 +23,37 @@ pub enum Reply {
 	Upload,
 	RetireBatch,
 }
+impl Reply {
+	/// Whether a result of this kind may hand back a capability the session
+	/// stores for the access that sent it. A kind that answers false settles
+	/// with data only, and the runtime refuses such a settlement that carries
+	/// a capability. `Line` and `Upload` answer true although each can settle
+	/// with none: a post the room did not give a line reference, and an upload
+	/// that posted no line, return data alone.
+	pub const fn may_retain_capabilities(self) -> bool {
+		match self {
+			Self::Acknowledgment
+			| Self::Boolean
+			| Self::Stewardship
+			| Self::RoomPolicy
+			| Self::Text
+			| Self::Listener
+			| Self::RetireBatch => false,
+			Self::RoomLink
+			| Self::RoomModerator
+			| Self::RoomManager
+			| Self::Line
+			| Self::Membership
+			| Self::ManagedRoom
+			| Self::PublicationLease
+			| Self::AcceptedAccess
+			| Self::IrcConnection
+			| Self::DirectAccess
+			| Self::DirectoryRegistration
+			| Self::Upload => true,
+		}
+	}
+}
 
 /// Admitted mutation values contain data only. Held targets are captured
 /// separately by the receipt and cannot be supplied through this grammar.

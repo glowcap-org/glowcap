@@ -3,10 +3,14 @@ mod admission;
 mod direct;
 mod transfer;
 use super::content::refuse;
+use super::executor::Ending;
 pub(super) use admission::{admit, references};
 use glowcap::{Argument, Ref, Result, loam};
-use rooms_application::content::session::uploads::{Description, Outcome};
 pub(super) use rooms_application::content::session::uploads::{Intent, Kind};
+use rooms_application::content::session::{
+	effects::OBSERVATION_MS,
+	uploads::{Description, Outcome},
+};
 use rooms_application::{
 	content::session::{custody, workspace},
 	room::{attachment, line::MAX_MESSAGE_FILES},
@@ -36,10 +40,17 @@ impl Pipeline {
 			))
 		}
 	}
-	pub async fn advance(&mut self) -> Result<Option<super::results::Settlement>> {
+	/// Run the upload to its ending. `Ok(None)` means it had already ended.
+	pub async fn advance<P: rooms_glowcap::client::Deadline + Clone + 'static>(
+		&mut self,
+		platform: &P,
+	) -> Result<Option<Ending>> {
 		match self {
-			Self::Room(pipeline) => pipeline.advance().await,
-			Self::Direct(pipeline) => pipeline.advance().await,
+			Self::Room(pipeline) => pipeline.advance(platform).await,
+			Self::Direct(pipeline) => platform
+				.within(OBSERVATION_MS, pipeline.advance())
+				.await
+				.ok_or_else(|| super::executor::paused("upload observation deadline expired"))?,
 		}
 	}
 }
@@ -168,35 +179,73 @@ pub(super) fn matches(data: &str, fields: &[custody::Coordinate]) -> Result<bool
 	})
 }
 
-/// One outcome contract for accepted room uploads and direct reader delivery.
-fn complete(
-	mut settlement: super::results::Settlement,
-	reply: rooms_application::session::effect::Reply,
-	failure: Option<rooms_application::fields::Text<4096>>,
-) -> Result<super::results::Settlement> {
-	let Argument::List(fields) = &mut settlement.0 else {
-		return Err(refuse("invalid file settlement"));
-	};
-	let [data, _] = fields.as_mut_slice() else {
-		return Err(refuse("invalid file settlement fields"));
-	};
-	let (line, id, history) = if reply == rooms_application::session::effect::Reply::Line {
-		let posted = serde_json::from_str::<rooms_application::content::session::results::PostedLine>(
-			data.as_str().ok_or_else(|| refuse("invalid file line"))?,
-		)
-		.map_err(|_| refuse("invalid file line result"))?;
-		(posted.line, posted.id, posted.history)
-	} else {
-		(None, None, None)
-	};
-	*data = serde_json::to_string(&Outcome {
-		line,
-		id,
-		history,
-		files_complete: failure.is_none(),
-		failure,
-	})
-	.map_err(|_| refuse("invalid file outcome"))?
-	.into();
-	Ok(settlement)
+/// An acknowledged post, ready to be settled. Building it checks everything
+/// settling needs, so [`Posted::finish`] cannot fail: it holds the outcome of
+/// a complete upload and the outcome that stands in when a failure's own
+/// text is not admitted.
+pub(super) struct Posted {
+	outcome: Outcome,
+	second: Argument,
+	complete: String,
+	standing: String,
+}
+impl Posted {
+	/// One outcome contract for accepted room uploads and direct reader
+	/// delivery.
+	pub(super) fn read(
+		settlement: super::results::Settlement,
+		reply: rooms_application::session::effect::Reply,
+	) -> Result<Self> {
+		let Argument::List(mut fields) = settlement.0 else {
+			return Err(refuse("invalid file settlement"));
+		};
+		let (Some(second), Some(data), true) = (fields.pop(), fields.pop(), fields.is_empty()) else {
+			return Err(refuse("invalid file settlement fields"));
+		};
+		let (line, id, history) = if reply == rooms_application::session::effect::Reply::Line {
+			let posted = serde_json::from_str::<rooms_application::content::session::results::PostedLine>(
+				data.as_str().ok_or_else(|| refuse("invalid file line"))?,
+			)
+			.map_err(|_| refuse("invalid file line result"))?;
+			(posted.line, posted.id, posted.history)
+		} else {
+			(None, None, None)
+		};
+		let mut outcome = Outcome {
+			line,
+			id,
+			history,
+			files_complete: true,
+			failure: None,
+		};
+		let complete = serde_json::to_string(&outcome).map_err(|_| refuse("invalid file outcome"))?;
+		outcome.files_complete = false;
+		outcome.failure = Some(
+			rooms_application::fields::Text::new("the line stands, but its files could not be completed".into())
+				.ok_or_else(|| refuse("upload failure text is not admitted"))?,
+		);
+		let standing = serde_json::to_string(&outcome).map_err(|_| refuse("invalid file outcome"))?;
+		Ok(Self {
+			outcome,
+			second,
+			complete,
+			standing,
+		})
+	}
+	/// The settlement of the line with its files complete, or with them
+	/// incomplete for `failure`, which stands in words of its own when the
+	/// session admits them as text.
+	pub(super) fn finish(mut self, failure: Option<String>) -> super::results::Settlement {
+		let data = match failure {
+			None => self.complete,
+			Some(failure) => match rooms_application::fields::Text::new(failure.into()) {
+				Some(text) => {
+					self.outcome.failure = Some(text);
+					serde_json::to_string(&self.outcome).unwrap_or(self.standing)
+				}
+				None => self.standing,
+			},
+		};
+		super::results::Settlement(Argument::List(vec![data.into(), self.second]))
+	}
 }

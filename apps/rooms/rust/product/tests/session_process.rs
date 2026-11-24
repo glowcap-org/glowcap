@@ -15,11 +15,19 @@ mod attached;
 mod client;
 #[path = "session_process/journey.rs"]
 mod journey;
+#[path = "session_process/paused.rs"]
+mod paused;
 #[path = "session_process/receipts.rs"]
 mod receipts;
+#[path = "session_process/receipts_conflict.rs"]
+mod receipts_conflict;
+#[path = "session_process/receipts_late.rs"]
+mod receipts_late;
+#[path = "session_process/receipts_result.rs"]
+mod receipts_result;
 #[path = "session_rig/mod.rs"]
 mod session_rig;
-use session_rig::command;
+use session_rig::{assert_same_secret, command};
 #[test]
 fn session_peer_executable_custody_restart_and_signals() {
 	let temp = Scratch::create("session-process");
@@ -70,7 +78,7 @@ fn session_peer_executable_custody_restart_and_signals() {
 				.expect("session authority banner");
 			let parsed = glowcap::parse_sturdyref(link, glowcap::CaptpVersion::V1_0).unwrap();
 			if let Some((designator, swiss)) = &publication {
-				assert_eq!(&parsed.swissnum, swiss);
+				assert_same_secret(&parsed.swissnum, swiss, "restart replaced the session's swissnum");
 				if transport == "iroh" {
 					assert_eq!(
 						&parsed.locator.designator, designator,
@@ -80,14 +88,18 @@ fn session_peer_executable_custody_restart_and_signals() {
 			}
 			publication = Some((parsed.locator.designator, parsed.swissnum));
 			let management_link = std::fs::read_to_string(state.join("management.sturdyref")).unwrap();
-			assert_eq!(
-				management.trim().strip_prefix("ROOMS-SESSION-MANAGEMENT "),
-				Some(management_link.trim())
+			assert_same_secret(
+				management
+					.trim()
+					.strip_prefix("ROOMS-SESSION-MANAGEMENT ")
+					.unwrap_or_default(),
+				management_link.trim(),
+				"the printed management link is not the saved one",
 			);
 			receipt_base = Some(client::exercise(link, management_link.trim(), receipt_base));
 			let bytes = std::fs::read(state.join("rooms-bootstrap")).unwrap();
 			if let Some(previous) = &identity {
-				assert_eq!(&bytes, previous);
+				assert!(&bytes == previous, "a restart rewrote the session's identity");
 			}
 			identity = Some(bytes);
 			assert!(state.join("use.sturdyref").exists());
@@ -98,7 +110,11 @@ fn session_peer_executable_custody_restart_and_signals() {
 				.output()
 				.unwrap();
 			assert!(ready.status.success(), "a running peer checks ready");
-			assert_eq!(String::from_utf8(ready.stdout).unwrap().trim(), link);
+			assert_same_secret(
+				String::from_utf8(ready.stdout).unwrap().trim(),
+				link,
+				"the ready check printed another link",
+			);
 			let mut contender = Process::new(
 				command()
 					.arg(format!("--state={}", state.display()))
@@ -120,10 +136,15 @@ fn session_peer_executable_custody_restart_and_signals() {
 				ready.status.success(),
 				"a refused contender removed the running peer's readiness"
 			);
-			assert_eq!(String::from_utf8(ready.stdout).unwrap().trim(), link);
-			assert_eq!(
+			assert_same_secret(
+				String::from_utf8(ready.stdout).unwrap().trim(),
+				link,
+				"the ready check printed another link",
+			);
+			assert_same_secret(
 				std::fs::read_to_string(state.join("management.sturdyref")).unwrap(),
-				management_link
+				&management_link,
+				"the management link changed",
 			);
 			if signal == "-KILL" {
 				// A killed QUIC peer cannot send a close packet. Crash recovery

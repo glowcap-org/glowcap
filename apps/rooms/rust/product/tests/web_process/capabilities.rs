@@ -17,7 +17,7 @@ async fn print_capabilities_reads_the_running_fronts_locators() {
 			printed
 				.lines()
 				.find_map(|line| line.strip_prefix(token).and_then(|rest| rest.strip_prefix(' ')))
-				.unwrap_or_else(|| panic!("{token} in {printed}"))
+				.unwrap_or_else(|| panic!("{token} is missing from the printed capabilities"))
 				.to_owned()
 		};
 		// A sturdyref is the peer's locator with `/s/<swiss>` before its hints.
@@ -25,18 +25,18 @@ async fn print_capabilities_reads_the_running_fronts_locators() {
 		let operator = link("ROOMS-OPERATOR");
 		assert!(
 			operator.starts_with(&format!("{peer}/s/")),
-			"{operator} is not under {locator}"
+			"the operator link is not under the locator"
 		);
-		assert!(link("ROOMS-TRACE").contains("/s/"), "{printed}");
+		assert!(link("ROOMS-TRACE").contains("/s/"), "the trace link names no swissnum");
 		assert_eq!(
 			printed.lines().filter(|line| line.contains("not minted here")).count(),
 			4,
-			"{printed}"
+			"four capabilities are not minted here"
 		);
 		// The front `--url` names is the same front, so the same links print.
-		assert_eq!(
-			answered(print_capabilities(&state, Reach::Url(web.port)).await),
-			printed
+		assert!(
+			answered(print_capabilities(&state, Reach::Url(web.port)).await) == printed,
+			"the front `--url` names printed other capabilities"
 		);
 		web.stop().await;
 		// Started again without the trace, the kept swiss prints with the
@@ -50,9 +50,9 @@ async fn print_capabilities_reads_the_running_fronts_locators() {
 		let trace = printed.lines().find(|line| line.starts_with("ROOMS-TRACE")).unwrap();
 		assert!(
 			trace.contains("not running") && trace.contains("--capabilities=trace"),
-			"{trace}"
+			"the trace line names no option that serves it"
 		);
-		assert!(!trace.contains("/s/"), "{trace}");
+		assert!(!trace.contains("/s/"), "a trace that is off printed a link");
 		web.stop().await;
 		// With the front gone the read names the next step, instead of a bare
 		// connection error.
@@ -77,22 +77,24 @@ async fn print_capabilities_takes_an_environment_locator_and_refuses_invalid_sta
 	let link = printed
 		.lines()
 		.find_map(|line| line.strip_prefix("ROOMS-DIAGNOSTICS "))
-		.unwrap_or_else(|| panic!("{printed}"));
+		.unwrap_or_else(|| panic!("ROOMS-DIAGNOSTICS is missing from the printed capabilities"));
 	let parsed = glowcap::parse_sturdyref(link, glowcap::CaptpVersion::V1_0).unwrap();
 	assert_eq!(parsed.locator, glowcap::parse_locator("ocapn://directory.id").unwrap());
-	assert_eq!(String::from_utf8(parsed.swissnum).unwrap(), swiss);
+	assert!(
+		String::from_utf8(parsed.swissnum).unwrap() == swiss,
+		"the diagnostics link carries another swissnum"
+	);
 	let trace = printed.lines().find(|line| line.starts_with("ROOMS-TRACE")).unwrap();
-	assert!(trace.contains("GLOWCAP_ROOMS_TRACE_LOCATOR"), "{trace}");
+	assert!(
+		trace.contains("GLOWCAP_ROOMS_TRACE_LOCATOR"),
+		"the trace line names no locator variable"
+	);
 	// One unreadable swiss refuses the whole read, with nothing printed and
 	// nothing rewritten, so a partial handoff never reaches an operator.
 	std::fs::write(state.join("diagnostics"), "invalid state").unwrap();
 	let refused = print_capabilities(&state, Reach::Locator("ocapn://directory.id")).await;
 	assert!(!refused.status.success());
-	assert!(
-		refused.stdout.is_empty(),
-		"{}",
-		String::from_utf8_lossy(&refused.stdout)
-	);
+	assert!(refused.stdout.is_empty(), "a refused read printed something");
 	assert_eq!(
 		std::fs::read_to_string(state.join("diagnostics")).unwrap(),
 		"invalid state"

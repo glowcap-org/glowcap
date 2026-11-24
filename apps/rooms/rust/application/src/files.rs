@@ -34,8 +34,9 @@ pub const MAX_MIME_UNITS: usize = 80;
 pub const NAME_CHARACTERS: &str = "a file name may not contain control or text-direction characters";
 pub const MAX_IMAGE_DIMENSION: u32 = 65_535;
 /// How long an upload has to bring its received bytes to the next multiple
-/// of `CHUNK_BYTES`, or to finish. The window starts at `attach` and starts
-/// again at each multiple the bytes reach.
+/// of `CHUNK_BYTES`, or to finish. A lease ends at its deadline, not after
+/// it. The window starts at `attach`, starts again
+/// at the post, and starts again at each multiple the bytes reach.
 pub const UPLOAD_IDLE_MS: u64 = 30_000;
 pub const MAX_BLOB_READERS: usize = 256;
 

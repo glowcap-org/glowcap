@@ -1,8 +1,18 @@
 //! Cold receipt inspection restores the exact initiating endpoint's intent.
 //! Descriptive rows cannot select a sibling grant or recreate a lost executor.
 use super::*;
-use rooms_glowcap::client::workspace::RecoveredEffect;
+use rooms_glowcap::client::workspace::{RecoveredEffect, Release};
 use rooms_runtime::Error as RuntimeError;
+
+/// The session's answer to a release, as its word (`RECEIPT_RELEASES` in the
+/// page's session content mirror). `running` changed nothing: the executor
+/// settles or pauses by itself, and a release asked again after that answers
+/// `released`. `kept` changed nothing either: the receipt's result was
+/// adopted, so the workspace holds it and the receipt holds no place. A
+/// refusal stays a rejection.
+fn released(answer: Release) -> JsValue {
+	answer.wire().into()
+}
 
 #[wasm_bindgen]
 impl RoomsManagedWorkspace {
@@ -133,15 +143,12 @@ impl RoomsManagedRecoveredEffect {
 				.map_err(RuntimeError::from)
 		})
 	}
-	/// Give up on this receipt for good. See `RecoveredEffect::release`.
+	/// Give up on this receipt for good, resolving to the session's word
+	/// (`released`, `running`, or `kept`). See `RecoveredEffect::release`.
 	pub fn release(&self) -> js_sys::Promise {
 		let effect = self.effect.clone();
 		self.driver.submit(0, move |_| async move {
-			effect
-				.release()
-				.await
-				.map(|()| JsValue::UNDEFINED)
-				.map_err(RuntimeError::from)
+			effect.release().await.map(released).map_err(RuntimeError::from)
 		})
 	}
 }
@@ -157,17 +164,14 @@ impl RoomsManagedCommand {
 	pub fn original_intent(&self) -> core::result::Result<JsValue, JsValue> {
 		json(self.command.canonical()).map_err(|error| js_error(&error))
 	}
-	/// Give this command's receipt back for good, as a recovered receipt's
-	/// `release` does. The page calls it once the result is read and the
-	/// workspace already holds what the result would add.
+	/// Give this command's receipt back for good, resolving to the session's
+	/// word as a recovered receipt's `release` does. The page calls it once
+	/// the result is read and the workspace already holds what the result
+	/// would add.
 	pub fn release(&self) -> js_sys::Promise {
 		let command = self.command.clone();
 		self.driver.submit(0, move |_| async move {
-			command
-				.release()
-				.await
-				.map(|()| JsValue::UNDEFINED)
-				.map_err(RuntimeError::from)
+			command.release().await.map(released).map_err(RuntimeError::from)
 		})
 	}
 }

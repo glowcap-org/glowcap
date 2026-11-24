@@ -61,11 +61,15 @@ impl Settlement {
 	/// Formatting stops at `MAX_OBSERVATION_REASON_UNITS` UTF-16 units. Ordinary String growth retains at
 	/// most twice the 12 KiB UTF-8 bound, even if the peer's failure was larger.
 	fn reason(error: &glowcap::Error) -> Argument {
+		Self::reason_text(error).into()
+	}
+	/// [`Self::reason`] as text, for a failure a settlement carries inside its
+	/// own data.
+	pub(super) fn reason_text(error: &glowcap::Error) -> String {
 		match rooms_glowcap::client::binding_failure(error) {
 			Some(failure) => reason::format(&failure),
 			None => reason::format(error),
 		}
-		.into()
 	}
 	/// The original receipt owns the reason through cold restoration. It grants no replay.
 	pub(super) fn refused(error: &glowcap::Error) -> Self {
@@ -343,6 +347,11 @@ pub(super) fn outcome(
 	let Some((data, fields)) = parts(value)? else {
 		return Ok(Outcome::KnownAbsent);
 	};
+	// The one check that a data-only kind keeps no capability, before any
+	// field is prepared. The matchers below read the data alone for such kinds.
+	if !reply.may_retain_capabilities() && !fields.is_empty() {
+		return Err(loam::refusal("result of a data-only kind carries a capability"));
+	}
 	let retained = fields
 		.iter()
 		.map(|value| {
@@ -374,7 +383,7 @@ pub(super) fn outcome(
 		Reply::DirectoryRegistration => registration::matches(data, &coordinates)?,
 		Reply::DirectAccess => live::matches::<Direct>(data, &coordinates)?,
 		Reply::IrcConnection => live::matches::<Connection>(data, &coordinates)?,
-		Reply::Text | Reply::Listener | Reply::RetireBatch => operations::matches(reply, data, &coordinates)?,
+		Reply::Text | Reply::Listener | Reply::RetireBatch => operations::matches(reply, data)?,
 		Reply::AcceptedAccess => live::matches::<Acceptance>(data, &coordinates)?,
 		Reply::PublicationLease => live::matches::<Publication>(data, &coordinates)?,
 		Reply::ManagedRoom => creation::matches(data, &coordinates)?,
@@ -391,9 +400,9 @@ pub(super) fn outcome(
 				_ => false,
 			}
 		}
-		Reply::Acknowledgment => data == "null" && coordinates.is_empty(),
-		Reply::Boolean => matches!(data, "true" | "false") && coordinates.is_empty(),
-		Reply::RoomPolicy => serde_json::from_str::<RoomPolicyUpdate>(data).is_ok() && coordinates.is_empty(),
+		Reply::Acknowledgment => data == "null",
+		Reply::Boolean => matches!(data, "true" | "false"),
+		Reply::RoomPolicy => serde_json::from_str::<RoomPolicyUpdate>(data).is_ok(),
 		Reply::RoomLink => {
 			let row: RoomLink = serde_json::from_str(data).map_err(|_| loam::refusal("invalid room link data"))?;
 			matches!(coordinates.as_slice(), [coordinate] if coordinate.role == custody::Role::RoomAccess
@@ -402,7 +411,7 @@ pub(super) fn outcome(
 		}
 		Reply::RoomManager => manager::matches(data, &coordinates)?,
 		Reply::RoomModerator => moderator::matches(data, &coordinates)?,
-		Reply::Stewardship => serde_json::from_str::<Stewardship>(data).is_ok() && coordinates.is_empty(),
+		Reply::Stewardship => serde_json::from_str::<Stewardship>(data).is_ok(),
 	};
 	if !valid {
 		return Err(loam::refusal("result data does not match retained fields"));

@@ -2,7 +2,7 @@
 //! and never a second open row for one registration.
 use super::*;
 use rooms_application::fields::Text;
-use rooms_glowcap::client::workspace::{ResultImport, Workspace};
+use rooms_glowcap::client::workspace::{Release, ResultImport, Workspace};
 
 const OTHER_REGISTRATION: &str = "00000000-0000-4000-8000-000000000002";
 
@@ -212,5 +212,5 @@ async fn second_open(
 		"refused by the rule, not by a moved workspace"
 	);
 	assert_eq!(workspace.snapshot().await.unwrap().revision, snapshot.revision);
-	command.release().await.unwrap();
+	assert_eq!(command.release().await.unwrap(), Release::Released);
 }

@@ -1,11 +1,12 @@
 // Completion carries only the scalar witness from its exact accepted candidate.
+import { managedSessionText } from "../../lib/text/managed_session.ts";
+import { operationOf } from "../support/managed_link.ts";
 import { assert, assertEquals } from "../assert.ts";
 import { snapshot, viewer } from "../support/managed_viewer.ts";
-import { ManagedOperation, ResultAcquisitionError } from "../../web/ui/session/managed/operation.ts";
+import { ResultAcquisitionError } from "../../web/ui/session/managed/operation.ts";
 import { AcquisitionConflict } from "../../web/ui/session/managed/acquisition.ts";
 import { CompletedLine } from "../../web/ui/session/managed/completed_line.ts";
 import { completeResult } from "../../web/ui/session/managed/completion.ts";
-import type { RoomsManagedCommand } from "../../../../zig-out/wasm/rooms/rooms_browser.js";
 
 for (const kind of ["room", "direct"] as const) {
 	for (const change of ["none", "refresh", "presentation", "uncertain", "other viewer"] as const) {
@@ -35,7 +36,7 @@ for (const kind of ["room", "direct"] as const) {
 				else row.access = "replacement-access";
 				row.lines = [{ id: 7, handle: "replacement-line" }];
 			};
-			const operation = new ManagedOperation("send", {
+			const operation = operationOf("send", {
 				result: () => Promise.resolve({ id: 7, line: "receipt-line", history }),
 				adopted: () => Promise.resolve(change === "other viewer"),
 				originalIntent: () => ["send", 1, "say", ["conversation", "hello"]],
@@ -53,7 +54,7 @@ for (const kind of ["room", "direct"] as const) {
 					});
 				},
 				free() {},
-			} as unknown as RoomsManagedCommand);
+			});
 			const session = viewer({
 				snapshot: () => {
 					if (acquired && change === "refresh") replace();
@@ -110,7 +111,7 @@ for (const failure of ["result read", "preparation", "submission", "conflicts", 
 		let reads = 0;
 		let preparations = 0;
 		let submissions = 0;
-		const operation = new ManagedOperation("post", {
+		const operation = operationOf("post", {
 			result: () => {
 				reads++;
 				return failure === "result read" ? Promise.reject(reason) : Promise.resolve(result);
@@ -131,12 +132,25 @@ for (const failure of ["result read", "preparation", "submission", "conflicts", 
 				});
 			},
 			free() {},
-		} as unknown as RoomsManagedCommand);
+		});
+		const notices: string[] = [];
 		const session = viewer({
 			snapshot: () => operation.acquired ? Promise.reject(reason) : Promise.resolve(current),
-		});
+		}, (source) => notices.push(source));
 		try {
 			const outcome = (await Promise.allSettled([completeResult(session, operation)]))[0];
+			if (failure === "refresh") {
+				// The acquisition committed, so only the redraw failed: the completion
+				// answers its evidence and the failure is a notice.
+				assertEquals(outcome.status, "fulfilled");
+				assertEquals(notices, [managedSessionText.changeUnread]);
+				assert(
+					outcome.status === "fulfilled" && outcome.value instanceof CompletedLine,
+					"the completion keeps its delivery evidence",
+				);
+				assertEquals([reads, preparations, submissions], [1, 1, 1]);
+				return;
+			}
 			assert(outcome.status === "rejected", "the failed completion cannot report acquisition success");
 			if (failure === "result read") {
 				assert(outcome.reason === reason, "an unread result does not establish delivery");

@@ -115,14 +115,11 @@ pub(super) async fn issue(app: &Application, id: &str, label: &str, rights_name:
 	Ok(json!({"ok": true, "link": link, "id": id, "label": label, "rights": names(&terms)}))
 }
 
-/// Test-only: with the `test-support` feature,
-/// `GLOWCAP_ROOMS_SESSION_FAULT=after-issue`
-/// ends the session process between issuing an access and saving its
-/// control, so a process test can prove the next issue finishes it. A build
-/// without the feature contains no trace of this.
+/// Test-only: the session fault `after-issue` (`rooms_runtime::session::fault`) ends
+/// the session process between issuing an access and saving its control, so
+/// a process test can prove the next issue finishes it.
 fn ended_after_issue() {
-	#[cfg(feature = "test-support")]
-	if std::env::var_os("GLOWCAP_ROOMS_SESSION_FAULT").is_some_and(|point| point == "after-issue") {
+	if rooms_runtime::session::fault::armed() == Some(rooms_runtime::session::fault::SessionFault::AfterIssue) {
 		std::process::abort();
 	}
 }

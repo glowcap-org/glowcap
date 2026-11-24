@@ -1,6 +1,7 @@
-//! Decide what one event means to the bot. Only typed values reach here, so
-//! the bot never text-matches a nickname. A value past the bounds a session
-//! keeps is refused here, so nothing the bot stores can outgrow its files.
+//! Decide what one event means to the bot. Only typed values reach here: the
+//! session's mapping has already decided who sent a line, so nothing here
+//! compares a nickname. A value past the bounds a session keeps is refused
+//! here, so nothing the bot stores can outgrow its files.
 use super::rooms::{Attachment, Body, Change, Cursor, Incoming, Kind, Line, Sender};
 use rooms_application::{
 	content::session::workspace::MAX_ID_UNITS,
@@ -94,8 +95,8 @@ pub fn classify(event: &Incoming, seq: Seq) -> Class {
 	}
 	let from = match (&line.sender, event.kind) {
 		(Sender::Own | Sender::System, _) | (_, Kind::Other) => return Class::Ignore,
-		(Sender::Peer(_), Kind::Direct) => None,
-		(Sender::Peer(_), Kind::Room) => return Class::Malformed("a room line names no sender"),
+		(Sender::Peer, Kind::Direct) => None,
+		(Sender::Peer, Kind::Room) => return Class::Malformed("a room line names no sender"),
 		(Sender::Member(name), _) if !valid_nick(name) => {
 			return Class::Malformed("a nickname is not one a session grants");
 		}
@@ -128,18 +129,6 @@ pub fn classify(event: &Incoming, seq: Seq) -> Class {
 			from,
 			text: line.text.clone(),
 		})
-	}
-}
-
-/// The nickname that decides whether a line may start work: the sender's in a
-/// room, and the other person's in a direct conversation.
-pub fn sender(event: &Incoming) -> Option<&str> {
-	match &event.body {
-		Body::Line(Line {
-			sender: Sender::Member(name) | Sender::Peer(Some(name)),
-			..
-		}) => Some(name),
-		_ => None,
 	}
 }
 
@@ -178,7 +167,7 @@ mod tests {
 	#[test]
 	fn a_direct_line_from_the_other_person_triggers_without_a_mention() {
 		let class = classify(
-			&event(Kind::Direct, Sender::Peer(None), Change::Said, Mentions::default()),
+			&event(Kind::Direct, Sender::Peer, Change::Said, Mentions::default()),
 			Seq(4),
 		);
 		assert!(
@@ -208,7 +197,7 @@ mod tests {
 			(Kind::Direct, Sender::Own, Change::Said),
 			(Kind::Room, Sender::Own, Change::Said),
 			(Kind::Room, Sender::System, Change::Said),
-			(Kind::Direct, Sender::Peer(None), Change::Revised),
+			(Kind::Direct, Sender::Peer, Change::Revised),
 			(Kind::Room, member("ann"), Change::Revised),
 			(Kind::Other, member("ann"), Change::Said),
 		] {
@@ -223,12 +212,12 @@ mod tests {
 
 	#[test]
 	fn a_line_past_the_session_bounds_is_refused_whole() {
-		let mut long = event(Kind::Direct, Sender::Peer(None), Change::Said, Mentions::default());
+		let mut long = event(Kind::Direct, Sender::Peer, Change::Said, Mentions::default());
 		if let Body::Line(line) = &mut long.body {
 			line.text = "x".repeat(MAX_LINE_BYTES + 1);
 		}
 		assert!(matches!(classify(&long, Seq(1)), Class::Malformed(_)));
-		let mut files = event(Kind::Direct, Sender::Peer(None), Change::Said, Mentions::default());
+		let mut files = event(Kind::Direct, Sender::Peer, Change::Said, Mentions::default());
 		if let Body::Line(line) = &mut files.body {
 			line.files = vec![
 				Attachment {
@@ -244,7 +233,7 @@ mod tests {
 			];
 		}
 		assert!(matches!(classify(&files, Seq(1)), Class::Malformed(_)));
-		let nameless = event(Kind::Room, Sender::Peer(None), Change::Said, MENTIONED);
+		let nameless = event(Kind::Room, Sender::Peer, Change::Said, MENTIONED);
 		assert!(matches!(classify(&nameless, Seq(1)), Class::Malformed(_)));
 	}
 }

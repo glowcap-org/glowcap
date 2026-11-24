@@ -10,9 +10,11 @@ use rooms_glowcap::client::workspace::EffectStatus;
 use rooms_runtime::archive::{Backend, session::SessionArchive};
 use std::{cell::RefCell, num::NonZeroUsize, rc::Rc};
 
-struct Erasure {
-	refuse: Rc<Cell<bool>>,
-	sources: Rc<RefCell<Vec<rooms_application::text::DocumentText>>>,
+pub(super) struct Erasure {
+	pub(super) refuse: Rc<Cell<bool>>,
+	/// While set, an erasure waits, so it stays pending.
+	pub(super) hold: Rc<Cell<bool>>,
+	pub(super) sources: Rc<RefCell<Vec<rooms_application::text::DocumentText>>>,
 }
 impl Backend for Erasure {
 	async fn put(&mut self, _: Record) -> core::result::Result<u64, rooms_runtime::Error> {
@@ -34,6 +36,9 @@ impl Backend for Erasure {
 		source: &rooms_application::text::DocumentText,
 	) -> core::result::Result<(), rooms_runtime::Error> {
 		self.sources.borrow_mut().push(source.clone());
+		while self.hold.get() {
+			tokio::task::yield_now().await;
+		}
 		if self.refuse.get() {
 			Err(rooms_runtime::Error::storage(std::io::Error::other(
 				"injected erasure refusal",
@@ -153,11 +158,20 @@ pub(super) async fn run() {
 						)
 						.await
 						.unwrap();
+					let reports = Rc::new(RefCell::new(Vec::<String>::new()));
+					opened
+						.session()
+						.on_trouble({
+							let reports = reports.clone();
+							move |scope, _| reports.borrow_mut().push(scope.to_owned())
+						})
+						.unwrap();
 					let (archive, worker) = SessionArchive::new(
 						platform.clone(),
 						runtime.clone(),
 						Erasure {
 							refuse: refuse.clone(),
+							hold: Rc::new(Cell::new(false)),
 							sources: sources.clone(),
 						},
 					);
@@ -173,7 +187,9 @@ pub(super) async fn run() {
 						.unwrap();
 					if !reopening {
 						assert_eq!(request.submit().await.unwrap(), EffectStatus::Pending);
-						while request.status().await.unwrap() == EffectStatus::Pending {
+						// A failed attempt leaves the receipt pending, so the attempt's
+						// failure report marks it.
+						while !reports.borrow().iter().any(|scope| scope == "History retention") {
 							tokio::task::yield_now().await;
 						}
 						assert!(!sources.borrow().is_empty(), "erasure was admitted before its failure");

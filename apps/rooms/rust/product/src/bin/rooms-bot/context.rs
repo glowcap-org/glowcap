@@ -1,6 +1,6 @@
 //! A bounded ring of the lines that did not address the bot, per
 //! conversation, so a mention arrives with what was said just before it. The
-//! ring is advice for the harness: an unreadable ring is moved aside and the
+//! ring is advice for the harness: an unreadable ring is renamed to `.unreadable` and the
 //! conversation starts a new one, so one damaged file never stops a turn.
 use super::store::Store;
 use super::{classify::ContextLine, error::Error, rooms::ConversationId, store};
@@ -27,7 +27,7 @@ pub fn lines(store: &Store, conversation: &ConversationId) -> Result<Vec<Context
 			let directory = store.root().join(DIRECTORY);
 			std::fs::rename(directory.join(&name), directory.join(format!("{name}.unreadable")))
 				.map_err(Error::io("moving an unreadable context ring aside"))?;
-			// The ring is set aside here, so the fresh-start advice the error
+			// The ring is renamed to `.unreadable` here, so the fresh-start advice the error
 			// carries for an operator does not apply.
 			let cause = match &error {
 				Error::Unreadable { reason, .. } => reason.clone(),

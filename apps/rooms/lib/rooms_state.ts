@@ -33,7 +33,15 @@ export interface WorkspaceRoomBridgeIntent {
 export type RoomsControllerSelection =
 	| { readonly kind: "none" }
 	| { readonly kind: "local" }
-	| { readonly kind: "attached"; readonly sturdyref: string }
+	/** An attached session's link is null until the session first answers.
+	 * `unread` is why the last read of it failed for a reason other than a lost
+	 * connection, and how to read it again. A lost connection reads it again by
+	 * itself over the next one. */
+	| {
+		readonly kind: "attached";
+		readonly sturdyref: string | null;
+		readonly unread?: { readonly failure: unknown; readonly readAgain: () => Promise<void> };
+	}
 	| { readonly kind: "hosted"; readonly sturdyref: string };
 
 /** A capability-named shared session this browser is attached to or hosting. */

@@ -21,7 +21,7 @@ Deno.test("accepted conversation lookups reuse one index and retain their snapsh
 	let current = original;
 	const session = viewer({ snapshot: () => Promise.resolve(current) });
 	try {
-		await session.refresh();
+		await session.readNow();
 		assertEquals(idReads, 128);
 		for (let pass = 0; pass < 4; pass++) {
 			for (let index = 0; index < 128; index++) {
@@ -34,12 +34,12 @@ Deno.test("accepted conversation lookups reuse one index and retain their snapsh
 		assertEquals(idReads, 128, "accepted lookups rewalked the conversation list");
 		current = { ...snapshot(), revision: "2" };
 		current.intent.conversations = [{ ...original.intent.conversations[0], draft: "replacement" }];
-		await session.refresh();
+		await session.readNow();
 		assertEquals(conversationById(session.current, "direct-0")?.draft, "replacement");
 		assertEquals(conversationById(original, "direct-0")?.draft, "original");
 		assertEquals(conversationById(session.current, "direct-1"), undefined);
 		current = original;
-		await session.refresh();
+		await session.readNow();
 		assertEquals(conversationById(session.current, "direct-0")?.draft, "replacement");
 	} finally {
 		await session.close();
@@ -50,7 +50,7 @@ Deno.test("candidate lookup observes insertion and removal after an earlier look
 	const current = snapshot();
 	const session = viewer({ snapshot: () => Promise.resolve(current) });
 	try {
-		const candidate = await session.candidate();
+		const candidate = await session.candidateNow();
 		assertEquals(conversationById(candidate, "direct"), undefined);
 		candidate.intent.conversations.push({
 			kind: "direct",
@@ -66,13 +66,13 @@ Deno.test("candidate lookup observes insertion and removal after an earlier look
 			"candidate insertion was hidden",
 		);
 		current.intent.conversations.push({ ...candidate.intent.conversations[0] });
-		await session.refresh();
+		await session.readNow();
 		assert(
 			conversationById(session.current, "direct") === current.intent.conversations[0],
 			"accepting a reused array kept its earlier index",
 		);
 		current.intent.conversations.splice(0, 1);
-		await session.refresh();
+		await session.readNow();
 		assertEquals(conversationById(session.current, "direct"), undefined);
 		candidate.intent.conversations.splice(0, 1);
 		assertEquals(conversationById(candidate, "direct"), undefined);

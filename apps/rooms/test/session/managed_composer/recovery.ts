@@ -1,13 +1,15 @@
 // A send whose outcome nobody knows yet keeps its own recovery, and a line
 // that recovers lands once.
 /// <reference lib="dom" />
-import { assertEquals } from "../../assert.ts";
+import { assert, assertEquals } from "../../assert.ts";
 import {
 	type ManagedOperation,
 	ResultAcquisitionError,
 	TerminalObservationError,
 } from "../../../web/ui/session/managed/operation.ts";
+import { LocalRefusal } from "../../../lib/text/failure.ts";
 import { fixture, store, tick } from "./fixture.ts";
+import { fakeHandle } from "../../support/managed_link.ts";
 
 Deno.test("an uncertain chat keeps its own recovery while a newly typed command executes", async () => {
 	let recovered = 0;
@@ -20,10 +22,10 @@ Deno.test("an uncertain chat keeps its own recovery while a newly typed command 
 		say: () => {},
 	});
 	try {
-		f.session.execute = (id) => {
+		f.executing((id) => {
 			Object.defineProperty(f.session, "pending", { configurable: true, value: [id] });
 			return Promise.reject(new Error("admission acknowledgement lost"));
-		};
+		});
 		f.session.completeOperation = () => {
 			recovered++;
 			return Promise.resolve(true);
@@ -37,7 +39,8 @@ Deno.test("an uncertain chat keeps its own recovery while a newly typed command 
 		assertEquals(recovered, 0);
 		assertEquals(commands, 1);
 		assertEquals(store.activeDraft(f.page.projection).text, "");
-		const line = store.historyOf(f.page.projection, f.first.key).find((item) => item.kind === "chat")!;
+		const line = store.historyOf(f.page.projection, f.first.key).find((item) => item.kind === "chat");
+		assert(line != null, "the post is shown");
 		f.actions.retry(f.first.key, line.id);
 		await tick();
 		assertEquals(recovered, 1);
@@ -52,11 +55,11 @@ Deno.test("each uncertain line recovers its own receipt in one conversation", as
 	const operations: string[] = [];
 	const recovered: string[] = [];
 	try {
-		f.session.execute = (id) => {
+		f.executing((id) => {
 			operations.push(id);
 			Object.defineProperty(f.session, "pending", { configurable: true, value: [...operations] });
 			return Promise.reject(new Error("admission acknowledgement lost"));
-		};
+		});
 		f.session.completeOperation = (id) => {
 			recovered.push(id);
 			return Promise.resolve(true);
@@ -85,14 +88,14 @@ Deno.test("a queued line is independent of an earlier uncertain send", async () 
 		f.session.command = (verb, args = []) => {
 			f.commands.push([verb, args]);
 			const first = f.commands.length === 1;
-			return Promise.resolve({
+			return Promise.resolve(fakeHandle<ManagedOperation>({
 				result: () => first ? f.completion.promise : Promise.resolve(),
-			} as unknown as ManagedOperation);
+			}));
 		};
-		f.session.execute = async (id, prepare, complete) => {
+		f.executing(async (id, prepare, complete) => {
 			if (f.session.pending.length === 0) (f.session.pending as string[]).push(id);
-			await complete(await prepare());
-		};
+			await complete(await prepare(), f.after);
+		});
 		f.actions.setDraft("first uncertain line");
 		f.actions.send();
 		await tick();
@@ -121,12 +124,14 @@ Deno.test("a line that recovers tells typing it landed, and only once", async ()
 	const f = fixture();
 	let recover: (() => Promise<void>) | null = null;
 	try {
-		f.session.execute = async (id, prepare, complete) => {
+		f.executing(async (id, prepare, complete) => {
 			Object.defineProperty(f.session, "pending", { configurable: true, value: [id] });
 			const command = await prepare();
-			recover = () => complete(command);
+			recover = async () => {
+				await complete(command, f.after);
+			};
 			throw new Error("admission acknowledgement lost");
-		};
+		});
 		f.session.completeOperation = async () => {
 			await recover?.();
 			return true;
@@ -152,10 +157,10 @@ for (const retainedReceipt of [false, true]) {
 	Deno.test(`uncertain ${retainedReceipt ? "retained" : "terminal"} delivery does not restore a fresh sendable draft`, async () => {
 		const f = fixture();
 		if (retainedReceipt) {
-			f.session.execute = async (id, prepare, complete) => {
+			f.executing(async (id, prepare, complete) => {
 				(f.session.pending as string[]).push(id);
-				await complete(await prepare());
-			};
+				await complete(await prepare(), f.after);
+			});
 		}
 		try {
 			f.actions.setDraft("uncertain message");
@@ -182,11 +187,11 @@ for (const stage of ["admission observation", "acquisition"] as const) {
 		const history = { source: "archive", generation: "original", id: "7" };
 		const f = fixture({}, { id: 7, line: "original-result", history });
 		let operation = "";
-		f.session.execute = async (id, prepare, complete) => {
+		f.executing(async (id, prepare, complete) => {
 			operation = id;
 			(f.session.pending as string[]).push(id);
-			await complete(await prepare());
-		};
+			await complete(await prepare(), f.after);
+		});
 		f.session.actions.acquireLine = async (_id, command) => {
 			throw new ResultAcquisitionError(
 				await command.result(),
@@ -228,31 +233,23 @@ for (const stage of ["admission observation", "acquisition"] as const) {
 	});
 }
 
-Deno.test("a send cut off by a broken connection is retried by its own operation, and typing after it is kept", async () => {
+Deno.test("a send the session holds no trace of after the break shows as unconfirmed and gives its text back", async () => {
 	const f = fixture();
 	const operations: string[] = [];
-	const recovered: string[] = [];
 	try {
-		f.session.execute = (id) => {
+		// The receipt is gone from the session, so the operation is finished and
+		// no longer pending when the gesture hears of it.
+		f.executing((id) => {
 			operations.push(id);
-			Object.defineProperty(f.session, "pending", { configurable: true, value: [...operations] });
-			return Promise.reject(Object.assign(new Error("glowcap error -7: session closing"), { status: -7 }));
-		};
-		f.session.completeOperation = (id) => {
-			recovered.push(id);
-			return Promise.resolve(true);
-		};
+			return Promise.reject(new LocalRefusal("receipt-lost"));
+		});
 		f.actions.setDraft("sent as the connection broke");
 		f.actions.send();
 		await tick();
-		f.actions.setDraft("typed while the page reconnects");
-		await tick();
 		const line = store.historyOf(f.page.projection, f.first.key).find((item) => item.kind === "chat");
-		if (line == null) throw new Error("the cut off line is shown");
-		f.actions.retry(f.first.key, line.id);
-		await tick();
-		assertEquals([operations.length, recovered], [1, operations], "one gesture, one operation, retried by its id");
-		assertEquals(store.activeDraft(f.page.projection).text, "typed while the page reconnects");
+		assertEquals(line?.kind === "chat" ? [line.state, line.retryable] : null, ["unconfirmed", false]);
+		assertEquals(store.activeDraft(f.page.projection).text, "sent as the connection broke");
+		assertEquals(operations.length, 1, "it is not sent again");
 	} finally {
 		f.close();
 	}

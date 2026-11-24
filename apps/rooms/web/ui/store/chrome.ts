@@ -16,6 +16,8 @@ import type { ToastKind } from "../toast.ts";
 import type { MemberRef } from "../member_ref.ts";
 import type { ArchiveTargetView } from "../archive_model.ts";
 import { kindOf } from "../media.ts";
+import { roomsErrorIn, SESSION_STATE_UNREADABLE } from "../../../lib/error_codes.ts";
+import type { OpenOrigin } from "../session/managed/open.ts";
 import { type DraftPreview, reconcileDraftPreviews } from "../link_preview.ts";
 import {
 	type Draft,
@@ -312,6 +314,16 @@ export function showAboutMember(projection: PageProjection, about: MemberRef | n
 /** Open the card that holds the rest of a long refusal. */
 export function showErrorDetail(projection: PageProjection, detail: { title: string; text: string }): void {
 	projection.set({ errorDetail: detail });
+}
+
+/** Keep that opening this browser's saved session failed with `error`, when
+ * it arose from this browser's own saved session and its code says this
+ * version can't read what is saved. A session attached elsewhere that can't
+ * read its own says so as any refusal of it does. */
+export function noteSessionOpenFailure(projection: PageProjection, error: unknown, origin: OpenOrigin): void {
+	if (origin === "this-browser" && roomsErrorIn(error)?.code === SESSION_STATE_UNREADABLE) {
+		projection.set({ savedSessionUnreadable: true });
+	}
 }
 
 /** Put the error card away. */

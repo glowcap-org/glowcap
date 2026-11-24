@@ -17,25 +17,36 @@
 //! | `work/<conversation>/` | the harness's working directory, with `inbox/<turn>/` holding the files a turn was sent |
 //! | `harness/<adapter>/<conversation>/` | an adapter's own state, out of the model's reach |
 //! | `groups/<conversation>` | the process group of a running harness |
-//! | `opens/<operation>.json` | a `--dm` open sent and not yet settled, set aside as `.json.unsettled` once given up |
+//! | `opens/<operation>.json` | a `--dm` open sent and not yet settled, whose file names are described in `opens` |
+//! | `opens-count/lock` | the lease that makes counting the notes in `opens/` and writing one a single step, and that each rename of a note holds |
+//! | `turn-actions/<operation>.json` | the claim of a running turn on an agent's action it sent and has not settled, described in `opens::action` |
+//! | `turn-actions-count/lock` | the lease that makes counting the claims in `turn-actions/` and writing one a single step |
 //! | `home/` | the agent's own place, shared by every conversation, with `memory/` holding its memories. The bot creates it and never changes it |
+//! | `lock` | the lease one running `serve` holds, whose file also shows the directory was served |
 //! | `bot.log` | diagnostics |
 //!
 //! A conversation's state is spread over `context`, `work`, `harness`, and
 //! `groups`, each named by [`file_stem`]. A group record lives only while its
 //! harness runs. [`Store::forget_conversation`] removes the other three.
 use super::{error::Error, rooms::ConversationId, stamp};
-use rooms_platform::storage::{self, Directory, StorageError, atomic};
+use rooms_platform::storage::{self, Directory, Reading, StorageError, atomic};
 use serde::{Serialize, de::DeserializeOwned};
 use sha2::{Digest, Sha256};
 use std::{
 	fs::OpenOptions,
 	io::Write,
 	path::{Path, PathBuf},
+	time::Duration,
 };
 
 const LEASE: &str = "lock";
 const LOG: &str = "bot.log";
+/// How long taking the lease waits for one held only by a reader, such as a
+/// `status` probe or a health check, before answering that another `serve`
+/// holds it. A probe holds it for one small read, so this is far longer than
+/// that and short enough that a real second `serve` is refused within half a
+/// second.
+const LEASE_WAIT: Duration = Duration::from_millis(500);
 /// The log is moved aside once it passes this size, replacing the older copy.
 const LOG_LIMIT: u64 = 1024 * 1024;
 /// The most bytes of one logged detail, such as a harness's stderr, the log
@@ -51,6 +62,12 @@ pub struct Store {
 /// The absolute bot directory, without holding it.
 pub fn directory(dir: &Path) -> Result<PathBuf, Error> {
 	std::path::absolute(dir).map_err(Error::io("resolving the bot directory path"))
+}
+
+/// Whether a `serve` ever took the lease of `directory`, which it does before
+/// it reads any setting, so a first start still reaching its session counts.
+pub fn was_served(directory: &Path) -> bool {
+	directory.join(LEASE).exists()
 }
 
 /// `value` as the bytes of document `name`, refused when they pass `limit`.
@@ -81,11 +98,27 @@ impl Store {
 	/// Take the lease. A second `serve` on the same bot directory is refused.
 	pub fn open(dir: &Path) -> Result<Self, Error> {
 		let path = directory(dir)?;
-		match Directory::open(path.clone(), LEASE) {
+		#[cfg(feature = "test-support")]
+		if matches!(Directory::open(path.clone(), LEASE), Err(StorageError::InUse(_))) {
+			crate::bot::fault::lease_met(&path);
+		}
+		match Directory::open_within(path.clone(), LEASE, LEASE_WAIT) {
 			Ok(lease) => Ok(Self { lease }),
 			Err(StorageError::InUse(path)) => Err(Error::Lease(path)),
 			Err(error) => Err(error.into()),
 		}
+	}
+
+	/// Read what a running `serve` keeps, holding the lease only as a reader.
+	/// `Ok(None)` is a `serve` holding it. Otherwise `read` runs while the
+	/// shared hold lasts, so no `serve` starts mid-read, and a probe never
+	/// takes what a `serve` needs or sees another probe as one.
+	pub fn probe<T>(dir: &Path, read: impl FnOnce(&Path) -> Result<T, Error>) -> Result<Option<T>, Error> {
+		let path = directory(dir)?;
+		let Some(_reading) = Reading::begin(&path, LEASE)? else {
+			return Ok(None);
+		};
+		read(&path).map(Some)
 	}
 
 	pub fn root(&self) -> &Path {
@@ -198,7 +231,10 @@ impl Log {
 		Self(root.join(LOG))
 	}
 
-	pub fn line(&self, line: &str) {
+	/// Append a line, report a failure to write it on stderr, and return it.
+	/// A caller that must not act unlogged uses this, and [`Log::line`] goes
+	/// on without the line.
+	pub fn try_line(&self, line: &str) -> std::io::Result<()> {
 		let rotate = std::fs::metadata(&self.0).is_ok_and(|meta| meta.len() > LOG_LIMIT);
 		if rotate && let Err(error) = std::fs::rename(&self.0, self.0.with_file_name("bot.log.1")) {
 			eprintln!("rooms-bot: rotating {LOG}: {error}");
@@ -211,9 +247,16 @@ impl Log {
 			.append(true)
 			.open(&self.0)
 			.and_then(|mut file| writeln!(file, "{} {line}", stamp::now()));
-		if let Err(error) = written {
+		if let Err(error) = &written {
 			eprintln!("rooms-bot: writing {LOG}: {error}: {line}");
 		}
+		written
+	}
+
+	pub fn line(&self, line: &str) {
+		// best-effort: a log that cannot be written is reported on stderr by
+		// `try_line`, and the bot goes on.
+		let _ = self.try_line(line);
 	}
 }
 
@@ -246,6 +289,16 @@ pub fn read_unleased<T: DeserializeOwned>(directory: &Path, name: &str) -> Resul
 	read_document(directory, name)
 }
 
+/// [`read_unleased`] for a document allowed to grow past the usual bound, up
+/// to `max` bytes.
+pub fn read_unleased_bounded<T: DeserializeOwned>(
+	directory: &Path,
+	name: &str,
+	max: usize,
+) -> Result<Option<T>, Error> {
+	read_limited(directory, name, max)
+}
+
 /// Replace a document in a subdirectory of the bot directory at `directory`,
 /// creating it, without holding its lease, for a turn verb that writes beside
 /// `serve`. The replace is atomic, so a reader finds the whole document or
@@ -272,7 +325,11 @@ fn read_limited<T: DeserializeOwned>(directory: &Path, name: &str, max: usize) -
 }
 
 /// A file name for a conversation id. Plain ids stay readable, any other byte
-/// is percent-encoded, and a very long id is replaced by its digest.
+/// is percent-encoded, and a very long id is replaced by its digest,
+/// `h-<32 hex>`. A conversation id is a room's creating operation, which a
+/// session client names, so a short id can have the digest's form too: its
+/// `h` is then written `%68`, which no other id's stem holds, so no two ids
+/// share a stem.
 pub fn file_stem(conversation: &ConversationId) -> String {
 	let mut stem = String::new();
 	for byte in conversation.as_str().bytes() {
@@ -292,8 +349,45 @@ pub fn file_stem(conversation: &ConversationId) -> String {
 				.map(|byte| format!("{byte:02x}"))
 				.collect::<String>()
 		);
+	} else if digest_form(&stem) {
+		stem.replace_range(..1, "%68");
 	}
 	stem
+}
+
+/// Whether `stem` has the form of a long id's digest stem.
+fn digest_form(stem: &str) -> bool {
+	stem.strip_prefix("h-")
+		.is_some_and(|hex| hex.len() == 32 && hex.bytes().all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f')))
+}
+
+/// A bot directory moved aside, with a plain file at its path until
+/// [`Displaced::restore`], so every write there fails before it stages a copy
+/// or renames anything, whatever user the test runs as.
+#[cfg(test)]
+pub struct Displaced {
+	root: PathBuf,
+	aside: PathBuf,
+}
+
+#[cfg(test)]
+impl Displaced {
+	pub fn new(root: &Path) -> Self {
+		let mut aside = root.as_os_str().to_owned();
+		aside.push(".aside");
+		let aside = PathBuf::from(aside);
+		std::fs::rename(root, &aside).unwrap();
+		std::fs::write(root, b"").unwrap();
+		Self {
+			root: root.to_owned(),
+			aside,
+		}
+	}
+
+	pub fn restore(self) {
+		std::fs::remove_file(&self.root).unwrap();
+		std::fs::rename(&self.aside, &self.root).unwrap();
+	}
 }
 
 #[cfg(test)]
@@ -309,6 +403,14 @@ mod tests {
 		assert_ne!(stem("a/b"), stem("a%2fb"));
 		assert!(stem(&"x".repeat(500)).len() < 40);
 		assert_ne!(stem(&"x".repeat(500)), stem(&"y".repeat(500)));
+		let long = stem(&"x".repeat(500));
+		assert!(digest_form(&long), "{long}");
+		assert_eq!(
+			stem(&long),
+			format!("%68{}", long.strip_prefix('h').unwrap()),
+			"a short id took a digest's stem"
+		);
+		assert_eq!(stem("h-room"), "h-room");
 	}
 
 	#[test]

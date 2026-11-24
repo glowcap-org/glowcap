@@ -311,8 +311,8 @@ impl<D: Deadline + Clone> Grants<D> {
 			.platform()
 			.within(REQUEST_TIMEOUT_MS, self.client.session().fetch(name))
 			.await
-			.ok_or(Error::Unreachable(ClientError::Timeout("the session did not answer")))?
-			.map_err(|error| link::refusal(error.into()))?;
+			.ok_or(Error::Unreachable(ClientError::Timeout(link::NO_ANSWER)))?
+			.map_err(|error| link::refused_or_failed(error.into()))?;
 		Ok(Control::new(self.client.clone(), reference))
 	}
 }

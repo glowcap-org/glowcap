@@ -10,7 +10,7 @@ mod inbox;
 mod request;
 mod worker;
 pub use accesses::rights;
-pub use failure::Failure;
+pub use failure::{CONFLICT, Failure};
 use feed::{Application, Feed};
 use rooms_application::failure::Retry;
 use serde_json::{Value, json};

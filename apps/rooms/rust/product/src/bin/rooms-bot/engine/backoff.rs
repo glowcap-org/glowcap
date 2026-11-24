@@ -1,6 +1,11 @@
 //! The wait before the next try after a failure, doubling up to a ceiling.
 use std::time::Duration;
 
+/// The longest wait between tries after a failure that may clear on its own.
+pub const STANDARD_CEILING: Duration = Duration::from_secs(60);
+/// The longest wait between tries for access that only a person changes.
+pub const SLOW_CEILING: Duration = Duration::from_secs(300);
+
 pub struct Backoff {
 	first: Duration,
 	ceiling: Duration,
@@ -18,13 +23,13 @@ impl Backoff {
 
 	/// The session's standard: one second up to one minute.
 	pub fn standard() -> Self {
-		Self::new(Duration::from_secs(1), Duration::from_secs(60))
+		Self::new(Duration::from_secs(1), STANDARD_CEILING)
 	}
 
-	/// For access that is paused, revoked, or refused, which a person has to
-	/// change: one second up to five minutes.
+	/// For access that is paused or revoked (`env::access_of`), which a person
+	/// has to change: one second up to five minutes.
 	pub fn slow() -> Self {
-		Self::new(Duration::from_secs(1), Duration::from_secs(300))
+		Self::new(Duration::from_secs(1), SLOW_CEILING)
 	}
 
 	pub fn next(&mut self) -> Duration {

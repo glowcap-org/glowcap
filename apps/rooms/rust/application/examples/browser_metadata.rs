@@ -145,6 +145,11 @@ fn main() -> Result<(), String> {
 			direct::RECIPROCAL_ROUTE_TIMEOUT_MS as usize,
 		),
 		("REQUEST_TIMEOUT_MS", room::authority::REQUEST_TIMEOUT_MS as usize),
+		("CALL_BOUND_MS", room::authority::CALL_BOUND_MS as usize),
+		(
+			"RUNNING_BOUND_MS",
+			rooms_application::content::session::effects::RUNNING_BOUND_MS as usize,
+		),
 		("INTRODUCTION_WAIT_MS", directory::introduction::WAIT_MS as usize),
 		(
 			"INTRODUCTION_TIMEOUT_MS",
@@ -269,6 +274,7 @@ fn main() -> Result<(), String> {
 		let _ = writeln!(failures, "\t{}: {{", json!(definition.code.wire()));
 		write_property(&mut failures, "subject", json!(definition.subject));
 		write_property(&mut failures, "retry", json!(definition.retry.wire()));
+		write_property(&mut failures, "reach", json!(definition.code.reach()));
 		write_property(&mut failures, "summary", json!(definition.summary));
 		write_property(&mut failures, "action", json!(definition.action));
 		failures.push_str("\t},\n");
@@ -277,7 +283,10 @@ fn main() -> Result<(), String> {
 	failures.push_str("export type RoomsErrorCode = keyof typeof ROOMS_FAILURES;\n");
 	failures.push_str("export type RoomsFailureRetry = (typeof ROOMS_FAILURES)[RoomsErrorCode][\"retry\"];\n");
 	failures.push_str(
-		"export const ROOMS_ERROR_CODES: readonly RoomsErrorCode[] = Object.keys(ROOMS_FAILURES) as RoomsErrorCode[];\n",
+		"function isRoomsErrorCode(code: string): code is RoomsErrorCode {\n\treturn Object.hasOwn(ROOMS_FAILURES, code);\n}\n",
+	);
+	failures.push_str(
+		"export const ROOMS_ERROR_CODES: readonly RoomsErrorCode[] = Object.keys(ROOMS_FAILURES).filter(isRoomsErrorCode);\n",
 	);
 	let clients = client_codes::generate();
 	if std::env::args().skip(1).any(|arg| arg == "--check") {

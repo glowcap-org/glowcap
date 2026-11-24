@@ -272,7 +272,7 @@ async function proveNamedJoining(owner: Page, visitor: Page): Promise<void> {
 }
 
 /** Open the hold card from Session access, hold `control` there, and wait for it to close. */
-async function holdControl(tab: Page, control: string) {
+export async function holdControl(tab: Page, control: string) {
 	await tab.click("#sessionHoldOpen");
 	const card = tab.locator(".session-hold-modal");
 	await tab.fill("#sessionControlUri", control);

@@ -5,8 +5,11 @@ import "../support/match_media.ts";
 import { assert, assertEquals } from "../assert.ts";
 import { initializeApplication } from "../support/application.ts";
 import type { ArchiveLine } from "../../lib/archive/protocol.ts";
-import type { ManagedRoomsSession } from "../../web/ui/session/managed/session.ts";
 import type { ReceivedArchive, WorkspaceSnapshot } from "../../web/ui/session/managed/model.ts";
+import { oneLinkDoor } from "../support/managed_link.ts";
+import { deferred } from "../support/managed_viewer.ts";
+import { ManagedReads } from "../../web/ui/session/managed/reads.ts";
+import type { ArchiveSession } from "../../web/ui/session/managed/archive_shares.ts";
 const { managedArchiveReading } = await import("../../web/ui/session/managed/archive_shares.ts");
 const { presentationFiles } = await import("../../web/ui/session/managed/files.ts");
 const { RoomsPage } = await import("../../web/ui/page.ts");
@@ -14,16 +17,12 @@ const store = await import("../../web/ui/store.ts");
 const { dirId } = await import("../../web/ui/directory.ts");
 await initializeApplication();
 type ArchivePage = { next: string; more: boolean; records: { record: ArchiveLine }[] };
-function deferred<T>() {
-	let resolve!: (value: T) => void;
-	const promise = new Promise<T>((done) => resolve = done);
-	return { promise, resolve };
-}
 function fixture(read: () => Promise<ArchivePage>) {
 	const page = new RoomsPage();
 	const dir = dirId("directory");
 	store.openDir(page.projection, dir, "");
-	const receiving = store.restoreDm(page.projection, dir, "bo", "registration", "dm", false)!;
+	const receiving = store.restoreDm(page.projection, dir, "bo", "registration", "dm", false);
+	assert(receiving != null, "the receiving conversation is shown");
 	const offer: ReceivedArchive = {
 		id: "offer",
 		channel: "dm",
@@ -69,10 +68,11 @@ function fixture(read: () => Promise<ArchivePage>) {
 	const opened: string[] = [];
 	const shares: unknown[][] = [];
 	const files = presentationFiles(page.projection, () => null);
-	const session = {
+	const session: ArchiveSession = {
 		current,
 		permits: () => true,
-		workspace: {
+		reads: new ManagedReads(),
+		...oneLinkDoor({
 			archiveReader: () =>
 				Promise.resolve({
 					read,
@@ -84,8 +84,8 @@ function fixture(read: () => Promise<ArchivePage>) {
 						return Promise.resolve(new Uint8Array([7]));
 					},
 				}),
-		},
-		candidate: () => {
+		}),
+		candidateBeforeSending: () => {
 			candidate?.();
 			return Promise.resolve(structuredClone(current));
 		},
@@ -104,7 +104,7 @@ function fixture(read: () => Promise<ArchivePage>) {
 				return Promise.resolve();
 			},
 		},
-	} as unknown as ManagedRoomsSession;
+	};
 	const reading = managedArchiveReading(page, session, files);
 	const line: ArchiveLine = {
 		kind: "line",

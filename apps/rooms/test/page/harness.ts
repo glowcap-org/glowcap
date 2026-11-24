@@ -1,7 +1,8 @@
 // What every phase of a page proof needs to drive the page itself: saying a
 // line, opening a direct message, waiting for a bubble, leaving, pressing
-// through the join card, and reading the contrast of ink actually drawn on a
-// bubble. Failing, ports, paths, and waiting come from the files that own them.
+// through the join card, reading the contrast of ink actually drawn on a
+// bubble, and proving the page kept itself instead of reloading. Failing,
+// ports, paths, and waiting come from the files that own them.
 //
 // A proof is one conversation driven in order, so these are the only things
 // shared across its phases. Everything else a phase needs, it is handed.
@@ -11,6 +12,15 @@ import { fail } from "../support/fail.ts";
 import { delay, until } from "../support/wait.ts";
 import { factDmDirect, factDmRelay } from "../../lib/text/conversation.ts";
 import { LOCAL_REFUSALS } from "../../lib/text/local_refusals.ts";
+
+/** Mark the page, so a later `keptItself` proves it kept itself instead of
+ * reloading, which would drop the mark. */
+export async function markKept(tab: Page): Promise<void> {
+	await tab.evaluate(() => Reflect.set(window, "keptWithoutReload", true));
+}
+export async function keptItself(tab: Page): Promise<boolean> {
+	return await tab.evaluate(() => Reflect.get(window, "keptWithoutReload")) === true;
+}
 
 /** Keep every notice the page tells, because a toast leaves on its own a few
  * seconds after it is shown, and a failure dump that reads `#toasts` after a
@@ -61,8 +71,10 @@ export async function bubbleInkContrast(
  * address and nobody able to reproduce it.
  */
 export async function fillSettled(tab: Page, selector: string, value: string): Promise<void> {
-	const holds = ({ selector, value }: { selector: string; value: string }) =>
-		(document.querySelector(selector) as HTMLInputElement | null)?.value === value;
+	const holds = ({ selector, value }: { selector: string; value: string }) => {
+		const field = document.querySelector(selector);
+		return (field instanceof HTMLInputElement || field instanceof HTMLTextAreaElement) && field.value === value;
+	};
 	for (let attempt = 0; attempt < 5; attempt++) {
 		await tab.fill(selector, value);
 		const took = await tab
@@ -111,15 +123,18 @@ export async function waitForPostedLine(tab: Page, text: string): Promise<void> 
  * pointer back, so each attempt aims at the bubble afresh. */
 export async function openLineMenu(bubble: Locator, deadline = Date.now() + 30_000): Promise<void> {
 	const mark = bubble.getByLabel(lineMenuLabel);
-	while (true) {
+	let missed: unknown = null;
+	do {
 		await bubble.hover({ timeout: Math.max(1, deadline - Date.now()) });
 		try {
 			await mark.click({ timeout: Math.min(2_000, Math.max(1, deadline - Date.now())) });
 			return;
 		} catch (error) {
-			if (!(error instanceof errors.TimeoutError) || Date.now() >= deadline) throw error;
+			if (!(error instanceof errors.TimeoutError)) throw error;
+			missed = error;
 		}
-	}
+	} while (Date.now() < deadline);
+	throw missed;
 }
 
 /** Press the direct-message control beside `peer` in the member list and wait
@@ -145,7 +160,10 @@ export async function directOpened(tab: Page, peer: string, timeout = 30_000): P
 				name.textContent?.trim() === peer
 			) &&
 			(document.getElementById("roomName")?.textContent ?? "").trim() === peer &&
-			(document.getElementById("line") as HTMLTextAreaElement | null)?.disabled === false,
+			(() => {
+				const line = document.getElementById("line");
+				return line instanceof HTMLTextAreaElement && !line.disabled;
+			})(),
 		peer,
 		{ timeout },
 	);
@@ -235,19 +253,23 @@ export async function reachDirectoryOnCard(
 	await tab.click("#joinBtn");
 	await tab.waitForFunction(
 		(expectedRoom) => {
-			const button = document.getElementById("joinBtn") as HTMLButtonElement | null;
-			if (button === null) {
+			const lineEnabled = () => {
+				const line = document.getElementById("line");
+				return line instanceof HTMLTextAreaElement && !line.disabled;
+			};
+			const button = document.getElementById("joinBtn");
+			if (!(button instanceof HTMLButtonElement)) {
 				return expectedRoom !== null &&
 					(document.getElementById("roomName")?.textContent ?? "").trim() === expectedRoom &&
-					(document.getElementById("line") as HTMLTextAreaElement | null)?.disabled === false;
+					lineEnabled();
 			}
 			// Progress is delayed; readiness follows the control.
 			if (button.disabled) return false;
 			const room = document.getElementById("room");
-			if (room !== null && (room as HTMLInputElement).offsetParent !== null) return true;
+			if (room instanceof HTMLElement && room.offsetParent !== null) return true;
 			return expectedRoom !== null &&
 				(document.getElementById("roomName")?.textContent ?? "").trim() === expectedRoom &&
-				(document.getElementById("line") as HTMLTextAreaElement | null)?.disabled === false;
+				lineEnabled();
 		},
 		expectedRoom ?? null,
 		{ timeout: 60_000 },
@@ -257,7 +279,7 @@ export async function reachDirectoryOnCard(
 				JSON.stringify(
 					await tab.evaluate(() => {
 						const screen = document.getElementById("joinScreen");
-						const room = document.getElementById("room") as HTMLInputElement | null;
+						const room = document.getElementById("room");
 						return {
 							button: document.getElementById("joinBtn")?.textContent?.trim() ?? "",
 							refused:
@@ -266,7 +288,7 @@ export async function reachDirectoryOnCard(
 							appClass: document.getElementById("app")?.className ?? "",
 							screenHidden: screen?.hidden ?? null,
 							roomHidden: room?.closest<HTMLElement>("[hidden]")?.id ?? null,
-							roomValue: room?.value ?? null,
+							roomValue: room instanceof HTMLInputElement ? room.value : null,
 							open: document.getElementById("roomName")?.textContent?.trim() ?? "",
 						};
 					}),

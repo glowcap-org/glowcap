@@ -1,4 +1,5 @@
-//! Fetch classification owns rejected and cancelled replies before exposure.
+//! Fetch classification owns rejected and cancelled replies before exposure,
+//! and its failure names none of what the lookup asked for.
 use super::support::*;
 use std::{cell::RefCell, future::Future, task::Poll};
 
@@ -185,6 +186,77 @@ async fn classified_fetch_outcomes_preserve_release_policy_and_retire_discards()
 				leaked.is_empty(),
 				"classified fetch leaked consumer retains: {leaked:?}"
 			);
+		})
+		.await;
+}
+
+thread_local! {
+	/// The capability `mint_malformed` sends to.
+	static ANSWERING: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+/// Mint a lookup whose answer is a value and not a capability: a `malformed`
+/// send to the capability `ANSWERING` names, whatever the lookup asked for.
+unsafe extern "C" fn mint_malformed(
+	session: *mut ffi::GlowcapHostSession,
+	_name: *const u8,
+	_length: usize,
+	out_vow: *mut u64,
+) -> i32 {
+	let target = sys::GlowcapReference { id: ANSWERING.get() };
+	let verb: &[u8] = b"malformed";
+	// SAFETY: session and out_vow are fetch_like's checked live handle and
+	// output; target and verb are borrowed locals, and the argument list is empty.
+	unsafe {
+		ffi::glowcap_host_session_send(
+			session,
+			&target,
+			verb.as_ptr(),
+			verb.len(),
+			std::ptr::null(),
+			0,
+			out_vow,
+		)
+	}
+}
+
+/// `Host::fetch_at` and `Host::enliven_inner` meet the same answer through
+/// `not_a_capability`, but no in-repo partner answers a Host fetch or enliven
+/// with a value, and their mint is no hook a test can replace. Their guard is
+/// the type: `not_a_capability` takes only a `&'static str` operation, so a
+/// caller cannot hand it the name or sturdyref it asked for.
+#[tokio::test]
+async fn a_lookup_answered_with_no_capability_names_none_of_what_it_asked_for() {
+	LocalSet::new()
+		.run_until(async {
+			let server = listen("127.0.0.1:0").await.unwrap();
+			let locator = server.locator().unwrap();
+			let (client, accepted) = tokio::join!(connect(&locator, ConnectOptions::default()), server.accept());
+			let client = client.unwrap();
+			let accepted = accepted.unwrap();
+			accepted
+				.publish("answers", |_, _| Ok(Argument::Symbol("not a capability".into())))
+				.unwrap();
+			let serving = tokio::task::spawn_local(accepted.serve());
+			let target = client.fetch("answers").await.unwrap();
+			ANSWERING.set(target.id());
+			// A swissnum is the authority it names, so no part of it may show.
+			let swiss = "c2VjcmV0LXN3aXNzbnVt";
+			for operation in ["fetch", "enliven"] {
+				let error = crate::promise::fetch_like(&client.shared, swiss.as_bytes(), operation, mint_malformed)
+					.await
+					.unwrap_err();
+				assert_eq!(error.kind(), ErrorKind::Broken);
+				let shown = format!("{error} {error:?}");
+				for part in swiss.as_bytes().windows(4) {
+					let part = std::str::from_utf8(part).unwrap();
+					assert!(!shown.contains(part), "{operation} failure shows {part:?}");
+				}
+			}
+			client.release(target).unwrap();
+			client.close(crate::PendingWork::Cancel).await.unwrap();
+			server.close().await.unwrap();
+			serving.await.unwrap().unwrap();
 		})
 		.await;
 }

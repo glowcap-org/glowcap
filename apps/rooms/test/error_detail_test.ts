@@ -2,7 +2,7 @@
 
 import { actionRefusal, errorDetailTitle, needsErrorDetail, sessionCapabilityRefusal } from "../web/ui/error_text.ts";
 import { attachedSessionFailureText } from "../web/ui/session/attached_failure.ts";
-import { assertEquals } from "./assert.ts";
+import { assert, assertEquals } from "./assert.ts";
 import { LOCAL_REFUSALS } from "../lib/text/local_refusals.ts";
 import { readResult, TerminalObservationError } from "../web/ui/session/managed/operation.ts";
 import { admissionRefusal } from "../web/ui/admission_feedback.ts";
@@ -28,11 +28,15 @@ import {
 	refusalText,
 	renderFailure,
 	transportBreak,
+	tryNowCanHelp,
 } from "../lib/text/failure.ts";
+import { browserFailure } from "./support/browser_failure.ts";
 
-function browserFailure(status: number, reason: string, code: string | null = null, detail = reason): Error {
-	return Object.assign(new Error(`glowcap error ${status}: ${reason}`), { status, reason, code, detail });
-}
+Deno.test("a refusal that never clears names the step the reader takes instead", () => {
+	for (const [code, definition] of Object.entries(ROOMS_FAILURES)) {
+		if (definition.retry === "never") assert(definition.action != null, `${code} names no next step`);
+	}
+});
 
 Deno.test("a broken call names a Rooms code only when an application wrote its reason", () => {
 	const reason = "nick-taken: alice";
@@ -136,6 +140,12 @@ Deno.test("a session capability is checked for the two mistakes a reader makes",
 	assertEquals(sessionCapabilityRefusal("ocapn://127.0.0.1%3A7300.tcp/s/swiss"), "");
 });
 
+Deno.test("a change that may not have gone through is the person's to send again after looking, never the page's", () => {
+	const view = failureView(new LocalRefusal("receipt-lost"));
+	assertEquals(view.retry, "after-request-change", "a new request can still succeed");
+	assertEquals(tryNowCanHelp(view), false, "the same request is never offered again");
+});
+
 Deno.test("a value glowcap could not read offers the likely mistake rather than diagnosing one", () => {
 	const view = failureView(browserFailure(-2, "uri parse: UriParseError"));
 	assertEquals(view.code, "unreadable-value");
@@ -163,16 +173,23 @@ Deno.test("a break on the way is told apart from a value or a denial", () => {
 	assertEquals(transportBreak(browserFailure(-12, "Denied")), null);
 	assertEquals(transportBreak(browserFailure(-2, "host: MalformedPath")), null);
 	assertEquals(transportBreak(new Error("That name is taken.")), null);
-	// A closed connection is a lost one. What the other side answered is not.
+	// Rust names this side's lost connection to the session
+	// `session-unreachable` with no binding status, whether it closed, broke, or
+	// stopped answering, and only that is a lost link. A bare binding status is
+	// not, and neither is a line the session wrote, even one with that code or
+	// one saying a third peer was unreachable.
 	assertEquals(
 		[
+			browserFailure(null, "The session did not answer", "session-unreachable"),
+			browserFailure(null, "session closing", "session-unreachable"),
+			browserFailure(-12, "session-unreachable: the store did not answer", "session-unreachable"),
 			browserFailure(-7, "session closing"),
 			browserFailure(-8, "browser channel error"),
 			browserFailure(-12, "ExporterUnreachable", "peer-unreachable"),
 			browserFailure(-12, "Denied"),
 			browserFailure(-13, "host: UnknownCapability"),
 		].map(connectionLost),
-		[true, true, true, false, false],
+		[true, true, false, false, false, false, false, false],
 	);
 });
 

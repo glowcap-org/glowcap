@@ -49,28 +49,15 @@ impl<D: Deadline> Archive<D> {
 		if sources.is_empty() {
 			return Err(archive::Error::Blob.into());
 		}
-		let reply = match &self.caller {
-			Caller::Remote(client) => {
-				pool.send_scoped(
-					client,
-					&self.reference,
-					admission::PUT_FILES,
-					vec![wire::record_row(record)],
-					sources,
-				)
-				.await?
-			}
-			Caller::Local { host, .. } => {
-				pool.send_scoped_local(
-					host,
-					&self.reference,
-					admission::PUT_FILES,
-					vec![wire::record_row(record)],
-					sources,
-				)
-				.await?
-			}
-		};
+		let reply = pool
+			.send_scoped_through(
+				self.caller.clone(),
+				&self.reference,
+				admission::PUT_FILES,
+				vec![wire::record_row(record)],
+				sources,
+			)
+			.await?;
 		acknowledgement(&reply)
 	}
 	pub async fn put_files(&self, record: &Record, attachments: &[Attachment<Ref>]) -> Result<u64, Error> {

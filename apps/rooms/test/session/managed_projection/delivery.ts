@@ -5,6 +5,9 @@ import { assertThrows } from "@std/assert";
 import type { RoomsManagedFile } from "../../../../../zig-out/wasm/rooms/rooms_browser.js";
 import * as store from "../../../web/ui/store.ts";
 import { fixture } from "./fixture.ts";
+import { FIRST_LINK } from "../../../web/ui/session/managed/link_port.ts";
+
+const FIRST = { generation: FIRST_LINK };
 
 Deno.test("managed activity validates its notice once and preserves its carrier and handles", () => {
 	let reads = 0;
@@ -27,7 +30,7 @@ Deno.test("managed activity validates its notice once and preserves its carrier 
 		},
 	};
 	const event = raw.event;
-	const delivery = new ActivityDelivery(raw, false);
+	const delivery = new ActivityDelivery(raw, false, FIRST);
 	const page = delivery.take();
 	assert(page === raw, "the carrier is transferred without cloning");
 	assert(page.event === event, "the event is transferred without cloning");
@@ -44,15 +47,19 @@ for (const notice of [null, { kind: "futureNotice" }, { kind: "line", text: 42 }
 	Deno.test(`managed activity ignores an unsupported notice and still releases its files: ${JSON.stringify(notice)}`, () => {
 		const f = fixture();
 		let released = 0;
-		const delivery = new ActivityDelivery({
-			cursor: "1",
-			event: {
-				at: 0,
-				target: { kind: "room", id: "conversation" },
-				notice,
-				files: [{ free: () => released++ } as unknown as RoomsManagedFile],
+		const delivery = new ActivityDelivery(
+			{
+				cursor: "1",
+				event: {
+					at: 0,
+					target: { kind: "room", id: "conversation" },
+					notice,
+					files: [{ free: () => released++ } as unknown as RoomsManagedFile],
+				},
 			},
-		}, false);
+			false,
+			FIRST,
+		);
 		try {
 			const page = delivery.take();
 			assertEquals(page.event?.notice, null);

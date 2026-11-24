@@ -5,6 +5,9 @@ import { ActivityDelivery } from "../../../web/ui/session/managed/activity.ts";
 import * as store from "../../../web/ui/store.ts";
 import { dirId } from "../../../web/ui/directory.ts";
 import { direct, fixture, room } from "./fixture.ts";
+import { FIRST_LINK } from "../../../web/ui/session/managed/link_port.ts";
+
+const FIRST = { generation: FIRST_LINK };
 
 for (const conversation of [room, direct]) {
 	for (const history of [null, { source: "recorder", generation: "membership", id: "1" }]) {
@@ -14,22 +17,26 @@ for (const conversation of [room, direct]) {
 			try {
 				f.current.intent.keepHistory = history != null;
 				f.projection.activity(
-					new ActivityDelivery({
-						cursor: "1",
-						event: {
-							at: 0,
-							target: { kind: row.kind, id: row.id },
-							notice: {
-								kind: "line",
-								from: "bo",
-								text: "live message",
-								marker: { id: 1, change: "said" },
-								metadata: null,
-								previewUrls: [],
-								history,
+					new ActivityDelivery(
+						{
+							cursor: "1",
+							event: {
+								at: 0,
+								target: { kind: row.kind, id: row.id },
+								notice: {
+									kind: "line",
+									from: "bo",
+									text: "live message",
+									marker: { id: 1, change: "said" },
+									metadata: null,
+									previewUrls: [],
+									history,
+								},
 							},
 						},
-					}, false).take(),
+						false,
+						FIRST,
+					).take(),
 					false,
 				);
 				const lines = store.historyOf(f.page.projection, f.selected().key).filter((item) =>
@@ -60,10 +67,14 @@ for (const change of ["edited", "refiled", "withdrawn"] as const) {
 		};
 		const apply = (notice: unknown) =>
 			f.projection.activity(
-				new ActivityDelivery({
-					cursor: "1",
-					event: { at: 0, target: { kind: "direct", id: row.id }, notice },
-				}, false).take(),
+				new ActivityDelivery(
+					{
+						cursor: "1",
+						event: { at: 0, target: { kind: "direct", id: row.id }, notice },
+					},
+					false,
+					FIRST,
+				).take(),
 				false,
 			);
 		try {
@@ -109,10 +120,14 @@ Deno.test("managed discovery applies the Rust snapshot's omitted count", () => {
 		assert(parsed?.kind === "discoverySnapshot", "a Rust discovery snapshot must be admitted");
 		assertEquals(parsed.snapshot, notice.snapshot);
 		f.projection.activity(
-			new ActivityDelivery({
-				cursor: "1",
-				event: { at: 0, target: { kind: "discovery", id: "directory" }, notice },
-			}, false).take(),
+			new ActivityDelivery(
+				{
+					cursor: "1",
+					event: { at: 0, target: { kind: "discovery", id: "directory" }, notice },
+				},
+				false,
+				FIRST,
+			).take(),
 			false,
 		);
 		const directory = f.page.projection.get().dirs.get(dirId("directory"))!;

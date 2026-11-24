@@ -1,5 +1,7 @@
 //! Receipt fields retain the original mediation source, targets and result.
-use super::super::custody::{self, Coordinate, EffectReceipt, FieldKey, Outcome, References, Retained, RetainedField};
+use super::super::custody::{
+	self, Coordinate, Disposition, EffectReceipt, FieldKey, Outcome, References, Retained, RetainedField,
+};
 use super::{EFFECT, Error, Page, RestoredPage, pages};
 use crate::{
 	fields::{List, Text},
@@ -14,7 +16,10 @@ use serde::{Deserialize, Serialize};
 struct Data<'a> {
 	version: super::super::workspace::Version,
 	operation: Cow<'a, OperationId>,
-	adopted: bool,
+	/// Encoded by its serde name, whose forms all have one length
+	/// (`custody::disposition_width` holds it), so a change of disposition
+	/// never grows the record past the byte cap.
+	disposition: Disposition,
 	outgoing: Option<Cow<'a, super::super::outgoing::Update>>,
 	introduction: Option<Cow<'a, super::super::workspace::Introduction>>,
 	canonical_intent: Cow<'a, Text<262144, true>>,
@@ -57,7 +62,7 @@ pub fn encode_effect<R: References>(receipt: &EffectReceipt<R>) -> Result<Vec<Pa
 	let data = Data {
 		version: super::super::workspace::Version::V1,
 		operation: Cow::Borrowed(&receipt.operation),
-		adopted: receipt.adopted,
+		disposition: receipt.disposition,
 		outgoing: receipt.outgoing.as_ref().map(Cow::Borrowed),
 		introduction: receipt.introduction.as_ref().map(Cow::Borrowed),
 		canonical_intent: Cow::Borrowed(&receipt.canonical_intent),
@@ -134,8 +139,12 @@ fn assemble<R: References>(
 		(State::Unresolved | State::KnownAbsent, None, None) if data.retained.0.is_empty() => {}
 		_ => return Err(Error::Format),
 	}
-	if data.adopted && !matches!(data.outcome, State::Committed) {
-		return Err(Error::Format);
+	// Only a committed result is adopted, and only a settled receipt is
+	// released.
+	match (data.disposition, &data.outcome) {
+		(Disposition::Adopted, State::Committed) | (Disposition::Held, _) => {}
+		(Disposition::Released, outcome) if !matches!(outcome, State::Unresolved) => {}
+		_ => return Err(Error::Format),
 	}
 	let mut fields = coordinates(&data).enumerate().map(|(index, coordinate)| {
 		let field = restore(coordinate, index)?;
@@ -169,7 +178,7 @@ fn assemble<R: References>(
 	};
 	Ok(EffectReceipt {
 		operation: data.operation.into_owned(),
-		adopted: data.adopted,
+		disposition: data.disposition,
 		outgoing: data.outgoing.map(Cow::into_owned),
 		introduction: data.introduction.map(Cow::into_owned),
 		canonical_intent: data.canonical_intent.into_owned(),

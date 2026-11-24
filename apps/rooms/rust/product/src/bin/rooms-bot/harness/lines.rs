@@ -54,8 +54,9 @@ fn shorten(text: &str) -> String {
 /// statuses carry no fixed meaning, so they stay unclassified.
 pub fn status_kind(status: u64) -> Option<FailureKind> {
 	match status {
-		401 | 403 => Some(FailureKind::Auth),
-		429 => Some(FailureKind::RateLimit),
+		401 | 403 => Some(FailureKind::SignIn),
+		429 => Some(FailureKind::UsageLimit),
+		500..=599 => Some(FailureKind::Outage),
 		_ => None,
 	}
 }

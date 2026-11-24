@@ -335,9 +335,7 @@ impl Host {
 		let _release = crate::gc::VowGuard::new(&self.shared, vow);
 		match self.shared.observe_vow(vow).await? {
 			Argument::Reference(reference) => Ok(reference),
-			_ => Err(Error::broken(format!(
-				"publication {name:?} did not resolve to a capability"
-			))),
+			_ => Err(crate::promise::not_a_capability("fetch")),
 		}
 	}
 
@@ -368,7 +366,7 @@ impl Host {
 		let _release = crate::gc::VowGuard::new(&self.shared, vow);
 		match self.shared.observe_vow(vow).await? {
 			Argument::Reference(reference) => Ok(reference),
-			_ => Err(Error::broken(format!("{sturdyref:?} did not resolve to a capability"))),
+			_ => Err(crate::promise::not_a_capability("enliven")),
 		}
 	}
 }

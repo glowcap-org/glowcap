@@ -168,6 +168,13 @@ pub(super) async fn run() {
 					platform.clone(),
 					std::num::NonZeroUsize::new(limits.forward_reply_bytes).unwrap(),
 				);
+				let reported = Rc::new(Cell::new(0));
+				owner
+					.on_trouble({
+						let reported = reported.clone();
+						move |_, _| reported.set(reported.get() + 1)
+					})
+					.unwrap();
 				let calls = Rc::new(Cell::new(0));
 				let unknown = Rc::new(Cell::new(false));
 				let current_form = Rc::new(RefCell::new(form()));
@@ -402,6 +409,7 @@ pub(super) async fn run() {
 				// A succeeded previous identity cannot justify replay of a newer
 				// first submission whose effect returned an unrecognized result.
 				unknown.set(true);
+				let before = reported.get();
 				request.operation = Text::new("unknown-first".into()).unwrap();
 				request.base = SafeInteger::new(workspace.snapshot().await.unwrap().revision).unwrap();
 				request.seat = seat_key(2);
@@ -409,10 +417,26 @@ pub(super) async fn run() {
 				unknown_command.submit().await.unwrap();
 				assert_eq!(terminal(&unknown_command).await, EffectStatus::Unknown);
 				assert_eq!(calls.get(), 4);
+				assert!(
+					workspace
+						.effects()
+						.await
+						.unwrap()
+						.iter()
+						.any(|row| row.operation == "unknown-first" && !row.resumable),
+					"an unknown submit leaves no job a resume could continue"
+				);
 				owner.resume_pending().unwrap();
 				for _ in 0..4 {
 					environment::yield_turn().await;
 				}
+				// The executor reports why it left the receipt unresolved, once,
+				// whether or not its source resumes.
+				assert_eq!(
+					reported.get(),
+					before + 1,
+					"the unresolved bridge's cause was not reported"
+				);
 				assert!(
 					workspace
 						.prepare_bridge_reapplication(

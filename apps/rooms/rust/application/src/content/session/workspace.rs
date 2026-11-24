@@ -19,6 +19,8 @@ mod inbox;
 pub use discovery::DiscoverySelection;
 mod adoption;
 mod direct;
+mod invalid;
+pub use invalid::InvalidIntent;
 mod nickname;
 mod references;
 mod rows;
@@ -373,17 +375,6 @@ pub enum DecodeError {
 	Json(serde_json::Error),
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum InvalidIntent {
-	Home,
-	Duplicate,
-	Directory,
-	Active,
-	Custody,
-	/// A replacement opens a direct row for a registration another open row
-	/// already reaches.
-	DirectOpen,
-}
 impl Intent {
 	/// Effective standing preserves explicit empty overrides at both scopes.
 	pub fn room_standing(&self, id: &str) -> Option<&Standing> {

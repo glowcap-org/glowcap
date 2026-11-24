@@ -1,189 +1,28 @@
-// A page attached to a session elsewhere dials it again by itself when the
-// link breaks, keeps what the page holds, and says what it is doing.
-import type { RoomsManagedCommand } from "../../../../zig-out/wasm/rooms/rooms_browser.js";
+// A page attached to a session elsewhere, over a link that breaks: the page
+// dials again, releases the old handles once, and moves what it holds onto the
+// new link.
+import { assertThrows } from "@std/assert";
 import { assert, assertEquals } from "../assert.ts";
 import { connectionLost } from "../../lib/text/failure.ts";
-import { until, within } from "../support/wait.ts";
+import { structuredFailure } from "../../lib/error_codes.ts";
+import { settle, until, within } from "../support/wait.ts";
 import { deferred, snapshot, viewer } from "../support/managed_viewer.ts";
-import { closed, failure, FakeClock, linkedWorkspace, recovered, request, settle } from "../support/managed_link.ts";
 import {
-	backoff,
-	BACKOFF_CEILING_MS,
+	attached,
+	closed,
+	FakeClock,
+	linkedWorkspace,
+	recovered,
+	relinking,
+	request,
+} from "../support/managed_link.ts";
+import { browserFailure, refusalCode } from "../support/browser_failure.ts";
+import {
 	BACKOFF_FIRST_MS,
-	ManagedLink,
-	NOTICE_AFTER_MS,
-	PROBE_MS,
-	RECOVERY_WAIT_MS,
-	STUCK_AFTER_MS,
+	LINK_WAIT_MS,
+	PROBE_BACKSTOP_MS,
+	QUIET_PROBE_MS,
 } from "../../web/ui/session/managed/link.ts";
-
-/** A link whose dials answer from the test. */
-function bare() {
-	const clock = new FakeClock();
-	const dials: ReturnType<typeof deferred<void>>[] = [];
-	const rejections: ((error: unknown) => void)[] = [];
-	const reported: unknown[] = [];
-	let probe: () => Promise<void> = () => Promise.resolve();
-	const link = new ManagedLink({
-		dial: () =>
-			new Promise<void>((resolve, reject) => {
-				dials.push({ promise: Promise.resolve(), resolve });
-				rejections.push(reject);
-			}),
-		probe: () => probe(),
-		changed: () => {},
-		report: (error) => reported.push(error),
-	}, clock);
-	return {
-		clock,
-		link,
-		dials,
-		reported,
-		fail: (index: number, error: unknown) => rejections[index](error),
-		probing: (next: () => Promise<void>) => probe = next,
-	};
-}
-
-Deno.test("the wait before each dial doubles to a ceiling and jitter only shortens it", () => {
-	assertEquals(backoff(1, 0), BACKOFF_FIRST_MS);
-	assertEquals(backoff(2, 0), 2 * BACKOFF_FIRST_MS);
-	assertEquals(backoff(3, 0), 4 * BACKOFF_FIRST_MS);
-	assertEquals(backoff(20, 0), BACKOFF_CEILING_MS);
-	assertEquals(backoff(3, 1), 3_200);
-});
-
-Deno.test("a lost link dials at once, then waits out each failed dial, and a wake dials now", async () => {
-	const { link, clock, dials, fail } = bare();
-	link.lost(closed());
-	assertEquals([link.state.kind, dials.length], ["dialing", 1]);
-	fail(0, closed());
-	await settle();
-	assertEquals([link.state.kind, dials.length, clock.next], ["waiting", 1, 1_000]);
-	clock.advance(1_000);
-	assertEquals([link.state.kind, dials.length], ["dialing", 2]);
-	fail(1, closed());
-	await settle();
-	clock.advance(1_999);
-	assertEquals(dials.length, 2, "the second wait is two seconds");
-	link.wake();
-	assertEquals([link.state.kind, dials.length], ["dialing", 3]);
-	dials[2].resolve();
-	await settle();
-	assertEquals([link.live, clock.waiting], [true, 0]);
-});
-
-Deno.test("only a lost connection ends a live link", () => {
-	const { link, dials } = bare();
-	link.lost(failure(-12, "Denied"));
-	assertEquals([link.live, dials.length], [true, 0]);
-});
-
-Deno.test("a dial that ran out of time is retried, and an answered refusal is not", async () => {
-	const { link, dials, fail, reported, clock } = bare();
-	link.lost(closed());
-	fail(0, failure(-5, "Saved workspace connection timed out", "session-unreachable"));
-	await settle();
-	assertEquals(link.state.kind, "waiting");
-	link.wake();
-	const denied = failure(-12, "The saved access was revoked", "session-restoration-failed");
-	fail(1, denied);
-	await settle();
-	assertEquals([link.state.kind, link.notice, reported], ["refused", "refused", [denied]]);
-	assertEquals(clock.waiting, 0, "a refusal runs no timer");
-	link.wake();
-	assertEquals([link.state.kind, dials.length], ["refused", 2], "a wake leaves a refusal alone");
-	link.tryNow();
-	assertEquals([link.state.kind, dials.length], ["dialing", 3], "only a person's try now dials again");
-});
-
-Deno.test("a failure inside the page is refused without an answer and offers a reload", async () => {
-	const { link, fail } = bare();
-	link.lost(closed());
-	fail(0, new Error("the page broke"));
-	await settle();
-	assertEquals(link.notice, "failed");
-});
-
-Deno.test("a hidden page runs no timer and waits to be seen", async () => {
-	const { link, clock, dials, fail } = bare();
-	link.lost(closed());
-	fail(0, closed());
-	await settle();
-	link.visibility(false);
-	assertEquals([link.state.kind, clock.waiting], ["waiting", 0]);
-	clock.advance(STUCK_AFTER_MS * 2);
-	assertEquals(dials.length, 1);
-	link.visibility(true);
-	assertEquals(dials.length, 2);
-	link.lost(closed());
-	link.visibility(false);
-	assertEquals(clock.waiting, 0);
-});
-
-Deno.test("a hidden page probes nothing until it is seen", () => {
-	const { link, clock, probing } = bare();
-	let probes = 0;
-	probing(() => {
-		probes++;
-		return new Promise(() => {});
-	});
-	link.visibility(false);
-	link.wake();
-	assertEquals([probes, clock.waiting], [0, 0]);
-	link.visibility(true);
-	assertEquals([probes, clock.waiting], [1, 1]);
-});
-
-Deno.test("a device with no network waits for one, and says so", async () => {
-	const { link, clock, dials, fail } = bare();
-	link.connectivity(false);
-	link.lost(closed());
-	assertEquals([link.state.kind, dials.length], ["waiting", 0]);
-	clock.time += NOTICE_AFTER_MS;
-	assertEquals(link.notice, "offline");
-	link.connectivity(true);
-	assertEquals(dials.length, 1);
-	fail(0, closed());
-	await settle();
-});
-
-Deno.test("the notice names the wait only after it has lasted", async () => {
-	const { link, clock, fail } = bare();
-	link.lost(closed());
-	fail(0, closed());
-	await settle();
-	assertEquals(link.notice, null);
-	clock.time = NOTICE_AFTER_MS;
-	assertEquals(link.notice, "reconnecting");
-	clock.time = STUCK_AFTER_MS;
-	assertEquals(link.notice, "stuck");
-});
-
-Deno.test("a probe that is never answered counts as a lost link", () => {
-	const { link, clock, dials, probing } = bare();
-	probing(() => new Promise(() => {}));
-	link.wake();
-	assertEquals([link.live, dials.length], [true, 0]);
-	clock.advance(PROBE_MS);
-	assertEquals([link.state.kind, dials.length], ["dialing", 1]);
-});
-
-Deno.test("a probe that answers keeps the link", async () => {
-	const { link, clock, dials } = bare();
-	link.wake();
-	await settle();
-	clock.advance(PROBE_MS * 2);
-	assertEquals([link.live, dials.length, clock.waiting], [true, 0, 0]);
-});
-
-Deno.test("closing during a dial settles it, and the dial revives nothing", async () => {
-	const { link, dials } = bare();
-	link.lost(closed());
-	const closing = link.close();
-	dials[0].resolve();
-	await within(closing, "the link to close");
-	assertEquals(link.state.kind, "closed");
-});
 
 Deno.test("a session this browser runs has no link", async () => {
 	const session = viewer({}, undefined, {}, true);
@@ -191,39 +30,14 @@ Deno.test("a session this browser runs has no link", async () => {
 	await session.close();
 });
 
-/** A started attached session over workspace `first`, and the workspaces a dial returns in turn. */
-async function attached(rest: ReturnType<typeof linkedWorkspace>[], incarnation = "run") {
-	const log: string[] = [];
-	const first = linkedWorkspace("first", log, {}, incarnation);
-	const later = rest.map((workspace) => workspace);
-	const clock = new FakeClock();
-	const reported: unknown[] = [];
-	const dials: { id: string; stale: unknown }[] = [];
-	const session = viewer(
-		first.workspace,
-		(_source, error) => reported.push(error),
-		{
-			relink: (id: string, stale: unknown) => {
-				dials.push({ id, stale });
-				log.push("relink");
-				const next = later.shift();
-				return next == null ? Promise.reject(failure(-7, "session closing")) : Promise.resolve(next.workspace);
-			},
-		},
-		false,
-		clock,
-	);
-	await session.start();
-	return { session, first, clock, log, reported, dials };
-}
-
 Deno.test("a broken link is replaced, the old handles are released once, and nothing is polled on the old link", async () => {
 	const log: string[] = [];
 	const second = linkedWorkspace("second", log);
 	const { session, first, dials, log: started } = await attached([second]);
 	started.length = 0;
 	first.lose();
-	await until(() => session.link?.live === true && dials.length === 1, "the page to dial again");
+	await settle();
+	assert(session.link?.live === true && dials.length === 1, "the page to dial again");
 	assertEquals(dials[0].id, "active-view");
 	assertEquals([first.state.freed, first.state.observationFreed], [1, 1]);
 	assertEquals([second.state.observations, session.resources.observation], [1, true]);
@@ -245,10 +59,26 @@ Deno.test("the page keeps its activity cursor across the link and reads on from 
 	session.onActivity((delivery) => {
 		heard.push(delivery.take().cursor);
 	});
-	await until(() => heard.length === 1, "the first delivery");
+	await settle();
+	assert(heard.length === 1, "the first delivery");
 	first.lose();
-	await until(() => second.reads.length > 0, "the new link to be read");
+	await settle();
+	assert(second.reads.length > 0, "the new link to be read");
 	assertEquals(second.reads[0], "run:1");
+	await session.close();
+});
+
+Deno.test("an activity read that loses its connection ends the link it ran on", async () => {
+	const second = linkedWorkspace("second", []);
+	const { session, first, dials, reported } = await attached([second]);
+	const lost = closed();
+	// Only the activity read breaks. The observation's read stays parked.
+	first.script.push({ reply: () => lost });
+	session.onActivity((delivery) => void delivery.take());
+	await settle();
+	assertEquals([dials.length, session.link?.live, second.state.readers], [1, true, 1], "the page to dial again");
+	assert(!reported.includes(lost), "a lost connection is the link's to say");
+	first.lose();
 	await session.close();
 });
 
@@ -268,11 +98,104 @@ Deno.test("a cursor from before the session restarted is answered as a gap and r
 		const page = delivery.take();
 		heard.push({ cursor: page.cursor, gap: page.gap === true });
 	});
-	await until(() => heard.length === 1, "the first delivery");
+	await settle();
+	assert(heard.length === 1, "the first delivery");
 	first.lose();
-	await until(() => heard.length >= 2, "the gap");
+	await settle();
+	assert(heard.length >= 2, "the gap");
 	assertEquals(heard[1], { cursor: "new:0", gap: true });
 	assertEquals(second.reads[0], "old:1", "the page offers the cursor it kept, and the session decides");
+	await session.close();
+});
+
+Deno.test("a cursor the restarted session refuses as stale starts the page over as a gap, by its code", async () => {
+	const first = linkedWorkspace("first", [], {}, "old");
+	const second = linkedWorkspace("second", [], {}, "new");
+	const { session } = relinking(first.workspace, second.workspace);
+	await session.start();
+	const heard: { cursor: string; gap: boolean }[] = [];
+	first.script.push({
+		reply: () => ({ cursor: "old:1", event: null, gap: false, head: "old:1", unavailable: false }),
+	});
+	second.script.push({
+		reply: () =>
+			browserFailure(
+				-12,
+				"refused",
+				"activity-cursor-stale",
+				"The session restarted since Rooms last read its activity.",
+			),
+	});
+	session.onActivity((delivery) => {
+		const page = delivery.take();
+		heard.push({ cursor: page.cursor, gap: page.gap === true });
+	});
+	await settle();
+	assert(heard.length === 1, "the first delivery");
+	first.lose();
+	await settle();
+	assert(heard.length >= 2, "the gap");
+	assertEquals(heard[1], { cursor: "", gap: true });
+	await settle();
+	assert(second.reads.length >= 2, "the read from the start");
+	assertEquals(second.reads.slice(0, 2), ["old:1", ""]);
+	await session.close();
+});
+
+for (
+	const refusal of [
+		browserFailure(-12, "observation closed"),
+		browserFailure(null, "Workspace observation poll", "session-request-timed-out"),
+	]
+) {
+	Deno.test(`a probe the session answers with ${refusal.message} keeps the link and stops nothing`, async () => {
+		const { session, first, dials, reported } = await attached([]);
+		first.polling(() => Promise.reject(refusal));
+		session.link?.wake();
+		await settle();
+		// A running command's watch throws the observation's failure, so none may stand.
+		assertEquals(session.updatesFailure, null, "the session-wide observation failure");
+		assertEquals([session.link?.state.kind, dials.length], ["live", 0], "the session answered, so nothing dials");
+		assertEquals(reported, [], "the link alone reads a probe's answer");
+		await session.close();
+	});
+}
+
+Deno.test("a live link is probed only after start registers its observation", async () => {
+	const session = viewer(linkedWorkspace("first", []).workspace, undefined, {}, false, new FakeClock());
+	assertThrows(() => session.link?.wake(), Error, "only after its observation is registered");
+	await session.close();
+});
+
+Deno.test("a probe whose connection closed still dials again, and reports nothing of its own", async () => {
+	const second = linkedWorkspace("second", []);
+	const { session, first, dials, reported } = await attached([second]);
+	const lost = closed();
+	first.polling(() => Promise.reject(lost));
+	session.link?.wake();
+	await settle();
+	assert(session.link?.live === true && dials.length === 1, "the page to dial again");
+	assert(!reported.includes(lost), "a lost connection is the link's to say");
+	// The closed connection fails what still waits on it, as the retired session does.
+	first.lose(lost);
+	await session.close();
+});
+
+Deno.test("a connection that dies without closing is noticed within the quiet bound, and the page dials again", async () => {
+	const second = linkedWorkspace("second", []);
+	const { session, first, clock, dials, log } = await attached([second]);
+	// Nothing on the old connection answers again, and nothing says it closed.
+	first.polling(() => new Promise(() => {}));
+	clock.advance(QUIET_PROBE_MS);
+	assertEquals(
+		[log.filter((line) => line === "first:poll").length, dials.length],
+		[2, 0],
+		"one probe, still waiting",
+	);
+	clock.advance(PROBE_BACKSTOP_MS);
+	await settle();
+	assert(session.link?.live === true && dials.length === 1, "the page to dial again");
+	first.lose();
 	await session.close();
 });
 
@@ -281,7 +204,7 @@ Deno.test("a failed dial leaves the page as it was and the next one succeeds", a
 	const second = linkedWorkspace("second", log);
 	const { session, first, clock, dials } = await attached([]);
 	const answers: (() => unknown)[] = [
-		() => Promise.reject(failure(-7, "session closing")),
+		() => Promise.reject(closed()),
 		() => Promise.resolve(second.workspace),
 	];
 	Object.assign(session.application, {
@@ -291,16 +214,58 @@ Deno.test("a failed dial leaves the page as it was and the next one succeeds", a
 		},
 	});
 	first.lose();
-	await until(() => dials.length === 1, "the first dial");
+	await settle();
+	assert(dials.length === 1, "the first dial");
 	await settle();
 	assertEquals([first.state.freed, second.state.observations, session.link?.live], [0, 0, false]);
 	assertEquals(clock.next, BACKOFF_FIRST_MS, "the failed dial waits before the next");
 	clock.advance(BACKOFF_FIRST_MS);
-	await until(() => session.link?.live === true, "the next dial to succeed");
+	await settle();
+	assert(session.link?.live === true, "the next dial to succeed");
 	assertEquals([first.state.freed, second.state.observations, dials.length], [1, 1, 2]);
 	await session.close();
 });
 
+Deno.test("a dial whose later steps fail closes the session it opened, so the next dial opens its own", async () => {
+	const log: string[] = [];
+	const first = linkedWorkspace("first", log);
+	const opened = linkedWorkspace("opened", log, {
+		prepareObservation: () => Promise.reject(closed()),
+		retire: () => {
+			log.push("opened:retire");
+			return Promise.resolve();
+		},
+	});
+	const second = linkedWorkspace("second", log);
+	const dials = [opened.workspace, second.workspace];
+	const clock = new FakeClock();
+	const session = viewer(
+		first.workspace,
+		undefined,
+		{
+			relink: () => {
+				log.push("relink");
+				const next = dials.shift();
+				return next == null ? Promise.reject(closed()) : Promise.resolve(next);
+			},
+		},
+		false,
+		clock,
+	);
+	await session.start();
+	first.lose();
+	await settle();
+	assert(opened.state.freed === 1, "the failed dial to let go of its workspace");
+	assertEquals(log.filter((line) => line === "relink" || line === "opened:retire"), ["relink", "opened:retire"]);
+	clock.advance(clock.next ?? 0);
+	await settle();
+	assert(session.link?.live === true, "the next dial");
+	assertEquals([first.state.freed, second.state.observations], [1, 1]);
+	await session.close();
+});
+
+// managed_link_state_test proves the link alone settles. This proves the page
+// around it frees what the late dial brings.
 Deno.test("close during a dial settles and no dial resolves into a closed page", async () => {
 	const first = linkedWorkspace("first", []);
 	const dial = deferred<unknown>();
@@ -313,8 +278,46 @@ Deno.test("close during a dial settles and no dial resolves into a closed page",
 	const closing = session.close();
 	dial.resolve(second.workspace);
 	await within(closing, "the page to close");
+	assertEquals(second.state.retired, 1, "the late session is closed");
 	assertEquals(second.state.freed, 1, "the late workspace is released, never adopted");
 	assertEquals(session.link?.state.kind, "closed");
+});
+
+Deno.test("a read over the old link that fails while the dial is under way leaves the new link live", async () => {
+	const first = linkedWorkspace("first", []);
+	const late = deferred<unknown>();
+	first.script.push({ reply: () => late.promise });
+	const second = linkedWorkspace("second", []);
+	const dial = deferred<unknown>();
+	let dials = 0;
+	const session = viewer(
+		first.workspace,
+		undefined,
+		{
+			relink: () => {
+				dials++;
+				return dial.promise;
+			},
+		},
+		false,
+		new FakeClock(),
+	);
+	await session.start();
+	const stop = session.onActivity(() => {});
+	await settle();
+	first.lose();
+	await settle();
+	assertEquals(session.link?.state.kind, "dialing");
+	// The old link's activity read answers its loss only now.
+	late.resolve(closed());
+	await settle();
+	dial.resolve(second.workspace);
+	await settle();
+	assert(session.link?.state.kind !== "dialing", "the dial to end");
+	assertEquals([session.link?.live, dials], [true, 1], "the old link's loss is not the new one's");
+	stop();
+	second.lose();
+	await session.close();
 });
 
 Deno.test("a command sent while the link is down goes out once, after the link returns", async () => {
@@ -355,7 +358,7 @@ Deno.test("a command sent while the link is down goes out once, after the link r
 	await session.close();
 });
 
-Deno.test("a command still waiting after the request bound is refused as not sent", async () => {
+Deno.test("a command waits two request bounds for the link, then is refused as not sent", async () => {
 	const first = linkedWorkspace("first", []);
 	const clock = new FakeClock();
 	const session = viewer(first.workspace, undefined, { relink: () => new Promise(() => {}) }, false, clock);
@@ -364,9 +367,14 @@ Deno.test("a command still waiting after the request bound is refused as not sen
 	await settle();
 	const sending = session.command("setDraft", ["dm", "hello"]).then(() => null, (error: unknown) => error);
 	await settle();
-	clock.advance(RECOVERY_WAIT_MS);
+	let settled = false;
+	void sending.then(() => settled = true);
+	clock.advance(LINK_WAIT_MS - 1);
+	await settle();
+	assertEquals(settled, false, "the command still waits just before the bound");
+	clock.advance(1);
 	const refused = await within(sending, "the command to be refused");
-	assertEquals((refused as { code?: unknown }).code, "local-not-sent");
+	assertEquals(refusalCode(refused), "local-not-sent");
 	session.link?.close();
 });
 
@@ -432,85 +440,37 @@ Deno.test("a command admitted before the link broke is taken up again by its ope
 	const first = linkedWorkspace("first", []);
 	const second = linkedWorkspace("second", []);
 	const recoveries: string[] = [];
-	Object.assign(second.workspace, {
-		recoverEffect: (id: string) => {
-			recoveries.push(id);
-			return Promise.resolve({
-				status: () => Promise.resolve("committed"),
-				resume: () => Promise.resolve("committed"),
-				result: () => Promise.resolve(null),
-				free() {},
-			});
-		},
-	});
-	const session = viewer(
-		first.workspace,
-		undefined,
-		{ relink: () => Promise.resolve(second.workspace) },
-		false,
-		new FakeClock(),
-	);
+	Object.assign(second.workspace, recovered("committed", recoveries));
+	const { session } = relinking(first.workspace, second.workspace);
 	await session.start();
 	let prepared = 0;
 	let freedOld = 0;
-	const request = {
-		submit: () => Promise.resolve({ status: "pending" }),
-		status: () => first.park<string>(),
+	const held = Object.assign(request(() => Promise.resolve({ status: "pending" }), () => first.park<string>()), {
 		free() {
 			freedOld++;
 		},
-	} as unknown as RoomsManagedCommand;
+	});
 	const sending = session.perform("gesture", () => {
 		prepared++;
-		return Promise.resolve(request);
+		return Promise.resolve(held);
 	}).then(() => null, (error: unknown) => error);
 	await settle();
 	assertEquals(session.pending, ["gesture"]);
 	first.lose();
 	assertEquals(await within(sending, "the cut off send to settle"), null, "the line that landed settles as sent");
-	await until(() => recoveries.length === 1 && session.link?.live === true, "the receipt to be taken up again");
+	await settle();
+	assert(recoveries.length === 1 && session.link?.live === true, "the receipt to be taken up again");
 	assertEquals([prepared, recoveries], [1, ["gesture"]], "one preparation, recovered by the same operation id");
 	assertEquals(freedOld, 1, "the old link's receipt is released once");
 	await session.close();
 });
 
-Deno.test("a send whose admission is cut off by the break settles from the session's record, once", async () => {
-	const first = linkedWorkspace("first", []);
-	const second = linkedWorkspace("second", []);
-	const recoveries: string[] = [];
-	Object.assign(second.workspace, recovered("committed", recoveries));
-	const session = viewer(
-		first.workspace,
-		undefined,
-		{ relink: () => Promise.resolve(second.workspace) },
-		false,
-		new FakeClock(),
-	);
-	await session.start();
-	let prepared = 0;
-	const sending = session.perform("gesture", () => {
-		prepared++;
-		return Promise.resolve(request(() => first.park(), () => first.park<string>()));
-	}).then(() => null, (error: unknown) => error);
-	await settle();
-	first.lose();
-	assertEquals(await within(sending, "the cut off admission to settle"), null);
-	assertEquals([prepared, recoveries], [1, ["gesture"]], "prepared once, and read back by its operation id");
-	await session.close();
-});
-
-Deno.test("a send the session did not commit before the break is refused as unsent, never repeated", async () => {
+Deno.test("a send the session did not commit before the break ends with the session's refusal, never repeated", async () => {
 	const first = linkedWorkspace("first", []);
 	const second = linkedWorkspace("second", []);
 	const recoveries: string[] = [];
 	Object.assign(second.workspace, recovered("unsent", recoveries));
-	const session = viewer(
-		first.workspace,
-		undefined,
-		{ relink: () => Promise.resolve(second.workspace) },
-		false,
-		new FakeClock(),
-	);
+	const { session } = relinking(first.workspace, second.workspace);
 	await session.start();
 	let prepared = 0;
 	const sending = session.perform("gesture", () => {
@@ -520,7 +480,7 @@ Deno.test("a send the session did not commit before the break is refused as unse
 	await settle();
 	first.lose();
 	const refused = await within(sending, "the unsent send to settle");
-	assert(refused != null, "the gesture reports that it was not sent");
+	assertEquals(structuredFailure(refused)?.reason, "refused", "the gesture carries the session's own refusal");
 	assertEquals(connectionLost(refused), false, "and says so as itself, not as a lost connection");
 	assertEquals(prepared, 1);
 	await session.close();
@@ -539,19 +499,14 @@ Deno.test("everything held over the link moves with it, and a handle closes only
 	};
 	const first = linkedWorkspace("first", [], { typingSender: sender("first") });
 	const second = linkedWorkspace("second", [], { typingSender: sender("second") });
-	const session = viewer(
-		first.workspace,
-		undefined,
-		{ relink: () => Promise.resolve(second.workspace) },
-		false,
-		new FakeClock(),
-	);
+	const { session } = relinking(first.workspace, second.workspace);
 	await session.start();
 	await session.typing.set("dm", "selected", true);
 	const before = session.resources;
 	assertEquals(before.typing, 1);
 	first.lose();
-	await until(() => session.link?.live === true && typed.includes("first:free"), "the link to move");
+	await settle();
+	assert(session.link?.live === true && typed.includes("first:free"), "the link to move");
 	assertEquals(session.resources.typing, 0, "the old sender is released, and none stays on the dead link");
 	await session.typing.set("dm", "selected", true);
 	assertEquals(typed, ["first:open", "first:free", "second:open"]);
@@ -563,10 +518,34 @@ Deno.test("everything held over the link moves with it, and a handle closes only
 	await session.close();
 });
 
+Deno.test("a stop lost with its link is sent again over the link that replaces it", async () => {
+	const heard: string[] = [];
+	const sender = (name: string, lose: boolean) => () =>
+		Promise.resolve({
+			set: (on: boolean) => {
+				heard.push(`${name}:${on ? "start" : "stop"}`);
+				return !on && lose ? Promise.reject(closed()) : Promise.resolve();
+			},
+			free() {},
+		});
+	const first = linkedWorkspace("first", [], { typingSender: sender("first", true) });
+	const second = linkedWorkspace("second", [], { typingSender: sender("second", false) });
+	const { session } = relinking(first.workspace, second.workspace);
+	await session.start();
+	await session.typing.set("dm", "selected", true);
+	await session.typing.set("dm", "selected", false);
+	first.lose();
+	await until(() => heard.includes("second:stop"), "the stop owed to be sent over the new link");
+	assertEquals(heard, ["first:start", "first:stop", "second:stop"]);
+	await session.close();
+});
+
+// managed_link_state_test proves the link alone stops. This proves the page
+// shows the refusal, a wake dials nothing, and a send carries the refusal.
 Deno.test("a refused dial stops the page for good, with the refusal's own notice", async () => {
 	const first = linkedWorkspace("first", []);
 	const clock = new FakeClock();
-	const revoked = failure(-12, "The saved access was revoked", "session-restoration-failed");
+	const revoked = browserFailure(-12, "The saved access was revoked", "session-restoration-failed");
 	const reported: unknown[] = [];
 	const session = viewer(
 		first.workspace,
@@ -577,8 +556,10 @@ Deno.test("a refused dial stops the page for good, with the refusal's own notice
 	);
 	await session.start();
 	first.lose();
-	await until(() => session.link?.state.kind === "refused", "the refusal");
+	await settle();
+	assert(session.link?.state.kind === "refused", "the refusal");
 	assertEquals([session.link?.notice, session.link?.cause, clock.waiting], ["refused", revoked, 0]);
+	assertEquals(reported, [], "the notice alone says why");
 	session.link?.wake();
 	assertEquals(session.link?.state.kind, "refused", "a foreground or a network wake dials nothing");
 	const sent = await session.command("setDraft", ["dm", "hello"]).then(() => null, (error: unknown) => error);
@@ -586,31 +567,27 @@ Deno.test("a refused dial stops the page for good, with the refusal's own notice
 	await session.close();
 });
 
-Deno.test("waiting for the link ends when it is live, refused, or has stayed down for the bound", async () => {
-	const { link, clock, dials, fail } = bare();
-	link.lost(closed());
-	const live = link.available(null);
-	const bounded = link.available(1_000);
-	clock.advance(1_000);
-	assertEquals(await bounded, false);
-	dials[0].resolve();
-	assertEquals(await live, true);
-	link.lost(closed());
-	const refused = link.available(null);
-	fail(1, failure(-12, "revoked", "session-restoration-failed"));
-	assertEquals(await refused, false);
-});
-
-Deno.test("a hidden page spends no time toward a send's bound, and try now overrides a wrong offline report", async () => {
-	const { link, clock, dials } = bare();
-	link.lost(closed());
-	link.connectivity(false);
-	const bounded = link.available(1_000);
-	link.visibility(false);
-	assertEquals(clock.waiting, 0, "no timer runs while hidden");
-	link.visibility(true);
-	link.tryNow();
-	assertEquals(dials.length, 1, "try now dials despite the offline report");
-	dials[0].resolve();
-	assertEquals(await bounded, true);
+Deno.test("a lost link is told once, by the link, and no updates-stopped notice shows while it is replaced", async () => {
+	const first = linkedWorkspace("first", []);
+	const dial = deferred<unknown>();
+	const reported: unknown[] = [];
+	const session = viewer(
+		first.workspace,
+		(_source, error) => reported.push(error),
+		{ relink: () => dial.promise },
+		false,
+		new FakeClock(),
+	);
+	await session.start();
+	const stop = session.onActivity(() => {});
+	await settle();
+	first.lose();
+	await settle();
+	assert(session.link?.state.kind === "dialing", "the page to dial again");
+	await settle();
+	assertEquals([session.updatesFailure, reported], [null, []], "the link's notice is the one notice");
+	stop();
+	const closing = session.close();
+	dial.resolve(linkedWorkspace("late", []).workspace);
+	await within(closing, "the page to close");
 });

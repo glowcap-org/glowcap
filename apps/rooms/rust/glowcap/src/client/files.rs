@@ -135,11 +135,7 @@ impl<D: Deadline> File<D> {
 	/// no Session and adds no authority beyond the held attachment.
 	pub fn local(host: glowcap::Host, platform: D, attachment: Attachment<Ref>) -> Self {
 		Self {
-			reader: FileReader::Capability(Caller::Local {
-				host,
-				platform,
-				attached: false,
-			}),
+			reader: FileReader::Capability(Caller::hosted(host, platform)),
 			attachment,
 		}
 	}

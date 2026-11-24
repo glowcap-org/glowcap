@@ -6,6 +6,8 @@ import { deferred, snapshot, viewer } from "../support/managed_viewer.ts";
 import { failureView, LocalRefusal, refusalText } from "../../lib/text/failure.ts";
 import { managedWorkspaceActions } from "../../web/ui/session/managed/workspace.ts";
 import { managedOperations } from "../../web/ui/session/managed/operations.ts";
+import { managedRoomActions } from "../../web/ui/session/managed/rooms.ts";
+import type { RoomsRoomController } from "../../web/ui/controller/session.ts";
 import { ManagedHistory } from "../../web/ui/session/managed/history.ts";
 import { planJoinDestination } from "../../web/ui/joining.ts";
 import { RoomsPage } from "../../web/ui/page.ts";
@@ -45,7 +47,7 @@ Deno.test("operations refuse an unsavable capability and changed room access", a
 	const current = snapshot();
 	current.intent.operations = [{ kind: "diagnostics", handle: { role: "diagnostics", key: "kept" } }];
 	const session = viewer({ snapshot: () => Promise.resolve(current), custodyRecipe: () => Promise.resolve(null) });
-	await session.refresh();
+	await session.readNow();
 	const ops = managedOperations(page, session);
 	try {
 		const [result] = await Promise.allSettled([ops.readOpsBundle()]);
@@ -133,7 +135,7 @@ Deno.test("Settings history retry delegates to the history owner and reports clo
 	const page = new RoomsPage();
 	const session = viewer({ snapshot: () => Promise.resolve(snapshot()) });
 	const history = new ManagedHistory(page, session, () => {});
-	await session.refresh();
+	await session.readNow();
 	const workspace = managedWorkspaceActions(page, session, () => history.refresh());
 	assertEquals(await workspace.retryHistory(), "");
 	await history.close();
@@ -156,7 +158,7 @@ Deno.test("publishing a held room without peering access selects its own refusal
 		draft: "",
 	});
 	const session = viewer({ snapshot: () => Promise.resolve(current) });
-	await session.refresh();
+	await session.readNow();
 	const room = store.ensureRoom(page.projection, dirId("directory"), "room", { persistId: "held" });
 	try {
 		assertEquals(
@@ -187,5 +189,44 @@ Deno.test("the join-link command returns the catalog refusal without a second se
 		assertEquals(await powers.joinLink("not a room link", "room"), refusalText(new LocalRefusal("not-room-entry")));
 	} finally {
 		await session.close();
+	}
+});
+
+Deno.test("a room change whose fresh read no longer holds the room is refused as gone", async () => {
+	const changes: [string, (rooms: RoomsRoomController, key: string) => Promise<string>][] = [
+		["manager", (rooms, key) => rooms.managerRoom(key, "ocapn://manager")],
+		["drop manager", (rooms, key) => rooms.dropRoomManager(key, "token")],
+		["recover", (rooms, key) => rooms.recoverRoom(key, "")],
+	];
+	for (const [name, change] of changes) {
+		const page = new RoomsPage();
+		const held = snapshot();
+		held.intent.conversations.push({
+			kind: "room",
+			id: "held",
+			directory: "directory",
+			name: "room",
+			access: "access",
+			control: "token",
+			reconnect: "manual",
+			standing: null,
+			draft: "",
+		});
+		// The page holds the room, and the read a change makes finds it gone.
+		const gone = { ...snapshot(), revision: "2" };
+		let reads = 0;
+		const session = viewer({ snapshot: () => Promise.resolve(reads++ === 0 ? held : gone) });
+		await session.readNow();
+		const room = store.ensureRoom(page.projection, dirId("directory"), "room", { persistId: "held" });
+		try {
+			assertEquals(
+				await change(managedRoomActions(page, session), room.key),
+				refusalText(new LocalRefusal("room-gone")),
+				name,
+			);
+		} finally {
+			store.forgetConv(page.projection, room.key);
+			await session.close();
+		}
 	}
 });

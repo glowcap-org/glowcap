@@ -3,6 +3,7 @@
 use super::captp::{DWELL, ROOM, World};
 use super::captp_crashes::{answered, killed_at, once_and_still_open, still_open};
 use super::session_rig::call_when_paced;
+use super::words;
 use rooms_application::content::session::custody::MAX_EFFECTS;
 use serde_json::json;
 
@@ -22,8 +23,15 @@ fn many_sends_recovered_from_a_crash_never_bring_the_session_to_refuse() {
 	std::thread::sleep(DWELL);
 	let texts: Vec<String> = (0..ROUNDS).map(|round| format!("round {round}")).collect();
 	once_and_still_open(&world, &texts.iter().map(String::as_str).collect::<Vec<_>>());
-	assert!(!world.rig.log().contains("receipts are full"), "{}", world.rig.log());
-	world.fixture.finish();
+	assert!(
+		!world
+			.rig
+			.log()
+			.contains(rooms_application::failure::FailureCode::ReceiptsFull.wire()),
+		"{}",
+		world.rig.log()
+	);
+	world.finish();
 }
 
 #[test]
@@ -43,12 +51,12 @@ fn a_send_that_never_left_is_reissued_once_after_other_commands_move_the_workspa
 	world.stopped(bot);
 	once_and_still_open(&world, &["fenced out"]);
 	let log = world.rig.log();
-	assert!(log.contains("holds no receipt for operation"), "{log}");
+	assert!(log.contains(words::NO_RECEIPT), "{log}");
 	assert!(
-		log.contains("Sending it under a new one"),
+		log.contains(words::SENDING_UNDER_NEW),
 		"the fence never refused the resend: {log}"
 	);
-	world.fixture.finish();
+	world.finish();
 }
 
 #[test]
@@ -68,10 +76,13 @@ fn a_session_restarted_under_a_sent_line_settles_it_from_the_durable_receipt() {
 	assert_eq!(world.count("direct", "across the restart"), 1, "{:?}", world.seen());
 	let log = world.rig.log();
 	assert!(
-		!log.contains("holds no receipt for operation"),
+		!log.contains(words::NO_RECEIPT),
 		"the restarted session lost a committed receipt: {log}"
 	);
-	assert!(log.contains("would not keep it"), "{log}");
-	assert!(!log.contains("kept the receipt"), "the receipt was not released: {log}");
-	world.fixture.finish();
+	assert!(log.contains(words::NOT_KEPT), "{log}");
+	assert!(
+		!log.contains(words::RECEIPT_LEFT),
+		"the receipt was not released: {log}"
+	);
+	world.finish();
 }

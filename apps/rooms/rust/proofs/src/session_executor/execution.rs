@@ -160,7 +160,12 @@ pub(super) async fn run(case: Case) {
 				);
 				platform.observation_suspended.set(true);
 				platform.suspended.set(false);
-				recovery::resume(&host, &source, &other, &canonical).await;
+				recovery::resume(&host, &root, &source, &other, &canonical).await;
+				let none = policy.value_for_kind(session::KIND, &[], &[]).unwrap();
+				let (bare, _) = owner.derive(none, 1, ControlPowers::default()).await.unwrap();
+				let paused_asker = owner.derive(terms, 1, powers).await.unwrap();
+				let revoked_asker = owner.derive(terms, 1, powers).await.unwrap();
+				recovery::holder(&host, &source, &other, &bare, &paused_asker, &revoked_asker).await;
 				while calls.get() == 0 {
 					host.send(
 						&other,
@@ -368,6 +373,52 @@ pub(super) async fn run(case: Case) {
 					Some("unknown")
 				);
 				assert_eq!(calls.get(), 3);
+				// A send whose worker is interrupted before it dispatched leaves a
+				// paused executor and a receipt with no result. Only its source
+				// could resume it, so the receipt is inert. Closing retires
+				// `effect-stalled` and keeps its receipt, as a restart does, and
+				// the source's release of `effect-forfeit` retires its executor
+				// with the receipt.
+				for operation in ["effect-stalled", "effect-forfeit"] {
+					let snapshot = host.send(&root, "snapshot", &[]).await.unwrap();
+					let mut paused_args = cold_args.clone();
+					paused_args[0] = operation.into();
+					paused_args[1] = snapshot.as_list().unwrap()[0].clone();
+					platform.suspended.set(true);
+					assert_eq!(
+						mutate(&host, &root, "command", &paused_args).await.unwrap().as_str(),
+						Some("pending")
+					);
+					platform.tasks.borrow().last().unwrap().abort();
+					for _ in 0..3 {
+						tokio::task::yield_now().await;
+					}
+					platform.suspended.set(false);
+					assert!(
+						recovery::inert(&host, &root)
+							.await
+							.iter()
+							.any(|(id, _)| id == operation),
+						"a paused executor's receipt is inert"
+					);
+					if operation == "effect-stalled" {
+						let base = paused_args[1].as_i64().unwrap();
+						data_only::settlement(&host, &root, &case, operation, base).await;
+					}
+					if operation == "effect-forfeit" {
+						let intent = serde_json::to_string(&(
+							operation,
+							paused_args[1].as_i64().unwrap(),
+							case.name,
+							&case.args,
+						))
+						.unwrap();
+						recovery::forfeit(&host, &root, operation, &intent).await;
+					}
+				}
+				assert_eq!(calls.get(), 3, "the interrupted sends never dispatched");
+				late_release::run(&host, &root, &other, &platform, &calls, &cold_args, &case).await;
+				confirmation_expiry::run(&host, &root, &platform, &calls, &cold_args, &case).await;
 				let snapshot = host.send(&root, "snapshot", &[]).await.unwrap();
 				let mut aborted_args = cold_args.clone();
 				aborted_args[0] = "effect-abort".into();
@@ -427,7 +478,7 @@ pub(super) async fn run(case: Case) {
 				owner.close().await.unwrap();
 				assert_eq!(
 					calls.get(),
-					3,
+					4,
 					"confirmed receipt absence retires its worker without dispatch"
 				);
 				assert!(

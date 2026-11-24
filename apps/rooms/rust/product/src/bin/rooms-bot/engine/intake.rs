@@ -1,21 +1,78 @@
 //! What the loop does with one batch of events: number each event, skip the
 //! ones a turn already took, note who was heard from, keep context, and queue
-//! triggers with the cursor a restart would read from to see them again. [`admit`] then makes them
-//! turns in the ledger, so a restart neither loses nor repeats them.
-use super::{Loop, Read, lanes::Queued};
+//! triggers with the cursor a restart would read from to see them again.
+//! [`admit`] then makes them turns in the ledger, so a restart neither loses
+//! nor repeats them.
+use super::{
+	Env, Loop, Read,
+	lanes::{Lanes, Queued},
+};
 use crate::bot::{
 	classify::{self, Class, ContextLine, Trigger},
 	context,
 	error::Error,
-	gate::Declined,
-	ledger::Asked,
+	ledger::{Asked, Ledger},
 	rooms::{Batch, ConversationId, Rooms},
+	store::Store,
+	words,
 };
 use std::collections::{BTreeMap, BTreeSet};
 use tokio::time::Instant;
 
 pub fn take<R: Rooms>(state: &mut Loop<'_, R>, batch: Batch) {
 	let env = state.env;
+	report_losses(env, &batch);
+	let mut before = state.read.cursor.clone();
+	let mut seq = state.read.seq;
+	let mut context: BTreeMap<ConversationId, Vec<ContextLine>> = BTreeMap::new();
+	let mut heard = BTreeSet::new();
+	for event in &batch.events {
+		let this = seq;
+		seq = seq.next();
+		let covered = env.ledger.borrow().covers(&event.cursor);
+		if !covered {
+			match classify::classify(event, this) {
+				Class::Ignore => {}
+				Class::Malformed(reason) => env
+					.store
+					.log(&format!("skipped an event in {}: {reason}", event.conversation)),
+				Class::Context(line) => {
+					heard.insert(event.conversation.clone());
+					context.entry(event.conversation.clone()).or_default().push(line);
+				}
+				Class::Trigger(trigger) => {
+					heard.insert(event.conversation.clone());
+					if state.gate.starts_work(&event.conversation, Instant::now()) {
+						state.lanes.queue(
+							&event.conversation,
+							Queued {
+								trigger,
+								kind: event.kind,
+								before: before.clone(),
+							},
+						);
+					} else {
+						env.store.log(&words::context_only(&event.conversation.to_string()));
+						context
+							.entry(event.conversation.clone())
+							.or_default()
+							.push(kept(trigger));
+					}
+				}
+			}
+		}
+		before = event.cursor.clone();
+	}
+	state.read = Read {
+		cursor: batch.cursor,
+		seq,
+	};
+	keep_context(state, &heard, context);
+	state.publish();
+}
+
+/// Count and log what the session could not give in full.
+fn report_losses<R: Rooms>(env: &Env<'_, R>, batch: &Batch) {
 	if batch.gap {
 		env.facts.borrow_mut().gaps += 1;
 		env.store
@@ -32,70 +89,16 @@ pub fn take<R: Rooms>(state: &mut Loop<'_, R>, batch: Batch) {
 			batch.unreadable
 		));
 	}
-	let mut before = state.read.cursor.clone();
-	let mut seq = state.read.seq;
-	let mut context: BTreeMap<ConversationId, Vec<ContextLine>> = BTreeMap::new();
-	let mut heard = BTreeSet::new();
-	let policy = env.config.policy();
-	for event in &batch.events {
-		let this = seq;
-		seq = seq.next();
-		let covered = env.ledger.borrow().covers(&event.cursor);
-		if !covered {
-			match classify::classify(event, this) {
-				Class::Ignore => {}
-				Class::Malformed(reason) => env
-					.store
-					.log(&format!("skipped an event in {}: {reason}", event.conversation)),
-				// A line from someone off the allow list never reaches the
-				// agent, and never counts as the conversation being heard
-				// from, so it cannot push out anyone else's state.
-				Class::Context(_) if !policy.admits(classify::sender(event)) => {}
-				Class::Context(line) => {
-					heard.insert(event.conversation.clone());
-					context.entry(event.conversation.clone()).or_default().push(line);
-				}
-				Class::Trigger(trigger) => {
-					let sender = classify::sender(event);
-					match state.gate.trigger(&policy, &event.conversation, sender, Instant::now()) {
-						Ok(()) => {
-							heard.insert(event.conversation.clone());
-							state.lanes.queue(
-								&event.conversation,
-								Queued {
-									trigger,
-									kind: event.kind,
-									before: before.clone(),
-								},
-							);
-						}
-						Err(Declined::NotAllowed) => env.store.log(&format!(
-							"ignored a message in {}: {}",
-							event.conversation,
-							Declined::NotAllowed.reason()
-						)),
-						Err(declined) => {
-							heard.insert(event.conversation.clone());
-							env.store.log(&format!(
-								"kept a message in {} as context without a reply: {}",
-								event.conversation,
-								declined.reason()
-							));
-							context
-								.entry(event.conversation.clone())
-								.or_default()
-								.push(kept(trigger));
-						}
-					}
-				}
-			}
-		}
-		before = event.cursor.clone();
-	}
-	state.read = Read {
-		cursor: batch.cursor,
-		seq,
-	};
+}
+
+/// Record the conversations heard and append the context lines, within the
+/// bound on the conversations the bot keeps.
+fn keep_context<R: Rooms>(
+	state: &Loop<'_, R>,
+	heard: &BTreeSet<ConversationId>,
+	mut context: BTreeMap<ConversationId, Vec<ContextLine>>,
+) {
+	let env = state.env;
 	// A conversation whose triggers wait for room in the ledger is as open
 	// as one with a turn, so the bound never lets it go.
 	let mut open = env.ledger.borrow().open_conversations();
@@ -103,7 +106,7 @@ pub fn take<R: Rooms>(state: &mut Loop<'_, R>, batch: Batch) {
 	let noted = env
 		.conversations
 		.borrow_mut()
-		.heard(env.store, &mut env.sessions.borrow_mut(), &open, &heard);
+		.heard(env.store, &mut env.harness_sessions.borrow_mut(), &open, heard);
 	if let Err(error) = noted {
 		// tolerant: until the bound holds again, these lines are not kept as
 		// context, so no conversation's state grows past it. The next batch
@@ -119,7 +122,6 @@ pub fn take<R: Rooms>(state: &mut Loop<'_, R>, batch: Batch) {
 			env.store.log(&format!("keeping context for {conversation}: {error}"));
 		}
 	}
-	state.publish();
 }
 
 /// A trigger the gate turned away, as the context it becomes.
@@ -136,31 +138,39 @@ fn kept(trigger: Trigger) -> ContextLine {
 /// newest turn that has not started while it has room, or in a new turn.
 /// Admission stops at the first trigger the ledger has no room for, so no
 /// trigger is held ahead of an older one, and the one that waits is the one
-/// the cursor stays before.
+/// the cursor stays before. Each batch is older than every other unheld
+/// trigger ([`Lanes::oldest_unheld`](super::lanes::Lanes::oldest_unheld)), so
+/// every held trigger is older than every unheld one.
 pub fn admit<R: Rooms>(state: &mut Loop<'_, R>) -> Result<(), Error> {
-	let env = state.env;
-	while let Some(unheld) = state.lanes.oldest_unheld() {
-		let room = unheld.newest.map_or(0, |id| env.ledger.borrow().room_in(id));
+	hold(&mut state.lanes, &mut state.env.ledger.borrow_mut(), state.env.store)
+}
+
+fn hold(lanes: &mut Lanes, ledger: &mut Ledger, store: &Store) -> Result<(), Error> {
+	while let Some(unheld) = lanes.oldest_unheld() {
+		let room = unheld.newest.map_or(0, |id| ledger.room_in(id));
 		let (id, count) = match unheld.newest {
 			Some(id) if room > 0 => {
 				let count = room.min(unheld.triggers.len());
 				let mut triggers = unheld.triggers;
 				triggers.truncate(count);
-				env.ledger.borrow_mut().extend(env.store, id, triggers)?;
+				ledger.extend(store, id, triggers)?;
 				(id, count)
 			}
-			_ if env.ledger.borrow().has_room() => {
+			_ if ledger.has_room() => {
 				let count = unheld.triggers.len();
 				let asked = Asked {
 					conversation: unheld.conversation.clone(),
 					kind: unheld.kind,
 					triggers: unheld.triggers,
 				};
-				(env.ledger.borrow_mut().begin(env.store, asked)?, count)
+				(ledger.begin(store, asked)?, count)
 			}
 			_ => break,
 		};
-		state.lanes.held(&unheld.conversation, count, id);
+		lanes.held(&unheld.conversation, count, id);
 	}
 	Ok(())
 }
+
+#[cfg(test)]
+mod tests;

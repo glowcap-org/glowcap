@@ -49,7 +49,7 @@ const access_commands = [_]types.Command{
     .{ .name = "issue", .short_help = "Create an access and print the link that lets someone use it, and its id", .flags = &.{
         dir,
         value("label", "Your own name for this access, shown in the list"),
-        value("rights", "What the access may do: observer (watch only), collaborator (also post and join), or administrator (also manage the workspace)"),
+        value("rights", "What the access may do: observer (watch only), collaborator (also post, join, and act), or administrator (also manage the workspace)"),
         value("id", "The id to keep the access under (default: a new one). An issue that did not finish is finished by issuing again with its id, label, and rights"),
     }, .run = run("access-issue") },
     .{ .name = "list", .short_help = "Show each access with its id, rights, and whether it is active, paused, or revoked, and each id whose issue did not finish", .flags = &.{dir}, .run = run("access-list") },

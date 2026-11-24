@@ -3,6 +3,14 @@
 //! across every conversation, and the lane runs one of its turns at a time.
 //! A trigger waits in memory only while the ledger has no room for another
 //! turn, and the oldest such trigger is where the durable cursor stays.
+//!
+//! Every held trigger is older than every unheld one, because a batch takes a
+//! conversation's triggers only while each is older than every other
+//! conversation's oldest unheld trigger. So once the cursor moves to the
+//! oldest unheld trigger, every finished turn lies before it and leaves the
+//! ledger, and the oldest unheld trigger gets a turn as soon as the turns
+//! older than it end. A restart reads again only the triggers after the
+//! cursor that no turn covers, which are all newer than every held one.
 use crate::bot::{
 	classify::{Seq, Trigger},
 	ledger::{MAX_TRIGGERS, TurnId},
@@ -38,6 +46,15 @@ pub struct Unheld {
 	pub newest: Option<TurnId>,
 }
 
+/// Where a previous bot left a turn.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Left {
+	/// Not started: it takes its place in the lane.
+	Waiting,
+	/// Delivering its reply: the lane is busy until it ends.
+	Delivering,
+}
+
 #[derive(Default)]
 pub struct Lanes(BTreeMap<ConversationId, Lane>);
 
@@ -51,7 +68,8 @@ impl Lanes {
 	}
 
 	/// The conversation whose oldest unheld trigger is oldest, with up to
-	/// [`MAX_TRIGGERS`] of its unheld triggers. Nothing changes until
+	/// [`MAX_TRIGGERS`] of its unheld triggers that are older than every other
+	/// conversation's oldest unheld trigger. Nothing changes until
 	/// [`Lanes::held`].
 	pub fn oldest_unheld(&self) -> Option<Unheld> {
 		let (conversation, lane) = self
@@ -60,6 +78,12 @@ impl Lanes {
 			.filter(|(_, lane)| !lane.waiting.is_empty())
 			.min_by_key(|(_, lane)| lane.waiting.front().map(|first| first.trigger.seq))?;
 		let first = lane.waiting.front()?;
+		let next_elsewhere = self
+			.0
+			.iter()
+			.filter(|(other, _)| *other != conversation)
+			.filter_map(|(_, other)| other.waiting.front().map(|queued| queued.trigger.seq))
+			.min();
 		Some(Unheld {
 			conversation: conversation.clone(),
 			kind: first.kind,
@@ -67,6 +91,7 @@ impl Lanes {
 				.waiting
 				.iter()
 				.take(MAX_TRIGGERS)
+				.take_while(|queued| next_elsewhere.is_none_or(|next| queued.trigger.seq < next))
 				.map(|queued| queued.trigger.clone())
 				.collect(),
 			newest: lane.turns.back().copied(),
@@ -86,12 +111,11 @@ impl Lanes {
 
 	/// Put a turn a previous bot left open back in its lane. A delivering turn
 	/// is already started, so its lane is busy.
-	pub fn resume(&mut self, conversation: &ConversationId, id: TurnId, started: bool) {
+	pub fn resume(&mut self, conversation: &ConversationId, id: TurnId, left: Left) {
 		let lane = self.0.entry(conversation.clone()).or_default();
-		if started {
-			lane.busy = true;
-		} else {
-			lane.turns.push_back(id);
+		match left {
+			Left::Delivering => lane.busy = true,
+			Left::Waiting => lane.turns.push_back(id),
 		}
 	}
 
@@ -225,9 +249,9 @@ mod tests {
 	#[test]
 	fn a_resumed_delivery_holds_its_conversation_and_later_turns_wait_for_it() {
 		let mut lanes = Lanes::default();
-		lanes.resume(&id("a"), TurnId(3), true);
-		lanes.resume(&id("a"), TurnId(4), false);
-		lanes.resume(&id("b"), TurnId(5), false);
+		lanes.resume(&id("a"), TurnId(3), Left::Delivering);
+		lanes.resume(&id("a"), TurnId(4), Left::Waiting);
+		lanes.resume(&id("b"), TurnId(5), Left::Waiting);
 		assert_eq!(lanes.next(), Some((id("b"), TurnId(5))));
 		lanes.started(&id("b"));
 		assert!(lanes.next().is_none());

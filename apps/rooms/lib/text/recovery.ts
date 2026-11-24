@@ -98,6 +98,11 @@ export function recoverySubject(
 
 export const recoveryOperationDetails = "Operation details";
 
+/** The list could not be read while the link is being replaced. The rows
+ * stay, and the list reads again on its own once a link is back. */
+export const recoveryListAway =
+	"Rooms is reconnecting to this session, so the rest of its unfinished changes can't be read yet. They show here once it is back.";
+
 /** The full list could not be read, so the list below is only what this tab
  * still holds and the count in the lead would be a guess. */
 export function recoveryListUnread(failure: string): string {

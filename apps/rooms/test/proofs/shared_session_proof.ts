@@ -1,5 +1,6 @@
 import { spawnWeb, webPort } from "../support/web_front.ts";
 import * as tcp from "@glowcap/tcp";
+import type { Argument } from "@glowcap/runtime";
 /// <reference lib="dom" />
 // Two production pages consume one managed process workspace. Setup selects a
 // strong use field; reload and process restart must recover that exact owner.
@@ -8,7 +9,7 @@ import { fail } from "../support/fail.ts";
 import { ROOT, SESSION } from "../support/paths.ts";
 import { nonEphemeralPort } from "../../../../bindings/ts/test/ports.ts";
 import { roomPortOf } from "../support/rooms_server.ts";
-import { say } from "../page/harness.ts";
+import { keptItself, markKept, say } from "../page/harness.ts";
 import { reapOwned, stopOwned } from "../support/children.ts";
 import { startSessionPeer } from "../support/session_peer.ts";
 import { readAnnounced } from "../support/announce.ts";
@@ -27,7 +28,12 @@ import { Directory } from "../../lib/room/client.ts";
 import { dial } from "../../lib/locator.ts";
 import { openRoomsRuntime } from "../../lib/runtime.ts";
 import { ask } from "../../lib/ask.ts";
-import { proveSharedSessionHalfOpen, proveSharedSessionOffline, RelayWire } from "../page/shared_session_offline.ts";
+import {
+	proveHeldAccessOffline,
+	proveSharedSessionHalfOpen,
+	proveSharedSessionOffline,
+	RelayWire,
+} from "../page/shared_session_offline.ts";
 import { proveSharedRoomLink } from "../page/shared_room_link.ts";
 import { proveSharedDirectoryRecovery } from "../page/shared_directory_recovery.ts";
 import { proveAttachedSessionHolding, provePrivateRoomHolding } from "../page/holdings.ts";
@@ -94,6 +100,15 @@ async function attach(page: Page, link: string) {
 		}`);
 	});
 }
+/** How many lines the session records as sent, over every conversation of a
+ * snapshot answer: a revision and the workspace's intent. */
+function postedLines(answer: Argument): number {
+	if (!Array.isArray(answer) || typeof answer[1] !== "string") {
+		fail("a session snapshot was not a revision and an intent");
+	}
+	const intent: { conversations?: { lines?: unknown[] }[] } = JSON.parse(answer[1]);
+	return (intent.conversations ?? []).reduce((sum, row) => sum + (row.lines?.length ?? 0), 0);
+}
 async function bubble(page: Page, text: string) {
 	await page.locator(".bubble").filter({ hasText: text }).first().waitFor({ timeout: 15_000 }).catch(async () =>
 		fail(
@@ -132,14 +147,18 @@ try {
 	}
 	await namedRoomRow(first, "mirror-one").click();
 	await first.fill("#line", "shared unfinished draft");
-	await second.waitForFunction(() =>
-		(document.querySelector("#line") as HTMLTextAreaElement)?.value === "shared unfinished draft"
-	).catch(async () => {
+	await second.waitForFunction(() => {
+		const line = document.querySelector("#line");
+		return line instanceof HTMLTextAreaElement && line.value === "shared unfinished draft";
+	}).catch(async () => {
 		const views = await Promise.all([first, second].map((page) =>
-			page.evaluate(() => ({
-				text: document.body.innerText.slice(0, 6000),
-				draft: (document.querySelector("#line") as HTMLTextAreaElement)?.value,
-			}))
+			page.evaluate(() => {
+				const line = document.querySelector("#line");
+				return {
+					text: document.body.innerText.slice(0, 6000),
+					draft: line instanceof HTMLTextAreaElement ? line.value : null,
+				};
+			})
 		));
 		fail(`shared draft did not project: ${JSON.stringify({ views, errors, status: await control("status", {}) })}`);
 	});
@@ -201,8 +220,9 @@ try {
 	await second.waitForFunction(
 		() => {
 			const selected = document.querySelector("#roomList li.here .rname");
-			return selected?.textContent?.trim() === "mirror-one" &&
-				(document.getElementById("line") as HTMLTextAreaElement | null)?.disabled === false;
+			const line = document.getElementById("line");
+			return selected?.textContent?.trim() === "mirror-one" && line instanceof HTMLTextAreaElement &&
+				!line.disabled;
 		},
 		undefined,
 		{ timeout: 30_000 },
@@ -212,7 +232,7 @@ try {
 	// long as the session is gone, and dials the restarted session by itself.
 	const draft = "A draft typed before the session went away";
 	await second.fill("#line", draft);
-	for (const page of [first, second]) await page.evaluate(() => Reflect.set(window, "keptAcrossOutage", true));
+	for (const page of [first, second]) await markKept(page);
 	await stopOwned(peer);
 	for (const page of [first, second]) {
 		await page.locator(".session-link-notice").getByText(sessionReconnecting, { exact: true }).waitFor({
@@ -236,9 +256,7 @@ try {
 			)
 		);
 		await page.waitForSelector("#line:not([disabled])", { timeout: 30_000 });
-		if (await page.evaluate(() => Reflect.get(window, "keptAcrossOutage")) !== true) {
-			fail("a page reloaded instead of reconnecting");
-		}
+		if (!await keptItself(page)) fail("a page reloaded instead of reconnecting");
 		await bubble(page, "One managed member, two views");
 		// The restarted session rejoins the room on its own, after the page is back.
 		await page.getByText(rosterWaiting, { exact: true }).waitFor({ state: "detached", timeout: 60_000 }).catch(
@@ -255,7 +273,10 @@ try {
 	await second.press("#line", "Enter");
 	for (const page of [first, second]) await bubble(page, draft);
 	await second.waitForFunction(
-		() => (document.getElementById("line") as HTMLTextAreaElement | null)?.value === "",
+		() => {
+			const line = document.getElementById("line");
+			return line instanceof HTMLTextAreaElement && line.value === "";
+		},
 		undefined,
 		{ timeout: 30_000 },
 	);
@@ -265,7 +286,27 @@ try {
 	await say(first, "After managed process restart");
 	await bubble(second, "After managed process restart");
 	await proveSharedSessionOffline(second, secondContext, secondWire, "Typed while this device had no network", first);
-	await proveSharedSessionHalfOpen(second, secondWire, "Sent over a connection that carried nothing", first);
+	await proveHeldAccessOffline(
+		second,
+		secondContext,
+		secondWire,
+		(await Deno.readTextFile(`${state}/management.sturdyref`)).trim(),
+	);
+	const reader = await openRoomsRuntime({ cleartext: [tcp.plain] });
+	try {
+		const session = await dial(`127.0.0.1:${sessionPort}`, reader);
+		const workspace = await session.enliven(link);
+		await proveSharedSessionHalfOpen(
+			second,
+			secondWire,
+			"Sent over a connection that carried nothing",
+			first,
+			async () =>
+				postedLines(await ask(session, workspace, "snapshot", [], "the session did not answer its snapshot")),
+		);
+	} finally {
+		await reader.close();
+	}
 	await proveSharedRoomAuthorityRotation(first, async () => {
 		const status = await control("status", {});
 		console.error("ROOM-AUTHORITY-STATE", JSON.stringify(status));

@@ -1,16 +1,25 @@
-//! Receipts a revoked access left. A committed receipt nobody adopted belongs
-//! to the access that sent it, and only that access can adopt or release it,
-//! so the replay window never evicts it. Once that access is revoked nobody
-//! can, and the receipt would hold one of the session's receipt places for
-//! good. This owner releases each such receipt.
+//! Receipts a revoked access left. Only the access that sent an operation can
+//! read, adopt, or release its receipt, so once that access is revoked the
+//! receipt can no longer change. A committed result nobody adopted would hold
+//! one of the session's receipt places for good. A receipt with no result
+//! changes only through its executor, which lives in memory, so one left
+//! unresolved by a restart never settles and holds its place just the same. A
+//! paused executor runs again only if its source resumes it, which a revoked
+//! source never can, so its receipt can no longer change either. This owner
+//! releases each such receipt of a revoked access, retiring a paused executor
+//! with it. The release keeps the receipt, settled as released, so a
+//! resubmission of its operation is answered from it and never dispatches,
+//! until the replay window evicts it as it does any settled receipt. A
+//! receipt whose executor runs stays until it settles or pauses, and the
+//! change either makes wakes the next sweep.
 //!
 //! The session's change feeds start it with themselves, so every host that
-//! opens a session runs it. It sweeps once at
-//! start and again on every session change. A revocation changes the grant
-//! inventory, and a receipt settled after its access was revoked changes
-//! content, so both wake it. A sweep makes one private read of the receipts
-//! waiting to be adopted, and one local access description per waiting
-//! receipt.
+//! opens a session runs it. It sweeps once at start and again on every
+//! session change. A revocation changes the grant
+//! inventory, a receipt settled after its access was revoked changes
+//! content, and an executor that pauses changes execution, so each wakes it. A
+//! sweep makes one private read of the receipts that hold their place, and
+//! one local access description per such receipt.
 //!
 //! A sweep skips a receipt it cannot check or release and goes on with the
 //! rest. A failed sweep goes to the session's failure owner, as `Revoked
@@ -20,19 +29,12 @@
 //! further change. A failed feed is reported by the feed, and until it
 //! recovers the owner sweeps on the same backoff.
 //!
-//! A platform's wait returns `None` at once when it refuses the wait, and
-//! `None` on time when it runs out, so only the clock tells the two apart.
-//! The host and browser platforms never refuse a wait. The proofs platform
-//! refuses one while a proof refuses observation. A backoff whose wait came
-//! back early is dropped, and reported once like a failed sweep, so the owner
-//! sweeps again on the next change only and never loops without giving a
-//! single-threaded host a turn.
-//!
 //! `Session::close` closes this owner before anything else it closes, so no
 //! sweep runs while the session shuts down.
 use super::{Membership, changes::Wake, executor::Writer, supervision};
 use crate::Error;
 use glowcap::{Argument, Ref, loam};
+use rooms_application::content::session::effects::Release;
 use rooms_glowcap::client::{Deadline, Tasks};
 use std::rc::Rc;
 
@@ -110,8 +112,14 @@ enum Woke {
 }
 
 /// Whether a timer that returned after `elapsed` of a `wait` refused it. A
-/// timer may return a little before its wait on a coarse clock, and one that
-/// refuses returns at once.
+/// platform's wait returns `None` at once when it refuses the wait, and
+/// `None` on time when it runs out, so only the clock tells the two apart.
+/// The host and browser platforms never refuse a wait, and the proofs platform
+/// refuses one while a proof refuses observation. A timer may return a little
+/// before its wait on a coarse clock. A backoff whose wait came back early is
+/// dropped, and reported once like a failed sweep, so the owner sweeps again
+/// on the next change only and never loops without giving a single-threaded
+/// host a turn.
 fn early(wait: u64, elapsed: u64) -> bool {
 	elapsed.saturating_mul(2) < wait
 }
@@ -195,17 +203,18 @@ fn later(retry: Option<u64>) -> u64 {
 	retry.map_or(FIRST_RETRY_MS, |wait| wait.saturating_mul(2).min(LAST_RETRY_MS))
 }
 
-/// Release every receipt waiting for adoption whose source's access is
-/// revoked. A paused access may resume and adopt its result, so its receipt
-/// stays. The release verb checks no revocation itself, because a content
-/// callback cannot ask an access about its state, so this read is the check.
-/// A receipt that fails is skipped, and the first failure is the sweep's.
+/// Release every receipt that holds its place and whose source's access is
+/// revoked. A paused access may resume and adopt its result or release it, so
+/// its receipt stays, and so does any paused executor it holds. The release
+/// verb checks no revocation itself, because a content callback cannot ask an
+/// access about its state, so this read is the check. A receipt that fails is
+/// skipped, and the first failure is the sweep's.
 async fn sweep(writer: &Writer) -> Result<()> {
 	let root = writer.root()?;
-	let listed = writer.idempotent("unadopted-effects", &[root.clone().into()]).await?;
+	let listed = writer.idempotent("inert-effects", &[root.clone().into()]).await?;
 	let rows = listed
 		.as_list()
-		.ok_or_else(|| Error::invalid("invalid unadopted receipt list"))?;
+		.ok_or_else(|| Error::invalid("invalid inert receipt list"))?;
 	each(rows, |row| release_if_revoked(writer, &root, row)).await
 }
 
@@ -226,24 +235,46 @@ async fn each<'a, F: Future<Output = Result<()>>>(
 
 async fn release_if_revoked(writer: &Writer, root: &Ref, row: &Argument) -> Result<()> {
 	let Some([Argument::String(id), source]) = row.as_list() else {
-		return Err(Error::invalid("invalid unadopted receipt row"));
+		return Err(Error::invalid("invalid inert receipt row"));
 	};
-	let source = Ref::try_from(source).map_err(|_| Error::invalid("an unadopted receipt names no source"))?;
+	let source = Ref::try_from(source).map_err(|_| Error::invalid("an inert receipt names no source"))?;
 	let described = writer.host.send(&source, "describe-access", &[]).await?;
 	if matches!(loam::UseDescription::read(&described)?, loam::UseDescription::Revoked) {
-		writer
+		let answer = writer
 			.idempotent(
-				"release-unadopted-effect",
+				"release-inert-effect",
 				&[root.clone().into(), id.as_str().into(), source.into()],
 			)
 			.await?;
+		// An executor that started after the listing keeps its receipt. Its
+		// settlement or pause is a session change, which wakes the next sweep.
+		answered(&answer)?;
 	}
 	Ok(())
+}
+
+/// The outcome a `release-inert-effect` answer names. Any other answer is an
+/// invalid one, never a release.
+fn answered(answer: &Argument) -> Result<Release> {
+	answer
+		.as_str()
+		.and_then(Release::from_wire)
+		.ok_or_else(|| Error::invalid("invalid inert receipt release answer"))
 }
 
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn a_release_answer_is_one_of_its_words_and_any_other_is_invalid() {
+		assert_eq!(answered(&"released".into()).unwrap(), Release::Released);
+		assert_eq!(answered(&"running".into()).unwrap(), Release::Running);
+		assert_eq!(answered(&"kept".into()).unwrap(), Release::Kept);
+		assert!(answered(&"paused".into()).is_err());
+		assert!(answered(&"done".into()).is_err());
+		assert!(answered(&Argument::Void).is_err());
+	}
 	use std::cell::RefCell;
 
 	#[tokio::test]

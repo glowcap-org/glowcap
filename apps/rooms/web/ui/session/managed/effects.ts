@@ -1,4 +1,5 @@
-// Own retained gesture coordination from preparation through result acquisition.
+// Own retained gestures from preparation through result acquisition, and the
+// receipts the page restores, resumes, or moves onto a new link.
 import { invariant } from "../../../../lib/invariant.ts";
 import { connectionLost, LocalRefusal } from "../../../../lib/text/failure.ts";
 import { conversationById } from "./conversation_lookup.ts";
@@ -7,61 +8,62 @@ import type { ManagedRoomsSession } from "./session.ts";
 import type { WorkspaceSnapshot } from "./model.ts";
 import { ManagedOperation, ReceiptRetired, ResultExpired, WorkspaceConflict } from "./operation.ts";
 import { releaseEffect, restoreEffects, resumeEffect } from "./recovery.ts";
+import type { ReleaseEnd, ReleaseWait } from "./release.ts";
 import { admitCommand } from "./admission.ts";
-import { rehome, resend, returned, surviving } from "./effects_link.ts";
+import { rehome, surviving } from "./effects_link.ts";
+import { type LinkHandle, type LinkPort, liveWorkspace } from "./link_port.ts";
 import { watchReceipt } from "./effects_watch.ts";
 import { SubmissionRefused, submitCommand } from "./acquisition.ts";
 import { completeResult } from "./completion.ts";
+import { Committed } from "./committed.ts";
 import { SESSION_CONTENT } from "../../../../lib/session_content_data.ts";
 import { managedSessionText as managedText } from "../../../../lib/text/managed_session.ts";
 
 import { gesturesConflict, gestureScope } from "./gestures.ts";
 import { OperationLifecycle } from "./lifecycle.ts";
 import { CancellationRecovery } from "./cancellation.ts";
-
-interface GestureContinuation {
-	signal?: AbortSignal;
-	settled(): Promise<void>;
-}
+import { TrackedJobs } from "./tracked_jobs.ts";
 
 interface EffectRecord {
 	lifecycle: OperationLifecycle;
 	operation?: ManagedOperation;
+	/** The receipt the page finished while its completion still has work to
+	 * run: the completion runs again over it, and the session is not asked for it. */
+	finished?: ManagedOperation;
 	preparing?: boolean;
 	recovering?: Promise<ManagedOperation>;
 	completing?: Promise<boolean>;
 	result?: Promise<unknown>;
 	intent?: { name: string; args: string[]; scope: string | null };
 	command?: Promise<ManagedOperation>;
-	completion?: (operation: ManagedOperation) => Promise<void>;
+	completion?: (operation: ManagedOperation) => Promise<unknown>;
 	adopted?: boolean;
-	continuation?: GestureContinuation;
+	signal?: AbortSignal;
 	cancellation?: CancellationRecovery;
 }
 
-interface Environment {
+/** Prepare a change over `workspace()`, the handle of the link its turn runs
+ * over. A preparation reads that handle and no other, so its receipt belongs
+ * to the link that prepared it. It reads the handle after its last await, and
+ * a link replaced before then throws a loss, so the change is prepared again
+ * over the new link. */
+export type Preparation = (workspace: () => RoomsManagedWorkspace) => Promise<RoomsManagedCommand>;
+
+interface Environment extends LinkPort, ReleaseWait {
 	stopped(): boolean;
 	observationFailure(): unknown;
 	change(): number;
 	changed(): void;
-	wait(change: number): Promise<void>;
-	/** Whether the link to the session is live, waiting for it up to a request's time. */
-	linked(): true | Promise<boolean>;
-	/** After a lost connection: whether a new link comes, which is never so for a
-	 * session this browser runs. Waits for as long as the page is trying. */
-	relinked(): Promise<boolean>;
-	/** The link a failure belongs to, so a replaced link's failures name no loss of its successor. */
-	generation(): number;
-	/** Why the session refused the link for good, or null. */
-	refused(): unknown;
-	lost(error: unknown, generation: number): void;
+	wait(change: number, signal?: AbortSignal): Promise<void>;
 	report(source: string, error: unknown): void;
 }
 
 export class ManagedEffects {
 	readonly #records = new Map<string, EffectRecord>();
 	#commandTail: Promise<void> = Promise.resolve();
-	readonly #inFlight = new Set<Promise<unknown>>();
+	readonly #inFlight = new TrackedJobs();
+	/** Startup's adoption of receipts has begun and has not yet finished. */
+	#adopting = false;
 	#record(id: string): EffectRecord {
 		let record = this.#records.get(id);
 		if (record == null) {
@@ -75,14 +77,11 @@ export class ManagedEffects {
 	}
 	constructor(readonly session: ManagedRoomsSession, readonly environment: Environment) {}
 	/** The receipt this page holds for `id`, if any. */
-	held(id: string): ManagedOperation | undefined {
+	heldOperation(id: string): ManagedOperation | undefined {
 		return this.#records.get(id)?.operation;
 	}
-	get workspace(): RoomsManagedWorkspace {
-		return this.session.workspace;
-	}
-	refresh(): Promise<WorkspaceSnapshot> {
-		return this.session.refresh();
+	readNow(): Promise<WorkspaceSnapshot> {
+		return this.session.readNow();
 	}
 	get standingVersion(): string {
 		return [...this.#records].filter(([, record]) =>
@@ -122,11 +121,10 @@ export class ManagedEffects {
 	get pendingOperations(): Iterable<ManagedOperation> {
 		return [...this.#records.values()].flatMap((record) => record.operation == null ? [] : [record.operation]);
 	}
-	/** Whether any change is being prepared, sent, settled or completed. */
-	get busy(): boolean {
-		return [...this.#records.values()].some((record) =>
-			record.preparing === true || record.operation != null || record.lifecycle.owners.size > 0
-		);
+	/** Whether a change is being prepared and not yet submitted, so the
+	 * session holds no record of it. */
+	get preparing(): boolean {
+		return [...this.#records.values()].some((record) => record.preparing === true);
 	}
 	get pending(): readonly string[] {
 		return [...this.#records].filter(([, record]) => record.operation != null || record.adopted).map(([id]) => id);
@@ -142,44 +140,34 @@ export class ManagedEffects {
 		// Creation names a new conversation with its operation ID. Direct
 		// reconnection can reuse saved data and must not retire its presentation.
 		return [...this.#records].filter(([, record]) =>
-			record.intent?.name === "openManagedRoom" && record.continuation?.signal?.aborted
+			record.intent?.name === "openManagedRoom" && record.signal?.aborted
 		).map(([id]) => id);
 	}
-	/** The link was replaced. A receipt held over the old link is taken up again
-	 * by its operation id and finished from the session's own record. Nothing is
-	 * prepared or sent a second time, and a receipt with a worker running is
-	 * left to it. Receipts this page did not know of are then adopted as at
-	 * startup. */
-	async relink(adopt: boolean): Promise<void> {
-		for (const [id, record] of [...this.#records]) {
-			if (record.operation == null || record.lifecycle.owners.size > 0) continue;
-			void this.completeOperation(id).catch((error: unknown) =>
-				this.environment.report(managedText.resultRecovery, error)
-			);
-		}
-		this.environment.changed();
-		if (adopt) await this.restore();
-	}
+	/** Adopt the receipts the session holds that this page has no record of, as
+	 * startup does once, when the page's access may resolve them. A lost link
+	 * leaves the rest to `resumeRestore`, and so does an access not yet known
+	 * because the link was lost before the page learned it. */
 	async restore(): Promise<void> {
-		await restoreEffects({
-			workspace: this.workspace,
+		this.#adopting = true;
+		await this.resumeRestore();
+	}
+	/** Go on with startup's adoption over the newest link, after a lost one ended
+	 * it. Once a pass finishes, there is nothing left to adopt. */
+	async resumeRestore(): Promise<void> {
+		if (!this.#adopting || !this.session.permits("resolvePending")) return;
+		const finished = await restoreEffects({
+			port: this.environment,
 			known: (id) => this.#records.has(id),
 			retain: (operation) => {
-				const record = this.#record(operation.id);
-				operation.link = this.environment.generation();
-				record.operation = operation;
+				this.#record(operation.id).operation = operation;
 			},
 			orphan: (operation) => this.#records.get(operation.id)?.lifecycle.orphan(),
 			finish: (operation) => this.finish(operation),
 			complete: (operation) => this.completeResult(operation),
 			report: (error) => this.environment.report(managedText.resultRecovery, error),
 		});
+		if (finished) this.#adopting = false;
 		this.environment.changed();
-	}
-	#track<T>(task: Promise<T>): Promise<T> {
-		const tracked = task.finally(() => this.#inFlight.delete(tracked));
-		this.#inFlight.add(tracked);
-		return tracked;
 	}
 	command(
 		name: string,
@@ -201,7 +189,8 @@ export class ManagedEffects {
 		} catch (error) {
 			return Promise.reject(error);
 		}
-		const record = this.#records.get(operation)!;
+		const record = this.#records.get(operation);
+		invariant(record != null, "a reserved gesture has its record");
 		const task = record.command = admitCommand(this.session, name, args, operation, validate, signal).finally(
 			() => {
 				record.command = undefined;
@@ -243,30 +232,32 @@ export class ManagedEffects {
 	// A gesture registers its completion before preparation. Lost admission or
 	// acquisition acknowledgments retain that exact gesture; recovery completes
 	// its original result rather than preparing another upstream operation.
-	async execute(
+	async execute<T>(
 		operation: string,
 		prepare: () => Promise<ManagedOperation>,
-		complete: (operation: ManagedOperation) => Promise<void>,
-		continuation?: GestureContinuation,
-	): Promise<void> {
+		then: (operation: ManagedOperation, after: Committed) => Promise<T>,
+		signal?: AbortSignal,
+	): Promise<T> {
+		const after = new Committed(this.session, (source, error) => this.environment.report(source, error));
+		const complete = (held: ManagedOperation) => then(held, after);
+		let value: T | undefined;
 		if (this.#records.get(operation)?.completion != null) {
 			throw new LocalRefusal("change-owned");
 		}
 		const record = this.#record(operation);
 		record.completion = complete;
-		record.continuation = continuation;
+		record.signal = signal;
 		record.cancellation = new CancellationRecovery(
-			continuation?.signal,
+			signal,
 			() =>
 				!this.environment.stopped() && record.completing == null && this.#records.get(operation) === record &&
-				(record.operation != null || record.adopted === true),
+				(record.operation != null || record.finished != null || record.adopted === true),
 			() => this.completeOperation(operation),
 			() => this.environment.changed(),
 		);
-		const task = this.#track(record.lifecycle.own("preparing", async () => {
-			await surviving(this, operation, await prepare(), complete);
+		const task = this.#inFlight.track(record.lifecycle.own("preparing", async () => {
+			value = await surviving(this, operation, await prepare(), complete) as T;
 			record.adopted = true;
-			await continuation?.settled();
 			return true;
 		}));
 		record.completing = task;
@@ -274,13 +265,14 @@ export class ManagedEffects {
 			await task;
 			record.completion = undefined;
 			if (record.operation == null) this.#forget(operation);
+			return value as T;
 		} catch (error) {
-			if (record.operation == null && !record.adopted) this.#forget(operation);
+			if (record.operation == null && !record.adopted && record.finished == null) this.#forget(operation);
 			record.completing = undefined;
 			const recovery = record.cancellation?.idle();
 			if (recovery != null) {
 				await recovery;
-				continuation?.signal?.throwIfAborted();
+				signal?.throwIfAborted();
 			}
 			throw error;
 		} finally {
@@ -288,8 +280,9 @@ export class ManagedEffects {
 			this.environment.changed();
 		}
 	}
-	/** Give up on a retained operation for good. See `releaseEffect`. */
-	releaseOperation(id: string): Promise<void> {
+	/** Give up on a retained operation for good, and say how the session
+	 * answered. See `releaseEffect`. */
+	releaseOperation(id: string): Promise<ReleaseEnd> {
 		const record = this.#records.get(id);
 		if (record?.adopted) {
 			return Promise.reject(new LocalRefusal("result-held"));
@@ -300,10 +293,11 @@ export class ManagedEffects {
 		if (record != null && !record.lifecycle.needsDecision) {
 			return Promise.reject(new LocalRefusal("change-busy"));
 		}
-		return this.#track(
-			releaseEffect(this.workspace, id, record?.operation, (held) => this.finish(held)).then(() => {
+		return this.#inFlight.track(
+			releaseEffect(this.environment, id, record?.operation, (held) => this.finish(held)).then((answer) => {
 				this.#forget(id);
 				this.environment.changed();
+				return answer;
 			}),
 		);
 	}
@@ -313,27 +307,30 @@ export class ManagedEffects {
 		if (existing != null) return existing;
 		const result = record.result;
 		if (result != null) return result.then(() => true);
-		const task = this.#track(
+		const task = this.#inFlight.track(
 			record.lifecycle.own("completing", async () => {
 				if (record.adopted) {
-					await record.continuation?.settled();
 					this.#forget(id);
 					return true;
 				}
 				const held: { operation: ManagedOperation | null } = { operation: null };
 				try {
-					await surviving(this, id, null, async (operation) => {
+					// A receipt the page finished is kept, as `surviving` keeps it across a
+					// loss: a completion that failed after its result was acquired runs
+					// again over it, and the receipt is not looked up as lost.
+					const kept = record.operation ?? record.finished;
+					const finished = kept?.finished ? kept : null;
+					await surviving(this, id, finished, async (operation) => {
 						held.operation = operation;
 						const complete = record.completion;
 						if (complete == null) await this.completeResult(operation);
 						else await complete(operation);
 					});
 					record.adopted = true;
-					await record.continuation?.settled();
+					record.finished = undefined;
 				} catch (error) {
 					if (error instanceof ReceiptRetired) {
 						record.adopted = true;
-						await record.continuation?.settled();
 						this.#forget(id);
 						return true;
 					}
@@ -356,7 +353,7 @@ export class ManagedEffects {
 		const record = this.#record(operation.id);
 		const existing = record.result;
 		if (existing != null) return existing;
-		const task = this.#track(
+		const task = this.#inFlight.track(
 			record.lifecycle.own("acquiring", () => completeResult(this.session, operation)).then((result) => {
 				this.finish(operation);
 				return result;
@@ -368,96 +365,98 @@ export class ManagedEffects {
 		record.result = task;
 		return task;
 	}
-	perform(operation: string, prepare: () => Promise<RoomsManagedCommand>): Promise<ManagedOperation> {
+	perform(operation: string, prepare: Preparation): Promise<ManagedOperation> {
 		const record = this.#record(operation);
-		return this.#track(record.lifecycle.own("queued", () => this.#perform(operation, prepare))).finally(() => {
-			if (record.operation == null && record.completion == null && record.intent == null) {
-				this.#records.delete(operation);
-			}
-		});
+		return this.#inFlight.track(record.lifecycle.own("queued", () => this.#perform(operation, prepare))).finally(
+			() => {
+				if (record.operation == null && record.completion == null && record.intent == null) {
+					this.#records.delete(operation);
+				}
+			},
+		);
 	}
-	async #perform(operation: string, prepare: () => Promise<RoomsManagedCommand>): Promise<ManagedOperation> {
+	async #perform(operation: string, prepare: Preparation): Promise<ManagedOperation> {
 		if (this.environment.stopped()) throw new LocalRefusal("session-closed");
 		const record = this.#record(operation);
 		if (record.operation != null || record.preparing) {
 			throw new LocalRefusal("change-replay-required");
 		}
-		record.preparing = true;
-		let generation = this.environment.generation();
-		try {
-			let admitted: ManagedOperation | null = null;
-			let unacknowledged: unknown = null;
+		// One first send over a live link. A connection lost on the way was charged
+		// to the link the send ran on and is the caller's to read. Any other
+		// failure stands.
+		const attempt = async (): Promise<{ admitted: ManagedOperation | null; lost: unknown }> => {
+			record.preparing = true;
 			try {
-				// Nothing is admitted until the link is live, so a line sent while the
-				// page reconnects goes out once, or is refused unsent at the bound.
-				const linked = this.environment.linked();
-				if (linked !== true && !(await linked)) {
-					// A refusal the session answered says why, in its own words.
-					throw this.environment.stopped()
-						? new LocalRefusal("session-closed")
-						: this.environment.refused() ?? new LocalRefusal("not-sent");
-				}
-				generation = this.environment.generation();
-				try {
-					admitted = await this.#turn(operation, prepare);
-				} catch (error) {
-					if (!connectionLost(error)) throw error;
-					unacknowledged = error;
-				}
+				await this.environment.ready("not-sent");
+				return { admitted: await this.#turn(operation, prepare), lost: null };
+			} catch (error) {
+				if (!connectionLost(error)) throw error;
+				return { admitted: null, lost: error };
 			} finally {
 				record.preparing = false;
 				this.environment.changed();
 			}
-			// The connection broke around the change. If it was being prepared,
-			// nothing was sent, and it is prepared again over the new link. If it
-			// was sent, the session's own record says whether it landed, once the
-			// link is back. With no record, it never arrived, and it goes out again
-			// under the same id and base: the session lands it once, or refuses it
-			// as stale.
-			while (admitted == null) {
-				if (!await returned(this, record.operation, unacknowledged)) throw unacknowledged;
-				try {
-					const again = record.operation == null ? prepare : await resend(this, record.operation, prepare);
-					if (again == null) return await this.resume(operation);
-					record.operation = undefined;
-					admitted = await this.#turn(operation, again);
-				} catch (error) {
-					if (error instanceof WorkspaceConflict) throw new LocalRefusal("not-sent");
-					if (!connectionLost(error)) throw error;
-					unacknowledged = error;
-				}
+		};
+		// A connection lost before the change was submitted sent nothing, so it
+		// is prepared again as a first send, which waits for a live link as any
+		// first send does. Only an attached page meets that loss here. Each
+		// attempt waits at most the link's wait for a live link and then ends the
+		// press with the link's refusal, but no count bounds the attempts: each
+		// needs a link that came back after the last loss, so only a link that
+		// keeps coming back and dropping before the submit keeps the press
+		// working, and the link's notice says why. Of the calls a change prepares, Rust
+		// names only an attached one unreachable with no status, and
+		// `liveWorkspace` names a replaced link, which a session this browser
+		// runs never has. One lost while or after it was submitted is looked up
+		// by its id over the next link: the session's record settles it, and
+		// with none the page never sends it again.
+		let sent = await attempt();
+		while (sent.admitted == null) {
+			const submitted = this.heldOperation(operation);
+			if (submitted == null) {
+				sent = await attempt();
+				continue;
 			}
-			return await this.#settle(admitted);
-		} catch (error) {
-			this.environment.lost(error, generation);
-			throw error;
+			if (!await this.environment.relinkedAfter(sent.lost)) throw sent.lost;
+			return await this.#settle(await rehome(this, submitted));
 		}
+		return await this.#settle(sent.admitted);
 	}
 	/** This viewer's writes share one revision authority, so admissions take
 	 * turns that end at admission. Each receipt then settles on its own, and a
 	 * slow upstream effect holds back no later gesture. */
-	async #turn(operation: string, prepare: () => Promise<RoomsManagedCommand>): Promise<ManagedOperation> {
+	async #turn(operation: string, prepare: Preparation): Promise<ManagedOperation> {
 		const previous = this.#commandTail;
-		let release!: () => void;
-		this.#commandTail = new Promise<void>((resolve) => release = resolve);
+		const { promise: turn, resolve: release } = Promise.withResolvers<void>();
+		this.#commandTail = turn;
 		try {
 			await previous;
 			if (this.environment.stopped()) throw new LocalRefusal("session-closed");
-			return await this.#admit(operation, prepare);
+			return await this.environment.over((link) => this.#admit(operation, link, prepare));
 		} finally {
 			release();
 		}
 	}
-	async #admit(operation: string, prepare: () => Promise<RoomsManagedCommand>): Promise<ManagedOperation> {
-		const link = this.environment.generation();
-		const request = await prepare();
+	/** Prepare and submit `operation` over `link`, the link current when its
+	 * turn came. */
+	async #admit(
+		operation: string,
+		link: LinkHandle,
+		prepare: Preparation,
+	): Promise<ManagedOperation> {
+		const request = await prepare(liveWorkspace(this.environment, link));
 		if (this.environment.stopped()) {
 			request.free();
 			throw new LocalRefusal("session-closed");
 		}
 		const record = this.#record(operation);
-		const pending = new ManagedOperation(operation, request, undefined, (error) => record.lifecycle.orphan(error));
-		pending.link = link;
+		const pending = new ManagedOperation(
+			operation,
+			request,
+			link,
+			undefined,
+			(error) => record.lifecycle.orphan(error),
+		);
 		record.operation = pending;
 		record.lifecycle.phase = "admitting";
 		record.lifecycle.outcome = "unknown";
@@ -474,7 +473,7 @@ export class ManagedEffects {
 			if (admitted.status === "refused") {
 				throw new SubmissionRefused(admitted.reason ?? managedText.acquisitionRefused, admitted.failure);
 			}
-			await this.refresh();
+			await this.readNow();
 			throw new WorkspaceConflict();
 		}
 		record.lifecycle.phase = "settling";
@@ -485,9 +484,12 @@ export class ManagedEffects {
 	 * with what the session recorded. */
 	async #settle(operation: ManagedOperation): Promise<ManagedOperation> {
 		try {
-			return await watchReceipt(this, this.#record(operation.id).lifecycle, operation);
+			return await this.environment.overStamped(
+				operation.stamp,
+				() => watchReceipt(this, this.#record(operation.id).lifecycle, operation),
+			);
 		} catch (error) {
-			if (!await returned(this, operation, error)) throw error;
+			if (!await this.environment.relinkedAfter(error)) throw error;
 			return await this.#resume(operation.id);
 		}
 	}
@@ -498,7 +500,10 @@ export class ManagedEffects {
 		}
 		operation.finish();
 		if (record.completion == null) this.#forget(operation.id);
-		else record.operation = undefined;
+		else {
+			record.finished = operation;
+			record.operation = undefined;
+		}
 		this.environment.changed();
 	}
 	#forget(id: string): void {
@@ -510,12 +515,8 @@ export class ManagedEffects {
 		const record = this.#record(operation);
 		if (record.recovering != null) return record.recovering;
 		if (record.preparing) return Promise.reject(new LocalRefusal("still-working"));
-		const generation = this.environment.generation();
-		const task = this.#track(
-			record.lifecycle.own("settling", () => this.#resume(operation)).catch((error: unknown) => {
-				this.environment.lost(error, generation);
-				throw error;
-			}).finally(() => {
+		const task = this.#inFlight.track(
+			record.lifecycle.own("settling", () => this.#resume(operation)).finally(() => {
 				record.recovering = undefined;
 				if (record.operation == null && record.completion == null) this.#records.delete(operation);
 				this.environment.changed();
@@ -527,12 +528,12 @@ export class ManagedEffects {
 	async #resume(operation: string): Promise<ManagedOperation> {
 		const record = this.#record(operation);
 		const request = record.operation;
-		if (request != null && request.link !== this.environment.generation()) {
+		if (request != null && !this.environment.isCurrent(request.stamp)) {
 			return await this.#settle(await rehome(this, request));
 		}
 		if (request?.acquiring) {
-			await request.retryAcquisition();
-			await this.refresh();
+			await this.environment.overStamped(request.stamp, () => request.retryAcquisition());
+			await this.session.committed.readOr<unknown>(null, (reads) => reads.readNow());
 			return request;
 		}
 		if (request != null) {
@@ -548,23 +549,32 @@ export class ManagedEffects {
 			}
 			if (status === "committed" || status === "pending" || status === "unsent") return this.#settle(request);
 		}
-		const recovered = await this.workspace.recoverEffect(operation);
+		// The record travels the link it was recovered over, even if a newer one
+		// replaces it while the lookup waits.
+		const { recovered, link } = await this.environment.over(async (link) => ({
+			recovered: await link.workspace.recoverEffect(operation),
+			link,
+		}));
 		if (recovered == null) {
 			// Exact absence: another viewer adopted and retired this receipt, the
 			// same rule startup restoration applies. A retained wrapper has nothing
 			// left to recover, so it is released rather than left to fail again.
 			if (request != null) {
 				this.finish(request);
-				await this.refresh();
+				await this.session.committed.readOr<unknown>(null, (reads) => reads.readNow());
 				throw new ReceiptRetired();
 			}
 			throw new LocalRefusal("receipt-lost");
 		}
 		let retained = false;
 		try {
-			const status = await resumeEffect(recovered, () => {
-				if (request != null) this.finish(request);
-			}, (observed) => request?.observeStatus(observed));
+			const status = await this.environment.overStamped(
+				link,
+				() =>
+					resumeEffect(recovered, () => {
+						if (request != null) this.finish(request);
+					}, (observed) => request?.observeStatus(observed)),
+			);
 			if (this.environment.stopped()) throw new LocalRefusal("session-closed");
 			if (request != null) return await this.#settle(request);
 			if (status !== "committed") {
@@ -575,10 +585,10 @@ export class ManagedEffects {
 			const pending = new ManagedOperation(
 				operation,
 				recovered,
+				link,
 				status,
 				(error) => record.lifecycle.orphan(error),
 			);
-			pending.link = this.environment.generation();
 			record.operation = pending;
 			retained = true;
 			this.environment.changed();
@@ -588,7 +598,7 @@ export class ManagedEffects {
 		}
 	}
 	async close(): Promise<void> {
-		await Promise.allSettled(this.#inFlight);
+		await this.#inFlight.settled();
 		await Promise.all([...this.pendingOperations].map((operation) => operation.close()));
 		for (const record of this.#records.values()) record.cancellation?.dispose();
 		this.#records.clear();

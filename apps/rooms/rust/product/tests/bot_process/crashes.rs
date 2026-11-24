@@ -1,12 +1,8 @@
-//! A harness that fails, and a bot that stops or dies at each step of a turn.
-use super::rig::{Rig, eventually, gone, recorded_pid};
+//! Agent failures, and stops during a turn.
+use super::rig::{Rig, eventually, gone, recorded_pid, runs};
+use super::words;
 use serde_json::json;
 use std::path::Path;
-
-/// How many times the fake harness started in a conversation's directory.
-fn runs(workdir: &Path) -> usize {
-	std::fs::read_to_string(workdir.join("runs.log")).map_or(0, |log| log.lines().count())
-}
 
 /// The session each run of the fake harness was asked to resume, `-` for none.
 fn resumes(workdir: &Path) -> Vec<String> {
@@ -14,6 +10,21 @@ fn resumes(workdir: &Path) -> Vec<String> {
 		.unwrap_or_default()
 		.lines()
 		.filter_map(|line| line.rsplit_once("resume=").map(|(_, id)| id.to_owned()))
+		.collect()
+}
+
+/// The milliseconds of the reply's deadline each start of the agent had
+/// left, in the order the bot logged them.
+fn deadline_left(log: &str) -> Vec<u64> {
+	log.lines()
+		.filter_map(|line| {
+			line.split_once("the agent starts with ")?
+				.1
+				.split(' ')
+				.next()?
+				.parse()
+				.ok()
+		})
 		.collect()
 }
 
@@ -30,7 +41,10 @@ fn a_crashing_harness_is_retried_then_reported_once_and_the_bot_carries_on() {
 	let sent = rig.wait_for_replies(2);
 	assert_eq!(
 		sent[1]["text"],
-		"I could not answer that: the agent stopped unexpectedly, after 2 tries."
+		format!(
+			"{}: the agent stopped unexpectedly, after 2 tries.",
+			words::COULD_NOT_ANSWER
+		)
 	);
 	rig.wait_for_cursor(2);
 
@@ -66,7 +80,10 @@ fn an_agent_that_never_finds_the_session_starts_a_new_one_within_the_turns_tries
 	let sent = rig.wait_for_replies(4);
 	assert_eq!(
 		sent[3]["text"],
-		"I could not answer that: the agent stopped unexpectedly, after 2 tries."
+		format!(
+			"{}: the agent stopped unexpectedly, after 2 tries.",
+			words::COULD_NOT_ANSWER
+		)
 	);
 	rig.wait_for_cursor(4);
 	assert!(bot.stop().success(), "the bot exited with a failure");
@@ -84,7 +101,7 @@ fn an_agent_that_never_finds_the_session_starts_a_new_one_within_the_turns_tries
 }
 
 #[test]
-fn a_failure_line_carries_the_agents_cleaned_message() {
+fn a_failure_line_never_carries_the_agents_words_and_the_log_does() {
 	let rig = Rig::new("bot-failure-cause");
 	let bot = rig.serve(json!({}), None);
 	rig.direct(1, "c1", "fail:rate 429: slow down, see /home/ann/.bot/session.link now");
@@ -93,8 +110,86 @@ fn a_failure_line_carries_the_agents_cleaned_message() {
 	assert!(bot.stop().success(), "the bot exited with a failure");
 	assert_eq!(
 		sent[0]["text"],
-		"I could not answer that: the agent hit a usage limit: 429: slow down, see [hidden] now."
+		format!("{}: the agent hit a usage limit.", words::COULD_NOT_ANSWER)
 	);
+	assert!(rig.log().contains("429: slow down"), "{}", rig.log());
+	let unanswered = rig.status()["status"]["unanswered"]["message"].clone();
+	assert!(!unanswered.as_str().unwrap().contains("slow down"), "{unanswered}");
+}
+
+/// A turn the agent could not answer shows in `status` with its kind until a
+/// later turn is answered. A sign-in refusal also fails `ready`, and its
+/// message reaches the operator and never the room.
+#[test]
+fn an_unanswered_turn_shows_in_status_until_the_next_answer_and_a_sign_in_refusal_fails_ready() {
+	let rig = Rig::new("bot-gave-up");
+	let bot = rig.serve(json!({}), None);
+	rig.direct(1, "c1", "fail:auth token sk-secret expired");
+	let sent = rig.wait_for_replies(1);
+	rig.wait_for_cursor(1);
+	let text = sent[0]["text"].as_str().unwrap();
+	assert!(text.contains("sign-in") && !text.contains("sk-secret"), "{text}");
+	let problem = rig.status()["status"]["unanswered"].clone();
+	assert_eq!(problem["kind"], "sign-in", "{problem}");
+	assert!(!problem["message"].as_str().unwrap().contains("sk-secret"), "{problem}");
+	// The agent's own words reach no log either, only the failure's label.
+	let log = rig.log();
+	assert!(log.contains("the agent refused its sign-in"), "{log}");
+	assert!(!log.contains("sk-secret"), "the log holds a sign-in refusal's words");
+	assert!(rig.status()["status"]["last_error"].is_null(), "{}", rig.status());
+	let (refused, ok) = rig.run("ready", json!({}));
+	assert!(!ok && refused["error"]["class"] == "not-ready", "{refused}");
+	assert!(
+		refused["error"]["message"].as_str().unwrap().contains("sign-in"),
+		"{refused}"
+	);
+	rig.direct(2, "c1", "reply:answered");
+	rig.wait_for_replies(2);
+	rig.wait_for_cursor(2);
+	assert!(rig.status()["status"]["unanswered"].is_null(), "{}", rig.status());
+	assert!(rig.run("ready", json!({})).1);
+	assert!(bot.stop().success(), "the bot exited with a failure");
+}
+
+#[test]
+fn an_endpoint_outage_is_retried_and_reported_as_an_outage() {
+	let rig = Rig::new("bot-outage");
+	let bot = rig.serve(json!({}), None);
+	rig.direct(1, "c1", "fail:outage 503 unavailable");
+	let sent = rig.wait_for_replies(1);
+	rig.wait_for_cursor(1);
+	let text = sent[0]["text"].as_str().unwrap();
+	assert!(
+		text.contains("unavailable") && !text.contains("stopped unexpectedly"),
+		"{text}"
+	);
+	let problem = rig.status()["status"]["unanswered"].clone();
+	assert_eq!(problem["kind"], "outage", "{problem}");
+	assert_eq!(runs(&rig.workdir("c1")), 2);
+	assert!(rig.run("ready", json!({})).1);
+	assert!(bot.stop().success(), "the bot exited with a failure");
+}
+
+/// The kind of the failure that spent a try is remembered by the ledger, so
+/// a bot restarted before the last try still says why it gave up.
+#[test]
+fn a_restart_between_tries_keeps_the_kind_of_the_failure_that_spent_one() {
+	let rig = Rig::new("bot-kind-restart");
+	let mut bot = rig.serve(json!({}), None);
+	rig.direct(1, "c1", "outage-then-wait:never");
+	let workdir = rig.workdir("c1");
+	eventually("the second try to start", || {
+		workdir.join("waiting.marker").exists().then_some(())
+	});
+	bot.kill();
+	bot.process.wait();
+	let bot = rig.serve(json!({}), None);
+	let sent = rig.wait_for_replies(1);
+	rig.wait_for_cursor(1);
+	assert!(sent[0]["text"].as_str().unwrap().contains("unavailable"), "{sent:?}");
+	let problem = rig.status()["status"]["unanswered"].clone();
+	assert_eq!(problem["kind"], "outage", "{problem}");
+	assert!(bot.stop().success(), "the bot exited with a failure");
 }
 
 #[test]
@@ -123,7 +218,47 @@ fn a_failed_write_of_the_answer_is_retried_without_running_the_harness_again() {
 		1,
 		"a failed ledger write ran the harness again"
 	);
-	assert!(rig.log().contains("trying again without running it"), "{}", rig.log());
+	assert!(rig.log().contains(words::SAVE_RETRIED_WITHOUT_RUNNING), "{}", rig.log());
+}
+
+#[test]
+fn a_failed_write_of_a_give_up_line_is_retried_without_running_the_harness_again() {
+	let rig = Rig::new("bot-give-up-write");
+	let bot = rig.serve(json!({}), Some("answer-write"));
+	rig.direct(1, "c1", "fail:outage 503 unavailable");
+	let sent = rig.wait_for_replies(1);
+	rig.wait_for_cursor(1);
+	assert!(sent[0]["text"].as_str().unwrap().contains("unavailable"), "{sent:?}");
+	assert!(bot.stop().success(), "the bot exited with a failure");
+	assert_eq!(rig.sent().len(), 1, "the failure line was posted more than once");
+	assert_eq!(
+		runs(&rig.workdir("c1")),
+		2,
+		"a failed ledger write ran the harness again"
+	);
+	assert!(rig.log().contains(words::SAVE_RETRIED_WITHOUT_RUNNING), "{}", rig.log());
+}
+
+/// A reply whose write fails for good becomes a failure line, and when that
+/// write fails too, the turn thinks again after a wait. Each think logs the
+/// refusal twice, so a fourth refusal comes from a second think, which writes
+/// the failure line again and never runs the harness.
+#[test]
+fn a_reply_whose_write_fails_for_good_never_runs_the_harness_again() {
+	let rig = Rig::new("bot-answer-refused");
+	let bot = rig.serve(json!({}), Some("answer-refused@*"));
+	rig.direct(1, "c1", "reply:never written");
+	eventually("a second think after the writes failed", || {
+		(rig.log().matches("os error 13").count() >= 4).then_some(())
+	});
+	assert!(bot.stop().success(), "the bot exited with a failure");
+	assert_eq!(
+		runs(&rig.workdir("c1")),
+		1,
+		"a reply that could not be written ran the harness again: {}",
+		rig.log()
+	);
+	assert!(rig.sent().is_empty(), "{:?}", rig.texts());
 }
 
 #[test]
@@ -134,7 +269,10 @@ fn a_hung_harness_is_killed_with_everything_it_started() {
 	let sent = rig.wait_for_replies(1);
 	assert_eq!(
 		sent[0]["text"],
-		"I could not answer that: the agent did not finish within 2 seconds."
+		format!(
+			"{}: the agent did not finish within 2 seconds.",
+			words::COULD_NOT_ANSWER
+		)
 	);
 	rig.wait_for_cursor(1);
 	let workdir = rig.workdir("c1");
@@ -167,9 +305,48 @@ fn a_bot_killed_while_the_harness_runs_finishes_the_turn_after_restart() {
 	assert_eq!(rig.wait_for_replies(1)[0]["text"], "done at last");
 	rig.wait_for_cursor(1);
 	assert!(gone(orphan), "the harness the dead bot left behind was not ended");
-	assert!(rig.log().contains("ended harness group"), "{}", rig.log());
+	assert!(rig.log().contains(words::ENDED_GROUP), "{}", rig.log());
 	assert!(bot.stop().success(), "the bot exited with a failure");
 	assert_eq!(rig.sent().len(), 1, "a trigger was answered more than once");
+}
+
+/// A stop that comes while the restart fetches a turn's files, before any
+/// run starts, cuts nothing off. The run the crash left in flight stays in
+/// flight, so the next start still counts it and the prompt still says the
+/// agent was interrupted.
+#[test]
+fn a_stop_before_a_run_starts_leaves_the_crashed_run_in_flight() {
+	let rig = Rig::new("bot-stop-before-run");
+	let mut bot = rig.serve(json!({}), None);
+	std::fs::create_dir(rig.rooms.join("files")).unwrap();
+	std::fs::write(rig.rooms.join("files").join("t-0"), "x").unwrap();
+	rig.push(
+		json!({"at": 1, "conversation": "c1", "kind": "direct", "text": "wait-file:after the stop",
+		"files": [{"token": "t", "index": 0, "name": "f", "mime": "text/plain", "size": 1, "width": 0, "height": 0}]}),
+	);
+	let workdir = rig.workdir("c1");
+	eventually("the turn to start", || {
+		workdir.join("waiting.marker").exists().then_some(())
+	});
+	bot.kill();
+	bot.process.wait();
+	std::fs::write(rig.rooms.join("fetch-faults"), "hang\n").unwrap();
+	let bot = rig.serve(json!({}), None);
+	eventually("the restart to fetch the file", || {
+		rig.rooms.join("fetch-faults").exists().then(|| {
+			std::fs::read_to_string(rig.rooms.join("fetch-faults"))
+				.map(|text| text.trim().is_empty())
+				.unwrap_or(false)
+				.then_some(())
+		})?
+	});
+	assert!(bot.stop().success(), "the bot exited with a failure");
+	let row = &rig.ledger()["turns"][0];
+	assert_eq!(
+		(row["phase"].as_str(), row["progress"].as_str()),
+		(Some("running"), Some("inflight")),
+		"{row}"
+	);
 }
 
 #[test]
@@ -199,7 +376,7 @@ fn sigterm_during_a_turn_ends_the_harness_and_the_restart_answers_once() {
 	rig.wait_for_cursor(1);
 	let prompt = std::fs::read_to_string(workdir.join("prompt.txt")).unwrap();
 	assert!(
-		prompt.starts_with("An earlier run of this turn was cut off"),
+		prompt.starts_with("An earlier run of this turn did not give its answer."),
 		"{prompt}"
 	);
 	assert!(bot.stop().success(), "the bot exited with a failure");
@@ -250,216 +427,59 @@ fn turns_that_finish_out_of_order_are_each_answered_once_across_a_restart() {
 	);
 }
 
-/// Kill the bot at `point` while it posts a one-line reply, restart it, and
-/// return the rig once the turn is finished.
-fn killed_at(point: &str, label: &str) -> Rig {
-	let rig = Rig::new(label);
-	let mut bot = rig.serve(json!({}), Some(point));
-	rig.direct(1, "c1", "reply:exactly once");
-	// The bot ends itself at the fault point, so the wait is for its exit.
-	let status = bot.process.wait();
-	assert!(!status.success(), "the bot should have been killed at {point}");
-	assert_eq!(rig.sent().len(), 1, "the reply was not sent before {point}");
-
-	let bot = rig.serve(json!({}), None);
+#[test]
+fn a_new_session_after_a_silent_resume_gets_only_what_is_left_of_the_reply_deadline() {
+	let rig = Rig::new("bot-deadline-shared");
+	let bot = rig.serve(json!({"deadline": ["4"]}), None);
+	rig.direct(1, "c1", "reply:first");
+	rig.wait_for_replies(1);
 	rig.wait_for_cursor(1);
-	assert!(bot.stop().success(), "the bot exited with a failure");
-	assert_eq!(rig.sent().len(), 1, "a restart after {point} posted the reply again");
-	assert_eq!(rig.sent()[0]["text"], "exactly once");
+	// The resumed run fails silently after 3 of the 4 seconds, and the run on
+	// a new session never answers.
+	rig.direct(2, "c1", "reject-resume-slow:3");
+	let workdir = rig.workdir("c1");
+	eventually("the run on a new session to start", || {
+		workdir.join("fresh.marker").exists().then_some(())
+	});
+	let sent = rig.wait_for_replies(2);
 	assert_eq!(
-		runs(&rig.workdir("c1")),
-		1,
-		"a restart after {point} ran the harness again for an answered turn"
+		sent[1]["text"],
+		format!(
+			"{}: the agent did not finish within 4 seconds.",
+			words::COULD_NOT_ANSWER
+		)
 	);
-	rig
-}
-
-/// The calls of one operation, as `(call, base)` pairs.
-fn calls_of(rig: &Rig, operation: &str) -> Vec<(String, u64)> {
-	rig.call_log()
-		.into_iter()
-		.filter(|(_, op, _)| op == operation)
-		.map(|(call, _, base)| (call, base))
-		.collect()
-}
-
-fn call(name: &str, base: u64) -> (String, u64) {
-	(name.to_owned(), base)
-}
-
-#[test]
-fn a_bot_killed_after_the_send_before_the_ledger_observes_the_operation_at_its_base_and_keeps_it() {
-	let rig = killed_at("after-send", "bot-after-send");
-	let op = rig.sent()[0]["operation"].as_str().unwrap().to_owned();
-	assert_eq!(
-		calls_of(&rig, &op),
-		[call("send", 0), call("observe", 0), call("keep", 0)]
-	);
-	assert_eq!(rig.receipts()[0]["kept"], true, "the line was never kept");
-}
-
-#[test]
-fn a_bot_killed_before_its_send_reached_the_session_sends_the_same_operation_once() {
-	let rig = Rig::new("bot-before-send");
-	let mut bot = rig.serve(json!({}), Some("before-send"));
-	rig.direct(1, "c1", "reply:exactly once");
-	assert!(!bot.process.wait().success(), "the bot was not killed before its send");
-	assert!(rig.sent().is_empty());
-	let bot = rig.serve(json!({}), None);
-	rig.wait_for_cursor(1);
-	assert!(bot.stop().success(), "the bot exited with a failure");
-	let sent = rig.sent();
-	assert_eq!(sent.len(), 1, "{sent:?}");
-	let op = sent[0]["operation"].as_str().unwrap();
-	assert_eq!(
-		calls_of(&rig, op),
-		[call("observe", 0), call("send", 0), call("keep", 0)],
-		"the restart did not find the send absent and send it at its base"
-	);
-}
-
-#[test]
-fn a_bot_killed_after_the_commit_before_keeping_keeps_it_after_restart() {
-	let rig = killed_at("after-commit", "bot-after-commit");
-	let op = rig.sent()[0]["operation"].as_str().unwrap().to_owned();
-	assert_eq!(calls_of(&rig, &op), [call("send", 0), call("keep", 0)]);
-	assert_eq!(rig.receipts()[0]["kept"], true);
-}
-
-#[test]
-fn other_commands_between_the_kill_and_the_restart_never_repeat_the_line() {
-	let rig = Rig::new("bot-crowded");
-	let mut bot = rig.serve(json!({}), Some("after-send"));
-	rig.direct(1, "c1", "reply:exactly once");
-	assert!(!bot.process.wait().success());
-	rig.crowd(12);
-	let bot = rig.serve(json!({}), None);
-	rig.wait_for_cursor(1);
-	assert!(bot.stop().success(), "the bot exited with a failure");
-	assert_eq!(rig.sent().len(), 1, "{:?}", rig.sent());
-	assert!(
-		!rig.log().contains("I could not answer that"),
-		"a false failure line was written"
-	);
-	let op = rig.sent()[0]["operation"].as_str().unwrap().to_owned();
-	assert_eq!(
-		calls_of(&rig, &op),
-		[call("send", 0), call("observe", 0), call("keep", 0)],
-		"the unkept line's receipt was held through the other commands"
-	);
-}
-
-#[test]
-fn a_posted_line_whose_receipt_was_let_go_is_decided_by_its_echo_and_posts_once() {
-	// No work will settle the send's receipt, so the session lets it go
-	// under the other commands, and the restart finds no receipt.
-	let rig = Rig::new("bot-receipt-evicted");
-	rig.send_faults(&["unknown"]);
-	let mut bot = rig.serve(json!({}), Some("after-send"));
-	rig.direct(1, "c1", "reply:posted once");
-	assert!(!bot.process.wait().success(), "the bot was not killed after its send");
-	rig.crowd(12);
-	let bot = rig.serve(json!({}), None);
-	rig.wait_for_cursor(1);
-	// This send's receipt says nothing and activity holds no echo, so the
-	// line is given up on rather than guessed at.
-	rig.send_faults(&["vanished"]);
-	rig.direct(2, "c2", "reply:never posted");
 	rig.wait_for_cursor(2);
-	let status = rig.status();
 	assert!(bot.stop().success(), "the bot exited with a failure");
-	let sent = rig.sent();
-	assert_eq!(sent.len(), 1, "a line was posted twice or a guess was posted: {sent:?}");
-	assert_eq!(sent[0]["text"], "posted once");
-	assert_eq!(status["status"]["unconfirmed"], 1, "{}", rig.log());
-	let sends = rig.operations("send");
-	assert_eq!(sends.len(), 2, "a line was sent again: {sends:?}");
-	let op = sent[0]["operation"].as_str().unwrap().to_owned();
-	assert_eq!(
-		calls_of(&rig, &op),
-		[call("send", 0), call("observe", 0), call("keep", 0)],
-		"the posted line was not found by its echo"
-	);
-	assert!(
-		rig.receipts().iter().all(|receipt| receipt["status"] != "unknown"),
-		"an unsettled receipt was left behind: {:?}",
-		rig.receipts()
-	);
-}
-
-#[test]
-fn a_bot_killed_after_releasing_a_line_it_gave_up_on_never_sends_it_again() {
-	// The line posted, but activity cannot say so across the restart, so the
-	// bot gives up on it. The release is recorded as owed before it runs, so
-	// the restart finishes it and never reads the gone receipt as unsent.
-	let rig = Rig::new("bot-after-release");
-	rig.restart_echoes();
-	rig.send_faults(&["unknown"]);
-	let mut bot = rig.serve(json!({}), Some("after-release"));
-	rig.direct(1, "c1", "reply:posted once");
-	assert!(
-		!bot.process.wait().success(),
-		"the bot was not killed after the release"
-	);
-	assert!(
-		rig.receipts().is_empty(),
-		"the receipt was not released: {:?}",
-		rig.receipts()
-	);
-	let bot = rig.serve(json!({}), None);
-	rig.wait_for_cursor(1);
-	let status = rig.status();
-	assert!(bot.stop().success(), "the bot exited with a failure");
-	assert_eq!(texts_of(&rig), ["posted once"]);
-	let op = rig.sent()[0]["operation"].as_str().unwrap().to_owned();
-	assert_eq!(
-		calls_of(&rig, &op),
-		[call("send", 0), call("release", 0), call("release", 0)]
-	);
-	assert_eq!(
-		status["status"]["unconfirmed"], 0,
-		"the restart gave up on the line again"
-	);
+	// The resumed run waited 3 seconds before it failed, so the run on a new
+	// session had at most 1 of the 4 left, however slow the host.
 	let log = rig.log();
-	assert_eq!(log.matches("cannot say whether operation").count(), 1, "{log}");
-	assert!(!log.contains("I could not answer that"), "{log}");
-}
-
-#[test]
-fn a_posted_line_whose_receipt_is_gone_across_a_session_restart_is_never_sent_again() {
-	let rig = Rig::new("bot-restart-evicted");
-	rig.send_faults(&["unknown"]);
-	let mut bot = rig.serve(json!({}), Some("after-send"));
-	rig.direct(1, "c1", "reply:posted once");
-	assert!(!bot.process.wait().success(), "the bot was not killed after its send");
-	rig.crowd(12);
-	rig.restart_echoes();
-	let bot = rig.serve(json!({}), None);
-	rig.wait_for_cursor(1);
-	let status = rig.status();
-	assert!(bot.stop().success(), "the bot exited with a failure");
-	assert_eq!(texts_of(&rig), ["posted once"]);
-	let op = rig.sent()[0]["operation"].as_str().unwrap().to_owned();
-	assert_eq!(
-		calls_of(&rig, &op),
-		[call("send", 0), call("observe", 0), call("release", 0)]
+	let left = deadline_left(&log);
+	assert_eq!(left.len(), 3, "{log}");
+	assert!(
+		left[2] <= 1000,
+		"the run on a new session had a deadline of its own: {log}"
 	);
-	assert_eq!(status["status"]["unconfirmed"], 1);
 }
 
-fn texts_of(rig: &Rig) -> Vec<String> {
-	rig.sent()
-		.iter()
-		.map(|line| line["text"].as_str().unwrap_or_default().to_owned())
-		.collect()
-}
-
+/// A run that ended in a retry whose write fails sends the turn back to think
+/// after a wait of one second. The next run has only what is left of the
+/// reply's deadline, so at least that second less than the first had.
 #[test]
-fn a_bot_killed_after_recording_the_send_does_not_send_again() {
-	let rig = killed_at("after-record", "bot-after-record");
-	assert_eq!(
-		rig.operations("send").len(),
-		1,
-		"the restart sent a recorded line again"
+fn a_turn_sent_back_to_think_by_a_failed_write_keeps_its_replys_deadline() {
+	let rig = Rig::new("bot-deadline-kept");
+	let bot = rig.serve(json!({"deadline": ["60"]}), Some("retry-write@1"));
+	rig.direct(1, "c1", "crash-once");
+	rig.wait_for_replies(1);
+	rig.wait_for_cursor(1);
+	assert!(bot.stop().success(), "the bot exited with a failure");
+	assert_eq!(rig.texts(), ["recovered"]);
+	let log = rig.log();
+	assert!(log.contains("os error 5"), "the retry's write did not fail: {log}");
+	let left = deadline_left(&log);
+	assert_eq!(left.len(), 2, "{log}");
+	assert!(
+		left[1] + 1000 <= left[0],
+		"the second run had a deadline of its own: {log}"
 	);
 }

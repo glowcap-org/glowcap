@@ -429,3 +429,8 @@ export const SESSION_COMMAND_REQUIREMENTS = {
 	"setManagedRoomPolicy": { "conditional": [], "targets": ["roomPublicOffer"], "workspace": ["interactWorkspace"] },
 	"operations": { "conditional": [], "targets": ["operator"], "workspace": ["interactWorkspace", "useOperations"] },
 } as const;
+export const RECEIPT_RELEASES = ["released", "running", "kept"] as const;
+export type ReceiptRelease = (typeof RECEIPT_RELEASES)[number];
+export function isReceiptRelease(word: unknown): word is ReceiptRelease {
+	return RECEIPT_RELEASES.some((release) => release === word);
+}

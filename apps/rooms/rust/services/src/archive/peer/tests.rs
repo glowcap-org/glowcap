@@ -61,21 +61,25 @@ async fn scenario(use_iroh: bool) {
 				let _ = stopped.await;
 			},
 			|link| {
-				ready.send(link.to_owned()).unwrap();
+				// The send's error would hold the link, so it is not printed.
+				assert!(ready.send(link.to_owned()).is_ok(), "the archive link had no reader");
 			},
 			Rc::new(|_| {}),
 		));
 		let link = link.await.unwrap();
 		let parsed = glowcap::parse_sturdyref(&link, glowcap::CaptpVersion::V1_0).unwrap();
 		if let Some(swiss) = &previous_swiss {
-			assert_eq!(&parsed.swissnum, swiss);
+			assert!(&parsed.swissnum == swiss, "a restart replaced the archive's swissnum");
 		}
 		previous_swiss = Some(parsed.swissnum.clone());
 		let session = runtime
 			.connect(&parsed.locator, ConnectOptions::default())
 			.await
 			.unwrap();
-		let reference = session.enliven(&link).await.unwrap();
+		// A refusal may echo the link, so only its failure is reported.
+		let Ok(reference) = session.enliven(&link).await else {
+			panic!("the archive's link did not enliven");
+		};
 		let client = Client::new(session, HostPlatform);
 		let archive = ClientArchive::new(client.clone(), reference);
 		if restart == 0 {

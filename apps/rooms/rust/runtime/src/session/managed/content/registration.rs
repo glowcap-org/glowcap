@@ -70,16 +70,20 @@ pub(in crate::session::managed) fn registration<P: Tasks + Deadline + Clone + 's
 			("effect-status", Retry::ReadOnly),
 			("effect-inventory", Retry::ReadOnly),
 			("effect-intent", Retry::ReadOnly),
+			("effect-holder", Retry::ReadOnly),
+			("held-effects", Retry::ReadOnly),
 			("effect-adopted", Retry::ReadOnly),
 			("resume-effect", Retry::Idempotent),
-			// A retried release finds its receipt already gone and answers done.
+			// A retried release finds its receipt released, or evicted since, and
+			// answers released either way.
 			("release-effect", Retry::Idempotent),
 			("effect-result", Retry::ReadOnly),
 			("effect-reader", Retry::ReadOnly),
 			("settle-effect", Retry::Idempotent),
-			("unadopted-effects", Retry::ReadOnly),
-			// A retried release finds its receipt already gone and answers done.
-			("release-unadopted-effect", Retry::Idempotent),
+			("inert-effects", Retry::ReadOnly),
+			// A retried release finds its receipt released, or evicted since, and
+			// answers released either way.
+			("release-inert-effect", Retry::Idempotent),
 			("settle-history-erasure", Retry::Idempotent),
 			("retention-intent", Retry::ReadOnly),
 		]
@@ -94,6 +98,7 @@ pub(in crate::session::managed) fn registration<P: Tasks + Deadline + Clone + 's
 				"typing-sender".into(),
 				"signaling-route".into(),
 				"effect-intent".into(),
+				"effect-holder".into(),
 				"effect-adopted".into(),
 				"effect-status".into(),
 				"acquire-result-workspace".into(),
