@@ -34,6 +34,9 @@ pub enum Error {
 	Introduction(rooms_application::directory::introduction::Error),
 	Binding(Box<glowcap::Error>),
 	Timeout(&'static str),
+	/// A call to the session this page is attached to missed its deadline. It
+	/// says the link is no longer proved, which a call to anyone else does not.
+	Unreached(&'static str),
 	Reply(Refusal),
 	Custody(rooms_application::room::stewardship::Error),
 	Membership(rooms_application::room::membership::Error),
@@ -65,6 +68,10 @@ impl Error {
 			Self::Binding(error) | Self::Unsent(error) => binding_failure(error),
 			Self::RefusedObservation(reason) => Failure::parse(reason),
 			Self::Observation(reason) => uncertain_failure(reason),
+			Self::Unreached(what) => Some(Failure {
+				code: FailureCode::PeerUnreachable,
+				detail: what,
+			}),
 			Self::Custody(error) => error.failure(),
 			_ => None,
 		}
@@ -86,7 +93,16 @@ impl Error {
 	pub fn connection_failed(&self) -> bool {
 		match self {
 			Self::Binding(error) | Self::Unsent(error) => binding_kind_connection_failed(error.kind()),
-			Self::Timeout(_) => true,
+			Self::Timeout(_) | Self::Unreached(_) => true,
+			_ => false,
+		}
+	}
+	/// Whether this failure says only that the session was never reached, which
+	/// a later dial may change. See `binding_never_reached`.
+	pub fn never_reached(&self) -> bool {
+		match self {
+			Self::Binding(error) | Self::Unsent(error) => binding_never_reached(error),
+			Self::Timeout(_) | Self::Unreached(_) => true,
 			_ => false,
 		}
 	}
@@ -100,7 +116,7 @@ impl Error {
 		if let Self::Binding(error) | Self::Unsent(error) = self {
 			return binding_retry(error);
 		}
-		if matches!(self, Self::Timeout(_) | Self::PostedLine(_)) {
+		if matches!(self, Self::Timeout(_) | Self::Unreached(_) | Self::PostedLine(_)) {
 			return Retry::AfterStateChange;
 		}
 		if matches!(self, Self::SourceRead(_)) {
@@ -177,6 +193,22 @@ fn reach_failure(cause: glowcap::BreakCause) -> Option<FailureCode> {
 pub fn clears_with_time(cause: glowcap::BreakCause) -> bool {
 	use glowcap::{BreakOrigin, BreakReason};
 	cause.origin == BreakOrigin::Local && matches!(cause.reason, BreakReason::PeerUnreachable | BreakReason::Closed)
+}
+
+/// Whether a binding failure says the peer was never reached, so a later dial
+/// may find it. That is a cause `clears_with_time` names, a connection
+/// failure that carries no cause at all, or a restoration that ended with
+/// no one naming why, as when the peer's connection closed mid-dial. Everything else stands as its own
+/// failure: a refusal, an application failure, a fact about this side, and any
+/// error that names no connection.
+pub fn binding_never_reached(error: &glowcap::Error) -> bool {
+	cause_never_reached(error.cause(), error.kind())
+}
+
+fn cause_never_reached(cause: glowcap::BreakCause, kind: glowcap::ErrorKind) -> bool {
+	clears_with_time(cause)
+		|| (cause.origin == glowcap::BreakOrigin::Unspecified
+			&& (cause.context.restoration() || binding_kind_connection_failed(kind)))
 }
 
 /// Whether `code` is one of the two a cause that clears with time is written
@@ -320,7 +352,7 @@ impl core::fmt::Display for Error {
 			Self::ControlConflict(conflict) => conflict.fmt(f),
 			Self::Observation(reason) | Self::RefusedObservation(reason) => f.write_str(reason),
 			Self::Binding(e) | Self::Unsent(e) => e.fmt(f),
-			Self::Timeout(what) => f.write_str(what),
+			Self::Timeout(what) | Self::Unreached(what) => f.write_str(what),
 			Self::Reply(e) => e.fmt(f),
 			Self::Custody(e) => e.fmt(f),
 			Self::Membership(e) => e.fmt(f),
@@ -369,6 +401,46 @@ mod tests {
 			assert!(reach_failure(BreakCause::local(reason)).is_some_and(reach_code));
 		}
 		assert!(!reach_code(FailureCode::NickTaken));
+	}
+
+	#[test]
+	fn only_a_peer_that_was_never_reached_is_dialed_again() {
+		use glowcap::{BreakCause, BreakReason, ErrorKind};
+		let caused = |cause: BreakCause| cause_never_reached(cause, ErrorKind::Broken);
+		// A cause that clears with time.
+		assert!(caused(
+			BreakCause::local(BreakReason::PeerUnreachable).with_restoration()
+		));
+		assert!(caused(BreakCause::local(BreakReason::Closed)));
+		// The peer's own answer, and a fact about this side that time does not change.
+		assert!(!caused(BreakCause::partner().with_restoration()));
+		assert!(!caused(BreakCause::local(BreakReason::Refused).with_restoration()));
+		assert!(!caused(BreakCause::local(BreakReason::PublicationAbsent)));
+		assert!(!caused(BreakCause::local(BreakReason::IdentityUnverified)));
+		assert!(!caused(BreakCause::local(BreakReason::TransportUnavailable)));
+		// No typed cause: only a connection kind says the peer was not reached.
+		assert!(
+			!caused(BreakCause::default()),
+			"an error that names no connection stands"
+		);
+		// A restoration that ended unnamed was a dial cut short. A partner's
+		// answer during restoration still stands.
+		assert!(caused(BreakCause::default().with_restoration()));
+		for kind in [ErrorKind::Closed, ErrorKind::Io, ErrorKind::TimedOut] {
+			assert!(cause_never_reached(BreakCause::default(), kind));
+			assert!(!cause_never_reached(BreakCause::partner(), kind));
+		}
+		for kind in [
+			ErrorKind::Malformed,
+			ErrorKind::Internal,
+			ErrorKind::NotFound,
+			ErrorKind::InvalidArgument,
+		] {
+			assert!(!cause_never_reached(BreakCause::default(), kind));
+		}
+		assert!(Error::Timeout("late").never_reached());
+		assert!(Error::Unreached("late").never_reached());
+		assert!(!Error::Reply(Refusal::Policy).never_reached());
 	}
 
 	#[test]

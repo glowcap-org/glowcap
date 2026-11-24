@@ -80,7 +80,10 @@ const batches: []const []const []const u8 = &.{
     &.{
         "apps/rooms/test/session/setup_projection_test.ts",
         "apps/rooms/test/session/managed_viewer_test.ts",
-        "apps/rooms/test/session/managed_away_test.ts",
+        "apps/rooms/test/session/managed_link_test.ts",
+        "apps/rooms/test/session/managed_link_binding_test.ts",
+        "apps/rooms/test/session/managed_relink_test.ts",
+        "apps/rooms/test/session/managed_resend_test.ts",
         "apps/rooms/test/session/managed_catch_up_test.ts",
         "apps/rooms/test/session/managed_directory_address_test.ts",
         "apps/rooms/test/session/managed_typing_test.ts",

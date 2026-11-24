@@ -86,6 +86,7 @@ impl<D: Deadline + Tasks + Clone + 'static> Sources<D> {
 			Caller::Local {
 				host: host.clone(),
 				platform: self.platform.clone(),
+				attached: false,
 			},
 			sources,
 			false,
@@ -103,6 +104,7 @@ impl<D: Deadline + Tasks + Clone + 'static> Sources<D> {
 			Caller::Local {
 				host: host.clone(),
 				platform: self.platform.clone(),
+				attached: false,
 			},
 			sources,
 			true,
@@ -235,6 +237,7 @@ impl<D: Deadline + Tasks + Clone + 'static> Sources<D> {
 			Caller::Local {
 				host: host.clone(),
 				platform: self.platform.clone(),
+				attached: false,
 			},
 			target,
 			verb,

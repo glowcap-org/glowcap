@@ -5,7 +5,13 @@ use glowcap::Host;
 #[derive(Clone)]
 pub(crate) enum Caller<D> {
 	Remote(Client<D>),
-	Local { host: Host, platform: D },
+	/// `attached` says the capability is served through a connection that can
+	/// break, so a call that misses its deadline has lost the proved link.
+	Local {
+		host: Host,
+		platform: D,
+		attached: bool,
+	},
 }
 impl<D: Deadline> Caller<D> {
 	pub fn host(&self) -> Host {
@@ -46,7 +52,7 @@ impl<D: Deadline> Caller<D> {
 	) -> impl Future<Output = Result<Argument, Error>> + use<'_, D> {
 		let (host, platform) = match self {
 			Self::Remote(client) => (client.session().host(), client.platform()),
-			Self::Local { host, platform } => (host.clone(), platform),
+			Self::Local { host, platform, .. } => (host.clone(), platform),
 		};
 		let pending = host.send(source, verb, args);
 		async move {
@@ -67,15 +73,19 @@ impl<D: Deadline> Caller<D> {
 		// Both fronts admit the vow now. Temporary arguments retire before the
 		// observation awaits; local requests create no transport or session.
 		let pending = self.wait(source, verb, args);
-		let platform = match self {
-			Self::Remote(client) => client.platform(),
-			Self::Local { platform, .. } => platform,
+		let (platform, attached) = match self {
+			Self::Remote(client) => (client.platform(), false),
+			Self::Local { platform, attached, .. } => (platform, *attached),
 		};
 		async move {
 			platform
 				.within(rooms_application::room::authority::REQUEST_TIMEOUT_MS, pending)
 				.await
-				.ok_or(Error::Timeout(what))?
+				.ok_or(if attached {
+					Error::Unreached(what)
+				} else {
+					Error::Timeout(what)
+				})?
 		}
 	}
 	pub fn wait(

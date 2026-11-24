@@ -126,6 +126,18 @@ export class ManagedHistory {
 		if (topology === this.#topology) return;
 		this.#schedule();
 	}
+	/** The link to the session was replaced, so the archive readers held over
+	 * it answer no more. They are chosen again over the new link. */
+	relink(): void {
+		this.#source?.release();
+		this.#device?.release();
+		this.#source = null;
+		this.#device = null;
+		this.#selection = null;
+		this.refresh().catch(() => {
+			// best-effort: a failed read is already reported and shown on the archive target.
+		});
+	}
 	refresh(): Promise<void> {
 		this.#epoch++;
 		this.#hydrated.clear();

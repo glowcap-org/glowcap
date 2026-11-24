@@ -197,7 +197,7 @@ impl From<rooms_runtime::Error> for Error {
 				operation,
 				source: Box::new(Self::from(*source)),
 			},
-			Shared::Coded { code, detail } => Self::Coded { code, detail },
+			Shared::Coded { code, detail, .. } => Self::Coded { code, detail },
 			Shared::Refused(e) => Self::Refused(e),
 			Shared::Invalid(e) => Self::Invalid(e),
 			Shared::Busy(e) => Self::Busy(e),

@@ -36,9 +36,12 @@ export function sessionEffectMany(count: number): string {
 	return `${count} session operations need your decision.`;
 }
 export const sessionPausedSaid = "Your access to this shared session is paused.";
-export const sessionAwaySaid =
-	"This page lost its session, so nothing here sends or updates. Check that this device is online and the session is still running, then reload.";
-export const sessionAwayReload = "Reload";
+export const sessionReconnecting = "Reconnecting to this session. What you type here is kept.";
+export const sessionOffline = "This device is offline. The page reconnects to its session when the network is back.";
+export const sessionStuck =
+	"This page can't reach its session. It keeps trying. Check that the session is still running.";
+export const sessionTryNow = "Try now";
+export const sessionReload = "Reload";
 
 /** The file viewer and an attachment on a line. */
 export function viewerFit(name: string): string {

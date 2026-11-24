@@ -99,6 +99,7 @@ export const SESSION_CAPABILITY_GONE = "session-capability-gone";
 export const SESSION_RESTORATION_FAILED = "session-restoration-failed";
 export const SAVED_TRANSPORT_UNAVAILABLE = "saved-transport-unavailable";
 export const SESSION_PEER_UNVERIFIED = "session-peer-unverified";
+export const ACTIVITY_CURSOR_STALE = "activity-cursor-stale";
 export const LINK_PREVIEW_INVALID_URL = "link-preview-invalid-url";
 export const LINK_PREVIEW_ADDRESS_BLOCKED = "link-preview-address-blocked";
 export const LINK_PREVIEW_DNS_FAILED = "link-preview-dns-failed";
@@ -369,6 +370,12 @@ export const ROOMS_FAILURES = {
 		retry: "after-request-change",
 		summary: "The session answered, but this browser couldn't confirm it is the one the link names.",
 		action: "Try again with a link the session shows now.",
+	},
+	"activity-cursor-stale": {
+		subject: "session-activity",
+		retry: "after-request-or-state-change",
+		summary: "The session restarted since this place in its activity was saved.",
+		action: null,
 	},
 	"link-preview-invalid-url": {
 		subject: "link-preview",

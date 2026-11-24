@@ -23,10 +23,12 @@ pub enum Error {
 		source: Box<Self>,
 	},
 	/// A local owner reached a failure the catalog names. The code is the
-	/// fact, and the detail says what this owner saw.
+	/// fact, and the detail says what this owner saw. The failure it names, if
+	/// any, stays as the cause.
 	Coded {
 		code: rooms_application::failure::FailureCode,
 		detail: &'static str,
+		cause: Option<Box<Self>>,
 	},
 	/// The request was understood but policy does not permit it.
 	Refused(Cow<'static, str>),
@@ -126,8 +128,33 @@ impl Error {
 		}
 	}
 
+	/// Whether this failure says only that a peer was never reached, which a
+	/// later attempt may change. A peer's own answer, such as a revoked access,
+	/// is not this, and neither is a failure that names no connection.
+	pub fn peer_never_reached(&self) -> bool {
+		match self {
+			Self::Captp(error) => rooms_glowcap::client::binding_never_reached(error),
+			Self::Peer(error) => error.never_reached(),
+			Self::Cleanup { primary, .. } => primary.peer_never_reached(),
+			Self::Context { source, .. } => source.peer_never_reached(),
+			_ => false,
+		}
+	}
+
 	pub fn coded(code: rooms_application::failure::FailureCode, detail: &'static str) -> Self {
-		Self::Coded { code, detail }
+		Self::Coded {
+			code,
+			detail,
+			cause: None,
+		}
+	}
+	/// This failure, named by `code`, with `self` kept as its cause.
+	pub fn named(self, code: rooms_application::failure::FailureCode, detail: &'static str) -> Self {
+		Self::Coded {
+			code,
+			detail,
+			cause: Some(Box::new(self)),
+		}
 	}
 	pub fn refused(text: impl Into<Cow<'static, str>>) -> Self {
 		Self::Refused(text.into())
@@ -326,7 +353,13 @@ impl fmt::Display for Error {
 		match self {
 			Self::Admission { refusal, owner } => f.write_str(&refusal.line(*owner)),
 			Self::Context { operation, source } => write!(f, "{operation}: {source}"),
-			Self::Coded { code, detail } => f.write_str(&code.line(detail)),
+			Self::Coded { code, detail, cause } => {
+				f.write_str(&code.line(detail))?;
+				match cause {
+					Some(cause) => write!(f, ": {cause}"),
+					None => Ok(()),
+				}
+			}
 			Self::Refused(error)
 			| Self::Invalid(error)
 			| Self::Busy(error)
@@ -345,7 +378,10 @@ impl fmt::Display for Error {
 impl std::error::Error for Error {
 	fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
 		match self {
-			Self::Admission { .. } | Self::Coded { .. } => None,
+			Self::Admission { .. } => None,
+			Self::Coded { cause, .. } => cause
+				.as_deref()
+				.map(|cause| cause as &(dyn std::error::Error + 'static)),
 			Self::Context { source, .. } => Some(source.as_ref()),
 			Self::Captp(error) => Some(error.as_ref()),
 			Self::Peer(error) => Some(error.as_ref()),
@@ -436,6 +472,12 @@ mod tests {
 				"a cleanup refusal cannot authorize retry of the primary operation"
 			);
 		}
+	}
+
+	#[test]
+	fn a_failure_that_names_no_connection_is_not_an_unreached_peer() {
+		assert!(!Error::refused("not permitted").peer_never_reached());
+		assert!(Error::from(rooms_glowcap::client::Error::Timeout("late")).peer_never_reached());
 	}
 
 	#[test]

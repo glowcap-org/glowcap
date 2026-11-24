@@ -94,6 +94,7 @@ codes! {
 	SessionRestorationFailed => ("session-restoration-failed", "session-capability", AfterStateChange, "Rooms couldn't restore the saved session link.", Some("Check that the session is running. If it was reset, attach its new session link.")),
 	SavedTransportUnavailable => ("saved-transport-unavailable", "saved-address", AfterStateChange, "The saved address uses a transport this session can't reach.", Some("Enter its current address again, or start the session with a transport that reaches it.")),
 	SessionPeerUnverified => ("session-peer-unverified", "session-peer", AfterRequestChange, "The session answered, but this browser couldn't confirm it is the one the link names.", Some("Try again with a link the session shows now.")),
+	ActivityCursorStale => ("activity-cursor-stale", "session-activity", AfterRequestOrStateChange, "The session restarted since this place in its activity was saved.", None),
 	LinkPreviewInvalidUrl => ("link-preview-invalid-url", "link-preview", AfterRequestChange, "That address can't be previewed.", Some("Use a public HTTP or HTTPS address without embedded credentials.")),
 	LinkPreviewAddressBlocked => ("link-preview-address-blocked", "link-preview", AfterRequestChange, "Rooms won't connect to that address for a preview.", Some("Link previews can reach only public internet addresses, never this server or its private network.")),
 	LinkPreviewDnsFailed => ("link-preview-dns-failed", "link-preview", Soon, "The preview service couldn't find that site.", Some("Retry if its address is temporarily unavailable.")),

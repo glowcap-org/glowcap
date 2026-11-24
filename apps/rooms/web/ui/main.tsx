@@ -26,7 +26,7 @@ import { noteBootDelay, noteBootPhase, startBootAsides } from "./boot_note.ts";
 import { refusePageScaling } from "./gestures.ts";
 import { reserveSelectionForAddress } from "./page_bootstrap.ts";
 import { RoomsPage } from "./page.ts";
-import { bindTabVisibility, RoomsProjectionProvider } from "./hooks.ts";
+import { bindNetwork, bindTabVisibility, RoomsProjectionProvider } from "./hooks.ts";
 import { dmFrom } from "./dm_transport.ts";
 import { ManagedSessionStartupFailure, openManagedSession } from "./session/managed/open.ts";
 import { attachedSessionFailureText } from "./session/attached_failure.ts";
@@ -47,7 +47,8 @@ import * as store from "./store.ts";
 import { relayAway } from "./store/projection.ts";
 import { bindViewPreferences } from "./view_preferences.ts";
 import { bindGroundToConnections } from "./mycelium/link.ts";
-import { bindReloadToBuild, servedPageBuild } from "./build_link.ts";
+import { bindReloadToBuild, type BuildReload, type PageQuiet, servedPageBuild } from "./build_link.ts";
+import { bindLinkToPage } from "./link_binding.ts";
 import { pagePath, pathOffer } from "./page_base.ts";
 import { chooseServer, serverInUse, serverOffer } from "./server_choice.ts";
 import { sessionOffer } from "./session_offer.ts";
@@ -71,11 +72,23 @@ function report(source: string, error: unknown): void {
 bindGroundToConnections(page.projection);
 // A page whose server has moved to a new build reloads into it.
 const build = servedPageBuild(document);
-if (build != null) bindReloadToBuild(page.projection, build);
+// What a reload would drop: an unsaved edit, picked files, a change on its way.
+const quiet: PageQuiet = {
+	idle: () =>
+		(page.managedSession?.idle ?? true) &&
+		![...page.projection.get().drafts.values()].some((draft) => draft.files.length > 0),
+	subscribe: (listener) => {
+		const stops = [page.projection.subscribe(listener)];
+		if (page.managedSession != null) stops.push(page.managedSession.subscribe(listener));
+		return () => stops.forEach((stop) => stop());
+	},
+};
+const reload: BuildReload | null = build == null ? null : bindReloadToBuild(page.projection, build, quiet);
 // The stylesheet refuses page scaling everywhere the root's `touch-action` is
 // honoured. This is WebKit's half, which arrives as its own gesture events.
 refusePageScaling();
 bindTabVisibility(page.projection);
+bindNetwork(page.projection);
 const browser = createRoomsBrowserController(page, navigateTo, addressOfActive, () => openWorkspace("local"));
 let openingWorkspace: ReturnType<typeof openManagedSession> | null = null;
 function openWorkspace(selection: "saved" | "local" = "saved"): ReturnType<typeof openManagedSession> {
@@ -266,6 +279,13 @@ async function start(): Promise<void> {
 	prefetch(() => establishedUi);
 	if (pagePath().startsWith("/ops")) prefetch(loadOpsPage);
 	const history = new ManagedHistory(page, managed, report);
+	// A page attached to a session elsewhere keeps its link to it by itself.
+	if (managed.link != null) {
+		bindLinkToPage(page.projection, managed.link);
+		managed.onRelink(() => history.relink());
+		// A link that returns may return to a server with a new build.
+		if (reload != null) managed.onRelink(() => reload.check());
+	}
 	const files = presentationFiles(page.projection, () => history.source);
 	history.bindFiles(files);
 	const projection = new ManagedProjection(

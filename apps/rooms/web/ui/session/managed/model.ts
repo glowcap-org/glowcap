@@ -154,6 +154,10 @@ export interface UseView {
 	status: "active" | "paused" | "revoked" | "outOfScope";
 	effective?: { permissions: RoomsPermission[] };
 }
+/** Whether `access` is active and carries `permission`. */
+export function permitted(access: UseView, permission: RoomsPermission): boolean {
+	return access.status === "active" && access.effective?.permissions.includes(permission) === true;
+}
 export interface ObservationView {
 	cursor: Uint8Array;
 	source: UseView;
@@ -278,3 +282,6 @@ export interface ActivityPage<Notice = ActivityNotice | null> {
 /** One read of the journal: a page, and the cursor the journal ended at when
  * it was read. */
 export type ActivityRead<Notice = ActivityNotice | null> = ActivityPage<Notice> & { head: string };
+
+/** The saved row that names the access this tab views. */
+export const ACTIVE_VIEW = "active-view";

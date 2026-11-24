@@ -60,7 +60,11 @@ impl<D: Deadline> Observation<D> {
 	}
 	pub fn local(host: glowcap::Host, platform: D, receiver: Ref, canceller: Ref) -> Self {
 		Self {
-			caller: Caller::Local { host, platform },
+			caller: Caller::Local {
+				host,
+				platform,
+				attached: false,
+			},
 			receiver,
 			canceller,
 		}
@@ -74,7 +78,16 @@ impl<D: Deadline> Observation<D> {
 		source: &Ref,
 		request: &ObservationRequest,
 	) -> Result<Self, Error> {
-		Self::register_through(Caller::Local { host, platform }, source, request).await
+		Self::register_through(
+			Caller::Local {
+				host,
+				platform,
+				attached: false,
+			},
+			source,
+			request,
+		)
+		.await
 	}
 	pub(crate) async fn register_through(
 		caller: Caller<D>,

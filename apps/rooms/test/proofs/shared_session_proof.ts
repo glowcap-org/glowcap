@@ -21,10 +21,13 @@ import { proveSharedSessionMoveLayout } from "../page/shared_session_moves.ts";
 import { proveReloadMidUpload, proveSharedImage } from "../page/shared_session_files.ts";
 import { png } from "../page/png.ts";
 import { managedAccessText } from "../../lib/text/managed_access.ts";
+import { sessionReconnecting } from "../../lib/text/page.ts";
+import { rosterWaiting } from "../../lib/text/conversation.ts";
 import { Directory } from "../../lib/room/client.ts";
 import { dial } from "../../lib/locator.ts";
 import { openRoomsRuntime } from "../../lib/runtime.ts";
 import { ask } from "../../lib/ask.ts";
+import { proveSharedSessionHalfOpen, proveSharedSessionOffline, RelayWire } from "../page/shared_session_offline.ts";
 import { proveSharedRoomLink } from "../page/shared_room_link.ts";
 import { proveSharedDirectoryRecovery } from "../page/shared_directory_recovery.ts";
 import { proveAttachedSessionHolding, provePrivateRoomHolding } from "../page/holdings.ts";
@@ -116,6 +119,8 @@ try {
 		page.on("console", (message) => console.error("SHARED-CONSOLE", message.text()));
 	}
 	await attach(first, link);
+	const secondWire = new RelayWire();
+	await secondWire.install(second);
 	await attach(second, link);
 	for (const page of [first, second]) {
 		await namedRoomRow(page, "mirror-one").waitFor();
@@ -203,12 +208,17 @@ try {
 		{ timeout: 30_000 },
 	);
 	// The actual session process restores its graph, publications and receipts.
+	// Each page keeps its place and its draft, says it is reconnecting for as
+	// long as the session is gone, and dials the restarted session by itself.
+	const draft = "A draft typed before the session went away";
+	await second.fill("#line", draft);
+	for (const page of [first, second]) await page.evaluate(() => Reflect.set(window, "keptAcrossOutage", true));
 	await stopOwned(peer);
-	// Each page says its session is away for as long as it is, and offers the
-	// act that brings it back.
 	for (const page of [first, second]) {
-		await page.locator(".session-away-notice").waitFor({ timeout: 30_000 }).catch(async () =>
-			fail(`a page did not say its session went away: view=${await page.locator("body").innerText()}`)
+		await page.locator(".session-link-notice").getByText(sessionReconnecting, { exact: true }).waitFor({
+			timeout: 30_000,
+		}).catch(async () =>
+			fail(`a page did not say it was reconnecting: view=${await page.locator("body").innerText()}`)
 		);
 	}
 	peer = start();
@@ -218,19 +228,44 @@ try {
 	});
 	if (restored !== link) fail("managed process publication changed across restart");
 	for (const page of [first, second]) {
-		await Promise.all([page.waitForEvent("load"), page.click("#sessionAwayReload")]);
-		await page.locator(".session-away-notice").waitFor({ state: "detached" });
-		await page.waitForSelector("#line:not([disabled])", { timeout: 30_000 }).catch(async () =>
+		await page.locator(".session-link-notice").waitFor({ state: "detached", timeout: 60_000 }).catch(async () =>
 			fail(
-				`process restart view did not settle: view=${await page.locator("body").innerText()} process=${
+				`a page did not reconnect: view=${await page.locator("body").innerText()} process=${
 					JSON.stringify(await control("status", {}))
 				}`,
 			)
 		);
+		await page.waitForSelector("#line:not([disabled])", { timeout: 30_000 });
+		if (await page.evaluate(() => Reflect.get(window, "keptAcrossOutage")) !== true) {
+			fail("a page reloaded instead of reconnecting");
+		}
 		await bubble(page, "One managed member, two views");
+		// The restarted session rejoins the room on its own, after the page is back.
+		await page.getByText(rosterWaiting, { exact: true }).waitFor({ state: "detached", timeout: 60_000 }).catch(
+			async () =>
+				fail(
+					`the room did not rejoin after the session restarted: view=${await page.locator("body")
+						.innerText()}`,
+				),
+		);
+	}
+	if (await second.inputValue("#line") !== draft) fail("the draft did not survive the outage");
+	// The draft is the conversation's, so sending it is the one gesture that
+	// proves it reached the restarted session, once, for both views.
+	await second.press("#line", "Enter");
+	for (const page of [first, second]) await bubble(page, draft);
+	await second.waitForFunction(
+		() => (document.getElementById("line") as HTMLTextAreaElement | null)?.value === "",
+		undefined,
+		{ timeout: 30_000 },
+	);
+	if (await second.locator(".bubble").filter({ hasText: draft }).count() !== 1) {
+		fail("the draft was sent more than once");
 	}
 	await say(first, "After managed process restart");
 	await bubble(second, "After managed process restart");
+	await proveSharedSessionOffline(second, secondContext, secondWire, "Typed while this device had no network", first);
+	await proveSharedSessionHalfOpen(second, secondWire, "Sent over a connection that carried nothing", first);
 	await proveSharedRoomAuthorityRotation(first, async () => {
 		const status = await control("status", {});
 		console.error("ROOM-AUTHORITY-STATE", JSON.stringify(status));

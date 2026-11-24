@@ -8,7 +8,7 @@ import type {
 	RoomsManagedWorkspace,
 } from "../../../../../../zig-out/wasm/rooms/rooms_browser.js";
 import { submitAcquisition, throwUnlessCommitted } from "./acquisition.ts";
-import type { WorkspaceSnapshot } from "./model.ts";
+import { ACTIVE_VIEW, type WorkspaceSnapshot } from "./model.ts";
 
 export class ManagedSelection {
 	readonly #application: RoomsManagedApplication;
@@ -49,13 +49,13 @@ export class ManagedSelection {
 			if (uri != null) {
 				const view: RoomsManagedWorkspace = await this.#application.attachWorkspace(uri);
 				try {
-					request = await this.#custody.prepareSelectWorkspace("active-view", view);
+					request = await this.#custody.prepareSelectWorkspace(ACTIVE_VIEW, view);
 				} finally {
 					view.free();
 				}
 			} else {
 				const snapshot: WorkspaceSnapshot = await this.#custody.snapshot();
-				const selected = snapshot.intent.accesses?.find((row) => row.id === "active-view");
+				const selected = snapshot.intent.accesses?.find((row) => row.id === ACTIVE_VIEW);
 				if (selected?.access == null) return;
 				const releases = [{ role: "sessionAccess", key: selected.access }];
 				selected.access = null;

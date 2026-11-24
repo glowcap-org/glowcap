@@ -22,6 +22,18 @@ export class ManagedDrafts {
 	}
 	sync(id: string): void {
 		if (this.#failures.has(id)) return;
+		this.#background(id);
+	}
+	/** The link to the session was replaced. Every edit whose write failed
+	 * while it was gone is written again, by the operation it kept. */
+	resume(): void {
+		for (const id of [...this.#failures.keys()]) this.#background(id);
+	}
+	/** Whether any edit is staged, being written, or refused and waiting to be written again. */
+	get unsaved(): boolean {
+		return this.#values.size > 0 || this.#jobs.size > 0 || this.#failures.size > 0;
+	}
+	#background(id: string): void {
 		void this.flush(id).catch(() => {
 			// The persistent composer notice owns this failed background sync.
 		});

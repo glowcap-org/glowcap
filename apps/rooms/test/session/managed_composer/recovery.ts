@@ -227,3 +227,33 @@ for (const stage of ["admission observation", "acquisition"] as const) {
 		}
 	});
 }
+
+Deno.test("a send cut off by a broken connection is retried by its own operation, and typing after it is kept", async () => {
+	const f = fixture();
+	const operations: string[] = [];
+	const recovered: string[] = [];
+	try {
+		f.session.execute = (id) => {
+			operations.push(id);
+			Object.defineProperty(f.session, "pending", { configurable: true, value: [...operations] });
+			return Promise.reject(Object.assign(new Error("glowcap error -7: session closing"), { status: -7 }));
+		};
+		f.session.completeOperation = (id) => {
+			recovered.push(id);
+			return Promise.resolve(true);
+		};
+		f.actions.setDraft("sent as the connection broke");
+		f.actions.send();
+		await tick();
+		f.actions.setDraft("typed while the page reconnects");
+		await tick();
+		const line = store.historyOf(f.page.projection, f.first.key).find((item) => item.kind === "chat");
+		if (line == null) throw new Error("the cut off line is shown");
+		f.actions.retry(f.first.key, line.id);
+		await tick();
+		assertEquals([operations.length, recovered], [1, operations], "one gesture, one operation, retried by its id");
+		assertEquals(store.activeDraft(f.page.projection).text, "typed while the page reconnects");
+	} finally {
+		f.close();
+	}
+});

@@ -302,7 +302,10 @@ impl<P: Tasks + Deadline + Clone + 'static> Activity<P> {
 			.split_once(':')
 			.ok_or_else(|| loam::refusal("invalid activity token"))?;
 		if incarnation != self.incarnation_hex()? {
-			return Err(loam::refusal("activity token belongs to another incarnation"));
+			return Err(loam::refusal(
+				rooms_application::failure::FailureCode::ActivityCursorStale
+					.line("activity token belongs to another incarnation"),
+			));
 		}
 		let id = counter
 			.parse::<u64>()

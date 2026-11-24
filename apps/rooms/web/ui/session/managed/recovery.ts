@@ -4,6 +4,7 @@ import type {
 	RoomsManagedRecoveredEffect,
 	RoomsManagedWorkspace,
 } from "../../../../../../zig-out/wasm/rooms/rooms_browser.js";
+import { connectionLost } from "../../../../lib/text/failure.ts";
 import {
 	ManagedOperation,
 	readResult,
@@ -42,7 +43,9 @@ export async function resumeEffect(
 				if (diagnostic instanceof TerminalObservationError) throw diagnostic;
 			}
 		}
-		throw status === "committed" ? new ResultAcquisitionError(undefined, error, "resume-effect") : error;
+		throw status === "committed" && !connectionLost(error)
+			? new ResultAcquisitionError(undefined, error, "resume-effect")
+			: error;
 	}
 }
 
@@ -65,6 +68,8 @@ export async function releaseEffect(
 
 interface Recovery {
 	workspace: RoomsManagedWorkspace;
+	/** Whether this viewer already holds a record of the receipt. */
+	known?(id: string): boolean;
 	retain(operation: ManagedOperation): void;
 	orphan?(operation: ManagedOperation): void;
 	finish(operation: ManagedOperation): void;
@@ -74,9 +79,14 @@ interface Recovery {
 
 export async function restoreEffects(viewer: Recovery): Promise<void> {
 	for (const receipt of await viewer.workspace.effects()) {
-		if (receipt.status === "unsent") continue;
+		if (receipt.status === "unsent" || viewer.known?.(receipt.operation)) continue;
 		const recovered = await viewer.workspace.recoverEffect(receipt.operation);
 		if (recovered == null) continue;
+		// A move for a newer link may have taken this receipt up meanwhile.
+		if (viewer.known?.(receipt.operation)) {
+			recovered.free();
+			continue;
+		}
 		const operation = new ManagedOperation(receipt.operation, recovered, receipt.status);
 		viewer.retain(operation);
 		if (receipt.status === "pending") {

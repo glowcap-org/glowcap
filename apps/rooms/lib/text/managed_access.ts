@@ -130,6 +130,7 @@ export const managedAccessText = {
 	"observation": "Session observation",
 	"management": "Session management",
 	"activity": "Session activity",
+	"link": "Session connection",
 	"manage": "Manage…",
 	"done": "Done",
 } as const;

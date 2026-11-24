@@ -85,7 +85,11 @@ impl<D: Deadline> Control<D> {
 	}
 	pub fn local(host: glowcap::Host, platform: D, reference: Ref) -> Self {
 		Self {
-			caller: Caller::Local { host, platform },
+			caller: Caller::Local {
+				host,
+				platform,
+				attached: false,
+			},
 			reference,
 		}
 	}

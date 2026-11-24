@@ -1,6 +1,7 @@
 // Controlled product wrappers for managed viewer recovery scenarios.
 import { ManagedRoomsSession } from "../../web/ui/session/managed/session.ts";
 import type { WorkspaceSnapshot } from "../../web/ui/session/managed/model.ts";
+import type { LinkClock } from "../../web/ui/session/managed/link.ts";
 import type { RoomsManagedApplication, RoomsManagedWorkspace } from "../../../../zig-out/wasm/rooms/rooms_browser.js";
 export function deferred<T>() {
 	let resolve!: (value: T) => void;
@@ -35,6 +36,7 @@ export function viewer(
 	report = (_source: string, _error: unknown) => {},
 	applicationMethods: Record<string, unknown> = {},
 	local = true,
+	clock?: LinkClock,
 ) {
 	const application = {
 		close: () => Promise.resolve(),
@@ -45,5 +47,5 @@ export function viewer(
 		free() {},
 		...workspace,
 	} as unknown as RoomsManagedWorkspace;
-	return new ManagedRoomsSession(application, held, held, report, local);
+	return new ManagedRoomsSession(application, held, held, report, local, clock);
 }

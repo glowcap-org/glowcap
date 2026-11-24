@@ -4,13 +4,12 @@ import { useEffect, useState } from "react";
 import {
 	controlName,
 	type EditIntent,
-	grantIdentity,
-	type GrantView,
 	type HeldControl,
 	knownLabel,
 	knownPermissions,
 	OWN_CONTROL,
 } from "../session/managed/access.ts";
+import { grantIdentity, type GrantView } from "../session/managed/access_powers.ts";
 import type { RoomsPermission } from "../../../lib/session_content_data.ts";
 import { useManagedSession } from "../session/managed/context.tsx";
 import { Button } from "../Button.tsx";

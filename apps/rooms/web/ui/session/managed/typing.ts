@@ -14,8 +14,11 @@
 // member still typing when it lands is said again then.
 // A rate-limited level waits out the room's stated delay and is sent again
 // unless a newer one replaced it. Any other refusal ends typing for that
-// conversation.
+// conversation. A sender belongs to the link it was opened over, and a new link
+// opens its own. A level lost with a connection is asked for again by the
+// next keystroke.
 import { roomsErrorIn } from "../../../../lib/error_codes.ts";
+import { connectionLost } from "../../../../lib/text/failure.ts";
 import type { RoomsManagedTyping } from "../../../../../../zig-out/wasm/rooms/rooms_browser.js";
 import type { ManagedRoomsSession } from "./session.ts";
 
@@ -27,6 +30,16 @@ interface Level {
 
 export class ManagedTyping {
 	readonly #session: ManagedRoomsSession;
+	/** Handles held over the link: the open sender, if any. */
+	get resources(): number {
+		return this.#sender == null ? 0 : 1;
+	}
+	/** A new link replaced the old: the sender over it is released, now or by the drain that uses it. */
+	relink(): void {
+		if (this.#running != null) return;
+		this.#sender?.handle.free();
+		this.#sender = null;
+	}
 	/** The latest level each conversation still has to hear, oldest first. */
 	readonly #desired = new Map<string, Level>();
 	/** The level each conversation's composer asked for last, until the
@@ -34,7 +47,7 @@ export class ManagedTyping {
 	readonly #asked = new Map<string, Level>();
 	/** Conversations with a line on its way. */
 	readonly #lineOut = new Set<string>();
-	#sender: { id: string; selected: string; handle: RoomsManagedTyping } | null = null;
+	#sender: { id: string; selected: string; link: number; handle: RoomsManagedTyping } | null = null;
 	#running: Promise<void> | null = null;
 	#stopped = false;
 	#failed: string | null = null;
@@ -97,7 +110,11 @@ export class ManagedTyping {
 			this.#desired.delete(desired.id);
 			if (JSON.stringify([desired.id, desired.selected]) === this.#failed) continue;
 			try {
-				if (this.#sender?.id !== desired.id || this.#sender.selected !== desired.selected) {
+				const link = this.#session.linkGeneration;
+				if (
+					this.#sender?.id !== desired.id || this.#sender.selected !== desired.selected ||
+					this.#sender.link !== link
+				) {
 					this.#sender?.handle.free();
 					this.#sender = null;
 					const handle: RoomsManagedTyping = await this.#session.workspace.typingSender(
@@ -108,7 +125,7 @@ export class ManagedTyping {
 						handle.free();
 						return;
 					}
-					this.#sender = { id: desired.id, selected: desired.selected, handle };
+					this.#sender = { id: desired.id, selected: desired.selected, link, handle };
 				}
 				// The sender may have taken a while to open. A line that left
 				// meanwhile holds the level, and a newer level or a conversation
@@ -117,6 +134,12 @@ export class ManagedTyping {
 				await this.#sender.handle.set(desired.on);
 				if (!desired.on && this.#asked.get(desired.id) === desired) this.#asked.delete(desired.id);
 			} catch (error) {
+				if (connectionLost(error)) {
+					// tolerant: typing is ephemeral, and the link's own reads report the loss.
+					this.#sender?.handle.free();
+					this.#sender = null;
+					continue;
+				}
 				const delay = roomsErrorIn(error)?.retryAfterMs ?? null;
 				if (delay != null) {
 					// A level the room asked to hear again later is sent again

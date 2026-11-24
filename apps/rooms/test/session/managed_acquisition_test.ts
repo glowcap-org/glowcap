@@ -514,6 +514,7 @@ Deno.test("committed acquisition with a failed refresh retries only the refresh"
 		acquisitions: { acquisitions: 0, workers: 0, gestures: 0 },
 		workers: 0,
 		reads: 0,
+		typing: 0,
 		listeners: 0,
 		waiters: 0,
 		observation: false,

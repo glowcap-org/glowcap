@@ -24,22 +24,58 @@ export interface PageBuild {
 	reload(build: string): boolean;
 }
 
+/** What a reload would drop: an edit not yet saved, files picked, a line on
+ * its way. The page is quiet once none is left. */
+export interface PageQuiet {
+	idle(): boolean;
+	/** Call `listener` whenever that may have changed. Returns the stop. */
+	subscribe(listener: () => void): () => void;
+}
+
 /** Calls `tick` on every beat until the returned stop. */
 export type Beat = (tick: () => void) => () => void;
 
-/** Reload into the first other build the server names. Returns the stop. */
+/** The one owner of a build reload. */
+export interface BuildReload {
+	/** Ask for the served build now, as when a link to a session returned. */
+	check(): Promise<void>;
+	stop(): void;
+}
+
+/** Reload into the first other build the server names, once the page is quiet.
+ * A reload drops what is typed, so it never happens under an unsaved draft,
+ * picked files or a send, whichever way the page learned of the build. One
+ * wait for quiet runs at a time: a build named twice adds no second reload.
+ * Returns the owner's `check` and `stop`. */
 export function bindReloadToBuild(
 	projection: PageProjection,
 	build: PageBuild,
+	quiet: PageQuiet,
 	beat: Beat = beatEvery(RECHECK_MS),
-): () => void {
+): BuildReload {
 	let stopped = false;
 	let stopBeat: (() => void) | null = null;
 	let lost = false;
+	let waiting = false;
 	const check = async () => {
 		const served = await build.served();
-		if (stopped || served == null || served === build.current) return;
-		if (build.reload(served)) stop();
+		if (stopped || served == null || served === build.current || waiting) return;
+		waiting = true;
+		try {
+			if (!quiet.idle()) {
+				await new Promise<void>((resume) => {
+					const stopListening = quiet.subscribe(() => {
+						if (stopped || quiet.idle()) {
+							stopListening();
+							resume();
+						}
+					});
+				});
+			}
+		} finally {
+			waiting = false;
+		}
+		if (!stopped && build.reload(served)) stop();
 	};
 	const stopWatching = watchConnections(projection, ({ total, seen, connected }) => {
 		// Every connection the page had is gone, or one is back.
@@ -60,7 +96,7 @@ export function bindReloadToBuild(
 		stopWatching();
 		stopBeat?.();
 	}
-	return stop;
+	return { check, stop };
 }
 
 function beatEvery(ms: number): Beat {

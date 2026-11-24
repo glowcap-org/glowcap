@@ -1,7 +1,7 @@
 // The persisted request drives first completion and recovery after reload.
 // Capability occurrences stay in the receipt until their atomic adoption.
 import { invariant } from "../../../../lib/invariant.ts";
-import { LocalRefusal } from "../../../../lib/text/failure.ts";
+import { connectionLost, LocalRefusal } from "../../../../lib/text/failure.ts";
 import type { ManagedRoomsSession } from "./session.ts";
 import { type AcquisitionStage, type ManagedOperation, ResultAcquisitionError } from "./operation.ts";
 import { conversationIdentity, type Coordinate, type DirectIntent, isCoordinate, type RoomIntent } from "./model.ts";
@@ -97,11 +97,13 @@ export function completeResult(session: ManagedRoomsSession, operation: ManagedO
 				const canRetry = error instanceof AcquisitionConflict &&
 					attempt + 1 < MAX_CONFLICT_REPREPARATIONS;
 				if (!canRetry) {
-					throw error instanceof ResultAcquisitionError ? error : new ResultAcquisitionError(
-						result,
-						error,
-						error instanceof AcquisitionConflict ? acquireStage(completion.name) : null,
-					);
+					throw error instanceof ResultAcquisitionError || connectionLost(error)
+						? error
+						: new ResultAcquisitionError(
+							result,
+							error,
+							error instanceof AcquisitionConflict ? acquireStage(completion.name) : null,
+						);
 				}
 			}
 		}
@@ -119,7 +121,11 @@ async function during<T>(stage: AcquisitionStage, result: unknown, call: Promise
 	try {
 		return await call;
 	} catch (error) {
-		if (error instanceof AcquisitionConflict || error instanceof ResultAcquisitionError) throw error;
+		// A lost connection says nothing of the commit. The link comes back and
+		// the receipt acquires its result over it.
+		if (error instanceof AcquisitionConflict || error instanceof ResultAcquisitionError || connectionLost(error)) {
+			throw error;
+		}
 		throw new ResultAcquisitionError(result, error, stage);
 	}
 }

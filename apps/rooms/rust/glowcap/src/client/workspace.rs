@@ -114,7 +114,24 @@ impl<D: Deadline> Workspace<D> {
 	}
 	pub fn local(host: glowcap::Host, platform: D, reference: Ref) -> Self {
 		Self {
-			caller: Caller::Local { host, platform },
+			caller: Caller::Local {
+				host,
+				platform,
+				attached: false,
+			},
+			reference,
+		}
+	}
+	/// A workspace another process serves, reached through this Host. A call to
+	/// it that misses its deadline is `Error::Unreached`, which says the link is
+	/// no longer proved. Calls for a third peer's files keep their own failure.
+	pub fn attached(host: glowcap::Host, platform: D, reference: Ref) -> Self {
+		Self {
+			caller: Caller::Local {
+				host,
+				platform,
+				attached: true,
+			},
 			reference,
 		}
 	}

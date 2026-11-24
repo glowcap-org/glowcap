@@ -18,6 +18,7 @@ mod publication;
 mod readers;
 mod recovery;
 mod saved;
+mod saved_dial;
 pub(super) mod signaling;
 mod uploads;
 use super::{
@@ -364,66 +365,10 @@ impl RoomsManagedApplication {
 			.map(Into::into)
 		})
 	}
-	#[wasm_bindgen(js_name = savedWorkspace)]
-	pub fn saved_workspace(&self, id: js_sys::JsString) -> js_sys::Promise {
-		use rooms_glowcap::client::Deadline;
-		let id = match scalar(id, 1024) {
-			Ok(value) => value,
-			Err(error) => return rejected(error),
-		};
-		let driver = self.driver.clone();
-		self.driver.submit(id.len(), move |environment| async move {
-			let opened = owner(&environment)?.opened.lock().await;
-			let snapshot = opened
-				.workspace()
-				.map_err(RuntimeError::from)?
-				.snapshot()
-				.await
-				.map_err(RuntimeError::from)?;
-			let selected = snapshot
-				.intent
-				.accesses
-				.as_slice()
-				.iter()
-				.find(|row| row.id.text().as_str() == Some(&id))
-				.and_then(|row| row.access)
-				.ok_or_else(|| RuntimeError::invalid("No held workspace access for this row"))?;
-			let fields = [custody::Coordinate::new(custody::Role::SessionAccess, selected)];
-			let mut held = environment
-				.platform
-				.within(
-					rooms_application::room::authority::REQUEST_TIMEOUT_MS,
-					opened.session().restore_publication_custody(&fields),
-				)
-				.await
-				.ok_or_else(|| {
-					RuntimeError::coded(
-						rooms_application::failure::FailureCode::SessionRestorationFailed,
-						"Saved workspace connection timed out",
-					)
-				})?
-				.map_err(RuntimeError::from)?;
-			let (reference, uri) = held.remove(0);
-			let home = PublicationHome::restored(&driver, uri)?;
-			let workspace = Workspace::local(
-				environment.runtime.host().clone(),
-				environment.platform.clone(),
-				reference,
-			);
-			let workspace = driver.hold(workspace, size_of::<Workspace<Platform>>())?;
-			Ok(RoomsManagedWorkspace {
-				driver,
-				workspace,
-				home,
-			}
-			.into())
-		})
-	}
 	/// Restore exact independently saved controls through the private owner.
 	/// Descriptive inventory IDs are never accepted as restoration credentials.
 	#[wasm_bindgen(js_name = savedControl)]
 	pub fn saved_control(&self, id: js_sys::JsString) -> js_sys::Promise {
-		use rooms_glowcap::client::Deadline;
 		let id = match scalar(id, 1024) {
 			Ok(id) => id,
 			Err(error) => return rejected(error),
@@ -446,21 +391,8 @@ impl RoomsManagedApplication {
 				.and_then(|row| row.control)
 				.ok_or_else(|| RuntimeError::invalid("No held management control for this row"))?;
 			let fields = [custody::Coordinate::new(custody::Role::SessionControl, selected)];
-			let mut held = environment
-				.platform
-				.within(
-					rooms_application::room::authority::REQUEST_TIMEOUT_MS,
-					opened.session().restore_publication_custody(&fields),
-				)
-				.await
-				.ok_or_else(|| {
-					RuntimeError::coded(
-						rooms_application::failure::FailureCode::SessionRestorationFailed,
-						"Saved management connection timed out",
-					)
-				})?
-				.map_err(RuntimeError::from)?;
-			let (reference, uri) = held.remove(0);
+			let (reference, uri) =
+				saved_dial::dial(&environment, &opened, &fields, "Saved management connection timed out").await?;
 			let home = PublicationHome::restored(&driver, uri)?;
 			let control = Control::local(
 				environment.runtime.host().clone(),

@@ -1,7 +1,7 @@
 // The original command and its result acquisition share one retained owner.
 import { invariant } from "../../../../lib/invariant.ts";
-import { LocalRefusal } from "../../../../lib/text/failure.ts";
 import { structuredFailure } from "../../../../lib/error_codes.ts";
+import { connectionLost, LocalRefusal } from "../../../../lib/text/failure.ts";
 import type {
 	RoomsManagedCommand,
 	RoomsManagedRecoveredEffect,
@@ -114,7 +114,11 @@ export class ReceiptRetired extends LocalRefusal {
 
 export class ManagedOperation {
 	readonly id: string;
-	readonly request: RoomsManagedCommand | RoomsManagedRecoveredEffect;
+	#request: RoomsManagedCommand | RoomsManagedRecoveredEffect;
+	/** The link whose session the request travels, counted as the session counts them. */
+	link = 0;
+	/** The calls now running on each request this operation has held. */
+	readonly #running = new Map<object, { count: number; idle: (() => void)[] }>();
 	#acquisition: RoomsManagedResultAcquisition | null = null;
 	#acquiring: Promise<void> | null = null;
 	#completing: Promise<unknown> | null = null;
@@ -131,8 +135,55 @@ export class ManagedOperation {
 		readonly orphan = (_error: unknown) => {},
 	) {
 		this.id = id;
-		this.request = request;
+		this.#request = request;
 		if (status != null) this.observeStatus(status);
+	}
+	get request(): RoomsManagedCommand | RoomsManagedRecoveredEffect {
+		return this.#request;
+	}
+	/** Run one call on `request`, so it is not released while the call is running. */
+	async #using<T>(request: object, call: () => Promise<T>): Promise<T> {
+		const running = this.#running.get(request) ?? { count: 0, idle: [] };
+		this.#running.set(request, running);
+		running.count++;
+		try {
+			return await call();
+		} finally {
+			if (--running.count === 0) {
+				this.#running.delete(request);
+				for (const resume of running.idle) resume();
+			}
+		}
+	}
+	#drained(request: object): Promise<void> {
+		const running = this.#running.get(request);
+		return running == null ? Promise.resolve() : new Promise<void>((resume) => running.idle.push(resume));
+	}
+	/** The session's receipt now travels `next`, over the link numbered `link`.
+	 * Everything the operation kept is the same except what was prepared on the
+	 * old request, which no longer reaches the session: a held acquisition is
+	 * prepared again from the receipt. The old request is released once nothing
+	 * is using it. */
+	async rebind(next: RoomsManagedRecoveredEffect, link: number): Promise<void> {
+		if (this.#closed) {
+			next.free();
+			throw new LocalRefusal("receipt-retired");
+		}
+		const old = this.#request;
+		this.#request = next;
+		this.link = link;
+		this.#receiveFailure = null;
+		// Calls on the old request fail with its link, which ends them.
+		await this.#acquiring?.catch(() => {
+			// tolerant: the acquisition's caller retains its refusal.
+		});
+		await this.#completing?.catch(() => {
+			// tolerant: the completion's caller retains its refusal.
+		});
+		this.#acquisition?.free();
+		this.#acquisition = null;
+		await this.#drained(old);
+		old.free();
 	}
 	/** A later failed observation cannot undo an authenticated commit. */
 	get committed(): boolean {
@@ -142,8 +193,9 @@ export class ManagedOperation {
 		if (status === "committed") this.#committed = true;
 	}
 	async status(): Promise<string> {
+		const request = this.#request;
 		try {
-			const status = await this.request.status();
+			const status = await this.#using(request, () => request.status());
 			this.observeStatus(status);
 			return status;
 		} catch (error) {
@@ -151,13 +203,16 @@ export class ManagedOperation {
 		}
 	}
 	completionError(error: unknown, stage: AcquisitionStage, result?: unknown): unknown {
-		return !this.#committed || error instanceof ResultExpired || error instanceof ResultAcquisitionError
+		// A lost connection says nothing of the commit. The link comes back and asks again.
+		return !this.#committed || error instanceof ResultExpired || error instanceof ResultAcquisitionError ||
+				connectionLost(error)
 			? error
 			: new ResultAcquisitionError(result, error, stage);
 	}
 	async result(): Promise<unknown> {
 		try {
-			const result = await readResult(this.request);
+			const request = this.#request;
+			const result = await this.#using(request, () => readResult(request));
 			this.#committed = true;
 			return result;
 		} catch (error) {
@@ -175,8 +230,10 @@ export class ManagedOperation {
 			throw error;
 		}
 		if (this.#receiving != null) return;
-		this.#receiving = this.request.receive().then(() => {}, (error: unknown) => {
-			this.#receiveFailure = { error };
+		const request = this.#request;
+		this.#receiving = this.#using(request, () => request.receive()).then(() => {}, (error: unknown) => {
+			// A request this operation no longer holds fails with its own link.
+			if (request === this.#request) this.#receiveFailure = { error };
 		}).finally(() => {
 			this.#receiving = null;
 			wake();
@@ -202,8 +259,8 @@ export class ManagedOperation {
 		}
 		return this.#acquiring = (async () => {
 			const prepare = createdRoom
-				? this.request.prepareCreatedRoomAcquisition.bind(this.request)
-				: this.request.prepareResultAcquisition.bind(this.request);
+				? this.#request.prepareCreatedRoomAcquisition.bind(this.#request)
+				: this.#request.prepareResultAcquisition.bind(this.#request);
 			const acquisition: RoomsManagedResultAcquisition = await prepare(
 				snapshot.revision,
 				JSON.stringify(mappings.map(({ result, destination }) => [result, destination])),
@@ -264,6 +321,6 @@ export class ManagedOperation {
 		this.#recipe = null;
 		this.#acquisition?.free();
 		this.#acquisition = null;
-		this.request.free();
+		this.#request.free();
 	}
 }

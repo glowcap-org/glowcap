@@ -144,6 +144,8 @@ export interface State {
 	 * so `document.hidden` is read in exactly one place in the tree (`hooks.ts`). */
 	visible: boolean;
 	returns: number;
+	/** Whether the device reports a network. One subscriber writes it, in `hooks.ts`. */
+	online: boolean;
 	/** Whether the narrow layout is in force. It is state, not a hook's answer,
 	 * because the verbs below have to know which layout a control belongs to. */
 	mobile: boolean;
@@ -351,6 +353,7 @@ export function initialState(): State {
 		actionRefusals: new Map(),
 		visible: true,
 		returns: 0,
+		online: true,
 		mobile: mobileQuery.matches,
 		drafts: new Map(),
 		lastSent: new Map(),
@@ -478,6 +481,17 @@ export class PageProjection {
 		const state = this.get();
 		if (state.visible === visible) return;
 		this.set({ visible, returns: visible ? state.returns + 1 : state.returns });
+	}
+
+	/** The page was restored from the browser's back-forward cache, which
+	 * counts as a return though the tab never reported being hidden. */
+	noteReturn(): void {
+		this.set({ returns: this.get().returns + 1 });
+	}
+
+	/** Report whether the device has a network. */
+	noteOnline(online: boolean): void {
+		if (this.get().online !== online) this.set({ online });
 	}
 
 	/** Hear about lines this tab is giving up.

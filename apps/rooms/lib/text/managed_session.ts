@@ -20,6 +20,7 @@ export const managedSessionText = {
 	operationsInventory: "Operations inventory",
 	operationsAcquisitionRefused: "Rooms couldn't get the Operations links.",
 	resultRecovery: "Original result recovery",
+	acquisitionRecovery: "Unfinished change recovery",
 	resultAcquisition: "The change went through, but its result still needs recovery.",
 	membershipEnded: "Membership ended",
 	sharedRoom: "Shared room",

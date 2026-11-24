@@ -75,6 +75,34 @@ conversation changes. `test/session/managed_navigation_test.ts`,
 `test/session/managed_cancellation_test.ts`, and the browser departure scene
 (`test/page/departure.ts`) prove how a cancelled join settles.
 
+### Reconnecting an attached page
+
+A page attached to a session another process runs keeps one connection to it.
+When the connection drops, the [link](web/ui/session/managed/link.ts) dials
+the session again, waiting longer after each failure, and never while the page
+is hidden or the device is offline. The session then replaces its handles with
+the new connection's, keeping drafts, the activity position, and pending
+operations.
+
+A command sent meanwhile waits for the new connection, and is
+refused as not sent if the wait outlasts a request. A command the session had
+already taken when the connection dropped is read back from the session by its
+operation id, so it lands once and its caller hears how it ended. When the
+session holds no trace of it, the command goes out again under the same
+operation id and base, so the session lands it once or refuses it as stale. A
+change still being prepared when the connection dropped is prepared again.
+Held workspace, join, import, and public-room changes move to the new
+connection the same way, and the page reloads into a newer build only when
+none of them is unfinished.
+
+Rust names a dial that could not reach the session `session-unreachable`,
+which the page retries. Any answer the session gave, such as a revoked access,
+keeps its own code. The page stops dialing and offers Try now, and a command
+sent meanwhile fails with that answer. Only a call to the session reads a
+missed deadline as a lost connection. `test/session/managed_link_test.ts`,
+`test/session/managed_resend_test.ts`, `test/session/managed_relink_test.ts`,
+and the shared-session browser proof show how it settles.
+
 ### Browser compiler boundary
 
 `web/compiler.json` selects the production Deno invocation. Its `args` go to

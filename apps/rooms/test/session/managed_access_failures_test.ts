@@ -196,7 +196,7 @@ Deno.test("a changed grant identity refuses inspection rather than adopting anot
 		configured: { permissions: [], bounds: [] },
 		ceiling: { permissions: [], bounds: [] },
 		delegationDepth: 0,
-	} satisfies import("../../web/ui/session/managed/access.ts").GrantView;
+	} satisfies import("../../web/ui/session/managed/access_powers.ts").GrantView;
 	f.control.grant = grant;
 	f.control.handle.describe = () => Promise.resolve({ available: true, inspect: true });
 	f.control.handle.inspect = () => Promise.resolve({ ...grant, generation: "2" });

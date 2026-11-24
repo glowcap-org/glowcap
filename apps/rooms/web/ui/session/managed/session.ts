@@ -2,6 +2,7 @@
 // persistent authority, retained effect execution and physical storage.
 import { invariant } from "../../../../lib/invariant.ts";
 import { connectionLost, LocalRefusal } from "../../../../lib/text/failure.ts";
+import { ACTIVITY_CURSOR_STALE, roomsErrorIn } from "../../../../lib/error_codes.ts";
 import type {
 	RoomsManagedActivityReader,
 	RoomsManagedApplication,
@@ -10,18 +11,27 @@ import type {
 	RoomsManagedWorkspace,
 } from "../../../../../../zig-out/wasm/rooms/rooms_browser.js";
 import { ManagedAccess, OWN_CONTROL } from "./access.ts";
+import { type LinkClock, ManagedLink, realClock, RECOVERY_WAIT_MS } from "./link.ts";
 import type { ManagedOperation } from "./operation.ts";
 import { ManagedReads } from "./reads.ts";
 import { ManagedEffects } from "./effects.ts";
 import { ManagedActions } from "./actions.ts";
 import { ActivityDelivery } from "./activity.ts";
+import { dialAgain, registerObservation, resumeLink, type Step } from "./relink.ts";
 import { ManagedDrafts } from "./drafts.ts";
 import { ManagedOpenings } from "./openings.ts";
 import { ManagedNavigation } from "./navigation.ts";
 import { ManagedTyping } from "./typing.ts";
 import { ManagedSelection } from "./selection.ts";
 import { indexAcceptedConversations } from "./conversation_lookup.ts";
-import type { ActivityRead, DirectoryIntent, ObservationView, UseView, WorkspaceSnapshot } from "./model.ts";
+import {
+	type ActivityRead,
+	type DirectoryIntent,
+	type ObservationView,
+	permitted,
+	type UseView,
+	type WorkspaceSnapshot,
+} from "./model.ts";
 import type { RoomsPermission } from "../../../../lib/session_content_data.ts";
 import { managedAccessText as text, savedControlSource } from "../../../../lib/text/managed_access.ts";
 
@@ -30,7 +40,9 @@ const DIRECTORY_REGISTRATION_WAIT_MS = 30_000;
 
 export class ManagedRoomsSession {
 	readonly application: RoomsManagedApplication;
-	readonly workspace: RoomsManagedWorkspace;
+	/** The link to a session a process elsewhere runs, or null for a session
+	 * this browser runs, which has no link to lose. */
+	readonly link: ManagedLink | null;
 	readonly management: ManagedAccess;
 	readonly actions: ManagedActions;
 	readonly effects: ManagedEffects;
@@ -45,6 +57,17 @@ export class ManagedRoomsSession {
 	readonly #listeners = new Set<() => void>();
 	readonly #activityListeners = new Set<(delivery: ActivityDelivery) => void | Promise<void>>();
 	readonly #waiters = new Set<() => void>();
+	readonly #clock: LinkClock;
+	/** A dial is under way and the old link has not yet been replaced. */
+	#dialing = false;
+	/** The move of what the page keeps onto the newest link. */
+	#moving: Promise<void> = Promise.resolve();
+	readonly #relinkListeners = new Set<() => void | Promise<void>>();
+	/** Loops of replaced links, which end on their own once their calls fail. */
+	readonly #replaced = new Set<Promise<void>>();
+	#workspace: RoomsManagedWorkspace;
+	/** Rises each time a new link replaces the handles of the last. */
+	#generation = 0;
 	#snapshot: WorkspaceSnapshot | null = null;
 	#access: UseView = { status: "outOfScope" };
 	#observation: RoomsManagedObservation | null = null;
@@ -60,7 +83,6 @@ export class ManagedRoomsSession {
 	#activityFailure: unknown = null;
 	#retryObservation = 0;
 	#retryingUpdates = false;
-	#away = false;
 	#activityCursor = "";
 	/** How far behind the journal this reader is, or null once every event it
 	 * reads is news. It is behind at first, and after a failed read, a gap, or
@@ -78,9 +100,17 @@ export class ManagedRoomsSession {
 		/** Whether this browser runs the session, dialing every directory
 		 * itself, or is attached to one a process elsewhere runs. */
 		readonly local = true,
+		clock: LinkClock = realClock,
 	) {
 		this.application = application;
-		this.workspace = workspace;
+		this.#workspace = workspace;
+		this.#clock = clock;
+		this.link = local ? null : new ManagedLink({
+			dial: () => this.#relink(),
+			probe: () => this.#probe(),
+			changed: () => this.#changed(),
+			report: (error) => report(text.link, error),
+		}, clock);
 		this.#custody = custody;
 		this.management = new ManagedAccess(application, custody, (error) => report(text.management, error));
 		this.effects = new ManagedEffects(this, {
@@ -88,6 +118,11 @@ export class ManagedRoomsSession {
 			observationFailure: () => this.#observationFailure,
 			change: () => this.#change,
 			changed: () => this.#changed(),
+			linked: () => this.#linked(),
+			relinked: () => this.link?.available(null) ?? Promise.resolve(false),
+			generation: () => this.#generation,
+			refused: () => this.link?.state.kind === "refused" ? this.link.cause : null,
+			lost: (error, generation) => this.#lost(error, generation),
 			wait: (change) => this.#wait(change),
 			report,
 		});
@@ -103,12 +138,20 @@ export class ManagedRoomsSession {
 		this.selection = new ManagedSelection(application, custody, (task) => this.#track(task));
 		this.#report = report;
 	}
+	/** Rises each time a new link replaces the handles of the last. */
+	get linkGeneration(): number {
+		return this.#generation;
+	}
+	get workspace(): RoomsManagedWorkspace {
+		return this.#workspace;
+	}
 	get resources() {
 		return {
 			effects: this.effects.resources,
 			acquisitions: this.actions.resources,
 			workers: this.#inFlight.size,
 			reads: this.reads.active,
+			typing: this.typing.resources,
 			listeners: this.#listeners.size + this.#activityListeners.size,
 			waiters: this.#waiters.size,
 			observation: this.#observation != null,
@@ -117,6 +160,10 @@ export class ManagedRoomsSession {
 	}
 	get current(): WorkspaceSnapshot | null {
 		return this.#snapshot;
+	}
+	/** Whether nothing the person did is still on its way: no edit unsaved and no change in progress. */
+	get idle(): boolean {
+		return !this.drafts.unsaved && !this.effects.busy && !this.actions.busy;
 	}
 	get access(): UseView {
 		return this.#access;
@@ -132,12 +179,6 @@ export class ManagedRoomsSession {
 	get updatesFailure(): unknown {
 		return this.#observationFailure ?? this.#activityFailure;
 	}
-	/** Whether the link to a session a process elsewhere runs has broken. An
-	 * update the session answers proves the link again. A session this browser
-	 * runs has no link to lose. */
-	get away(): boolean {
-		return this.#away;
-	}
 	/** A retry was asked and no stream has answered it yet. */
 	get updatesRetrying(): boolean {
 		return this.#retryingUpdates;
@@ -146,7 +187,7 @@ export class ManagedRoomsSession {
 		return this.effects.pendingOperations;
 	}
 	permits(permission: RoomsPermission): boolean {
-		return this.#access.status === "active" && this.#access.effective?.permissions.includes(permission) === true;
+		return permitted(this.#access, permission);
 	}
 	subscribe = (listener: () => void): () => void => {
 		this.#listeners.add(listener);
@@ -197,13 +238,17 @@ export class ManagedRoomsSession {
 		if (this.#stopped) throw new LocalRefusal("session-closed");
 		const snapshot: WorkspaceSnapshot = await this.workspace.snapshot();
 		if (this.#stopped) throw new LocalRefusal("session-closed");
+		return this.#accept(snapshot);
+	}
+	/** Keep `snapshot` unless a newer revision is already accepted. Command
+	 * preparation and presentation share the accepted revision, including when
+	 * concurrent reads finish out of order. */
+	#accept(snapshot: WorkspaceSnapshot): WorkspaceSnapshot {
 		if (this.#snapshot == null || BigInt(snapshot.revision) >= BigInt(this.#snapshot.revision)) {
 			indexAcceptedConversations(snapshot);
 			this.#snapshot = snapshot;
 			this.#changed();
 		}
-		// Command preparation and presentation share the accepted revision,
-		// including when concurrent reads finish out of order.
 		return this.#snapshot;
 	}
 	// A staged edit must not mutate the accepted projection before commitment.
@@ -261,61 +306,65 @@ export class ManagedRoomsSession {
 	}
 	async start(): Promise<void> {
 		invariant(this.#observation == null, "this workspace viewer is already running");
-		const registering: RoomsManagedObservationRequest = await this.workspace.prepareObservation();
-		this.#observationRequest = registering;
-		const observation = await registering.submit();
+		// A registration a refused submit leaves is kept for close to retry.
+		const observation = await registerObservation(
+			this.workspace,
+			(request) => this.#observationRequest = request,
+		);
 		this.#observation = observation;
-		registering.free();
-		this.#observationRequest = null;
 		const first: ObservationView = await observation.poll();
 		this.#access = first.source;
 		if (this.permits("observeWorkspace")) await this.refresh();
-		this.#observing = this.#observe(first.cursor);
+		this.#observing = this.#observe(first.cursor, observation, this.#generation);
 		this.#reading = this.#readActivity();
 		if (this.permits("resolvePending")) await this.effects.restore();
 	}
-	async #observe(cursor: Uint8Array): Promise<void> {
-		// Only start() launches this loop, with the observation already bound.
-		// A null here names a lifecycle state, not an expected branch.
-		const observation = this.#observation;
-		invariant(observation != null, "the workspace observation runs only while the viewer is started");
+	async #observe(cursor: Uint8Array, observation: RoomsManagedObservation, generation: number): Promise<void> {
 		let project = false;
-		while (!this.#stopped) {
-			const retry = this.#retryObservation;
-			try {
-				if (!project) {
-					const update: ObservationView = await observation.receive(cursor);
-					if (this.#stopped) break;
-					cursor = update.cursor;
-					this.#access = update.source;
-					project = true;
-				}
-				if (this.permits("observeWorkspace")) await this.refresh();
-				else {
-					this.#snapshot = null;
+		try {
+			while (!this.#stopped && generation === this.#generation) {
+				const retry = this.#retryObservation;
+				try {
+					if (!project) {
+						const update: ObservationView = await observation.receive(cursor);
+						if (this.#stopped || generation !== this.#generation) break;
+						cursor = update.cursor;
+						this.#access = update.source;
+						project = true;
+					}
+					if (this.permits("observeWorkspace")) await this.refresh();
+					else {
+						this.#snapshot = null;
+						this.#changed();
+					}
+					project = false;
+					this.#observationFailure = null;
+					this.#retryingUpdates = false;
 					this.#changed();
+				} catch (error) {
+					// A replaced link's failures belong to the link, not to its successor.
+					if (this.#stopped || generation !== this.#generation) break;
+					this.#observationFailure = error;
+					this.#retryingUpdates = false;
+					this.#lost(error);
+					this.#report(text.observation, error);
+					this.#changed();
+					// Keep the same registration and accepted cursor. A failed
+					// snapshot retries projection before waiting for another event.
+					while (
+						!this.#stopped && generation === this.#generation && retry === this.#retryObservation
+					) await this.#wait(this.#change);
 				}
-				project = false;
-				this.#observationFailure = null;
-				this.#retryingUpdates = false;
-				this.#away = false;
-				this.#changed();
-			} catch (error) {
-				if (this.#stopped) break;
-				this.#observationFailure = error;
-				this.#retryingUpdates = false;
-				this.#lost(error);
-				this.#report(text.observation, error);
-				this.#changed();
-				// Keep the same registration and accepted cursor. A failed
-				// snapshot retries projection before waiting for another event.
-				while (!this.#stopped && retry === this.#retryObservation) await this.#wait(this.#change);
 			}
+		} finally {
+			// The registration of a replaced link retires with its session.
+			if (observation !== this.#observation) observation.free();
 		}
 	}
 	async #readActivity(): Promise<void> {
 		while (!this.#stopped) {
 			const change = this.#change;
+			const generation = this.#generation;
 			if (!this.permits("observeWorkspace") || this.#activityListeners.size === 0) {
 				// Whatever happens while nothing reads has already happened to the
 				// next reader.
@@ -331,16 +380,37 @@ export class ManagedRoomsSession {
 			}
 			let offered: ActivityDelivery | undefined;
 			try {
-				const reader: RoomsManagedActivityReader = this.#activity ?? await this.workspace.activityReader();
-				this.#activity = reader;
+				let reader = this.#activity;
+				if (reader == null) {
+					const opened: RoomsManagedActivityReader = await this.workspace.activityReader();
+					if (generation !== this.#generation) {
+						opened.free();
+						continue;
+					}
+					this.#activity = reader = opened;
+				}
 				const behind = this.#activityBehind;
-				const delivery: ActivityRead<unknown> = await reader.read(this.#activityCursor, behind == null);
+				let delivery: ActivityRead<unknown>;
+				let restarted = false;
+				try {
+					delivery = await reader.read(this.#activityCursor, behind == null);
+				} catch (error) {
+					if (roomsErrorIn(error)?.code !== ACTIVITY_CURSOR_STALE) throw error;
+					// The session restarted since this cursor was kept. Start from the
+					// beginning of what it holds, as a gap does.
+					restarted = true;
+					delivery = { cursor: "", gap: true, head: "" };
+				}
 				// A gap skips to what the journal still holds, which ends where the
-				// journal ends now.
-				const head = delivery.gap ? delivery.head : behind?.head ?? delivery.head;
+				// journal ends now. A restart says nowhere yet.
+				const head = restarted ? null : delivery.gap ? delivery.head : behind?.head ?? delivery.head;
 				const empty = delivery.event == null && !delivery.gap && !delivery.unavailable;
-				const caughtUp = behind != null && (empty || this.#activityCursor === head);
+				const caughtUp = !restarted && behind != null && (empty || this.#activityCursor === head);
 				offered = new ActivityDelivery(delivery, behind != null && !caughtUp);
+				if (generation !== this.#generation) {
+					offered.close();
+					continue;
+				}
 				const listener = this.#activityListeners.values().next().value;
 				if (this.#stopped || listener == null) {
 					offered.close();
@@ -350,15 +420,15 @@ export class ManagedRoomsSession {
 				await listener(offered);
 				this.#activityCursor = delivery.cursor;
 				this.#activityBehind = (behind == null || caughtUp) && !delivery.gap ? null : { head };
-				if (this.#activityFailure != null || this.#away) {
+				if (this.#activityFailure != null) {
 					this.#activityFailure = null;
 					this.#retryingUpdates = false;
-					this.#away = false;
 					this.#changed();
 				}
 			} catch (error) {
 				offered?.close();
 				if (this.#stopped) break;
+				if (generation !== this.#generation) continue;
 				this.#activityFailure = error;
 				this.#activityBehind = { head: null };
 				this.#retryingUpdates = false;
@@ -373,10 +443,97 @@ export class ManagedRoomsSession {
 			}
 		}
 	}
-	/** A read whose connection is gone, and not one the session refused, says
-	 * the link is gone. */
-	#lost(error: unknown): void {
-		if (!this.local && connectionLost(error)) this.#away = true;
+	/** A read or a command whose connection is gone, and not one the session
+	 * refused, says the link is gone. */
+	#lost(error: unknown, generation = this.#generation): void {
+		// Until the new link replaces it, a failure is the old link's, which a dial is already replacing.
+		if (generation === this.#generation && !this.#dialing) this.link?.lost(error);
+	}
+	/** Whether the current link still answers. */
+	async #probe(): Promise<void> {
+		await this.#observation?.poll();
+	}
+	/** Whether a command may go out now. A page whose link is being replaced
+	 * holds it until the new link is live, for as long as recovery may take. */
+	#linked(): true | Promise<boolean> {
+		const link = this.link;
+		if (link == null || link.live) return true;
+		return link.available(RECOVERY_WAIT_MS);
+	}
+	/** Hear that a new link replaced the last, once its handles are in place. */
+	onRelink(listener: () => void | Promise<void>): () => void {
+		this.#relinkListeners.add(listener);
+		return () => this.#relinkListeners.delete(listener);
+	}
+	/** Dial the session again. The old handles change nothing until the new link
+	 * has answered, so a dial that fails leaves the page as it was. The dial
+	 * ends once the new handles are in place, which makes the link live, and the
+	 * rest of the move follows as work of the link's own owners. */
+	async #relink(): Promise<void> {
+		this.#dialing = true;
+		let dialed;
+		try {
+			dialed = await dialAgain(this.application, this.#workspace, () => this.#stopped);
+		} catch (error) {
+			this.#dialing = false;
+			throw error;
+		}
+		const { workspace, observation, first, snapshot } = dialed;
+		const stale = this.#workspace;
+		const staleActivity = this.#activity;
+		this.#generation++;
+		this.#dialing = false;
+		this.#workspace = workspace;
+		this.#observation = observation;
+		this.#activity = null;
+		this.#access = first.source;
+		this.#observationFailure = null;
+		this.#activityFailure = null;
+		this.#retryingUpdates = false;
+		// The new reader catches up as a reload does, from the cursor it kept.
+		this.#activityBehind = { head: null };
+		staleActivity?.free();
+		stale.free();
+		// An access that may not observe shows no workspace, so the old one goes.
+		if (snapshot != null) this.#accept(snapshot);
+		else this.#snapshot = null;
+		const previous = this.#observing;
+		if (previous != null) {
+			this.#replaced.add(previous);
+			void previous.finally(() => this.#replaced.delete(previous));
+		}
+		this.#observing = this.#observe(first.cursor, observation, this.#generation);
+		this.#changed();
+		// One move runs at a time. A move for a link already replaced ends at its
+		// next step, and the one after it moves what the newest link holds.
+		const generation = this.#generation;
+		const moved = this.#moving.then(() => this.#resumeAfterLink(generation));
+		this.#moving = moved.catch(() => {
+			// tolerant: each step reports its own failure.
+		});
+		void this.#track(moved);
+	}
+	/** Everything kept over the old link moves onto the new one. Each owner's
+	 * failure is its own, shown where that owner shows it. A lost connection
+	 * says the new link is gone too, and the move is not repeated: the next
+	 * link starts it again. */
+	async #resumeAfterLink(generation: number): Promise<void> {
+		const current = () => !this.#stopped && generation === this.#generation;
+		const step: Step = async (source, work) => {
+			if (!current()) return;
+			try {
+				await work(current);
+			} catch (error) {
+				if (connectionLost(error)) this.#lost(error, generation);
+				else this.#report(source, error);
+			}
+		};
+		await resumeLink(
+			this,
+			step,
+			(id, error) => this.#report(savedControlSource(id), error),
+			this.#relinkListeners,
+		);
 	}
 	#track<T>(task: Promise<T>): Promise<T> {
 		const tracked = task.finally(() => this.#inFlight.delete(tracked));
@@ -436,17 +593,21 @@ export class ManagedRoomsSession {
 			this.#observationRequest.free();
 			this.#observationRequest = null;
 		}
-		await this.#observation?.cancel();
+		// A lost link's registration retires with its session.
+		if (this.link?.live ?? true) await this.#observation?.cancel();
 		await this.#presentation?.();
 		this.#presentation = null;
+		// Closing the application ends a dial in flight, which the link waits for.
+		const linkClosed = this.link?.close();
 		await this.application.close();
+		await linkClosed;
 		await this.actions.close();
 		await this.reads.close();
 		await this.drafts.close();
 		await this.navigation.close();
 		await this.openings.close();
 		await this.typing.close();
-		await Promise.allSettled([...this.#inFlight, this.#observing, this.#reading]);
+		await Promise.allSettled([...this.#inFlight, this.#observing, this.#reading, ...this.#replaced]);
 		this.#observation?.free();
 		this.#observation = null;
 		this.#activity?.free();
@@ -460,5 +621,6 @@ export class ManagedRoomsSession {
 		this.#listeners.clear();
 		this.#activityListeners.clear();
 		this.#waiters.clear();
+		this.#relinkListeners.clear();
 	}
 }

@@ -11,7 +11,7 @@ import type {
 	RoomsManagedWorkspace,
 } from "../../../../../../zig-out/wasm/rooms/rooms_browser.js";
 import type { RoomsPermission } from "../../../../lib/session_content_data.ts";
-import { LocalRefusal, refusalText } from "../../../../lib/text/failure.ts";
+import { connectionLost, LocalRefusal, refusalText } from "../../../../lib/text/failure.ts";
 import {
 	AcquisitionConflict,
 	type SettledOutcome,
@@ -20,83 +20,18 @@ import {
 	submitAcquisition,
 	throwUnlessCommitted,
 } from "./acquisition.ts";
+import {
+	grantIdentity,
+	type GrantView,
+	keptPowers,
+	type ManagementPowers,
+	type ManagementView,
+} from "./access_powers.ts";
 
-interface PolicyView {
-	permissions: RoomsPermission[];
-	bounds: { key: string; operator: string; value: string }[];
-}
-export interface GrantView {
-	slot: number;
-	generation: string;
-	revision: string;
-	label: string;
-	status: "active" | "paused" | "revoked";
-	effectiveStatus: "active" | "paused" | "revoked";
-	configured: PolicyView;
-	ceiling: PolicyView;
-	delegationDepth: number;
-}
-interface ManagementView {
-	available: boolean;
-	status?: "active" | "paused" | "revoked";
-	revision?: string;
-	inspect?: boolean;
-	pause?: boolean;
-	resume?: boolean;
-	revoke?: boolean;
-	delegateControl?: boolean;
-	editCeiling?: PolicyView | null;
-	issueCeiling?: PolicyView | null;
-}
-interface ManagementPowers {
-	inspect: boolean;
-	pause: boolean;
-	resume: boolean;
-	revoke: boolean;
-	delegateControl: boolean;
-	editCeiling: RoomsPermission[] | null;
-	issueCeiling: RoomsPermission[] | null;
-}
-export const NO_MANAGEMENT: ManagementPowers = {
-	inspect: false,
-	pause: false,
-	resume: false,
-	revoke: false,
-	delegateControl: false,
-	editCeiling: null,
-	issueCeiling: null,
-};
-/** The issuer keeps the control that issuance returns, so it holds every power
- * the source can pass on: powers are fixed at issuance, and a narrower one is
- * shared later by attenuation. A source that cannot delegate passes none. */
-export function keptPowers(
-	source: ManagementView,
-	ceilings: { editCeiling: RoomsPermission[] | null; issueCeiling: RoomsPermission[] | null },
-): ManagementPowers {
-	if (source.delegateControl !== true) return { ...NO_MANAGEMENT };
-	return {
-		inspect: source.inspect === true,
-		pause: source.pause === true,
-		resume: source.resume === true,
-		revoke: source.revoke === true,
-		delegateControl: true,
-		editCeiling: ceilings.editCeiling,
-		issueCeiling: ceilings.issueCeiling,
-	};
-}
-/** What a new access's own permissions can later be changed up to: both the
- * source's edit limit and its issuance limit bound the new grant's ceiling. */
-export function editableUnder(source: ManagementView): RoomsPermission[] | undefined {
-	const edit = source.editCeiling?.permissions;
-	const issue = source.issueCeiling?.permissions;
-	return edit == null || issue == null ? undefined : edit.filter((permission) => issue.includes(permission));
-}
-export function grantIdentity(row: GrantView): string {
-	return `${row.slot}:${row.generation}`;
-}
 export interface HeldControl {
 	readonly id: string;
-	readonly handle: RoomsManagedControl;
+	/** Replaced when the link it travels is replaced. */
+	handle: RoomsManagedControl;
 	grant: GrantView | null;
 	powers: ManagementView;
 	pending?: PendingEdit;
@@ -260,6 +195,31 @@ export class ManagedAccess {
 				}
 			} catch (error) {
 				report(id, error);
+			}
+		}
+	}
+	/** The link to the session was replaced. Each saved control is restored over
+	 * the new link and described again. A control that cannot be restored keeps
+	 * its old handle, and says why. */
+	async relink(report: (id: string, error: unknown) => void, current: () => boolean): Promise<void> {
+		for (const control of [...this.#controls.values()]) {
+			if (this.#closed) break;
+			if (control.saved !== true) continue;
+			try {
+				const handle: RoomsManagedControl = await this.#application.savedControl(control.id);
+				// A newer link restores what this one would, so this handle is stale.
+				if (this.#closed || !current()) {
+					handle.free();
+					break;
+				}
+				const old = control.handle;
+				control.handle = handle;
+				old.free();
+				await this.refresh(control);
+			} catch (error) {
+				// A lost connection is the link's, which the caller routes. Any other failure is this control's.
+				if (connectionLost(error)) throw error;
+				report(control.id, error);
 			}
 		}
 	}

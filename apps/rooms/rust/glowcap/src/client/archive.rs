@@ -32,7 +32,11 @@ impl<D: Deadline> Archive<D> {
 	/// This creates no publication, loopback session or additional authority.
 	pub fn local(host: glowcap::Host, platform: D, reference: Ref) -> Self {
 		Self {
-			caller: Caller::Local { host, platform },
+			caller: Caller::Local {
+				host,
+				platform,
+				attached: false,
+			},
 			reference,
 		}
 	}

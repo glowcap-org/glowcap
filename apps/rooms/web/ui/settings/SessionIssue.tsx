@@ -3,13 +3,8 @@
 import { issueLead, managedAccessText as text } from "../../../lib/text/managed_access.ts";
 import { useState, useSyncExternalStore } from "react";
 import { useManagedSession } from "../session/managed/context.tsx";
-import {
-	controlName,
-	editableUnder,
-	type HeldControl,
-	OWN_CONTROL,
-	type PendingIssue,
-} from "../session/managed/access.ts";
+import { controlName, type HeldControl, OWN_CONTROL, type PendingIssue } from "../session/managed/access.ts";
+import { editableUnder } from "../session/managed/access_powers.ts";
 import type { RoomsPermission } from "../../../lib/session_content_data.ts";
 import { Button } from "../Button.tsx";
 import { Switch } from "../Switch.tsx";

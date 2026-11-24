@@ -38,7 +38,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Activity<P> {
 			let cursor = if cursor.is_empty() {
 				0
 			} else {
-				activity.parse_token(cursor).map_err(|e| e.to_string())?
+				activity.parse_token(cursor).map_err(|e| refusal_line(&e))?
 			};
 			let weak_read = weak.clone();
 			let host = actor_host.clone();
@@ -121,6 +121,16 @@ impl<P: Tasks + Deadline + Clone + 'static> Activity<P> {
 				}
 			})
 		})
+	}
+}
+
+/// The line a refused cursor answers with. A catalog code leads the line a
+/// reader sends, so the page reads it as the code. Any other refusal keeps its
+/// rendered text.
+fn refusal_line(error: &glowcap::Error) -> String {
+	match error.message() {
+		Some(line) if rooms_application::failure::Failure::parse(line).is_some() => line.to_owned(),
+		_ => error.to_string(),
 	}
 }
 

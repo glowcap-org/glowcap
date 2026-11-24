@@ -13,7 +13,10 @@ pub mod archive;
 pub mod direct;
 pub mod directory;
 mod error;
-pub use error::{Error, binding_admission_refusal, binding_failure, binding_retry, clears_with_time, reach_code};
+pub use error::{
+	Error, binding_admission_refusal, binding_failure, binding_never_reached, binding_retry, clears_with_time,
+	reach_code,
+};
 pub mod files;
 pub mod invitation;
 pub mod manager;

@@ -5,7 +5,8 @@
 import "../support/match_media.ts";
 import { assert, assertEquals } from "../assert.ts";
 import { LocalRefusal } from "../../lib/text/failure.ts";
-import { keptPowers, knownLabel, ManagedAccess, NO_MANAGEMENT } from "../../web/ui/session/managed/access.ts";
+import { knownLabel, ManagedAccess } from "../../web/ui/session/managed/access.ts";
+import { keptPowers, NO_MANAGEMENT } from "../../web/ui/session/managed/access_powers.ts";
 import type { HeldControl } from "../../web/ui/session/managed/access.ts";
 import type {
 	RoomsManagedApplication,

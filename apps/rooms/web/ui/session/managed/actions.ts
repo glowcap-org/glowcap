@@ -25,7 +25,7 @@ import {
 import { retainedIntentConversation } from "./admission.ts";
 import { CompletedLine } from "./completed_line.ts";
 import { stageRoomLink } from "./room_link.ts";
-
+import { stageArrival } from "./arrival.ts";
 import { LOCAL_LIMITS } from "./local_limits.ts";
 import { gestureScope } from "./gestures.ts";
 import { SESSION_CONTENT } from "../../../../lib/session_content_data.ts";
@@ -37,6 +37,10 @@ interface AcquisitionRecord {
 	result?: string;
 	lifecycle: OperationLifecycle;
 	request?: Acquisition;
+	/** Prepares the request again, over whatever link is live. */
+	prepare: () => Promise<Acquisition>;
+	/** The revision the session was at when the acquisition began. */
+	base: string | undefined;
 	task?: Promise<void>;
 	completed?: () => Promise<void>;
 	signal?: AbortSignal;
@@ -70,6 +74,9 @@ export class ManagedActions {
 	}
 	get resources() {
 		return { acquisitions: this.#acquisitions.size, workers: this.#running.size, gestures: this.#gestures.size };
+	}
+	get busy(): boolean { // an acquisition or opening still held or running
+		return this.#acquisitions.size > 0 || this.#gestures.size > 0;
 	}
 	get pending(): readonly string[] {
 		return [...this.#acquisitions].filter((
@@ -126,6 +133,8 @@ export class ManagedActions {
 		}
 		const record: AcquisitionRecord = {
 			intent,
+			prepare,
+			base: this.#session.current?.revision,
 			result,
 			completed,
 			signal,
@@ -171,6 +180,38 @@ export class ManagedActions {
 		this.#running.add(task);
 		this.#session.acquisitionChanged();
 		return task;
+	}
+	/** The link was replaced, so a held request, prepared over the old one, is
+	 * freed. The session's fresh state settles each. One begun at the revision
+	 * the session is still at cannot have landed: it is prepared again over the
+	 * new link and held for its owner to submit. An earlier one may have landed,
+	 * and is forgotten, so its gesture judges the session itself when it runs. */
+	async relink(): Promise<void> {
+		const held = [...this.#acquisitions].filter(([, record]) => record.request != null && record.task == null);
+		if (held.length === 0) return;
+		const fresh = await this.#session.refresh();
+		for (const [id, record] of held) {
+			if (this.#stopped || this.#acquisitions.get(id) !== record || record.task != null) continue;
+			record.request?.free();
+			record.request = undefined;
+			if (fresh.revision !== record.base) {
+				this.#forget(id);
+				continue;
+			}
+			const task = record.lifecycle.own("preparing", async () => {
+				record.request = await record.prepare();
+			}).catch((error: unknown) => {
+				this.#forget(id);
+				throw error;
+			}).finally(() => {
+				record.task = undefined;
+				this.#running.delete(task);
+			});
+			record.task = task;
+			this.#running.add(task);
+			await task;
+		}
+		this.#session.acquisitionChanged();
 	}
 	#forget(id: string): void {
 		this.#acquisitions.get(id)?.cancellation?.dispose();
@@ -509,41 +550,7 @@ export class ManagedActions {
 		const snapshot = await this.#session.candidate();
 		const conversation = conversationById(snapshot, event.target.id);
 		if (conversation?.kind !== "direct") throw new LocalRefusal("conversation-gone");
-		const notice = event.notice;
-		const source = fieldKey();
-		const key = fieldKey();
-		let destination: Coordinate;
-		if (notice?.kind === "line" && event.route != null) {
-			destination = { role: "directAccess", key };
-			conversation.access = key;
-			conversation.source = source;
-		} else if (notice?.kind === "handRoom" || notice?.kind === "offerRoom") {
-			destination = { role: "roomAccess", key };
-			snapshot.intent.invitations.push({
-				id,
-				directory: conversation.directory,
-				label: notice.label ?? "",
-				from: conversation.peer,
-				authority: { role: "roomAccess", key },
-				source,
-			});
-		} else if (notice?.kind === "handArchive" || notice?.kind === "offerArchive") {
-			const kind = notice.scope;
-			destination = { role: "archiveAccess", key };
-			snapshot.intent.archiveShares = [...(snapshot.intent.archiveShares ?? []), {
-				id,
-				channel: conversation.id,
-				directory: notice.directory ?? "",
-				kind,
-				conversation: notice.conversation ?? null,
-				from: conversation.peer,
-				access: key,
-				source,
-				durable: notice.kind === "offerArchive",
-			}];
-		} else {
-			invariant(false, "this incoming authority has no acquisition owner");
-		}
+		const { destination, source } = stageArrival(snapshot, conversation, event, id);
 		await this.#acquire(
 			id,
 			() =>

@@ -22,6 +22,9 @@ const { pageStorage } = await import("../web/ui/page_storage.ts");
 const a = dirId("ocapn://a");
 const b = dirId("ocapn://b");
 
+/** A page with nothing to lose to a reload. */
+const always = { idle: () => true, subscribe: () => () => {} };
+
 /** One macrotask turn, after which every settled answer has been read. */
 const settled = () => new Promise((resolve) => setTimeout(resolve, 0));
 
@@ -32,17 +35,22 @@ function watched(current = "one") {
 	const asked: Array<(build: string | null) => void> = [];
 	const reloads: string[] = [];
 	let beating: (() => void) | null = null;
-	const stop = bindReloadToBuild(projection, {
-		current,
-		served: () => new Promise((resolve) => asked.push(resolve)),
-		reload: (build) => {
-			reloads.push(build);
-			return true;
+	const { stop } = bindReloadToBuild(
+		projection,
+		{
+			current,
+			served: () => new Promise((resolve) => asked.push(resolve)),
+			reload: (build) => {
+				reloads.push(build);
+				return true;
+			},
 		},
-	}, (tick) => {
-		beating = tick;
-		return () => void (beating = null);
-	});
+		always,
+		(tick) => {
+			beating = tick;
+			return () => void (beating = null);
+		},
+	);
 	/** Answer the oldest open question, then let the page read it. */
 	const answer = async (build: string | null) => {
 		const question = asked.shift();
@@ -128,14 +136,19 @@ Deno.test("a refused reload keeps watching for a later build", async () => {
 	const projection = new PageProjection();
 	const asked: Array<(build: string | null) => void> = [];
 	const attempts: string[] = [];
-	const stop = bindReloadToBuild(projection, {
-		current: "one",
-		served: () => new Promise((resolve) => asked.push(resolve)),
-		reload(build) {
-			attempts.push(build);
-			return build !== "two";
+	const { stop } = bindReloadToBuild(
+		projection,
+		{
+			current: "one",
+			served: () => new Promise((resolve) => asked.push(resolve)),
+			reload(build) {
+				attempts.push(build);
+				return build !== "two";
+			},
 		},
-	}, () => () => {});
+		always,
+		() => () => {},
+	);
 	try {
 		openDir(projection, a, "ocapn://a");
 		setDirSession(projection, a, "connected");
@@ -251,4 +264,35 @@ Deno.test("a host that answers ui-version with the page never reloads it, and an
 	await page.answer(await buildNamed("application/octet-stream", `${NEWER}\n`));
 	assertEquals(page.reloads, [NEWER]);
 	page.done();
+});
+
+Deno.test("a new build waits for a quiet page, once, however often it is named", async () => {
+	const projection = new PageProjection();
+	let idle = false;
+	const listeners = new Set<() => void>();
+	const reloads: string[] = [];
+	const { check, stop } = bindReloadToBuild(projection, {
+		current: "one",
+		served: () => Promise.resolve("two"),
+		reload: (build) => {
+			reloads.push(build);
+			return true;
+		},
+	}, {
+		idle: () => idle,
+		subscribe: (listener) => {
+			listeners.add(listener);
+			return () => listeners.delete(listener);
+		},
+	}, () => () => {});
+	void check();
+	await settled();
+	await check();
+	assertEquals([reloads, listeners.size], [[], 1], "one wait, and no reload under unsaved work");
+	idle = true;
+	for (const listener of [...listeners]) listener();
+	await settled();
+	assertEquals(reloads, ["two"]);
+	stop();
+	projection.dispose();
 });

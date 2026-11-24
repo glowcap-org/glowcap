@@ -1,21 +1,15 @@
 // Own retained gesture coordination from preparation through result acquisition.
 import { invariant } from "../../../../lib/invariant.ts";
-import { LocalRefusal } from "../../../../lib/text/failure.ts";
+import { connectionLost, LocalRefusal } from "../../../../lib/text/failure.ts";
 import { conversationById } from "./conversation_lookup.ts";
 import type { RoomsManagedCommand, RoomsManagedWorkspace } from "../../../../../../zig-out/wasm/rooms/rooms_browser.js";
 import type { ManagedRoomsSession } from "./session.ts";
 import type { WorkspaceSnapshot } from "./model.ts";
-import {
-	ManagedOperation,
-	readResult,
-	ReceiptRetired,
-	ResultExpired,
-	TerminalObservationError,
-	UnsentEffectError,
-	WorkspaceConflict,
-} from "./operation.ts";
-import { discloseFailure, releaseEffect, restoreEffects, resumeEffect } from "./recovery.ts";
+import { ManagedOperation, ReceiptRetired, ResultExpired, WorkspaceConflict } from "./operation.ts";
+import { releaseEffect, restoreEffects, resumeEffect } from "./recovery.ts";
 import { admitCommand } from "./admission.ts";
+import { rehome, resend, returned, surviving } from "./effects_link.ts";
+import { watchReceipt } from "./effects_watch.ts";
 import { SubmissionRefused, submitCommand } from "./acquisition.ts";
 import { completeResult } from "./completion.ts";
 import { SESSION_CONTENT } from "../../../../lib/session_content_data.ts";
@@ -51,6 +45,16 @@ interface Environment {
 	change(): number;
 	changed(): void;
 	wait(change: number): Promise<void>;
+	/** Whether the link to the session is live, waiting for it up to a request's time. */
+	linked(): true | Promise<boolean>;
+	/** After a lost connection: whether a new link comes, which is never so for a
+	 * session this browser runs. Waits for as long as the page is trying. */
+	relinked(): Promise<boolean>;
+	/** The link a failure belongs to, so a replaced link's failures name no loss of its successor. */
+	generation(): number;
+	/** Why the session refused the link for good, or null. */
+	refused(): unknown;
+	lost(error: unknown, generation: number): void;
 	report(source: string, error: unknown): void;
 }
 
@@ -70,6 +74,10 @@ export class ManagedEffects {
 		return record;
 	}
 	constructor(readonly session: ManagedRoomsSession, readonly environment: Environment) {}
+	/** The receipt this page holds for `id`, if any. */
+	held(id: string): ManagedOperation | undefined {
+		return this.#records.get(id)?.operation;
+	}
 	get workspace(): RoomsManagedWorkspace {
 		return this.session.workspace;
 	}
@@ -114,6 +122,12 @@ export class ManagedEffects {
 	get pendingOperations(): Iterable<ManagedOperation> {
 		return [...this.#records.values()].flatMap((record) => record.operation == null ? [] : [record.operation]);
 	}
+	/** Whether any change is being prepared, sent, settled or completed. */
+	get busy(): boolean {
+		return [...this.#records.values()].some((record) =>
+			record.preparing === true || record.operation != null || record.lifecycle.owners.size > 0
+		);
+	}
 	get pending(): readonly string[] {
 		return [...this.#records].filter(([, record]) => record.operation != null || record.adopted).map(([id]) => id);
 	}
@@ -131,11 +145,28 @@ export class ManagedEffects {
 			record.intent?.name === "openManagedRoom" && record.continuation?.signal?.aborted
 		).map(([id]) => id);
 	}
+	/** The link was replaced. A receipt held over the old link is taken up again
+	 * by its operation id and finished from the session's own record. Nothing is
+	 * prepared or sent a second time, and a receipt with a worker running is
+	 * left to it. Receipts this page did not know of are then adopted as at
+	 * startup. */
+	async relink(adopt: boolean): Promise<void> {
+		for (const [id, record] of [...this.#records]) {
+			if (record.operation == null || record.lifecycle.owners.size > 0) continue;
+			void this.completeOperation(id).catch((error: unknown) =>
+				this.environment.report(managedText.resultRecovery, error)
+			);
+		}
+		this.environment.changed();
+		if (adopt) await this.restore();
+	}
 	async restore(): Promise<void> {
 		await restoreEffects({
 			workspace: this.workspace,
+			known: (id) => this.#records.has(id),
 			retain: (operation) => {
 				const record = this.#record(operation.id);
+				operation.link = this.environment.generation();
 				record.operation = operation;
 			},
 			orphan: (operation) => this.#records.get(operation.id)?.lifecycle.orphan(),
@@ -233,7 +264,7 @@ export class ManagedEffects {
 			() => this.environment.changed(),
 		);
 		const task = this.#track(record.lifecycle.own("preparing", async () => {
-			await complete(await prepare());
+			await surviving(this, operation, await prepare(), complete);
 			record.adopted = true;
 			await continuation?.settled();
 			return true;
@@ -284,14 +315,21 @@ export class ManagedEffects {
 		if (result != null) return result.then(() => true);
 		const task = this.#track(
 			record.lifecycle.own("completing", async () => {
-				let operation: ManagedOperation;
 				if (record.adopted) {
 					await record.continuation?.settled();
 					this.#forget(id);
 					return true;
 				}
+				const held: { operation: ManagedOperation | null } = { operation: null };
 				try {
-					operation = await this.resume(id);
+					await surviving(this, id, null, async (operation) => {
+						held.operation = operation;
+						const complete = record.completion;
+						if (complete == null) await this.completeResult(operation);
+						else await complete(operation);
+					});
+					record.adopted = true;
+					await record.continuation?.settled();
 				} catch (error) {
 					if (error instanceof ReceiptRetired) {
 						record.adopted = true;
@@ -299,18 +337,9 @@ export class ManagedEffects {
 						this.#forget(id);
 						return true;
 					}
-					throw error;
-				}
-				const complete = record.completion;
-				try {
-					if (complete == null) await this.completeResult(operation);
-					else await complete(operation);
-					record.adopted = true;
-					await record.continuation?.settled();
-				} catch (error) {
 					if (!(error instanceof ResultExpired)) throw error;
 					// Committed, with nothing left to acquire: settle and journal the loss.
-					if (record.operation === operation) this.finish(operation);
+					if (held.operation != null && record.operation === held.operation) this.finish(held.operation);
 					this.environment.report(managedText.resultRecovery, error);
 				}
 				if (record.operation == null) this.#forget(id);
@@ -354,25 +383,73 @@ export class ManagedEffects {
 			throw new LocalRefusal("change-replay-required");
 		}
 		record.preparing = true;
-		// This viewer's writes share one revision authority, so admissions take
-		// turns that end at admission. Each receipt then settles on its own, and a
-		// slow upstream effect holds back no later gesture.
+		let generation = this.environment.generation();
+		try {
+			let admitted: ManagedOperation | null = null;
+			let unacknowledged: unknown = null;
+			try {
+				// Nothing is admitted until the link is live, so a line sent while the
+				// page reconnects goes out once, or is refused unsent at the bound.
+				const linked = this.environment.linked();
+				if (linked !== true && !(await linked)) {
+					// A refusal the session answered says why, in its own words.
+					throw this.environment.stopped()
+						? new LocalRefusal("session-closed")
+						: this.environment.refused() ?? new LocalRefusal("not-sent");
+				}
+				generation = this.environment.generation();
+				try {
+					admitted = await this.#turn(operation, prepare);
+				} catch (error) {
+					if (!connectionLost(error)) throw error;
+					unacknowledged = error;
+				}
+			} finally {
+				record.preparing = false;
+				this.environment.changed();
+			}
+			// The connection broke around the change. If it was being prepared,
+			// nothing was sent, and it is prepared again over the new link. If it
+			// was sent, the session's own record says whether it landed, once the
+			// link is back. With no record, it never arrived, and it goes out again
+			// under the same id and base: the session lands it once, or refuses it
+			// as stale.
+			while (admitted == null) {
+				if (!await returned(this, record.operation, unacknowledged)) throw unacknowledged;
+				try {
+					const again = record.operation == null ? prepare : await resend(this, record.operation, prepare);
+					if (again == null) return await this.resume(operation);
+					record.operation = undefined;
+					admitted = await this.#turn(operation, again);
+				} catch (error) {
+					if (error instanceof WorkspaceConflict) throw new LocalRefusal("not-sent");
+					if (!connectionLost(error)) throw error;
+					unacknowledged = error;
+				}
+			}
+			return await this.#settle(admitted);
+		} catch (error) {
+			this.environment.lost(error, generation);
+			throw error;
+		}
+	}
+	/** This viewer's writes share one revision authority, so admissions take
+	 * turns that end at admission. Each receipt then settles on its own, and a
+	 * slow upstream effect holds back no later gesture. */
+	async #turn(operation: string, prepare: () => Promise<RoomsManagedCommand>): Promise<ManagedOperation> {
 		const previous = this.#commandTail;
 		let release!: () => void;
 		this.#commandTail = new Promise<void>((resolve) => release = resolve);
-		let admitted: ManagedOperation;
 		try {
 			await previous;
 			if (this.environment.stopped()) throw new LocalRefusal("session-closed");
-			admitted = await this.#admit(operation, prepare);
+			return await this.#admit(operation, prepare);
 		} finally {
-			record.preparing = false;
-			this.environment.changed();
 			release();
 		}
-		return await this.#settle(admitted);
 	}
 	async #admit(operation: string, prepare: () => Promise<RoomsManagedCommand>): Promise<ManagedOperation> {
+		const link = this.environment.generation();
 		const request = await prepare();
 		if (this.environment.stopped()) {
 			request.free();
@@ -380,6 +457,7 @@ export class ManagedEffects {
 		}
 		const record = this.#record(operation);
 		const pending = new ManagedOperation(operation, request, undefined, (error) => record.lifecycle.orphan(error));
+		pending.link = link;
 		record.operation = pending;
 		record.lifecycle.phase = "admitting";
 		record.lifecycle.outcome = "unknown";
@@ -402,59 +480,16 @@ export class ManagedEffects {
 		record.lifecycle.phase = "settling";
 		return pending;
 	}
+	/** Watch a receipt until it settles. When its link breaks, the page waits for
+	 * the next one and resumes the receipt over it, so the change settles once
+	 * with what the session recorded. */
 	async #settle(operation: ManagedOperation): Promise<ManagedOperation> {
-		while (!this.environment.stopped()) {
-			const change = this.environment.change();
-			const status = await operation.status();
-			const record = this.#record(operation.id);
-			record.lifecycle.outcome = status === "committed"
-				? "committed"
-				: status === "pending"
-				? "pending"
-				: "unknown";
-			if (status === "committed") {
-				try {
-					await this.refresh();
-				} catch (error) {
-					this.environment.changed();
-					throw operation.completionError(error, "addressed-snapshot");
-				}
-				return operation;
-			}
-			if (status !== "pending") {
-				if (status === "unsent") {
-					// Admission refusal proves no dispatch and retains its exact
-					// diagnostic. A locally unsent receipt may have no such result.
-					try {
-						await readResult(operation.request);
-					} catch (error) {
-						if (error instanceof TerminalObservationError) {
-							throw new UnsentEffectError(error.message, error.failure);
-						}
-						throw error;
-					} finally {
-						this.finish(operation);
-					}
-					throw new LocalRefusal("not-sent");
-				}
-				// Failed observations disclose their reason through the exact
-				// original receipt, with current authority checked again.
-				if (status === "unknown") {
-					await discloseFailure(operation.request, () => this.finish(operation));
-				}
-				throw new LocalRefusal("change-unconfirmed", {
-					cause: `retained operation is ${status}`,
-				});
-			}
-			if (this.environment.observationFailure() != null) throw this.environment.observationFailure();
-			if (change !== this.environment.change()) continue;
-			operation.observe(() => this.environment.changed());
-			await this.environment.wait(change);
-			if (this.environment.stopped()) {
-				throw new LocalRefusal("session-closed");
-			}
+		try {
+			return await watchReceipt(this, this.#record(operation.id).lifecycle, operation);
+		} catch (error) {
+			if (!await returned(this, operation, error)) throw error;
+			return await this.#resume(operation.id);
 		}
-		throw new LocalRefusal("session-closed");
 	}
 	finish(operation: ManagedOperation): void {
 		const record = this.#records.get(operation.id);
@@ -475,8 +510,12 @@ export class ManagedEffects {
 		const record = this.#record(operation);
 		if (record.recovering != null) return record.recovering;
 		if (record.preparing) return Promise.reject(new LocalRefusal("still-working"));
+		const generation = this.environment.generation();
 		const task = this.#track(
-			record.lifecycle.own("settling", () => this.#resume(operation)).finally(() => {
+			record.lifecycle.own("settling", () => this.#resume(operation)).catch((error: unknown) => {
+				this.environment.lost(error, generation);
+				throw error;
+			}).finally(() => {
 				record.recovering = undefined;
 				if (record.operation == null && record.completion == null) this.#records.delete(operation);
 				this.environment.changed();
@@ -488,6 +527,9 @@ export class ManagedEffects {
 	async #resume(operation: string): Promise<ManagedOperation> {
 		const record = this.#record(operation);
 		const request = record.operation;
+		if (request != null && request.link !== this.environment.generation()) {
+			return await this.#settle(await rehome(this, request));
+		}
 		if (request?.acquiring) {
 			await request.retryAcquisition();
 			await this.refresh();
@@ -536,6 +578,7 @@ export class ManagedEffects {
 				status,
 				(error) => record.lifecycle.orphan(error),
 			);
+			pending.link = this.environment.generation();
 			record.operation = pending;
 			retained = true;
 			this.environment.changed();
