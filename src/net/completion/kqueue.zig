@@ -268,6 +268,7 @@ pub const Backend = struct {
     pub fn submitAccept(self: *Backend, user_data: u64, listen_fd: Fd) !void {
         const reserved = try self.reserveSlot(listen_fd);
         errdefer self.rollbackSlot(listen_fd, reserved);
+        if (reserved.pending.read != .idle) return error.DescriptorBusy;
         try self.register(listen_fd, c.EVFILT.READ);
         reserved.pending.read = .{ .accept = user_data };
     }
@@ -285,20 +286,22 @@ pub const Backend = struct {
     fn submitConnect(self: *Backend, user_data: u64, fd: Fd, target: ConnectTarget) !void {
         const ip4 = try socket_tcp.ip4FromTarget(target);
         var addr = socket_tcp.sockaddrIn4(tcp_os, ip4);
+        // Refuse a busy descriptor before `connect(2)` starts a connection.
+        const reserved = try self.reserveSlot(fd);
+        errdefer self.rollbackSlot(fd, reserved);
+        if (reserved.pending.write != .idle) return error.DescriptorBusy;
         const rc = c.connect(fd, @ptrCast(&addr), @sizeOf(sockaddr_in));
         if (rc == 0) {
             try self.ready.append(self.allocator, .{ .user_data = user_data, .result = 0 });
-            return;
+            return self.rollbackSlot(fd, reserved);
         }
         switch (std.posix.errno(rc)) {
             .INPROGRESS, .ALREADY => {},
             else => {
                 try self.ready.append(self.allocator, .{ .user_data = user_data, .result = -1 });
-                return;
+                return self.rollbackSlot(fd, reserved);
             },
         }
-        const reserved = try self.reserveSlot(fd);
-        errdefer self.rollbackSlot(fd, reserved);
         try self.register(fd, c.EVFILT.WRITE);
         reserved.pending.write = .{ .connect = user_data };
     }
@@ -306,6 +309,7 @@ pub const Backend = struct {
     pub fn submitRecv(self: *Backend, user_data: u64, fd: Fd) !void {
         const reserved = try self.reserveSlot(fd);
         errdefer self.rollbackSlot(fd, reserved);
+        if (reserved.pending.read != .idle) return error.DescriptorBusy;
         try self.register(fd, c.EVFILT.READ);
         reserved.pending.read = .{ .recv = user_data };
     }
@@ -314,11 +318,13 @@ pub const Backend = struct {
         const reserved = try self.reserveSlot(fd);
         errdefer self.rollbackSlot(fd, reserved);
         switch (interest) {
-            .readable => {
+            .readable, .listener => {
+                if (reserved.pending.read != .idle) return error.DescriptorBusy;
                 try self.addOneShot(fd, c.EVFILT.READ);
                 reserved.pending.read = .{ .poll = user_data };
             },
             .writable => {
+                if (reserved.pending.write != .idle) return error.DescriptorBusy;
                 try self.addOneShot(fd, c.EVFILT.WRITE);
                 reserved.pending.write = .{ .poll = user_data };
             },
@@ -328,6 +334,7 @@ pub const Backend = struct {
     pub fn submitSend(self: *Backend, user_data: u64, fd: Fd, bytes: []const u8) !void {
         const reserved = try self.reserveSlot(fd);
         errdefer self.rollbackSlot(fd, reserved);
+        if (reserved.pending.write != .idle) return error.DescriptorBusy;
         try self.register(fd, c.EVFILT.WRITE);
         reserved.pending.write = .{ .send = .{ .ud = user_data, .bytes = bytes } };
     }

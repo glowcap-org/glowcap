@@ -44,6 +44,11 @@ pub const Backend = struct {
     deferred_error: ?anyerror = null,
     buffer_pool: BufferPool,
     listener_ip4: [4]u8,
+    /// The `accept4` flags of every accepted socket: `NONBLOCK | CLOEXEC`,
+    /// because this backend reads and writes nonblocking. The io_uring
+    /// backend, which embeds one for its listeners, sets `CLOEXEC` alone
+    /// before any accept: ring receives and sends need a blocking socket.
+    accepted_flags: u32,
     test_state: if (builtin.is_test) struct {
         fail_next_control: ?linux.E = null,
         defer_next_recv: bool = false,
@@ -87,6 +92,7 @@ pub const Backend = struct {
             .ready = .{},
             .buffer_pool = buffer_pool,
             .listener_ip4 = listener_ip4,
+            .accepted_flags = linux.SOCK.NONBLOCK | linux.SOCK.CLOEXEC,
         };
     }
 
@@ -176,7 +182,9 @@ pub const Backend = struct {
     /// user's watch quota (`error.EpollWatchLimit`) and ENOMEM the kernel's
     /// memory (`error.OutOfMemory`). Neither registered anything. Every other
     /// errno is `error.EpollControlFailed`.
-    fn registerPoll(self: *Backend, fd: Fd, pending: Pending, inserted: bool) !void {
+    const RegisterError = error{ EpollWatchLimit, OutOfMemory, EpollControlFailed };
+
+    fn registerPoll(self: *Backend, fd: Fd, pending: Pending, inserted: bool) RegisterError!void {
         switch (self.controlErrno(registration(inserted), fd, interests(pending))) {
             .SUCCESS => {},
             .NOSPC => return error.EpollWatchLimit,
@@ -241,7 +249,7 @@ pub const Backend = struct {
         const reserved = try self.reserveSlot(listen_fd);
         errdefer self.rollbackSlot(listen_fd, reserved);
         var next = reserved.pending.*;
-        std.debug.assert(next.read == .idle);
+        if (next.read != .idle) return error.DescriptorBusy;
         next.read = .{ .accept = user_data };
         try self.register(listen_fd, next, reserved.inserted);
         reserved.pending.* = next;
@@ -258,11 +266,15 @@ pub const Backend = struct {
     fn submitConnect(self: *Backend, user_data: u64, fd: Fd, target: ConnectTarget) !void {
         const ip4 = try socket_tcp.ip4FromTarget(target);
         var address = socket_tcp.sockaddrIn4(tcp_os, ip4);
+        const reserved = try self.reserveSlot(fd);
+        errdefer self.rollbackSlot(fd, reserved);
+        var next = reserved.pending.*;
+        if (next.write != .idle) return error.DescriptorBusy;
         const result = linux.connect(fd, @ptrCast(&address), @sizeOf(@TypeOf(address)));
         switch (linux.errno(result)) {
             .SUCCESS => {
                 try self.ready.append(self.allocator, .{ .user_data = user_data, .result = 0 });
-                return;
+                return self.rollbackSlot(fd, reserved);
             },
             .INPROGRESS, .ALREADY => {},
             else => |err| {
@@ -271,14 +283,9 @@ pub const Backend = struct {
                     .result = -1,
                     .failure = completion.failureFromErrno(err),
                 });
-                return;
+                return self.rollbackSlot(fd, reserved);
             },
         }
-
-        const reserved = try self.reserveSlot(fd);
-        errdefer self.rollbackSlot(fd, reserved);
-        var next = reserved.pending.*;
-        std.debug.assert(next.write == .idle);
         next.write = .{ .connect = user_data };
         try self.register(fd, next, reserved.inserted);
         reserved.pending.* = next;
@@ -288,7 +295,7 @@ pub const Backend = struct {
         const reserved = try self.reserveSlot(fd);
         errdefer self.rollbackSlot(fd, reserved);
         var next = reserved.pending.*;
-        std.debug.assert(next.read == .idle);
+        if (next.read != .idle) return error.DescriptorBusy;
         next.read = .{ .recv = user_data };
         try self.register(fd, next, reserved.inserted);
         reserved.pending.* = next;
@@ -299,12 +306,12 @@ pub const Backend = struct {
         errdefer self.rollbackSlot(fd, reserved);
         var next = reserved.pending.*;
         switch (interest) {
-            .readable => {
-                std.debug.assert(next.read == .idle);
+            .readable, .listener => {
+                if (next.read != .idle) return error.DescriptorBusy;
                 next.read = .{ .poll = user_data };
             },
             .writable => {
-                std.debug.assert(next.write == .idle);
+                if (next.write != .idle) return error.DescriptorBusy;
                 next.write = .{ .poll = user_data };
             },
         }
@@ -316,7 +323,7 @@ pub const Backend = struct {
         const reserved = try self.reserveSlot(fd);
         errdefer self.rollbackSlot(fd, reserved);
         var next = reserved.pending.*;
-        std.debug.assert(next.write == .idle);
+        if (next.write != .idle) return error.DescriptorBusy;
         next.write = .{ .send = .{ .ud = user_data, .bytes = bytes } };
         try self.register(fd, next, reserved.inserted);
         reserved.pending.* = next;
@@ -406,7 +413,7 @@ pub const Backend = struct {
                         produced += 1;
                         completed = true;
                     },
-                    .accept => |ud| if (completeAccept(fd, ud)) |comp| {
+                    .accept => |ud| if (self.completeAccept(fd, ud)) |comp| {
                         pending.read = .idle;
                         out[produced] = comp;
                         produced += 1;
@@ -507,8 +514,8 @@ pub const Backend = struct {
         }
     }
 
-    fn completeAccept(fd: Fd, user_data: u64) ?completion.Completion {
-        const result = linux.accept4(fd, null, null, linux.SOCK.NONBLOCK | linux.SOCK.CLOEXEC);
+    fn completeAccept(self: *const Backend, fd: Fd, user_data: u64) ?completion.Completion {
+        const result = linux.accept4(fd, null, null, self.accepted_flags);
         switch (linux.errno(result)) {
             .SUCCESS => {
                 const accepted: Fd = @intCast(result);
@@ -588,6 +595,11 @@ pub const Backend = struct {
 
     pub fn listenerPort(address: ListenerAddress) ?u16 {
         return address.port;
+    }
+
+    /// Whether an operation is armed on `fd`.
+    pub fn tracks(self: *const Backend, fd: Fd) bool {
+        return self.pending.contains(fd);
     }
 
     /// Close a descriptor the loop never submitted a close for. Its pending

@@ -248,7 +248,7 @@ const registered = [_]Table{
     .{
         .file = "net/completion/epoll.zig",
         .name = "pending",
-        .owner = "File descriptors this backend opened or accepted, in one process's descriptor table. No peer names one.",
+        .owner = "File descriptors with an operation armed on them, in one process's descriptor table: sockets this backend opened or accepted, and descriptors its caller hands it, such as a provider's listener or the io_uring backend's listeners. No peer names one.",
         .epoch = "NOT CLOSED by the key. Linux can reuse a descriptor as soon as it closes. " ++
             "The row enters only after epoll registration accepts an operation and normally leaves when its directions complete, cancel, or close while the backend still owns the descriptor. " ++
             "A failed post-completion control call retains the row and old kernel mask until a later successful control or close, so userspace does not assume the kernel registration vanished.",
@@ -366,18 +366,6 @@ const registered = [_]Table{
         .name = "dial_failures",
         .owner = "The same runtime request ids `dials` keys; an entry exists only for a failed dial whose backend lent a structured failure.",
         .epoch = "The entry leaves at finish or cancel with its dial row, and the runtime never reuses a request id.",
-    },
-    .{
-        .file = "net/completion/uring_listeners.zig",
-        .name = "rows",
-        .owner = "Listening descriptors this io_uring backend opened itself in `openListener`.",
-        .epoch = "A row leaves when its descriptor closes (`forget`, a plain close, or the settled cancel), before the kernel can hand the number out again.",
-    },
-    .{
-        .file = "net/completion/uring_listeners.zig",
-        .name = "accepts",
-        .owner = "The user_data of each armed accept, chosen by the backend's caller, which gives every listener's accept its own value.",
-        .epoch = "An entry lives from the accept's submission to its one CQE, so a reused user_data names only the accept armed after that CQE retired.",
     },
 };
 

@@ -303,6 +303,74 @@ test "epoll refused buffer growth fails the receive once and exhaustion still wa
     try pool_refusal.expectRefusalThenSaturationRecovery(white_box.TestBackend, white_box.pendingCount);
 }
 
+test "epoll refuses a second operation in a held direction and keeps the first" {
+    const white_box = net.epoll_white_box;
+    var backend = try white_box.TestBackend.init(std.testing.allocator, 8, 2, 64);
+    defer backend.deinit();
+    const channel = try net.wake_channel.WakeChannel.open();
+    defer channel.deinit();
+
+    try backend.submitRecv(1, channel.read);
+    try std.testing.expectError(error.DescriptorBusy, backend.submitRecv(2, channel.read));
+    try std.testing.expectError(error.DescriptorBusy, backend.submitAccept(3, channel.read));
+    try std.testing.expectError(error.DescriptorBusy, backend.submitPoll(4, channel.read, .readable));
+    try std.testing.expectError(error.DescriptorBusy, backend.submitPoll(5, channel.read, .listener));
+    try std.testing.expectEqual(@as(usize, 1), white_box.pendingCount(&backend));
+    // The refusals changed nothing: the first recv still completes.
+    _ = try channel.nudge();
+    var out: [2]completion.Completion = undefined;
+    try std.testing.expectEqual(@as(usize, 1), try backend.poll(&out, 1_000));
+    try std.testing.expectEqual(@as(u64, 1), out[0].user_data);
+    backend.recycleBorrowed(out[0]);
+}
+
+test "epoll refuses a send and a write poll while a send is in flight" {
+    const white_box = net.epoll_white_box;
+    var backend = try white_box.TestBackend.init(std.testing.allocator, 8, 2, 64);
+    defer backend.deinit();
+    const channel = try net.wake_channel.WakeChannel.open();
+    defer channel.deinit();
+
+    try backend.submitPoll(1, channel.write, .writable);
+    try std.testing.expectError(error.DescriptorBusy, backend.submitSend(2, channel.write, "x"));
+    try std.testing.expectError(error.DescriptorBusy, backend.submitPoll(3, channel.write, .writable));
+    try std.testing.expectEqual(@as(usize, 1), white_box.pendingCount(&backend));
+}
+
+test "epoll names the flags of accepted sockets and the default is nonblocking" {
+    const Backend = net.epoll_white_box.TestBackend;
+    const nonblock: usize = @as(u32, @bitCast(linux.O{ .NONBLOCK = true }));
+    const flag_sets = [_]struct { init: ?u32, blocking: bool }{
+        .{ .init = null, .blocking = false },
+        .{ .init = linux.SOCK.CLOEXEC, .blocking = true },
+    };
+    for (flag_sets) |case| {
+        var backend = try Backend.init(std.testing.allocator, 8, 2, 64);
+        defer backend.deinit();
+        if (case.init) |flags| backend.accepted_flags = flags;
+        const listen_fd = try backend.openListener(0);
+        defer backend.closeFd(listen_fd);
+        const port = (try backend.listenerAddress(listen_fd)).port;
+        try backend.submitAccept(1, listen_fd);
+        const dial_fd = try backend.startDial(2, .{ .ip4 = .{ .bytes = .{ 127, 0, 0, 1 }, .port = port } });
+        defer backend.closeFd(dial_fd);
+        var accepted: ?Backend.Fd = null;
+        defer if (accepted) |fd| backend.closeFd(fd);
+        var rounds: usize = 0;
+        while (accepted == null and rounds < 100) : (rounds += 1) {
+            var out: [4]completion.Completion = undefined;
+            const count = try backend.poll(&out, 100);
+            for (out[0..count]) |item| if (item.user_data == 1) {
+                try std.testing.expect(item.result >= 0);
+                accepted = item.result;
+            };
+        }
+        const fd = accepted orelse return error.AcceptNeverArrived;
+        const status = linux.fcntl(fd, linux.F.GETFL, 0);
+        try std.testing.expectEqual(!case.blocking, status & nonblock != 0);
+    }
+}
+
 test "epoll dialed and accepted sockets disable Nagle" {
     const Backend = net.epoll_white_box.TestBackend;
     var backend = try Backend.init(std.testing.allocator, 16, 4, 4096);

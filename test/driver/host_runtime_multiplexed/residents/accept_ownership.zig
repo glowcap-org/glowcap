@@ -58,6 +58,8 @@ pub const AcceptOwnershipResident = struct {
     /// When set, draining leaves the readiness descriptor readable, so the
     /// resident reports ready on every wait.
     keep_ready: bool = false,
+    /// When set, the descriptor `readiness_fd` reports instead of the wake channel's.
+    readiness_override: ?i32 = null,
     /// When set, every dial start refuses with exactly this failure.
     dial_failure: ?net.netlayer.DialFailure = null,
     /// When set, a held connect finishes with the connection.
@@ -222,7 +224,8 @@ pub const AcceptOwnershipResident = struct {
     }
 
     fn readinessFd(ctx: *anyopaque) i32 {
-        return of(ctx).wake.read;
+        const self = of(ctx);
+        return self.readiness_override orelse self.wake.read;
     }
 
     fn readyPending(ctx: *anyopaque) bool {

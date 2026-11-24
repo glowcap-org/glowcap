@@ -2,6 +2,7 @@ const std = @import("std");
 const linux = std.os.linux;
 const net = @import("glowcap").net;
 const uring = net.uring_white_box;
+const probe = @import("../support/uring_probe.zig");
 const io_uring_gate = @import("../support/io_uring_gate.zig");
 
 test "io_uring initialization failures identify unavailable host support at their source" {
@@ -55,14 +56,7 @@ test "io_uring finite wait returns an empty turn when interrupted" {
     try std.testing.expect(net.clock.nowMonotonicMs() - started < 5_000);
 }
 
-test "io_uring listener cancellation waits for a target already completing" {
-    try std.testing.expect(uring.cancelResolved(0));
-    try std.testing.expect(uring.cancelResolved(-@as(i32, @backingInt(linux.E.NOENT))));
-    try std.testing.expect(!uring.cancelResolved(-@as(i32, @backingInt(linux.E.ALREADY))));
-    try std.testing.expect(!uring.cancelResolved(-@as(i32, @backingInt(linux.E.INVAL))));
-}
-
 test "io_uring dialed and accepted sockets disable Nagle" {
-    const enabled = uring.dialAndAcceptSetNodelay(std.testing.allocator) catch |err| return io_uring_gate.refused(err);
+    const enabled = probe.dialAndAcceptSetNodelay(std.testing.allocator) catch |err| return io_uring_gate.refused(err);
     try std.testing.expect(enabled);
 }

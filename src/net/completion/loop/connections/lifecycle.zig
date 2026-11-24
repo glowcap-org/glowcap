@@ -212,11 +212,11 @@ pub fn Machine(
             if (first_err) |err| return err;
         }
 
-        /// Submit the listener cancellation/close when backend capacity admits
-        /// it. Unlike a newly accepted descriptor, the listener can have an
-        /// accept operation pending. `closeFd` alone is not contracted to retire
-        /// that operation. Retain the descriptor and retry instead of letting
-        /// `closeAndDrain` return while the backend still owns an accept.
+        /// Submit the listener close when backend capacity admits it. Unlike a
+        /// newly accepted descriptor, the listener can have an accept armed.
+        /// `closeFd` alone is not contracted to complete that accept. Retain the
+        /// descriptor and retry instead of letting `closeAndDrain` return while
+        /// the backend still owns an accept.
         pub fn retryListenerClose(self: *Self) !void {
             if (self.listener_close_pending) return;
             const fd = self.listener_close_fd orelse return;

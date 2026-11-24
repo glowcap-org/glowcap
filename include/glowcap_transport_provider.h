@@ -172,7 +172,7 @@ typedef struct GlowcapMultiplexedTransport {
     size_t struct_size;
     /* Provider-owned context; must outlive registration. */
     void *ctx;
-    /* Level-shaped readiness descriptor; remains ready while records are pending. */
+    /* Level-shaped readiness descriptor; remains ready while records are pending. Never a listening socket: the driver waits on it in its completion backend, where a wait on a listener outlives a killed process and keeps its port bound, so registration refuses one. */
     GlowcapMultiplexedReadinessFdFn readiness_fd;
     /* Drain at most the supplied capacity of ready records. */
     GlowcapMultiplexedDrainReadyFn drain_ready;

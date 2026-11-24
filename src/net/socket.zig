@@ -31,6 +31,7 @@ pub const ReadyAccept = socket_tcp.ReadyAccept;
 pub const acceptQueued = socket_tcp.acceptQueued;
 pub const AcceptRefusal = socket_tcp.AcceptRefusal;
 pub const setNonblocking = socket_tcp.setNonblocking;
+pub const isListening = socket_tcp.isListening;
 pub const setNoSigpipe = socket_tcp.setNoSigpipe;
 pub const setCloseOnExec = socket_tcp.setCloseOnExec;
 pub const sendNonblocking = socket_tcp.sendNonblocking;

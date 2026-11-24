@@ -201,3 +201,48 @@ test "foreign-provider completion backend dials, moves bytes both ways, and clos
     try std.testing.expectEqual(@as(i32, 0), (try awaitCompletion(&backend, 4)).result);
     try std.testing.expectEqual(@as(usize, 0), provider.recorder.violations);
 }
+
+const killed_child = @import("../../support/killed_child.zig");
+const io_uring_gate = @import("../../support/io_uring_gate.zig");
+const process = killed_child.process;
+
+const UringBackend = net.uring_white_box.TestBackend;
+const uring_probe = @import("../../support/uring_probe.zig");
+const UringExternal = external.CompletionBackend(UringBackend);
+
+/// The child: serve the C TCP provider's listener through the adapter over
+/// the io_uring backend, with an accept armed, report the port, and wait.
+fn serveTcpProvider(ready: c_int, hold: c_int) noreturn {
+    const allocator = std.heap.page_allocator;
+    var provider: TcpProvider = undefined;
+    provider.init(allocator) catch process._exit(2);
+    const providers = [_]external.Provider{provider.stream.provider()};
+    const platform = UringBackend.init(allocator, 16, 4, frame_cap) catch process._exit(3);
+    var backend = UringExternal.initWithPlatform(allocator, .{ .providers = &providers }, platform, 4, frame_cap) catch process._exit(4);
+    const fd = backend.openListener(.{ .provider = .{ .transport = model.transport.tcp, .designator = "127.0.0.1:0" } }) catch process._exit(5);
+    if (backend.listenerPending(fd)) {
+        backend.submitListenReady(2, fd) catch process._exit(6);
+        var out: [4]net.completion.Completion = undefined;
+        var turns: usize = 0;
+        while (backend.listenerPending(fd)) : (turns += 1) {
+            if (turns == 500) process._exit(7);
+            _ = backend.poll(&out, 10) catch process._exit(8);
+        }
+    }
+    backend.submitAccept(1, fd) catch process._exit(9);
+    backend.flush() catch process._exit(10);
+    // The provider's readiness descriptor is a listening socket: its poll must
+    // sit in the listener set, never in the ring.
+    if (uring_probe.innerOperations(&backend.platform) != 1) process._exit(11);
+    const locator = backend.listenerLocator(allocator) catch process._exit(12);
+    const colon = std.mem.findScalarLast(u8, locator.designator, ':') orelse process._exit(13);
+    const port = std.fmt.parseInt(u16, locator.designator[colon + 1 ..], 10) catch process._exit(14);
+    killed_child.announce(port, ready, hold);
+}
+
+test "a killed process whose C TCP provider listens through the io_uring adapter leaves its port free at once" {
+    if (builtin.target.os.tag != .linux) return error.SkipZigTest;
+    var probe = UringBackend.init(std.testing.allocator, 16, 4, frame_cap) catch |err| return io_uring_gate.refused(err);
+    probe.deinit();
+    try killed_child.expectKilledChildFreesPort(serveTcpProvider, 50);
+}

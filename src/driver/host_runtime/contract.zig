@@ -141,6 +141,7 @@ pub const AdoptionOptions = struct {
 pub const ProviderRegistrationError = std.mem.Allocator.Error || Error || driver_core.HostError || error{
     InvalidProviderPackage,
     ReadinessDescriptorConflict,
+    ReadinessDescriptorListening,
     ReadinessUnavailable,
     ReadinessUpdateFailed,
 };

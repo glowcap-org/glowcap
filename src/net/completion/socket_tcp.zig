@@ -164,6 +164,20 @@ pub fn setNonblocking(fd: i32) bool {
     return c.fcntl(fd, c.F.SETFL, flags | nonblock) >= 0;
 }
 
+/// Whether `fd` is a socket in the listening state (`SO_ACCEPTCONN`). A
+/// descriptor that is not a socket, or that cannot be asked, is not.
+pub fn isListening(fd: i32) bool {
+    var value: i32 = 0;
+    if (comptime builtin.target.os.tag == .linux) {
+        var len: u32 = @sizeOf(i32);
+        const rc = linux.getsockopt(fd, linux.SOL.SOCKET, linux.SO.ACCEPTCONN, std.mem.asBytes(&value), &len);
+        return linux.errno(rc) == .SUCCESS and value != 0;
+    }
+    const c = std.c;
+    var len: c.socklen_t = @sizeOf(i32);
+    return c.getsockopt(fd, c.SOL.SOCKET, c.SO.ACCEPTCONN, &value, &len) == 0 and value != 0;
+}
+
 /// One attempt on a nonblocking listener. An accepted descriptor whose
 /// publication flags could not be installed has already been closed.
 pub const ReadyAccept = union(enum) {

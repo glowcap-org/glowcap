@@ -222,7 +222,7 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
     try E.emitStruct(&b, gpa, cp.GlowcapMultiplexedReadyEvent, "GlowcapMultiplexedReadyEvent", &.{ "Connection, connect request, or listener route id.", "GLOWCAP_MULTIPLEXED_EV_* bits." });
     try E.emitStruct(&b, gpa, cp.GlowcapMultiplexedTransport, "GlowcapMultiplexedTransport", &.{
         "GLOWCAP_MULTIPLEXED_TRANSPORT_ABI_VERSION.",                                                  "sizeof(GlowcapMultiplexedTransport).",
-        "Provider-owned context; must outlive registration.",                                          "Level-shaped readiness descriptor; remains ready while records are pending.",
+        "Provider-owned context; must outlive registration.",                                          "Level-shaped readiness descriptor; remains ready while records are pending. Never a listening socket: the driver waits on it in its completion backend, where a wait on a listener outlives a killed process and keeps its port bound, so registration refuses one.",
         "Drain at most the supplied capacity of ready records.",                                       "Start a non-blocking connect.",
         "Finish connect.",                                                                             "Claim externally established connection.",
         "Cancel connect; asynchronous retirement emits CONNECT, then a repeated call claims cleanup.", "Begin listener construction; PENDING requires the completion pair.",
