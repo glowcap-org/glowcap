@@ -305,9 +305,15 @@ export function managedComposer(page: RoomsPageContext, session: ManagedRoomsSes
 				);
 				store.rememberLastSent(projection, row.key, prepared.original);
 			};
-			const settleLineAcquisition = async (command: ManagedOperation): Promise<LineSettlement> => {
+			const settleLineAcquisition = async (
+				command: ManagedOperation,
+				after: Committed,
+			): Promise<LineSettlement> => {
 				try {
-					return { kind: "acquired", completed: await session.actions.acquireLine(row.persistId, command) };
+					return {
+						kind: "acquired",
+						completed: await session.actions.acquireLine(row.persistId, command, after),
+					};
 				} catch (error) {
 					if (error instanceof ResultAcquisitionError) {
 						return { kind: "degraded", completed: degradedCompletion(error), failure: error };
@@ -353,8 +359,8 @@ export function managedComposer(page: RoomsPageContext, session: ManagedRoomsSes
 								prepared.text,
 								JSON.stringify(prepared.previewUrls),
 							], operation),
-					async (command) => {
-						const settlement = await settleLineAcquisition(command);
+					async (command, after) => {
+						const settlement = await settleLineAcquisition(command, after);
 						confirm(settlement.kind === "expired" ? undefined : settlement.completed);
 						// Delivery stays confirmed while the original operation
 						// retains recovery of its result. A new send is never a

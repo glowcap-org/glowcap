@@ -281,15 +281,15 @@ export class ManagedActions {
 		await this.#session.press(
 			operation,
 			({ command }) => command("say", [conversation, text], operation),
-			async (command) => {
-				await this.acquireLine(conversation, command);
+			async (command, after) => {
+				await this.acquireLine(conversation, command, after);
 			},
 		);
 	}
 	async acquireLine(
 		conversation: string,
 		command: ManagedOperation,
-		after: Committed = this.#session.committed,
+		after: Committed,
 	): Promise<CompletedLine> {
 		const target = retainedIntentConversation(command.request.originalIntent());
 		invariant(target === conversation, "the line receipt belongs to another conversation");
