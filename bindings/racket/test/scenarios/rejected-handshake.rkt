@@ -61,10 +61,20 @@
       (wait (add1 tries))))
   (expect (positive? (hash-count closed-ptrs))
           "close before wrap: the driver never closed the refused session before it was wrapped")
-  ;; The driver recorded the close without a failure value for this case.
-  (expect (andmap (lambda (terminal) (eq? terminal #t)) (hash-values closed-ptrs))
-          (format "close before wrap: the remembered terminal was ~s, not #t"
+  ;; The driver remembers how the session ended. The end is clean when the
+  ;; dialer's hello was read alone, and a truncated frame when its first
+  ;; requests were read with it, because a session nobody attends dispatches
+  ;; nothing and they still wait at the close. Which read happens is the
+  ;; kernel's timing, and the wrap retires the session either way.
+  (expect (andmap (lambda (terminal) (or (eq? terminal #t) (exn:fail:glowcap? terminal)))
+                  (hash-values closed-ptrs))
+          (format "close before wrap: the remembered terminal was ~s, neither #t nor a session failure"
                   (hash-values closed-ptrs)))
+  (define failed? (ormap exn? (hash-values closed-ptrs)))
+  ;; A close or serve of the retired session returns after a clean end and
+  ;; raises the session's own failure after a failed one. Neither waits.
+  (define (settled? outcome)
+    (if failed? (exn:fail:glowcap? outcome) (eq? outcome 'returned)))
   (semaphore-post accept-gate)
   (define c (sync/timeout 10 accepted))
   (expect c "close before wrap: the squatter never accepted the refused dial")
@@ -73,12 +83,12 @@
   (expect (session-released? c)
           "close before wrap: wrapping a session the driver had closed kept its handle")
   (define closed (bounded 10 (lambda () (session-close! c))))
-  (expect (eq? closed 'returned)
-          (format "close before wrap: session-close! did not return normally: ~a"
+  (expect (settled? closed)
+          (format "close before wrap: session-close! did not report the session's end: ~a"
                   (outcome-text closed)))
   (define served (bounded 10 (lambda () (session-serve c))))
-  (expect (eq? served 'returned)
-          (format "close before wrap: session-serve did not return normally: ~a"
+  (expect (settled? served)
+          (format "close before wrap: session-serve did not report the session's end: ~a"
                   (outcome-text served)))
   (expect (not (session-partner-abort c))
           "close before wrap: the dialer refused before sending an abort")
