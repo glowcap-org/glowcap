@@ -102,9 +102,9 @@ impl<P: Tasks + Deadline + Clone + 'static> Opened<P> {
 	) -> Result<()> {
 		let (root, private_control) = self.attachment.restore(self.anchor.resource).await?;
 		self.session.bind(root.clone(), private_control)?;
-		self.attachment.start_live(self.anchor.marker, live_capacity)?;
-		// This ordinary private call drives the attachment's existing storage
-		// lane. It adds neither a polling timer nor a second startup scheduler.
+		// A confirmed lifetime comes first: ordinary private calls share the
+		// storage lane with startup and do not carry it to completion.
+		let incarnation = self.attachment.start_live(self.anchor.marker, live_capacity).await?;
 		self.session.initialize().await?;
 		// start_live establishes a fresh Host lifetime. Directory registrations
 		// and direct routes still select callbacks owned by its predecessor.
@@ -115,16 +115,8 @@ impl<P: Tasks + Deadline + Clone + 'static> Opened<P> {
 			.writer
 			.mutate("retire-host-registrations", &[])
 			.await?;
-		self.anchor.marker = Some(
-			self.attachment
-				.live_marker()?
-				.ok_or_else(|| loam::refusal("session lifetime is still pending; publication is unavailable"))?,
-		);
-		self.session.activity().bind_incarnation(
-			self.attachment
-				.live_incarnation()?
-				.ok_or_else(|| loam::refusal("session incarnation is pending"))?,
-		)?;
+		self.anchor.marker = Some(incarnation.marker());
+		self.session.activity().bind_incarnation(incarnation)?;
 		persist(self.anchor).await?;
 		let policy = rooms_glowcap::policy::descriptor()?;
 		let wide = policy.value_for_kind(

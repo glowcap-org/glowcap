@@ -258,13 +258,10 @@ pub(super) async fn create(store: &Store, policy: &Policy, schema: Schema, paylo
 			.unwrap()
 	}
 }
-/// Admission precedes the storage commit. Live imports wait for the published
-/// marker instead of relying on unrelated calls to finish startup.
+/// Admission precedes the storage commit. Live imports wait for the confirmed
+/// lifetime instead of relying on unrelated calls to finish startup.
 pub(super) async fn start_live(attachment: &Attachment, prior: Option<glowcap::loam::LiveMarker>, capacity: u32) {
-	attachment.start_live(prior, capacity).unwrap();
-	while attachment.live_marker().unwrap().is_none() {
-		yield_turn().await;
-	}
+	attachment.start_live(prior, capacity).await.unwrap();
 }
 pub(super) async fn restore(attachment: &Attachment, resource: Resource) -> (Ref, Ref) {
 	attachment.restore(resource).await.unwrap()

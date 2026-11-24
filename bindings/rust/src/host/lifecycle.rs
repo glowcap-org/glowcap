@@ -55,6 +55,14 @@ impl HostShared {
 		self.release_notify.notify_waiters();
 	}
 
+	/// The cause of a close that failed, once it has. A Host whose close
+	/// failed keeps its handle, so a waiter on its storage cannot rely on the
+	/// handle going null to settle.
+	#[cfg(feature = "loam")]
+	pub(crate) fn failed_close(&self) -> Option<Error> {
+		(self.close_barrier.get() == CloseBarrierState::Failed).then(|| self.retained_close_failure())
+	}
+
 	fn retained_close_failure(&self) -> Error {
 		self.close_failure.borrow().clone().unwrap_or_else(|| {
 			Error::with_detail(
@@ -90,6 +98,14 @@ impl HostShared {
 	/// driver.
 	pub(crate) fn close_activity(&self) -> tokio::sync::futures::Notified<'_> {
 		self.activity.notified()
+	}
+
+	/// Signals that a Host close completed or failed, for a waiter that must
+	/// settle when its Host goes away. Pin and enable it before the check it
+	/// guards.
+	#[cfg(feature = "loam")]
+	pub(crate) fn release_signal(&self) -> tokio::sync::futures::Notified<'_> {
+		self.release_notify.notified()
 	}
 
 	/// The longest a close driver may wait for new input before re-checking

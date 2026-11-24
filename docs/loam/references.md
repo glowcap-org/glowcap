@@ -86,13 +86,13 @@ memory and stores no runtime handle
 `hosting.LiveEpoch.schema` alongside the reference schema when you set up a
 Zig Store.
 
-`LiveScope.startHosted` starts a new epoch on an existing attachment. Let any
-ordinary attachment work reach a confirmed commit or finish recovery before
-you accept live fields. C's `glowcap_loam_live_start` and Rust's
-`Attachment.start_live` do the same, and register the epoch schema for you.
-The marker `live_marker` returns describes the epoch and is trusted startup
-data. Each new run of the Host must move to a new epoch, even if the Store
-stays open.
+`LiveScope.startHosted` starts a new epoch on an existing attachment. An
+ordinary call's commit does not confirm it, so before you accept live fields,
+drive the attachment until `result` is `ready`. C's `glowcap_loam_live_start`
+does the same, and registers the epoch schema for you. Rust's
+`Attachment.start_live` is async: await it for the confirmed `LiveIncarnation`.
+The marker it returns is trusted startup data. Each new run of the Host must
+move to a new epoch, even if the Store stays open.
 
 Looking up a live field checks the current epoch and that the scope still
 holds the capability. A field from an old epoch fails with
