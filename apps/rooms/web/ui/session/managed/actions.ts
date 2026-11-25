@@ -46,16 +46,21 @@ async function roomEntered(
 }
 
 /** `roomEnteredBy` for a press that has sent its change: no read waits. The
- * answer is `undefined` when the session could not be read, which is not the
- * same as a room that was not entered. */
-function roomEnteredAfter(after: Committed, uri: string): Promise<{ id: string | null } | undefined> {
-	return after.readOr<{ id: string | null } | undefined>(undefined, async (reads) => ({
-		id: await roomEntered(
+ * room is the one that holds `uri`, else the row the press staged when the
+ * session still holds it as a room. The answer is `undefined` when the
+ * session could not be read, which is not the same as no room: an id the
+ * session holds no room under is never answered. */
+function roomEnteredAfter(after: Committed, uri: string, staged: string): Promise<{ id: string | null } | undefined> {
+	return after.readOr<{ id: string | null } | undefined>(undefined, async (reads) => {
+		const entered = await roomEntered(
 			reads.current,
 			(coordinate) => reads.requestNow((workspace) => workspace.custodyRecipe(coordinate)),
 			uri,
-		),
-	}));
+		);
+		if (entered != null) return { id: entered };
+		const kept = reads.current?.intent.conversations.some((row) => row.kind === "room" && row.id === staged);
+		return { id: kept === true ? staged : null };
+	});
 }
 
 export class ManagedActions {
@@ -490,11 +495,11 @@ export class ManagedActions {
 				// Over the next link when a loss ends it, so the commit's answer is
 				// the room that holds `uri`, never a refusal of the read.
 				completed: async (after) => {
-					const read = await roomEnteredAfter(after, uri);
+					const read = await roomEnteredAfter(after, uri, id);
 					// An unread session names no room: the id staged here may not
 					// be a row if the session already stood in that room.
-					this.#entered.set(acquisition, read == null ? null : read.id ?? id);
-					if (read != null && (read.id ?? id) === id) await opening?.acquired(id);
+					this.#entered.set(acquisition, read?.id ?? null);
+					if (read?.id === id) await opening?.acquired(id);
 				},
 			},
 		);

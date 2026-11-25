@@ -33,8 +33,10 @@ const DIRECTORY = "ocapn://127.0.0.1%3A1234.tcp";
 const ROOM_LINK = "ocapn://127.0.0.1%3A1234.tcp/s/cm9vbQ";
 
 /** A page whose first link commits a room link and then breaks under the
- * read that follows. The next dial waits on `dial`. */
-function joined() {
+ * read that follows. The next dial waits on `dial`. Over the next link the
+ * session holds every room by `held`, and keeps the staged room unless
+ * `merged` says it became a room the session already stood in. */
+function joined(held = ROOM_LINK, merged = false) {
 	const accepted = snapshot();
 	const first = linkedWorkspace("first", []);
 	const second = linkedWorkspace("second", []);
@@ -64,16 +66,55 @@ function joined() {
 		},
 	});
 	Object.assign(second.workspace, {
-		snapshot: () => Promise.resolve(accepted),
+		snapshot: () => {
+			if (merged) {
+				accepted.intent = {
+					...accepted.intent,
+					conversations: accepted.intent.conversations.filter((row) => row.kind !== "room"),
+				};
+			}
+			return Promise.resolve(accepted);
+		},
 		custodyRecipe: () => {
 			reads.second++;
-			return Promise.resolve(ROOM_LINK);
+			return Promise.resolve(held);
 		},
 	});
 	const clock = new FakeClock();
 	const session = viewer(first.workspace, undefined, { relink: () => dial.promise }, false, clock);
 	return { session, dial, second, clock, reads, submissions: () => submissions };
 }
+
+/** Send the room link over the first link and answer over the next. */
+async function linkedRoom(f: ReturnType<typeof joined>): Promise<string | null> {
+	await f.session.start();
+	await f.session.readNow();
+	const joining = f.session.actions.roomLink(DIRECTORY, ROOM_LINK, "garden", {
+		route: "127.0.0.1:1234",
+		nick: { kind: "exact", name: "visitor" },
+		home: true,
+	});
+	await settle();
+	f.clock.advance(LINK_WAIT_MS + 1);
+	await settle();
+	f.dial.resolve(f.second.workspace);
+	return await within(joining, "the commit's answer over the next link");
+}
+
+const OTHER_LINK = "ocapn://127.0.0.1%3A1234.tcp/s/b3RoZXI";
+
+Deno.test("a room link that committed answers the room it staged when the session holds that room by another link", async () => {
+	const f = joined(OTHER_LINK);
+	assertEquals(typeof await linkedRoom(f), "string");
+	await f.session.close();
+});
+
+Deno.test("a room link that committed answers no room when the session holds none by the link or under the staged id", async () => {
+	const f = joined(OTHER_LINK, true);
+	assertEquals(await linkedRoom(f), null);
+	assertEquals(f.submissions(), 1, "the commit is sent once");
+	await f.session.close();
+});
 
 Deno.test("a room link that committed answers its room when the link is lost under the follow-up read", async () => {
 	const f = joined();
