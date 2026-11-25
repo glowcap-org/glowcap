@@ -15,6 +15,7 @@ mod holder;
 mod keep;
 mod link;
 mod recovered;
+mod typing;
 
 use glowcap::{Ref, Runtime, loam::UseDescription};
 use rooms_application::{
@@ -26,7 +27,7 @@ use rooms_application::{
 use rooms_glowcap::client::{
 	Client, Deadline, Tasks,
 	sources::Sources,
-	workspace::{Command, Typing, Workspace},
+	workspace::{Command, Workspace},
 };
 use std::{cell::RefCell, path::Path};
 
@@ -91,13 +92,7 @@ pub struct View<D: Deadline + Tasks + Clone + 'static> {
 	budget: Budget,
 	/// The typing sender last used, kept for the next signal in the same
 	/// conversation. It is out of this cell while a signal uses it.
-	typing: RefCell<Option<KeptTyping<D>>>,
-}
-/// A typing sender and the conversation seat or route it was opened for.
-struct KeptTyping<D> {
-	conversation: String,
-	target: rooms_application::content::session::custody::Coordinate,
-	sender: Typing<D>,
+	typing: RefCell<Option<typing::KeptTyping<D>>>,
 }
 impl<D: Deadline + Tasks + Clone + 'static> View<D> {
 	/// Dial the session a use link names, fetch its capability, and attach.
@@ -241,62 +236,6 @@ impl<D: Deadline + Tasks + Clone + 'static> View<D> {
 			Ok(release) => Ok(release),
 			Err(error) => Err(self.failure(error).await),
 		}
-	}
-	/// Show the member as typing in `conversation`, or stop, through the seat
-	/// of a room or the route of an open direct message the workspace holds
-	/// now. Readers clear a notice nobody renews within
-	/// `rooms_application::room::membership::TYPING_CLEAR_MS`, so a caller
-	/// that keeps typing says so again every `TYPING_RENEW_MS`. The view
-	/// keeps the sender it opened, so the next signal in the same
-	/// conversation costs one snapshot read and one call to the session. A
-	/// signal for another conversation, a seat or route that changed, a lost
-	/// connection, or an access no longer active lets the kept sender go, and
-	/// the next signal opens its own. A conversation with no seat or open
-	/// route is refused as input.
-	pub async fn typing(&self, conversation: &str, on: bool) -> Result<(), Error> {
-		use rooms_application::content::session::{custody, workspace};
-		let now = self.snapshot().await?;
-		let target = now
-			.intent
-			.conversations
-			.as_slice()
-			.iter()
-			.find(|row| row.id().text().as_str() == Some(conversation))
-			.and_then(|row| match row {
-				workspace::Conversation::Room(row) => row
-					.seat
-					.map(|seat| custody::Coordinate::new(custody::Role::RoomSeat, seat)),
-				workspace::Conversation::Direct(row) => row
-					.installed_access()
-					.map(|route| custody::Coordinate::new(custody::Role::DirectAccess, route)),
-			})
-			.ok_or_else(|| Error::Input(format!("{conversation} holds no seat or open route to show typing in")))?;
-		let kept = self
-			.typing
-			.take()
-			.filter(|kept| kept.conversation == conversation && kept.target == target);
-		let sender = match kept {
-			Some(kept) => kept.sender,
-			None => match self.workspace.typing_sender(conversation, target).await {
-				Ok(sender) => sender,
-				Err(error) => return Err(self.failure(error).await),
-			},
-		};
-		let shown = match sender.set(on).await {
-			Ok(()) => Ok(()),
-			Err(error) => Err(self.failure(error).await),
-		};
-		// A signal the session or the directory refused while this access
-		// stays active, such as one sent too soon after the last, says
-		// nothing against the sender. Any other failure lets it go.
-		if matches!(shown, Ok(()) | Err(Error::Peer(_))) {
-			self.typing.replace(Some(KeptTyping {
-				conversation: conversation.to_owned(),
-				target,
-				sender,
-			}));
-		}
-		shown
 	}
 	/// Post up to eight regular files with `caption`, and wait up to `wait_ms`
 	/// for the room to hold every file. Failure before delivery leaves nothing

@@ -383,7 +383,7 @@ Deno.test("a page's reload loss hears the session it shows now, including one op
 	projection.dispose();
 });
 
-Deno.test("a build asked for again after a held reload and answered with nothing is asked on the beat until it is named", async () => {
+Deno.test("a held reload waits for edits made during a build check and retries an unanswered check on the beat", async () => {
 	const projection = new PageProjection();
 	const asked: Array<(build: string | null) => void> = [];
 	const reloads: string[] = [];
@@ -419,6 +419,12 @@ Deno.test("a build asked for again after a held reload and answered with nothing
 	check();
 	await answer("two");
 	assertEquals(beat.tick == null, true, "a held reload waits on its loss, not the beat");
+	loses = false;
+	for (const listener of listeners) listener();
+	await settle();
+	loses = true;
+	await answer("two");
+	assertEquals([reloads, listeners.size], [[], 1], "an edit made while the server answered holds the reload again");
 	loses = false;
 	for (const listener of listeners) listener();
 	await settle();

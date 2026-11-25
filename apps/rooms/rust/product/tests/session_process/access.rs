@@ -152,92 +152,6 @@ fn a_person_issues_lists_pauses_resumes_and_revokes_access_from_the_terminal() {
 	fixture.finish();
 }
 
-/// A person hands one access's management to another place, such as a
-/// browser's session access list. The link manages that one access with the
-/// powers its control was issued with, and the session keeps managing it too.
-#[test]
-fn a_shared_management_link_manages_the_one_access_it_names() {
-	let fixture = Fixture::start("access-share", &["share-one", "share-two"], "share-room");
-	let one = &fixture.peers[0];
-	let issue = |label: &str| access(&one.state, "issue", json!({"label": [label], "rights": ["observer"]}));
-	let shared = issue("shared");
-	issue("other");
-	let named = |issued: &Value| json!({"id": [issued["id"].as_str().unwrap()]});
-	let (ok, stdout, stderr) = request(&one.state, "share-management", named(&shared));
-	assert!(ok, "{stderr}");
-	assert_eq!(stdout.lines().count(), 1, "the link is printed on one JSON line");
-	let answer: Value = serde_json::from_str(&stdout).unwrap();
-	let link = answer["link"].as_str().unwrap().to_owned();
-	assert_eq!(answer["id"], shared["id"]);
-	let secret = LinkSecret::of(&link);
-	secret.assert_absent(&stderr, "the share's stderr");
-	secret.assert_absent(access(&one.state, "list", json!({})).to_string(), "the access list");
-	assert_ne!(link, shared["link"], "the management link is not the use link");
-	// Sharing again names the same control, so a lost link is read again.
-	assert_eq!(
-		access(&one.state, "share-management", named(&shared))["link"],
-		link.as_str()
-	);
-	run_within(Duration::from_secs(60), async {
-		let holder = host().await;
-		let grants = Grants::attach(&holder, HostPlatform, &link).await.unwrap();
-		let held = grants.own().await.unwrap().expect("the shared access is live");
-		assert_eq!((held.label.as_str(), held.state), ("shared", State::Active));
-		grants.change_own(Lifecycle::Pause).await.unwrap();
-		assert_eq!(row(&one.state, "shared")["state"], "paused");
-		assert_eq!(row(&one.state, "other")["state"], "active");
-		// The control was issued to change one access's lifecycle and no more.
-		let terms = Terms::new(Preset::Observer.values()).unwrap();
-		assert!(grants.issue("wider", &terms).await.is_err());
-		access(&one.state, "resume", named(&shared));
-		assert_eq!(grants.own().await.unwrap().unwrap().state, State::Active);
-		grants.change_own(Lifecycle::Revoke).await.unwrap();
-		assert_eq!(row(&one.state, "shared")["state"], "revoked");
-		assert_eq!(row(&one.state, "other")["state"], "active");
-		holder.close(PendingWork::Cancel).await.unwrap();
-	});
-	let (ok, stdout, _) = request(&one.state, "share-management", named(&shared));
-	assert!(!ok && stdout.contains("revoked"), "{stdout}");
-	let (ok, stdout, _) = request(&one.state, "share-management", json!({"id": ["no-such-access"]}));
-	assert!(!ok && stdout.contains("no access is kept"), "{stdout}");
-	fixture.finish();
-}
-
-/// The session holds at most 64 readers for an access at once, and a typing
-/// sender is one. A view that opened a sender for every signal would be
-/// refused long before this many, so each signal here went through the one
-/// the view keeps.
-#[test]
-fn a_view_shows_typing_many_times_through_the_one_sender_it_keeps() {
-	let fixture = Fixture::start("access-typing", &["typing-one", "typing-two"], "typing-room");
-	let one = &fixture.peers[0];
-	let issued = access(
-		&one.state,
-		"issue",
-		json!({"label": ["bot"], "rights": ["collaborator"]}),
-	);
-	let link = issued["link"].as_str().unwrap().to_owned();
-	run_within(Duration::from_secs(120), async {
-		let holder = host().await;
-		let view = attach(&holder, &link).await;
-		let room = fixture.room_id(0);
-		let mut shown = 0;
-		for signal in 0..200 {
-			match view.typing(&room, signal % 2 == 0).await {
-				Ok(()) => shown += 1,
-				// The directory limits how often typing may change.
-				Err(error) => {
-					let refusal = format!("{error:?}");
-					assert!(refusal.contains("rate-limited"), "signal {signal}: {refusal}");
-				}
-			}
-		}
-		assert!(shown > 0, "no typing signal was accepted");
-		holder.close(PendingWork::Cancel).await.unwrap();
-	});
-	fixture.finish();
-}
-
 #[test]
 fn an_access_whose_output_was_lost_is_managed_by_the_id_the_list_shows() {
 	let fixture = Fixture::start("access-lost", &["lost-one", "lost-two"], "lost-room");
@@ -398,4 +312,101 @@ fn access_commands_say_when_no_session_is_running() {
 	let (ok, stdout, _) = request(&temp, "list", json!({}));
 	assert!(!ok);
 	assert!(stdout.contains("no session is running"), "{stdout}");
+}
+
+/// A person hands one access's management to another place, such as a
+/// browser's session access list. The link manages that one access with the
+/// powers its control was issued with, and the session keeps managing it too.
+#[test]
+fn a_shared_management_link_manages_the_one_access_it_names() {
+	let fixture = Fixture::start("access-share", &["share-one", "share-two"], "share-room");
+	let one = &fixture.peers[0];
+	let issue = |label: &str| access(&one.state, "issue", json!({"label": [label], "rights": ["observer"]}));
+	let shared = issue("shared");
+	issue("other");
+	let named = |issued: &Value| json!({"id": [issued["id"].as_str().unwrap()]});
+	let (ok, stdout, stderr) = request(&one.state, "share-management", named(&shared));
+	assert!(ok, "{stderr}");
+	assert_eq!(stdout.lines().count(), 1, "the link is printed on one JSON line");
+	let answer: Value = serde_json::from_str(&stdout).unwrap();
+	let link = answer["link"].as_str().unwrap().to_owned();
+	assert_eq!(answer["id"], shared["id"]);
+	let secret = LinkSecret::of(&link);
+	secret.assert_absent(&stderr, "the share's stderr");
+	secret.assert_absent(access(&one.state, "list", json!({})).to_string(), "the access list");
+	assert_ne!(link, shared["link"], "the management link is not the use link");
+	// Sharing again names the same control, so a lost link is read again.
+	assert_eq!(
+		access(&one.state, "share-management", named(&shared))["link"],
+		link.as_str()
+	);
+	run_within(Duration::from_secs(60), async {
+		let holder = host().await;
+		let grants = Grants::attach(&holder, HostPlatform, &link).await.unwrap();
+		let held = grants.own().await.unwrap().expect("the shared access is live");
+		assert_eq!((held.label.as_str(), held.state), ("shared", State::Active));
+		grants.change_own(Lifecycle::Pause).await.unwrap();
+		assert_eq!(row(&one.state, "shared")["state"], "paused");
+		assert_eq!(row(&one.state, "other")["state"], "active");
+		// The control was issued to change one access's lifecycle and no more.
+		let terms = Terms::new(Preset::Observer.values()).unwrap();
+		assert!(grants.issue("wider", &terms).await.is_err());
+		access(&one.state, "resume", named(&shared));
+		assert_eq!(grants.own().await.unwrap().unwrap().state, State::Active);
+		grants.change_own(Lifecycle::Revoke).await.unwrap();
+		assert_eq!(row(&one.state, "shared")["state"], "revoked");
+		assert_eq!(row(&one.state, "other")["state"], "active");
+		holder.close(PendingWork::Cancel).await.unwrap();
+	});
+	let (ok, stdout, _) = request(&one.state, "share-management", named(&shared));
+	assert!(!ok && stdout.contains("revoked"), "{stdout}");
+	let (ok, stdout, _) = request(&one.state, "share-management", json!({"id": ["no-such-access"]}));
+	assert!(!ok && stdout.contains("no access is kept"), "{stdout}");
+	fixture.finish();
+}
+
+#[test]
+fn a_view_reuses_its_typing_sender_when_every_reader_place_is_held() {
+	let fixture = Fixture::start("access-typing", &["typing-one", "typing-two"], "typing-room");
+	let one = &fixture.peers[0];
+	let issued = access(
+		&one.state,
+		"issue",
+		json!({"label": ["bot"], "rights": ["collaborator"]}),
+	);
+	let link = issued["link"].as_str().unwrap().to_owned();
+	run_within(Duration::from_secs(120), async {
+		let holder = host().await;
+		let parsed = glowcap::parse_sturdyref(&link, glowcap::CaptpVersion::V1_0).unwrap();
+		let connection = holder.connect(&parsed.locator, Default::default()).await.unwrap();
+		let reference = connection
+			.fetch(std::str::from_utf8(&parsed.swissnum).unwrap())
+			.await
+			.unwrap();
+		let client = rooms_glowcap::client::Client::new(connection, HostPlatform);
+		let view = View::attach_reference(client.clone(), reference.clone()).await.unwrap();
+		let workspace = rooms_glowcap::client::workspace::Workspace::new(client, reference);
+		let room = fixture.room_id(0);
+		view.typing(&room, true).await.unwrap();
+		// Hold each activity reader the session gives us. Once the
+		// last place is taken, only the first view's existing sender can signal.
+		let mut held = Vec::new();
+		let limit = glowcap::loam::Limits::default().max_continuations;
+		for _ in 0..=limit {
+			match workspace.activity_reader().await {
+				Ok(reader) => held.push(reader),
+				Err(error) => {
+					assert!(error.to_string().contains("ContinuationCapacity"), "{error}");
+					break;
+				}
+			}
+		}
+		assert!(!held.is_empty() && held.len() < limit);
+		if let Err(error) = view.typing(&room, false).await {
+			assert!(error.to_string().contains("rate-limited"), "{error}");
+		}
+		drop(held);
+		holder.close(PendingWork::Cancel).await.unwrap();
+	});
+	fixture.finish();
 }

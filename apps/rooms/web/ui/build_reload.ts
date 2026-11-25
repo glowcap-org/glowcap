@@ -116,7 +116,7 @@ export function bindReloadToBuild(
 		waiting = true;
 		let target: string | null = served;
 		try {
-			if (loss.loses()) {
+			while (!stopped && target != null && target !== build.current && loss.loses()) {
 				await new Promise<void>((resume) => {
 					const stopListening = loss.subscribe(() => {
 						if (!loss.loses()) endWait?.();
@@ -127,8 +127,8 @@ export function bindReloadToBuild(
 						resume();
 					};
 				});
-				// The server may serve another build, or this page's own, by the
-				// time a reload loses nothing, so it is asked again.
+				// The served build may have changed during the wait, and a new
+				// edit may begin while the server answers.
 				target = stopped ? null : await build.served();
 			}
 		} finally {
