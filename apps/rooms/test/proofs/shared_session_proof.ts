@@ -109,10 +109,13 @@ function postedLines(answer: Argument): number {
 	const intent: { conversations?: { lines?: unknown[] }[] } = JSON.parse(answer[1]);
 	return (intent.conversations ?? []).reduce((sum, row) => sum + (row.lines?.length ?? 0), 0);
 }
-async function bubble(page: Page, text: string) {
+/** Wait for a line in a view. `context` adds what only the caller can read
+ * when the wait runs out. */
+async function bubble(page: Page, text: string, context?: () => Promise<string>) {
 	await page.locator(".bubble").filter({ hasText: text }).first().waitFor({ timeout: 15_000 }).catch(async () =>
 		fail(
-			`shared line did not project: ${text}; view=${await page.locator("body").innerText()}; ` +
+			`shared line did not project: ${text}; ${context == null ? "" : `${await context()}; `}` +
+				`view=${await page.locator("body").innerText()}; ` +
 				`draft=${await page.inputValue("#line")}; process=${JSON.stringify(await control("status", {}))}`,
 		)
 	);
@@ -271,7 +274,15 @@ try {
 	// The draft is the conversation's, so sending it is the one gesture that
 	// proves it reached the restarted session, once, for both views.
 	await second.press("#line", "Enter");
-	for (const page of [first, second]) await bubble(page, draft);
+	// The sending view shows its own line at once and marks it as it settles,
+	// so its row says whether the session took the line or a view missed it.
+	const sent = async () => {
+		const rows = second.locator(".bubble").filter({ hasText: draft });
+		const classes = await rows.evaluateAll((found) => found.map((row) => row.className));
+		return `the sending view shows ${classes.length} such line: ${JSON.stringify(classes)}`;
+	};
+	await bubble(first, draft, async () => `the other view; ${await sent()}`);
+	await bubble(second, draft, async () => `the sending view; ${await sent()}`);
 	await second.waitForFunction(
 		() => {
 			const line = document.getElementById("line");
