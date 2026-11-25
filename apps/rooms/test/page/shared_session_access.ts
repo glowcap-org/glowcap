@@ -2,7 +2,7 @@
 // changes reach a view already holding the exact issued endpoint.
 import type { Browser, Page } from "playwright";
 import { Buffer } from "node:buffer";
-import { managedAccessText as text, statusTag } from "../../lib/text/managed_access.ts";
+import { managedAccessText as text } from "../../lib/text/managed_access.ts";
 import { managedSessionText } from "../../lib/text/managed_session.ts";
 import { fail } from "../support/fail.ts";
 import { openLineMenu, say, waitForPostedLine } from "./harness.ts";
@@ -208,8 +208,8 @@ export async function proveManagedAccessEditor(browser: Browser, owner: Page, ht
 		await editor.getByRole("button", { name: text.revokeAsk, exact: true }).click();
 		await editor.getByRole("button", { name: text.revoke, exact: true }).click();
 		await observer.getByText(managedSessionText.revoked, { exact: true }).waitFor();
-		// Revoking takes the row off the list; the record stays under the
-		// access it was created from, and the removal survives a reload.
+		// Revoking takes the row off the list, the access it was created from
+		// stops showing it, and the removal survives a reload.
 		await editor.waitFor({ state: "hidden" }).catch(async () =>
 			fail(`revoking did not take the access off the list: ${await editor.innerText()}`)
 		);
@@ -226,10 +226,15 @@ export async function proveManagedAccessEditor(browser: Browser, owner: Page, ht
 		await issuer.waitFor();
 		if (await revoked.count() !== 0) fail("a removed control came back after reload");
 		await issuer.getByRole("button", { name: text.manage, exact: true }).click();
-		const record = editor.locator("li.entry").filter({ hasText: "Preserved first draft" });
-		await record.getByText(statusTag.revoked, { exact: true }).waitFor().catch(async () =>
-			fail(`the revoked access left no record under its issuer: ${await editor.innerText()}`)
+		// The section shows while its list is read and goes once the read finds
+		// nothing usable, so its leaving says the list was read.
+		await editor.waitFor();
+		await editor.getByText(text.descendantsTitle, { exact: true }).waitFor({ state: "detached" }).catch(
+			async () => fail(`the issuer still lists accesses created from it: ${await editor.innerText()}`),
 		);
+		if (await editor.locator("li.entry").filter({ hasText: "Preserved first draft" }).count() !== 0) {
+			fail(`the issuer still shows the revoked access: ${await editor.innerText()}`);
+		}
 	} finally {
 		await context.close();
 	}
