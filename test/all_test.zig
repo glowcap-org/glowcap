@@ -453,6 +453,10 @@ comptime {
         }
         if (@import("builtin").target.os.tag == .linux)
             _ = @import("net/uring_test.zig");
+        if (@import("builtin").target.os.tag == .linux) {
+            _ = @import("net/uring_listener_test.zig");
+            _ = @import("net/uring_listener_lifetime_test.zig");
+        }
         if (@import("builtin").target.os.tag == .linux)
             _ = @import("net/linux_completion_test.zig");
         if (@import("builtin").target.os.tag.isDarwin())

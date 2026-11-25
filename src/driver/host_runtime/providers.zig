@@ -261,6 +261,9 @@ fn addProvidersAfterAdmission(self: *HostRuntime, registrations: []const HostRun
         }
         const readiness_fd = registration.resident.readinessFd();
         if (readiness_fd < 0) return error.ReadinessUnavailable;
+        // A resident's wait on this descriptor can outlive a killed process, and
+        // a wait on a listening socket would keep its port bound with it.
+        if (net.socket.isListening(readiness_fd)) return error.ReadinessDescriptorListening;
         if (Internal.descriptorInUse(self, readiness_fd)) return error.ReadinessDescriptorConflict;
         for (prepared[0..i]) |prior| switch (prior.source) {
             .new_resident => |value| if (value.readiness_fd == readiness_fd)

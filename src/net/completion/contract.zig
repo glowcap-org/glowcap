@@ -47,8 +47,11 @@
 //!   * `submitCancel(self, cancel_user_data, target_user_data, fd)`: cancel the
 //!     exact submitted recv without closing its handle. The target and
 //!     cancellation completions may arrive in either order.
-//!   * `submitClose(self, user_data, fd)`: cancel a pending accept and close its
-//!     handle, or close a connection after the loop calls `shutdownFd`. A
+//!   * `submitClose(self, user_data, fd)`: close a listener, or close a
+//!     connection after the loop calls `shutdownFd`. A listener's armed accept
+//!     completes with result -1 and no failure, then the close completes with
+//!     0, on every platform backend. A loop treats both as the end of the
+//!     accept and never counts that result as an accept failure. A
 //!     userspace backend whose shutdown is a no-op must synthesize completions
 //!     for every pending recv and send. A close result releases the handle
 //!     whatever its sign: the loop records a negative one as the connection's
@@ -73,8 +76,19 @@
 //!   * `submitPoll(self, user_data, fd, interest)`: complete once with a
 //!     non-negative result when `fd` is readable or writable, or has failed or
 //!     hung up, consuming nothing. It is one-shot and occupies that direction of
-//!     `fd` like a recv or send. `submitCancel` retires it, and it never closes
-//!     `fd`.
+//!     `fd` like a recv or send, so on the readiness backends (epoll, kqueue) a
+//!     second operation in a direction already held returns
+//!     `error.DescriptorBusy` before any state changes, `connect(2)` included.
+//!     The io_uring backend keeps no table of ring operations, so it refuses
+//!     only a second accept or `Interest.listener` poll on one descriptor, and
+//!     a caller never relies on it to refuse a second recv, send, or poll. A caller
+//!     cancels a poll (`submitCancel`) or closes through `submitClose` before
+//!     `closeFd` or any other close of the descriptor: a close that bypasses
+//!     the backend leaves the poll unsettled, and a backend that tracks the
+//!     descriptor by number answers the next operation on a reused number with
+//!     `DescriptorBusy`. `submitCancel` retires a poll, and it never closes
+//!     `fd`. A descriptor that is a listening socket polls with
+//!     `Interest.listener`.
 //!     If memory runs out before registration, return `error.OutOfMemory`.
 //!     Epoll reports its per-user watch limit as `error.EpollWatchLimit`.
 //!     Either error lets the completion resident decline an optional park.
@@ -258,8 +272,18 @@ pub fn AdapterNamespace(comptime Platform: type) type {
     };
 }
 
-/// The direction a `submitPoll` waits on.
-pub const Interest = enum { readable, writable };
+/// What a `submitPoll` waits for. `listener` is `readable` on a descriptor
+/// that is a listening socket, whatever the provider made it from. Every
+/// backend treats it as `readable`, and the io_uring backend keeps it out of
+/// the ring (see `uring.zig`).
+///
+/// A descriptor polled `readable` is never a listening socket. The io_uring
+/// backend holds a ring poll's socket until the poll completes, so a
+/// listening socket held that way keeps its port bound after its process is
+/// killed. A resident that watches a sibling descriptor, such as a provider's
+/// multiplexed readiness descriptor, polls `readable` and so takes only
+/// descriptors that are not listening sockets.
+pub const Interest = enum { readable, writable, listener };
 
 /// Compile-check the total backend surface once, before the loop calls it.
 /// Soft optionality at call sites is forbidden: a missing member fails here,

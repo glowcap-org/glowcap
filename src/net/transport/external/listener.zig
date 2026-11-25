@@ -127,7 +127,7 @@ pub fn Machine(comptime Backend: type, comptime report_token: u32) type {
 
         fn armPoll(backend: *Backend) !void {
             const row = &backend.listener.?;
-            try backend.platform.submitPoll(Identity.userData(.start_poll, 0), row.fd, .readable);
+            try backend.platform.submitPoll(Identity.userData(.start_poll, 0), row.fd, .listener);
             row.poll = true;
         }
 

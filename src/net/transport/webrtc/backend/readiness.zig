@@ -124,7 +124,7 @@ pub fn Machine(comptime Self: type, comptime Signaling: type, comptime Connectio
                 .user_data = user_data,
                 .fd = fd,
                 .events = switch (interest) {
-                    .readable => std.posix.POLL.IN,
+                    .readable, .listener => std.posix.POLL.IN,
                     .writable => std.posix.POLL.OUT,
                 },
             });

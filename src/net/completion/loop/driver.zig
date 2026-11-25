@@ -213,11 +213,9 @@ pub fn Machine(
                 if (self.listen_fd) |fd| {
                     self.listen_fd = null;
                     self.listener_close_fd = fd;
-                    // Listener submitClose owns both cancellation of the armed
-                    // accept and descriptor release. shutdown is still useful
-                    // to readiness backends, but io_uring cancels the exact
-                    // accept request because shutdown(2) on a listening socket
-                    // is not a portable cancellation mechanism.
+                    // Listener submitClose owns both the armed accept's
+                    // completion and descriptor release. shutdown wakes a
+                    // backend that waits on the listener.
                     self.backend.shutdownFd(fd);
                 }
             }

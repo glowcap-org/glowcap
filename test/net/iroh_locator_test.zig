@@ -93,16 +93,17 @@ test "supported iroh facade and nested surfaces stay exact" {
     try std.testing.expectEqual(@as(usize, 32), @sizeOf(iroh.Resident));
     try std.testing.expectEqual(@as(usize, 8), @alignOf(iroh.Resident));
     // The platform backend's four listener-address bytes consume an existing
-    // kqueue padding lane. io_uring needs one new aligned word, its listener
-    // table (two maps and a close queue, so many listeners can share the ring)
-    // two more, and the Linux selector tag another. This is one fixed charge
-    // per loop, never a
-    // per-connection or wire-path cost. Stated under runtime safety, where each
-    // embedded `std.ArrayList` header carries std's one-word
-    // `pointer_stability` lock: 32 of these bytes on both platforms.
+    // kqueue padding lane. io_uring needs one new aligned word for them, one
+    // for the pointer to its inner listener backend (heap-allocated, and only
+    // once something listens), and the Linux selector tag another. The two
+    // flags and the turn flag the listener work adds fit padding already
+    // there, and its two error latches take one more word. This is one fixed
+    // charge per loop, never a per-connection or
+    // wire-path cost. Stated under runtime safety, where each embedded
+    // `std.ArrayList` header carries std's one-word `pointer_stability` lock.
     if (!builtin.optimize.runtimeSafety()) return error.SkipZigTest;
     const expected_backend_bytes: usize = switch (builtin.target.os.tag) {
-        .linux => 680,
+        .linux => 616,
         else => 528,
     };
     try std.testing.expectEqual(expected_backend_bytes, @sizeOf(iroh.Backend));

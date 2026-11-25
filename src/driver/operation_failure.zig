@@ -140,6 +140,7 @@ pub const OperationFailure = struct {
             error.ListenerAlreadyActive,
             error.ListenerProfileInUse,
             error.ReadinessDescriptorConflict,
+            error.ReadinessDescriptorListening,
             error.ReadinessUnavailable,
             error.SessionNotOwned,
             error.SessionAlreadyOwned,

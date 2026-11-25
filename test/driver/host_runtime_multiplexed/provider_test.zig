@@ -8,6 +8,7 @@
 //! resident cannot starve its sibling.
 
 const std = @import("std");
+const builtin = @import("builtin");
 const glowcap = @import("glowcap");
 const test_host = @import("../../support/core_host.zig");
 
@@ -171,6 +172,43 @@ test "equal readiness descriptors do not merge distinct multiplexed residents" {
     try std.testing.expectEqual(@as(usize, 97), indices[0]);
     try std.testing.expectEqual(@as(usize, 98), indices[1]);
     try std.testing.expectEqual(@as(usize, 0), runtime.residents.items.len);
+}
+
+test "a resident readiness descriptor that is a listening socket is refused before any effect" {
+    if (builtin.target.os.tag != .linux) return error.SkipZigTest;
+    var threaded = std.Io.Threaded.init(std.testing.allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    var resident = try AcceptOwnershipResident.init();
+    defer resident.deinit();
+    var runtime = try driver.HostRuntime.init(std.testing.allocator, io, .{}, .ephemeral, opts);
+    defer runtime.deinit();
+
+    const listener = try net.socket.openListener(.linux, .{ .bytes = .{ 127, 0, 0, 1 }, .port = 0 });
+    defer _ = std.os.linux.close(listener);
+    try std.testing.expect(net.socket.isListening(listener));
+    try std.testing.expect(!net.socket.isListening(resident.wake.read));
+    resident.readiness_override = listener;
+
+    var indices = [_]usize{97};
+    try std.testing.expectError(
+        error.ReadinessDescriptorListening,
+        runtime.addProviders(&.{.{
+            .profile = .{ .symbol = "x-listening-readiness", .designator_scheme = .address },
+            .resident = resident.multiplexedResident(),
+        }}, &indices),
+    );
+    try std.testing.expectEqual(@as(usize, 97), indices[0]);
+    try std.testing.expectEqual(@as(usize, 0), runtime.residents.items.len);
+    try std.testing.expectError(error.UnknownTransport, runtime.core.transportProfile("x-listening-readiness"));
+
+    resident.readiness_override = null;
+    try runtime.addProviders(&.{.{
+        .profile = .{ .symbol = "x-listening-readiness", .designator_scheme = .address },
+        .resident = resident.multiplexedResident(),
+    }}, &indices);
+    try std.testing.expectEqual(@as(usize, 1), runtime.residents.items.len);
 }
 
 test "two profiles share one multiplexed resident with independent listener lifecycles" {
