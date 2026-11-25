@@ -88,7 +88,7 @@ fn retirement(effect: enum { serve, discard }) !void {
     const payload = row.payload orelse return error.MissingPayload;
     const pipeline = payload.pipeline_target orelse return error.MissingPipelineTarget;
     const export_position = pipeline.near.export_position;
-    const actor_id = recipient_pair.b.served.port.exports.get(export_position.int()) orelse return error.MissingPrivateActor;
+    const actor_id = (recipient_pair.b.served.port.exports.get(export_position.int()) orelse return error.MissingPrivateActor).actor;
     try std.testing.expectEqual(@as(u64, 0), peer.session_state.exports.wireHeld(export_position));
     try std.testing.expectEqual(@as(u32, 1), relay.vat.actors.get(actor_id).?.roots);
     try std.testing.expectEqual(@as(?u64, retained + 1), relay.capabilities.retainCount(target));
@@ -119,7 +119,7 @@ fn retirement(effect: enum { serve, discard }) !void {
             }
         }
         try std.testing.expectEqual(@as(usize, 1), retirements);
-        try std.testing.expectEqual(actor_id, recipient_pair.b.served.port.exports.get(export_position.int()).?);
+        try std.testing.expectEqual(actor_id, recipient_pair.b.served.port.exports.get(export_position.int()).?.actor);
         try std.testing.expectEqual(@as(?u64, retained + 1), relay.capabilities.retainCount(target));
         try relay.releaseSession(recipient_pair.b);
     }

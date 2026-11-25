@@ -142,6 +142,38 @@ fn a_person_issues_lists_pauses_resumes_and_revokes_access_from_the_terminal() {
 	fixture.finish();
 }
 
+/// Each typing signal opens a reader in the session and lets it go, and the
+/// session holds at most 64 at once. An access that sends more than that
+/// keeps working only if a released reader gives its place back.
+#[test]
+fn an_access_keeps_sending_after_more_signals_than_the_session_holds_at_once() {
+	let fixture = Fixture::start("access-many", &["many-one", "many-two"], "many-room");
+	let one = &fixture.peers[0];
+	let issued = access(
+		&one.state,
+		"issue",
+		json!({"label": ["bot"], "rights": ["collaborator"]}),
+	);
+	let link = issued["link"].as_str().unwrap().to_owned();
+	run_within(Duration::from_secs(120), async {
+		let holder = host().await;
+		let view = attach(&holder, &link).await;
+		let room = fixture.room_id(0);
+		for signal in 0..100 {
+			// The directory limits how often typing may change, and that
+			// refusal still opened and released a reader.
+			if let Err(error) = view.typing(&room, signal % 2 == 0).await {
+				let refusal = format!("{error:?}");
+				assert!(refusal.contains("rate-limited"), "signal {signal}: {refusal}");
+			}
+		}
+		let said = view.say("access-many-say", &room, "still here").await.unwrap();
+		assert_eq!(said.status, EffectStatus::Committed);
+		holder.close(PendingWork::Cancel).await.unwrap();
+	});
+	fixture.finish();
+}
+
 #[test]
 fn an_access_whose_output_was_lost_is_managed_by_the_id_the_list_shows() {
 	let fixture = Fixture::start("access-lost", &["lost-one", "lost-two"], "lost-room");

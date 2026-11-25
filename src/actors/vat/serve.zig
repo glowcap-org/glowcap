@@ -3,7 +3,8 @@
 //! `serve` dispatches one inbound peer event. A deliver to a bound export
 //! runs the actor's turn through the shared frame spine and resolves the
 //! answer, and a resolve fires the far vow's one-shot listener, projecting a
-//! handoff give typed. `settleFar` is the byte-fed host's counterpart to the
+//! handoff give typed, and a partner's export release ends the projected
+//! bindings it left unheld. `settleFar` is the byte-fed host's counterpart to the
 //! same settle, and `breakFarVows` is the disconnect break. `Port` binds the
 //! session public verbs onto them.
 
@@ -45,6 +46,10 @@ pub fn serve(self: *Vat, port: *Port, event: *engine.Event) !bool {
             }
             break :blk handled;
         },
+        .gc_export => |released| blk: {
+            try port.reclaimReleased(self, released);
+            break :blk false;
+        },
         else => false,
     };
 }
@@ -65,7 +70,7 @@ fn serveDeliver(
     // resolve reaches the partner. The engine owns that mapping, so the vat never
     // decodes the descriptor. Without a peer (no wire), only an explicit wire
     // answer exists.
-    const local_id = port.exports.get(export_position.int()) orelse {
+    const local_id = if (port.exports.get(export_position.int())) |binding| binding.actor else {
         // The bootstrap position is engine-owned: the peer
         // auto-answers its delivers (`fetch`, gift deposit /
         // withdraw) and only surfaces the event for observation,

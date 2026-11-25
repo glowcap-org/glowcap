@@ -42,10 +42,20 @@ pub const Port = struct {
     /// without observers: a vow whose row stamp is at or below this watermark
     /// is broken. Fresh sends after the break may still be observed.
     far_broken_stamp: u64 = 0,
-    /// Local actor id for each export position projected on this Port.
-    exports: std.AutoHashMapUnmanaged(u64, u64) = .empty,
+    /// The binding at each export position on this Port.
+    exports: std.AutoHashMapUnmanaged(u64, Binding) = .empty,
     /// Canonical export position already projecting a local actor.
     reverse_exports: std.AutoHashMapUnmanaged(u64, u64) = .empty,
+
+    /// One export position's local actor and how the position came to be
+    /// bound. A position `prepareProjection` minted exists only because a
+    /// value named the actor, so the partner's last release ends it
+    /// (`reclaimReleased`). A position `bindExport` was given stays bound until
+    /// rollback or teardown, because a name may still resolve to it.
+    pub const Binding = struct {
+        actor: u64,
+        projected: bool,
+    };
 
     pub fn init(allocator: std.mem.Allocator, peer: *engine.Peer) Port {
         return .{ .allocator = allocator, .peer = peer };
@@ -236,6 +246,10 @@ pub const Port = struct {
     /// actor can be bound, a far ref already lives elsewhere, so a far ref
     /// returns `NotLocal`.
     pub fn bindExport(self: *Port, vat: *Vat, actor: Ref, position: u64) !void {
+        return self.bind(vat, actor, position, false);
+    }
+
+    fn bind(self: *Port, vat: *Vat, actor: Ref, position: u64, projected: bool) !void {
         const local_id = switch (actor) {
             .local => |a| a,
             .far => return error.NotLocal,
@@ -251,12 +265,12 @@ pub const Port = struct {
         // position the peer doesn't actually export.
         errdefer std.debug.assert(self.exports.remove(position));
         try self.peer.reserveExport(position);
-        gop.value_ptr.* = local_id;
+        gop.value_ptr.* = .{ .actor = local_id, .projected = projected };
         if (!self.reverse_exports.contains(local_id)) {
             self.reverse_exports.putAssumeCapacity(local_id, position);
             // The actor's first binding on this Port is a rooting relationship
-            // (ADR-0014), released by rollback of the last binding or Port
-            // teardown.
+            // (ADR-0014), released by rollback of the last binding, the
+            // partner's last release of a projected position, or Port teardown.
             vat.retainActor(local_id);
         }
     }
@@ -268,8 +282,8 @@ pub const Port = struct {
     /// here so a position is never mistaken for an actor id. `serve` resolves
     /// an inbound deliver's target the same way.
     pub fn refForExport(self: *const Port, position: u64) ?Ref {
-        const local_id = self.exports.get(position) orelse return null;
-        return .{ .local = local_id };
+        const binding = self.exports.get(position) orelse return null;
+        return .{ .local = binding.actor };
     }
 
     pub const Projection = struct {
@@ -285,13 +299,13 @@ pub const Port = struct {
             .local => |id| id,
             .far => unreachable,
         };
-        std.debug.assert(self.exports.get(position).? == actor_id);
+        std.debug.assert(self.exports.get(position).?.actor == actor_id);
         std.debug.assert(self.exports.remove(position));
         if (self.reverse_exports.get(actor_id) == position) {
             var replacement: ?u64 = null;
             var it = self.exports.iterator();
             while (it.next()) |entry| {
-                if (entry.value_ptr.* == actor_id) {
+                if (entry.value_ptr.actor == actor_id) {
                     replacement = entry.key_ptr.*;
                     break;
                 }
@@ -320,11 +334,26 @@ pub const Port = struct {
         };
         const position = try self.peer.exportNextObject();
         errdefer self.peer.session_state.releaseUnsharedExport(.from(position));
-        try self.bindExport(vat, actor, position);
+        try self.bind(vat, actor, position, true);
         return .{
             .near = model.NearRef.object(position),
             .created = true,
         };
+    }
+
+    /// End each projected binding the partner's `released` message left with
+    /// no wire retain. The session row then holds only this Port's own
+    /// baseline, so the partner holds nothing that names the position, and
+    /// the actor's export root goes back with it. A later mention of the actor
+    /// projects a fresh position. An explicitly bound position is kept.
+    pub fn reclaimReleased(self: *Port, vat: *Vat, released: model.view.GcExport) !void {
+        var positions = released.positions.iterator();
+        while (try positions.next()) |position| {
+            const binding = self.exports.get(position) orelse continue;
+            if (!binding.projected) continue;
+            if (self.peer.session_state.exports.wireHeld(.from(position)) != 0) continue;
+            self.rollbackExport(vat, .{ .local = binding.actor }, position);
+        }
     }
 
     /// Reuse or lazily mint this Port's canonical wire position for `actor`.

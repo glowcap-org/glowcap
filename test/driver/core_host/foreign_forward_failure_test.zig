@@ -199,7 +199,7 @@ fn run(shape: Shape, failure_index: usize) !bool {
         var answers = source.b.served.port.peer.session_state.inbound_answers.rows.valueIterator();
         while (answers.next()) |row| if (row.payload) |payload| if (payload.pipeline_target) |target| {
             pipelines += 1;
-            const actor_id = source.b.served.port.exports.get(target.near.export_position.int()).?;
+            const actor_id = source.b.served.port.exports.get(target.near.export_position.int()).?.actor;
             try std.testing.expectEqual(@as(u32, 1), middle.vat.actors.get(actor_id).?.roots);
             const canonical = middle.capabilities.refForRaw(state.hostImportIdentity(foreign).?.ref).?;
             try std.testing.expectEqual(@as(?u64, 1), middle.capabilities.retainCount(canonical));
@@ -241,9 +241,9 @@ fn run(shape: Shape, failure_index: usize) !bool {
     try std.testing.expectEqual(@as(usize, 0), destination.a.served.port.far_listeners.count());
     try std.testing.expectEqual(@as(usize, 0), middle.node.pendingGiftEffects());
     if (result.returned) |returned| {
-        // A committed ordinary export keeps its Port binding for reuse after
-        // wire GC. It is exactly one root, released by that Port's teardown.
-        try std.testing.expectEqual(source_exports + 1, source.b.served.port.exports.count());
+        // The partner's release left the returned export with no wire retain,
+        // so its Port binding and the root that binding held went back.
+        try std.testing.expectEqual(source_exports, source.b.served.port.exports.count());
         try std.testing.expectEqual(@as(u64, 0), source.b.served.port.peer.session_state.exports.wireHeld(.from(returned.import_position.int())));
         try middle.releaseSession(source.b);
     } else if (source.b.sessionOpen()) {
