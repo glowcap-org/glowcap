@@ -2,6 +2,7 @@
 
 const std = @import("std");
 
+const foundation = @import("foundation");
 const net = @import("net");
 const driver_core = @import("driver_core");
 
@@ -358,15 +359,22 @@ fn endOfRead(wire: *Wire, total: usize) error{ TruncatedFrame, EndOfStream }!usi
     return endOfStream(wire);
 }
 
-/// How a stream that ended reads. It is truncated only when the core holds
-/// the front of a frame and nothing that could complete it. Whole frames an
-/// unattended session never dispatched, in the core's tail or parked on the
-/// wire, are dropped with the session and leave the end clean, so the end
-/// reads the same however the transport batched what the partner sent.
+/// How a stream that ended reads. It is truncated when what the wire still
+/// holds, the core's tail and then the parked input, stops inside a frame.
+/// Whole frames an unattended session never dispatched are dropped with the
+/// session and leave the end clean, so the end reads the same however the
+/// transport batched what the partner sent. A message-framed wire holds only
+/// whole packets.
 fn endOfStream(wire: *Wire) error{ TruncatedFrame, EndOfStream } {
-    const partial = wire.session.feed_tail.isActive() and !wire.session.inboundResumable() and
-        wire.link.parked.items.len == 0;
-    return if (partial) error.TruncatedFrame else error.EndOfStream;
+    const session = wire.session;
+    const cut = switch (session.wire_framing) {
+        .message => false,
+        .byte_stream => foundation.stream_framing.endsMidFrame(
+            &.{ session.feed_tail.bytes(), wire.link.parked.items },
+            session.served.port.peer.limits().max_frame_bytes,
+        ),
+    };
+    return if (cut) error.TruncatedFrame else error.EndOfStream;
 }
 
 /// Park `chunk` for an unattended wire, or feed it to the core, which keeps

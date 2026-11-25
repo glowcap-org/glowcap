@@ -148,3 +148,32 @@ test "a frame completed by one chunk grows the spill exactly" {
     try std.testing.expectEqual(@as(usize, 1), counting.allocations);
     try std.testing.expectEqual(frame.len, spill.buf.len);
 }
+
+test "a stream stops inside a frame only in a prefix or short of a promised body" {
+    const max = 64;
+    const Case = struct { parts: []const []const u8, cut: bool };
+    const cases = [_]Case{
+        .{ .parts = &.{}, .cut = false },
+        .{ .parts = &.{""}, .cut = false },
+        .{ .parts = &.{"3:abc"}, .cut = false },
+        .{ .parts = &.{"3:abc0:2:xy"}, .cut = false },
+        // The boundary between the parts falls anywhere in a frame.
+        .{ .parts = &.{ "3:a", "bc" }, .cut = false },
+        .{ .parts = &.{ "1", "0:0123456789" }, .cut = false },
+        .{ .parts = &.{ "3:abc", "", "2:xy" }, .cut = false },
+        .{ .parts = &.{"3"}, .cut = true },
+        .{ .parts = &.{"3:"}, .cut = true },
+        .{ .parts = &.{"3:ab"}, .cut = true },
+        .{ .parts = &.{ "3:abc", "2:x" }, .cut = true },
+        .{ .parts = &.{ "3:abc1", "" }, .cut = true },
+        // A prefix the parse refuses is not a frame cut short.
+        .{ .parts = &.{"x"}, .cut = false },
+        .{ .parts = &.{":"}, .cut = false },
+        .{ .parts = &.{"03:abc"}, .cut = false },
+        .{ .parts = &.{"65:"}, .cut = false },
+        .{ .parts = &.{ "3:abc", "9x" }, .cut = false },
+    };
+    for (cases) |case| {
+        try std.testing.expectEqual(case.cut, stream_framing.endsMidFrame(case.parts, max));
+    }
+}

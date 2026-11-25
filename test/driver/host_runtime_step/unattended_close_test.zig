@@ -6,7 +6,8 @@
 //! The close is observed after the open's observer has returned, and it
 //! reports the clean end whether or not whole frames wait undispatched, so
 //! it reads the same however the transport batched what the partner sent.
-//! Only the front of a frame with nothing behind it is `TruncatedFrame`.
+//! A stream that stops inside a frame is `TruncatedFrame`, whether the cut
+//! frame arrived with the hello or was parked after it.
 
 const std = @import("std");
 
@@ -92,6 +93,20 @@ test "a hello, the front of a frame, and the partner's departure end a session s
     rig.resident.read_result = 0;
     rig.resident.signal_closed = true;
     rig.resident.offer(&.{cut.items});
+    try stepThroughClose(rig);
+    try expectClosedOnceAfterOpen(rig, error.TruncatedFrame);
+}
+
+test "a hello, then the front of a frame parked behind it, and the partner's departure end a session surfaced unattended with a truncated frame" {
+    const rig = try Rig.build(std.testing.allocator, .{ .fetches = 0, .opens_on_read = true, .unattended_on_open = true });
+    defer rig.destroy();
+    rig.resident.offer(&rig.burst);
+    for (0..4) |_| _ = try rig.step();
+    try std.testing.expect(rig.observed.did_open);
+    try std.testing.expectEqual(@as(usize, 0), rig.observed.close_events);
+    // The later record parks a prefix that promises nine bytes, and two of them.
+    rig.resident.offer(&.{@as([]const u8, "9:ab")});
+    rig.resident.read_result = 0;
     try stepThroughClose(rig);
     try expectClosedOnceAfterOpen(rig, error.TruncatedFrame);
 }

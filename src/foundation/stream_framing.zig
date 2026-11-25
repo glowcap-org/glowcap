@@ -69,6 +69,45 @@ pub fn parsePrefix(bytes: []const u8, max_body_bytes: usize) Prefix {
     };
 }
 
+/// Whether the stream that `parts` hold in order stops inside a frame: in a
+/// length prefix, or short of the body a prefix promised. A stream that stops
+/// on a frame boundary does not, and neither does one whose next prefix is
+/// malformed or over `max_body_bytes`, because that frame is refused, not cut
+/// short.
+pub fn endsMidFrame(parts: []const []const u8, max_body_bytes: usize) bool {
+    var body_left: usize = 0;
+    var length: usize = 0;
+    var digits: usize = 0;
+    for (parts) |part| {
+        var rest = part;
+        while (rest.len != 0) {
+            if (body_left != 0) {
+                const skip = @min(body_left, rest.len);
+                body_left -= skip;
+                rest = rest[skip..];
+                continue;
+            }
+            const byte = rest[0];
+            rest = rest[1..];
+            if (byte == ':') {
+                if (digits == 0) return false;
+                body_left = length;
+                length = 0;
+                digits = 0;
+                continue;
+            }
+            if (byte < '0' or byte > '9') return false;
+            if (digits != 0 and length == 0) return false;
+            const digit: usize = byte - '0';
+            if (length > max_body_bytes / 10 or
+                (length == max_body_bytes / 10 and digit > max_body_bytes % 10)) return false;
+            length = length * 10 + digit;
+            digits += 1;
+        }
+    }
+    return body_left != 0 or digits != 0;
+}
+
 /// How far a chunk completes the frame a spill holds the front of.
 pub const Completed = union(enum) {
     /// Every byte of the chunk was absorbed and the frame is still incomplete.
