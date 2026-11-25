@@ -181,8 +181,8 @@ fn the_loop_settles_a_note_of_a_turn_whose_reply_waits_for_its_place() {
 }
 
 /// The bot waits through a restart of the session. Each refused first send
-/// goes out again under a new operation. The bot's fifth try is held (the
-/// fault `hold-retry@4`) until the place is freed and the session restarted,
+/// goes out again under a new operation. The bot's third try is held (the
+/// fault `hold-retry@2`) until the place is freed and the session restarted,
 /// so the restarted session takes its room seat in the freed place and the
 /// bot's next first send posts there under an operation no session refused.
 /// The place is freed before the restart because a session that restarts with
@@ -193,15 +193,15 @@ fn a_reply_waiting_for_a_place_survives_a_session_restart_and_posts_once() {
 	let mut world = World::new("bot-full-restart");
 	let text = "posted once after the restart";
 	run_within(Duration::from_secs(120), async {
-		let bot = world.serve_at(Some("hold-retry@4"));
+		let bot = world.serve_at(Some("hold-retry@2"));
 		let held = Held::every_place(&world).await;
 		world.room(&format!("@{BOT} reply:{text}"));
 		waiting(&world);
-		eventually("the bot to hold its fifth try", || {
+		eventually("the bot to hold its third try", || {
 			world.rig.dir.join("retry-held").exists().then_some(())
 		});
 		let tries = refused(&world);
-		assert_eq!(tries.len(), 4, "the hold came after four refusals: {tries:?}");
+		assert_eq!(tries.len(), 2, "the hold came after two refusals: {tries:?}");
 		let distinct: BTreeSet<_> = tries.iter().collect();
 		assert_eq!(
 			distinct.len(),
