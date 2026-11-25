@@ -26,9 +26,9 @@ use rooms_application::{
 use rooms_glowcap::client::{
 	Client, Deadline, Tasks,
 	sources::Sources,
-	workspace::{Command, Workspace},
+	workspace::{Command, Typing, Workspace},
 };
-use std::path::Path;
+use std::{cell::RefCell, path::Path};
 
 pub use direct::{First, Introduction, Opened, Reach};
 pub use error::{Error, GiveBack};
@@ -89,6 +89,15 @@ pub struct View<D: Deadline + Tasks + Clone + 'static> {
 	client: Client<D>,
 	sources: Sources<D>,
 	budget: Budget,
+	/// The typing sender last used, kept for the next signal in the same
+	/// conversation. It is out of this cell while a signal uses it.
+	typing: RefCell<Option<KeptTyping<D>>>,
+}
+/// A typing sender and the conversation seat or route it was opened for.
+struct KeptTyping<D> {
+	conversation: String,
+	target: rooms_application::content::session::custody::Coordinate,
+	sender: Typing<D>,
 }
 impl<D: Deadline + Tasks + Clone + 'static> View<D> {
 	/// Dial the session a use link names, fetch its capability, and attach.
@@ -114,6 +123,7 @@ impl<D: Deadline + Tasks + Clone + 'static> View<D> {
 			client,
 			sources: Sources::new(platform),
 			budget: Budget::default(),
+			typing: RefCell::new(None),
 		})
 	}
 	/// Read activity after `cursor`, which is empty for the session's whole
@@ -236,10 +246,12 @@ impl<D: Deadline + Tasks + Clone + 'static> View<D> {
 	/// of a room or the route of an open direct message the workspace holds
 	/// now. Readers clear a notice nobody renews within
 	/// `rooms_application::room::membership::TYPING_CLEAR_MS`, so a caller
-	/// that keeps typing says so again every `TYPING_RENEW_MS`. Each call
-	/// opens its own sender, at the cost of two snapshot reads, one here and
-	/// one by the sender, and two calls to the session, one to open the
-	/// sender and one to set the level. A conversation with no seat or open
+	/// that keeps typing says so again every `TYPING_RENEW_MS`. The view
+	/// keeps the sender it opened, so the next signal in the same
+	/// conversation costs one snapshot read and one call to the session. A
+	/// signal for another conversation, a seat or route that changed, a lost
+	/// connection, or an access no longer active lets the kept sender go, and
+	/// the next signal opens its own. A conversation with no seat or open
 	/// route is refused as input.
 	pub async fn typing(&self, conversation: &str, on: bool) -> Result<(), Error> {
 		use rooms_application::content::session::{custody, workspace};
@@ -259,14 +271,32 @@ impl<D: Deadline + Tasks + Clone + 'static> View<D> {
 					.map(|route| custody::Coordinate::new(custody::Role::DirectAccess, route)),
 			})
 			.ok_or_else(|| Error::Input(format!("{conversation} holds no seat or open route to show typing in")))?;
-		let shown = match self.workspace.typing_sender(conversation, target).await {
-			Ok(sender) => sender.set(on).await,
-			Err(error) => Err(error),
+		let kept = self
+			.typing
+			.take()
+			.filter(|kept| kept.conversation == conversation && kept.target == target);
+		let sender = match kept {
+			Some(kept) => kept.sender,
+			None => match self.workspace.typing_sender(conversation, target).await {
+				Ok(sender) => sender,
+				Err(error) => return Err(self.failure(error).await),
+			},
 		};
-		match shown {
+		let shown = match sender.set(on).await {
 			Ok(()) => Ok(()),
 			Err(error) => Err(self.failure(error).await),
+		};
+		// A signal the session or the directory refused while this access
+		// stays active, such as one sent too soon after the last, says
+		// nothing against the sender. Any other failure lets it go.
+		if matches!(shown, Ok(()) | Err(Error::Peer(_))) {
+			self.typing.replace(Some(KeptTyping {
+				conversation: conversation.to_owned(),
+				target,
+				sender,
+			}));
 		}
+		shown
 	}
 	/// Post up to eight regular files with `caption`, and wait up to `wait_ms`
 	/// for the room to hold every file. Failure before delivery leaves nothing

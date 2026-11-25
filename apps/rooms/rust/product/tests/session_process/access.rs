@@ -203,6 +203,41 @@ fn a_shared_management_link_manages_the_one_access_it_names() {
 	fixture.finish();
 }
 
+/// The session holds at most 64 readers for an access at once, and a typing
+/// sender is one. A view that opened a sender for every signal would be
+/// refused long before this many, so each signal here went through the one
+/// the view keeps.
+#[test]
+fn a_view_shows_typing_many_times_through_the_one_sender_it_keeps() {
+	let fixture = Fixture::start("access-typing", &["typing-one", "typing-two"], "typing-room");
+	let one = &fixture.peers[0];
+	let issued = access(
+		&one.state,
+		"issue",
+		json!({"label": ["bot"], "rights": ["collaborator"]}),
+	);
+	let link = issued["link"].as_str().unwrap().to_owned();
+	run_within(Duration::from_secs(120), async {
+		let holder = host().await;
+		let view = attach(&holder, &link).await;
+		let room = fixture.room_id(0);
+		let mut shown = 0;
+		for signal in 0..200 {
+			match view.typing(&room, signal % 2 == 0).await {
+				Ok(()) => shown += 1,
+				// The directory limits how often typing may change.
+				Err(error) => {
+					let refusal = format!("{error:?}");
+					assert!(refusal.contains("rate-limited"), "signal {signal}: {refusal}");
+				}
+			}
+		}
+		assert!(shown > 0, "no typing signal was accepted");
+		holder.close(PendingWork::Cancel).await.unwrap();
+	});
+	fixture.finish();
+}
+
 #[test]
 fn an_access_whose_output_was_lost_is_managed_by_the_id_the_list_shows() {
 	let fixture = Fixture::start("access-lost", &["lost-one", "lost-two"], "lost-room");
