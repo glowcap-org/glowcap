@@ -11,7 +11,9 @@ mod host_registrations;
 mod references;
 use grammar::{canonical, command_requirement, dispatch, operation, original};
 pub(super) use grammar::{original_text, values};
-use receipts::{authenticate, effect_requirement, location, restore_source, status};
+use receipts::{
+	ReleaseRequest, authenticate, effect_requirement, location, release_receipt, restore_source, status, text_of,
+};
 pub(super) mod receipt_observation;
 pub(super) mod receipts;
 mod registration;
@@ -19,6 +21,7 @@ pub(super) use registration::registration;
 mod discovery;
 mod imports;
 mod inbox;
+mod inert;
 mod introduction;
 mod outgoing_line;
 mod presence;
@@ -27,7 +30,6 @@ pub(super) mod recording;
 mod retention;
 mod signaling;
 mod snapshot;
-mod unadopted;
 use super::{
 	State, bridge,
 	records::{self, Field, References},
@@ -60,19 +62,22 @@ use rooms_glowcap::{
 use std::rc::Weak;
 
 struct SessionContent<P: Tasks + Deadline + Clone + 'static>(Weak<State<P>>);
+/// The page of the call's graph that retained custody at `held` names, or the
+/// refusal that says `what` names an invalid page.
+pub(super) fn page_of<'a>(input: Invocation<'a>, held: records::Location, what: &str) -> Result<loam::Page<'a>> {
+	input
+		.graph
+		.and_then(|pages| pages.get(held.page.checked_sub(1)?))
+		.ok_or_else(|| refuse(what))
+}
+
 pub(super) fn refuse(message: &str) -> glowcap::Error {
 	loam::refusal(message)
 }
-/// The line for a change that would give a registration a second open
-/// direct row, from a replacement or from the `openDirect` gesture.
-pub(super) const DIRECT_OPEN: &str = "an open direct conversation already reaches this member";
 /// The refusal for a workspace replacement `Intent::replace_configuration`
 /// turned down.
 pub(super) fn refuse_configuration(invalid: workspace::InvalidIntent) -> glowcap::Error {
-	refuse(match invalid {
-		workspace::InvalidIntent::DirectOpen => DIRECT_OPEN,
-		_ => "change history retention through its dedicated command",
-	})
+	refuse(&invalid.to_string())
 }
 pub(super) fn text(value: &Argument) -> Result<&str> {
 	value.as_str().ok_or_else(|| refuse("session text argument required"))
@@ -125,7 +130,7 @@ impl<P: Tasks + Deadline + Clone + 'static> SessionContent<P> {
 		use Permission::*;
 		match input.verb {
 			"retire-room-authority" => authority::requirement(input, &owner.writer.root()?),
-			"unadopted-effects" | "release-unadopted-effect" => unadopted::requirement(input, &owner.writer.root()?),
+			"inert-effects" | "release-inert-effect" => inert::requirement(input, &owner.writer.root()?),
 			"observe-direct-connection" => connection::requirement(input, &owner.writer.root()?),
 			"observe-archive-connection" => archive_connection::requirement(input, &owner.writer.root()?),
 			"record-inbox" => {
@@ -180,8 +185,8 @@ impl<P: Tasks + Deadline + Clone + 'static> SessionContent<P> {
 				};
 				effect_requirement(intent, &[])
 			}
-			"effect-status" | "effect-intent" | "effect-adopted" | "resume-effect" | "release-effect"
-			| "effect-inventory" => receipts::requirement(input),
+			"effect-status" | "effect-intent" | "effect-holder" | "effect-adopted" | "resume-effect"
+			| "release-effect" | "effect-inventory" | "held-effects" => receipts::requirement(input),
 			"import-result" | "acquire-result-workspace" | "acquire-created-room" => {
 				let request = imports::Request::parse(input.verb, input.args)?;
 				let additional: &[Permission] =
@@ -445,8 +450,8 @@ impl<P: Tasks + Deadline + Clone + 'static> Content for SessionContent<P> {
 		if input.verb == "restore-custody" {
 			return super::retained::invoke(call, input, &owner.writer.root()?);
 		}
-		if matches!(input.verb, "unadopted-effects" | "release-unadopted-effect") {
-			return unadopted::invoke(&owner, call, input);
+		if matches!(input.verb, "inert-effects" | "release-inert-effect") {
+			return inert::invoke(&owner, call, input);
 		}
 		if input.verb == "initialize" {
 			if call.source()? != owner.writer.root()? {
@@ -458,7 +463,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Content for SessionContent<P> {
 			if input.graph.is_some_and(|pages| !pages.is_empty()) {
 				// Startup validates the committed codec without restoring custody
 				// or replacing content. Restart cannot erase workspace or receipts.
-				records::metadata(input)?;
+				records::opened(input)?;
 				return Ok(Argument::Void);
 			}
 			if input.graph.is_none() {
@@ -486,10 +491,12 @@ impl<P: Tasks + Deadline + Clone + 'static> Content for SessionContent<P> {
 				| "effect-result"
 				| "settle-effect"
 				| "effect-intent"
+				| "effect-holder"
 				| "effect-adopted"
 				| "resume-effect"
 				| "release-effect"
 				| "effect-inventory"
+				| "held-effects"
 		) {
 			return self.receipt(call, input, &owner);
 		}
@@ -576,10 +583,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Content for SessionContent<P> {
 				let receipt = effects::inspect(&record.effects, &id, &location(&record, &id)?, &intent)
 					.map_err(|_| refuse("effect witness or intent differs"))?
 					.ok_or_else(|| refuse("effect receipt is not retained"))?;
-				return Ok(status(
-					receipt,
-					owner.receipt_running(text(&input.args[0])?, record.intent.history_erasure.as_ref()),
-				));
+				return Ok(status(receipt, owner.receipt_running(text(&input.args[0])?, &record)));
 			}
 		}
 		let mut record = records::decode(input)?;

@@ -71,12 +71,15 @@ fn archive_peer_executable_custody_restart_and_signals() {
 				.expect("archive authority banner");
 			let parsed = glowcap::parse_sturdyref(link, glowcap::CaptpVersion::V1_0).unwrap();
 			if let Some(previous) = &swiss {
-				assert_eq!(&parsed.swissnum, previous);
+				assert!(
+					&parsed.swissnum == previous,
+					"a restart replaced the archive's swissnum"
+				);
 			}
 			swiss = Some(parsed.swissnum);
 			let bytes = std::fs::read(state.join("peer.json")).unwrap();
 			if let Some(previous) = &identity {
-				assert_eq!(&bytes, previous);
+				assert!(&bytes == previous, "a restart rewrote the archive's identity");
 			}
 			identity = Some(bytes);
 			let mut contender = Process::new(

@@ -1,12 +1,15 @@
 // A committed result that cannot be acquired names the call that failed.
+import { operationOf } from "../support/managed_link.ts";
 import { failureView, LocalRefusal, renderFailure } from "../../lib/text/failure.ts";
 import { assert, assertEquals } from "../assert.ts";
 import { snapshot, viewer } from "../support/managed_viewer.ts";
-import { ManagedOperation, ResultAcquisitionError } from "../../web/ui/session/managed/operation.ts";
+import { ResultAcquisitionError } from "../../web/ui/session/managed/operation.ts";
 import { AcquisitionConflict, MAX_CONFLICT_REPREPARATIONS } from "../../web/ui/session/managed/acquisition.ts";
 import { completeResult } from "../../web/ui/session/managed/completion.ts";
 import { resumeEffect } from "../../web/ui/session/managed/recovery.ts";
-import type { RoomsManagedCommand, RoomsManagedRecoveredEffect } from "../../../../zig-out/wasm/rooms/rooms_browser.js";
+import type { RoomsManagedRecoveredEffect } from "../../../../zig-out/wasm/rooms/rooms_browser.js";
+import { fakeHandle } from "../support/managed_link.ts";
+import { managedSessionText } from "../../lib/text/managed_session.ts";
 
 const refusal = new Error("glowcap error -12: ApplicationRefused");
 
@@ -62,10 +65,14 @@ function lineSnapshot() {
 }
 
 Deno.test("an observed commit names the status call that failed", async () => {
-	const operation = new ManagedOperation("known", {
-		status: () => Promise.reject(refusal),
-		free() {},
-	} as unknown as RoomsManagedCommand, "committed");
+	const operation = operationOf(
+		"known",
+		{
+			status: () => Promise.reject(refusal),
+			free() {},
+		},
+		"committed",
+	);
 	try {
 		const [outcome] = await Promise.allSettled([operation.status()]);
 		assert(outcome.status === "rejected", "the status read fails");
@@ -76,10 +83,14 @@ Deno.test("an observed commit names the status call that failed", async () => {
 });
 
 Deno.test("an observed commit names the result call that failed", async () => {
-	const operation = new ManagedOperation("known", {
-		result: () => Promise.reject(refusal),
-		free() {},
-	} as unknown as RoomsManagedCommand, "committed");
+	const operation = operationOf(
+		"known",
+		{
+			result: () => Promise.reject(refusal),
+			free() {},
+		},
+		"committed",
+	);
 	try {
 		const [outcome] = await Promise.allSettled([operation.result()]);
 		assert(outcome.status === "rejected", "the result read fails");
@@ -90,12 +101,12 @@ Deno.test("an observed commit names the result call that failed", async () => {
 });
 
 Deno.test("a committed result names the adoption check that failed", async () => {
-	const operation = new ManagedOperation("upload", {
+	const operation = operationOf("upload", {
 		result: () => Promise.resolve(line),
 		adopted: () => Promise.reject(refusal),
 		originalIntent: () => upload,
 		free() {},
-	} as unknown as RoomsManagedCommand);
+	});
 	const session = viewer({ snapshot: () => Promise.resolve(lineSnapshot()) });
 	try {
 		const [outcome] = await Promise.allSettled([completeResult(session, operation)]);
@@ -107,34 +118,51 @@ Deno.test("a committed result names the adoption check that failed", async () =>
 	}
 });
 
-for (const adopted of [true, false]) {
-	Deno.test(`a committed result names the snapshot read that failed after adopted=${adopted}`, async () => {
-		const operation = new ManagedOperation("upload", {
-			result: () => Promise.resolve(line),
-			adopted: () => Promise.resolve(adopted),
-			originalIntent: () => upload,
-			free() {},
-		} as unknown as RoomsManagedCommand);
-		const session = viewer({ snapshot: () => Promise.reject(refusal) });
-		try {
-			const [outcome] = await Promise.allSettled([completeResult(session, operation)]);
-			assert(outcome.status === "rejected", "the snapshot read fails");
-			assertNamed(outcome.reason, "addressed-snapshot");
-		} finally {
-			await operation.close();
-			await session.close();
-		}
+Deno.test("a committed result names the snapshot read that failed before its acquisition", async () => {
+	const operation = operationOf("upload", {
+		result: () => Promise.resolve(line),
+		adopted: () => Promise.resolve(false),
+		originalIntent: () => upload,
+		free() {},
 	});
-}
+	const session = viewer({ snapshot: () => Promise.reject(refusal) });
+	try {
+		const [outcome] = await Promise.allSettled([completeResult(session, operation)]);
+		assert(outcome.status === "rejected", "the snapshot read fails");
+		assertNamed(outcome.reason, "addressed-snapshot");
+	} finally {
+		await operation.close();
+		await session.close();
+	}
+});
+
+Deno.test("a committed result already adopted is complete when the redraw read fails, with a notice", async () => {
+	const operation = operationOf("upload", {
+		result: () => Promise.resolve(line),
+		adopted: () => Promise.resolve(true),
+		originalIntent: () => upload,
+		free() {},
+	});
+	const notices: string[] = [];
+	const session = viewer({ snapshot: () => Promise.reject(refusal) }, (source) => notices.push(source));
+	try {
+		const [outcome] = await Promise.allSettled([completeResult(session, operation)]);
+		assertEquals(outcome.status, "fulfilled");
+		assertEquals(notices, [managedSessionText.changeUnread]);
+	} finally {
+		await operation.close();
+		await session.close();
+	}
+});
 
 Deno.test("a committed result names the result acquisition that failed", async () => {
-	const operation = new ManagedOperation("upload", {
+	const operation = operationOf("upload", {
 		result: () => Promise.resolve(line),
 		adopted: () => Promise.resolve(false),
 		originalIntent: () => upload,
 		prepareResultAcquisition: () => Promise.reject(refusal),
 		free() {},
-	} as unknown as RoomsManagedCommand);
+	});
 	const session = viewer({ snapshot: () => Promise.resolve(lineSnapshot()) });
 	try {
 		const [outcome] = await Promise.allSettled([completeResult(session, operation)]);
@@ -147,13 +175,13 @@ Deno.test("a committed result names the result acquisition that failed", async (
 });
 
 Deno.test("a committed room names the created-room acquisition that failed", async () => {
-	const operation = new ManagedOperation("creation", {
+	const operation = operationOf("creation", {
 		result: () => Promise.resolve({ room: "original-room", control: "original-control" }),
 		adopted: () => Promise.resolve(false),
 		originalIntent: () => ["creation", 1, "openManagedRoom", ["directory", "garden"]],
 		prepareCreatedRoomAcquisition: () => Promise.reject(refusal),
 		free() {},
-	} as unknown as RoomsManagedCommand);
+	});
 	const session = viewer({ snapshot: () => Promise.resolve(withDirectory()) });
 	try {
 		const [outcome] = await Promise.allSettled([completeResult(session, operation)]);
@@ -167,7 +195,7 @@ Deno.test("a committed room names the created-room acquisition that failed", asy
 
 Deno.test("the stage advances with the call, so a later failure never names an earlier call", async () => {
 	const calls: string[] = [];
-	const operation = new ManagedOperation("upload", {
+	const operation = operationOf("upload", {
 		result: () => Promise.resolve(line),
 		adopted: () => {
 			calls.push("adopted");
@@ -179,7 +207,7 @@ Deno.test("the stage advances with the call, so a later failure never names an e
 			return Promise.reject(refusal);
 		},
 		free() {},
-	} as unknown as RoomsManagedCommand);
+	});
 	const session = viewer({
 		snapshot: () => {
 			calls.push("snapshot");
@@ -198,12 +226,12 @@ Deno.test("the stage advances with the call, so a later failure never names an e
 });
 
 Deno.test("a refusal the page raises on its own carries no stage and renders without a prefix", async () => {
-	const operation = new ManagedOperation("creation", {
+	const operation = operationOf("creation", {
 		result: () => Promise.resolve({}),
 		adopted: () => Promise.resolve(false),
 		originalIntent: () => ["creation", 1, "openManagedRoom", ["directory", "garden"]],
 		free() {},
-	} as unknown as RoomsManagedCommand);
+	});
 	const session = viewer({ snapshot: () => Promise.resolve(withDirectory()) });
 	try {
 		const [outcome] = await Promise.allSettled([completeResult(session, operation)]);
@@ -222,7 +250,7 @@ Deno.test("a refusal the page raises on its own carries no stage and renders wit
 
 Deno.test("an exhausted acquisition conflict still carries the acquire stage", async () => {
 	let attempts = 0;
-	const operation = new ManagedOperation("upload", {
+	const operation = operationOf("upload", {
 		result: () => Promise.resolve(line),
 		adopted: () => Promise.resolve(false),
 		originalIntent: () => upload,
@@ -231,7 +259,7 @@ Deno.test("an exhausted acquisition conflict still carries the acquire stage", a
 			return Promise.resolve({ submit: () => Promise.resolve({ status: "conflict" }), free() {} });
 		},
 		free() {},
-	} as unknown as RoomsManagedCommand);
+	});
 	const session = viewer({ snapshot: () => Promise.resolve(lineSnapshot()) });
 	try {
 		const [outcome] = await Promise.allSettled([completeResult(session, operation)]);
@@ -246,24 +274,25 @@ Deno.test("an exhausted acquisition conflict still carries the acquire stage", a
 	}
 });
 
-Deno.test("a refresh failing after a successful acquisition names the snapshot read", async () => {
+Deno.test("a refresh failing after a successful acquisition is a notice, and the acquisition stays committed", async () => {
 	let reads = 0;
-	const operation = new ManagedOperation("upload", {
+	const operation = operationOf("upload", {
 		result: () => Promise.resolve(line),
 		adopted: () => Promise.resolve(false),
 		originalIntent: () => upload,
 		prepareResultAcquisition: () =>
 			Promise.resolve({ submit: () => Promise.resolve({ status: "committed" }), free() {} }),
 		free() {},
-	} as unknown as RoomsManagedCommand);
+	});
+	const notices: string[] = [];
 	const session = viewer({
 		snapshot: () => ++reads === 1 ? Promise.resolve(lineSnapshot()) : Promise.reject(refusal),
-	});
+	}, (source) => notices.push(source));
 	try {
 		const [outcome] = await Promise.allSettled([completeResult(session, operation)]);
-		assert(outcome.status === "rejected", "the final refresh fails");
+		assertEquals(outcome.status, "fulfilled");
+		assertEquals(notices, [managedSessionText.changeUnread]);
 		assertEquals(operation.acquired, true, "the acquisition itself committed");
-		assertNamed(outcome.reason, "addressed-snapshot");
 	} finally {
 		await operation.close();
 		await session.close();
@@ -271,11 +300,11 @@ Deno.test("a refresh failing after a successful acquisition names the snapshot r
 });
 
 Deno.test("a committed receipt names the resume call that failed", async () => {
-	const request = {
+	const request = fakeHandle<RoomsManagedRecoveredEffect>({
 		status: () => Promise.resolve("committed"),
 		resume: () => Promise.reject(refusal),
 		free() {},
-	} as unknown as RoomsManagedRecoveredEffect;
+	});
 	const [outcome] = await Promise.allSettled([resumeEffect(request, () => {})]);
 	assert(outcome.status === "rejected", "the resume fails");
 	assertNamed(outcome.reason, "resume-effect");

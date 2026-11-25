@@ -101,3 +101,51 @@ fn a_record_whose_group_is_gone_is_stale_bookkeeping() {
 	let record = plant(&dir, &format!(r#"{{"group":{id},"identity":null}}"#));
 	assert_eq!(reap(&record), Reaped::Gone);
 }
+
+/// A signal the system refused leaves the group alone and the log says which
+/// refusal it was, as the cause of a survivor is not always a permission.
+#[test]
+fn a_group_whose_signal_was_refused_is_left_with_the_refusal() {
+	let refused = Error::Io {
+		context: "ending the harness process group",
+		source: Errno::EPERM.into(),
+	};
+	let Reaped::Left(group, why) = signalled(7, Err(refused)) else {
+		panic!("a refused signal ended the group");
+	};
+	assert_eq!(group, 7);
+	assert!(
+		why.contains("could not be signalled") && why.contains("not permitted"),
+		"{why}"
+	);
+	assert_eq!(signalled(7, Ok(())), Reaped::Ended(7));
+}
+
+/// Only a definite "no such process, or another start" reads as gone. A
+/// verb in another namespace is never judged.
+#[test]
+fn a_verb_is_gone_only_when_its_process_definitely_is() {
+	let mut child = leader();
+	let verb = Verb::of(child.id()).unwrap();
+	assert_eq!(verb.presence(), Presence::Alive);
+	assert_eq!(Verb::this_process().unwrap().presence(), Presence::Alive);
+	let reused = Verb {
+		identity: Identity {
+			start: verb.identity.start + 1,
+			..verb.identity.clone()
+		},
+		..verb.clone()
+	};
+	assert_eq!(reused.presence(), Presence::Gone, "another start is another process");
+	let foreign = Verb {
+		namespace: "pid:[0]".into(),
+		..verb.clone()
+	};
+	assert!(
+		matches!(foreign.presence(), Presence::Unknown(_)),
+		"another namespace is not judged"
+	);
+	child.kill().unwrap();
+	child.wait().unwrap();
+	assert_eq!(verb.presence(), Presence::Gone, "a reaped process is gone");
+}

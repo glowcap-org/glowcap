@@ -109,7 +109,7 @@ pub fn candidate<C>(revision: u64, mut next: impl FnMut() -> C) -> workspace::Re
 		.map(|index| custody::EffectReceipt {
 			introduction: None,
 			outgoing: None,
-			adopted: false,
+			disposition: custody::Disposition::Held,
 			operation: Text::new(format!("effect-{index}").into()).unwrap(),
 			canonical_intent: Text::new(format!("{revision}{}", "x".repeat(40000)).into()).unwrap(),
 			resource_generation: u64::MAX.try_into().unwrap(),
@@ -240,4 +240,53 @@ fn payload_boundary() {
 	padding[255] = Text::new("x".repeat(remaining + 1).into()).unwrap();
 	record.intent.ignored = List::new(padding).unwrap();
 	assert!(matches!(records::encode(&record), Err(records::Error::Capacity)));
+}
+
+/// A receipt's disposition changes when its source adopts or releases it, so a
+/// record already at the aggregate byte bound must take the change.
+#[cfg(test)]
+#[test]
+fn a_disposition_change_never_grows_a_record_at_the_byte_cap() {
+	let receipt = |disposition| custody::EffectReceipt::<References<usize>> {
+		introduction: None,
+		outgoing: None,
+		disposition,
+		operation: Text::new("effect-cap".into()).unwrap(),
+		canonical_intent: Text::new("intent".into()).unwrap(),
+		resource_generation: 1.try_into().unwrap(),
+		source: custody::Held {
+			key: key(1),
+			reference: 1,
+		},
+		targets: List::default(),
+		outcome: custody::Outcome::Committed {
+			result: Text::new("applied".into()).unwrap(),
+			retained: List::default(),
+		},
+	};
+	let mut record = workspace::Record::<References<usize>, ()> {
+		binding: custody::ResourceBinding { resource: () },
+		intent: intent(),
+		fence: Default::default(),
+		custody: custody::Custody::default(),
+		outgoing: List::default(),
+		bridges: Default::default(),
+		effects: List::new(vec![receipt(custody::Disposition::Held)]).unwrap(),
+	};
+	let mut padding = vec![Text::new("x".repeat(4096).into()).unwrap(); 255];
+	padding.push(Text::new("".into()).unwrap());
+	record.intent.ignored = List::new(padding.clone()).unwrap();
+	let remaining = custody::MAX_AUTHORITY_BYTES - payload_bytes(&records::encode(&record).unwrap());
+	padding[255] = Text::new("x".repeat(remaining).into()).unwrap();
+	record.intent.ignored = List::new(padding).unwrap();
+	assert_eq!(
+		payload_bytes(&records::encode(&record).unwrap()),
+		custody::MAX_AUTHORITY_BYTES,
+		"the record is at the cap"
+	);
+	for disposition in [custody::Disposition::Adopted, custody::Disposition::Released] {
+		record.effects = List::new(vec![receipt(disposition)]).unwrap();
+		let encoded = records::encode(&record).unwrap_or_else(|error| panic!("{disposition:?}: {error:?}"));
+		assert_eq!(payload_bytes(&encoded), custody::MAX_AUTHORITY_BYTES, "{disposition:?}");
+	}
 }

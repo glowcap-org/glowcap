@@ -4,6 +4,7 @@
 const std = @import("std");
 const commands = @import("../commands.zig");
 const execution = @import("../execution.zig");
+const listing = @import("../listing.zig");
 
 /// An installed Rooms executable: the file it installs as under `libexec/`,
 /// the Cargo binary that builds it, and the environment variables a run reads
@@ -98,6 +99,8 @@ pub const Binary = enum {
 
 /// Where Cargo's release profile writes the peers.
 const release_dir = "apps/rooms/rust/target/release";
+/// The bot's process proof modules, one file each.
+const bot_process_dir = "apps/rooms/rust/product/tests/bot_process";
 /// Where the browser-proof profile writes the proof builds of the web front and server.
 const proof_dir = "apps/rooms/rust/target/browser-server-proof/browser-proof";
 
@@ -247,28 +250,41 @@ pub fn register(b: *std.Build, runtime_gate: *execution.RuntimeGate, iroh_abi: *
     // module. Each proof against a real session starts two or more sessions,
     // and a session's start costs seconds of processor time in this profile,
     // so each of those modules is its own run and holds a few proofs. The
-    // last run takes every module the others do not name. Every run builds
+    // last run takes every module the others do not name, and a new `captp`
+    // module gets its own run from the directory listing. Every run builds
     // with the `test-support` feature, which carries the fault points and
     // stand-ins the proofs drive, so the compile above is the one they run.
     const bot_process: []const []const u8 = &.{ "--test", "bot_process" };
     const Run = struct { targets: []const []const u8, filter: []const []const u8 = &.{} };
-    const process_runs = [_]Run{
-        .{ .targets = &.{ "--test", "archive_process", "--test", "session_process", "--test", "server_process", "--test", "chat_process", "--bin", "rooms-session" } },
-        .{ .targets = &.{ "--bin", "rooms-bot" } },
-        .{ .targets = bot_process, .filter = &.{ "--", "captp::" } },
-        .{ .targets = bot_process, .filter = &.{ "--", "captp_actions::" } },
-        .{ .targets = bot_process, .filter = &.{ "--", "captp_crashes::" } },
-        .{ .targets = bot_process, .filter = &.{ "--", "captp_direct::" } },
-        .{ .targets = bot_process, .filter = &.{ "--", "captp_handover::" } },
-        .{ .targets = bot_process, .filter = &.{ "--", "captp_recovery::" } },
-        .{ .targets = bot_process, .filter = &.{ "--", "captp_session::" } },
-        .{ .targets = bot_process, .filter = &.{ "--", "crashes::", "--skip", "captp" } },
-        .{ .targets = bot_process, .filter = &.{ "--", "sending::" } },
-        .{ .targets = bot_process, .filter = &.{ "--", "--skip", "captp", "--skip", "crashes::", "--skip", "sending::" } },
-    };
+    var process_runs: std.ArrayList(Run) = .empty;
+    process_runs.append(b.allocator, .{ .targets = &.{ "--test", "archive_process", "--test", "session_process", "--test", "server_process", "--test", "chat_process", "--bin", "rooms-session" } }) catch @panic("OOM");
+    process_runs.append(b.allocator, .{ .targets = &.{ "--bin", "rooms-bot" } }) catch @panic("OOM");
+    // Every `captp*` module is its own run, discovered from the directory so
+    // a new module cannot be left out of every run.
+    for (listing.sortedFiles(b, bot_process_dir)) |file| {
+        if (!std.mem.startsWith(u8, file, "captp") or !std.mem.endsWith(u8, file, ".rs")) continue;
+        const module = file[0 .. file.len - ".rs".len];
+        process_runs.append(b.allocator, .{ .targets = bot_process, .filter = b.allocator.dupe([]const u8, &.{ "--", b.fmt("{s}::", .{module}) }) catch @panic("OOM") }) catch @panic("OOM");
+    }
+    // Each other heavy module is its own run, and the catch-all skips the same
+    // list, so naming a module here is the one edit that moves it out of the
+    // catch-all. `crashes::` also matches `captp_crashes::`, so it skips `captp`.
+    const heavy_modules: []const []const u8 = &.{ "crashes", "kills", "sending", "waiting" };
+    var catch_all: std.ArrayList([]const u8) = .empty;
+    catch_all.appendSlice(b.allocator, &.{ "--", "--skip", "captp" }) catch @panic("OOM");
+    for (heavy_modules) |module| {
+        const prefix = b.fmt("{s}::", .{module});
+        const filter: []const []const u8 = if (std.mem.eql(u8, module, "crashes"))
+            &.{ "--", prefix, "--skip", "captp" }
+        else
+            b.allocator.dupe([]const u8, &.{ "--", prefix }) catch @panic("OOM");
+        process_runs.append(b.allocator, .{ .targets = bot_process, .filter = filter }) catch @panic("OOM");
+        catch_all.appendSlice(b.allocator, &.{ "--skip", prefix }) catch @panic("OOM");
+    }
+    process_runs.append(b.allocator, .{ .targets = bot_process, .filter = catch_all.items }) catch @panic("OOM");
     const test_step = b.step("rooms-peers-test", "Prove the archive peer, session peer, and Rooms server's identity, transport, restart and shutdown (needs cargo)");
     var previous_process: *std.Build.Step = previous_unit;
-    for (process_runs) |bounded| {
+    for (process_runs.items) |bounded| {
         const process_run = commands.addRootedSystemCommand(b, .{ .deterministic = 30 }, &.{"env"});
         commands.addLoaderPathArg(process_run);
         commands.addLibDirArg(process_run, .host);

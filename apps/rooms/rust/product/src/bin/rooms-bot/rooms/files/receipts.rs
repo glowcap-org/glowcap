@@ -1,13 +1,9 @@
-//! The stand-in's receipts, held the way a session holds them
-//! (`rooms_application::content::session::effects::reserve`): one per
-//! operation with its base and line, at most [`MAX_EFFECTS`]. A new receipt
-//! evicts the oldest one the session may forget. A send still running and a
-//! committed line nobody kept are never evicted, so a sender that neither
-//! keeps nor releases its receipts fills the set and its next send is
-//! refused. A receipt left unknown has no work to settle it and may go,
-//! though its line may have posted.
+//! The stand-in's receipts as rows in `receipts.json`: one per operation
+//! with its base and line, at most `MAX_EFFECTS` of them. What a row means to
+//! the window (which keep a place, which one a new receipt evicts, what a
+//! release answers) is decided by the session's own functions, through
+//! `window`.
 use super::super::{RoomsError, RoomsErrorKind};
-use rooms_application::content::session::custody::MAX_EFFECTS;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
@@ -15,9 +11,12 @@ use std::path::Path;
 #[serde(rename_all = "lowercase")]
 pub enum Status {
 	Committed,
+	/// The send still runs. Its line has posted, and the next look finds it
+	/// committed, as a session's executor settles between two calls.
 	Pending,
 	/// The session restarted before the send settled, so no work will settle
-	/// it. The line may have posted.
+	/// it. The line may have posted. Like the session's paused executor, the
+	/// receipt holds its place and is listed until its source releases it.
 	Unknown,
 	Unsent,
 }
@@ -30,16 +29,8 @@ pub struct Receipt {
 	pub text: String,
 	pub status: Status,
 	pub kept: bool,
-}
-
-impl Receipt {
-	fn evictable(&self) -> bool {
-		match self.status {
-			Status::Pending => false,
-			Status::Committed => self.kept,
-			Status::Unknown | Status::Unsent => true,
-		}
-	}
+	#[serde(default)]
+	pub released: bool,
 }
 
 const FILE: &str = "receipts.json";
@@ -62,17 +53,4 @@ pub fn write(directory: &Path, receipts: &[Receipt]) -> Result<(), RoomsError> {
 	std::fs::write(&staged, bytes)
 		.and_then(|()| std::fs::rename(&staged, directory.join(FILE)))
 		.map_err(failed)
-}
-
-/// Hold `receipt`, evicting the oldest receipt that may go when the set is
-/// full, or refuse it the way a session with no room refuses a command.
-pub fn reserve(receipts: &mut Vec<Receipt>, receipt: Receipt) -> Result<(), RoomsError> {
-	if receipts.len() == MAX_EFFECTS {
-		let Some(oldest) = receipts.iter().position(Receipt::evictable) else {
-			return Err(RoomsError::new(RoomsErrorKind::Refused, "effect receipts are full"));
-		};
-		receipts.remove(oldest);
-	}
-	receipts.push(receipt);
-	Ok(())
 }

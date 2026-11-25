@@ -70,3 +70,65 @@ async fn uncertain_admission_refuses_retirement_and_preserves_custody() {
 	})
 	.await;
 }
+
+#[tokio::test]
+async fn a_retired_job_forfeits_only_a_pending_admission_and_wakes_its_close() {
+	rooms_testing::local_set::run(async {
+		let host = Host::from_seed([126; 32]).unwrap();
+		let calls = Rc::new(Cell::new(0));
+		let seat = host
+			.spawn({
+				let calls = calls.clone();
+				move |_, _| {
+					calls.set(calls.get() + 1);
+					Ok(Argument::Void)
+				}
+			})
+			.unwrap();
+		// A job retired before it dispatched leaves no endpoint, so the close
+		// waiting on its admission returns at once and sends no leave.
+		let owner = Owner::new(host.clone());
+		owner.begin();
+		let close = owner.close();
+		tokio::pin!(close);
+		poll_fn(|cx| {
+			assert!(
+				close.as_mut().poll(cx).is_pending(),
+				"a pending admission holds its close"
+			);
+			owner.forfeit(None);
+			assert!(
+				matches!(close.as_mut().poll(cx), Poll::Ready(Ok(()))),
+				"the forfeit wakes the close, which finds no endpoint"
+			);
+			Poll::Ready(())
+		})
+		.await;
+		assert!(matches!(*owner.outcome.borrow(), Outcome::Absent));
+		// A job retired after it dispatched may have left an endpoint, so the
+		// membership keeps its pause's cause and every close refuses with it.
+		let paused = Owner::new(host.clone());
+		paused.begin();
+		paused.forfeit(Some(crate::session::managed::executor::paused(
+			"effect observation deadline expired",
+		)));
+		for _ in 0..2 {
+			assert_eq!(
+				paused.close().await.unwrap_err().message(),
+				Some("effect observation deadline expired")
+			);
+		}
+		assert!(matches!(*paused.outcome.borrow(), Outcome::Unknown(_)));
+		// An outcome the job already reported stays, and its close leaves.
+		let seated = Owner::new(host.clone());
+		seated.begin();
+		seated.ready(seat.clone()).unwrap();
+		seated.forfeit(Some(loam::refusal("late retirement")));
+		assert!(matches!(*seated.outcome.borrow(), Outcome::Ready(_)));
+		seated.close().await.unwrap();
+		assert_eq!(calls.get(), 1, "the reported seat is the one left");
+		drop((paused, seated, seat));
+		host.close(PendingWork::Cancel).await.unwrap();
+	})
+	.await;
+}

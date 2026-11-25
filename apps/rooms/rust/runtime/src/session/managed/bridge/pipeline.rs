@@ -1,6 +1,9 @@
 //! One effect owner keeps form observation, credential write and submission.
 use super::credentials::Credentials;
-use crate::session::managed::results::{Prepared, Settlement};
+use crate::session::managed::{
+	executor::Ending,
+	results::{Prepared, Settlement},
+};
 use glowcap::{
 	Argument, Result,
 	loam::{self, Continuation, EffectExecution, EffectResult},
@@ -67,7 +70,14 @@ impl Pipeline {
 		}
 		Ok(result)
 	}
-	pub async fn advance(&mut self) -> Result<Option<Settlement>> {
+	/// Run the bridge to its ending. `Ok(None)` means it had already ended.
+	/// Storing the credentials or combining the answers can fail after the
+	/// credentials may have been taken, and a submit's answer can be unknown or
+	/// unreadable. None of them can run again, so each ends unresolved
+	/// (`Ending::Unresolved`) and the executor reports it. An observation that
+	/// misses its deadline is an error instead, which pauses the job for its
+	/// source to resume.
+	pub async fn advance(&mut self) -> Result<Option<Ending>> {
 		loop {
 			match &mut self.phase {
 				Phase::Inspect => {
@@ -81,7 +91,7 @@ impl Pipeline {
 					};
 					if !exact {
 						self.phase = Phase::Finished;
-						return Ok(Some(Settlement::absent()));
+						return Ok(Some(Ending::Settled(Settlement::absent())));
 					}
 					let credentials = self.intent.credentials.clone();
 					let id = self.intent.id;
@@ -106,12 +116,17 @@ impl Pipeline {
 				Phase::Store(pending) => {
 					let result = pending.await;
 					self.phase = Phase::Finished;
-					let secrets = result?;
+					let secrets = match result {
+						Ok(secrets) => secrets,
+						Err(cause) => return Ok(Some(Ending::Unresolved(cause))),
+					};
 					let mut answers = self.intent.request.bridge.answers.clone();
 					for (id, value) in secrets.iter() {
-						answers
-							.insert(id.into(), value.clone())
-							.map_err(|_| loam::refusal("combined bridge answers exceed their bound"))?;
+						if answers.insert(id.into(), value.clone()).is_err() {
+							return Ok(Some(Ending::Unresolved(loam::refusal(
+								"combined bridge answers exceed their bound",
+							))));
+						}
 					}
 					self.answers = Some(answers);
 					self.phase = Phase::Submit;
@@ -130,12 +145,13 @@ impl Pipeline {
 					self.answers.take();
 					self.phase = Phase::Finished;
 					return match result {
-						EffectResult::Ready(value) => match Prepared::read(Reply::Acknowledgment, &value, "", None)? {
-							Prepared::Complete(outcome) => Ok(Some(outcome)),
-							_ => unreachable!("acknowledgment has no acquisition"),
+						EffectResult::Ready(value) => match Prepared::read(Reply::Acknowledgment, &value, "", None) {
+							Ok(Prepared::Complete(outcome)) => Ok(Some(Ending::Settled(outcome))),
+							Ok(_) => unreachable!("acknowledgment has no acquisition"),
+							Err(cause) => Ok(Some(Ending::Unresolved(cause))),
 						},
-						EffectResult::Unsent(error) => Ok(Some(Settlement::refused(&error))),
-						EffectResult::Unknown(error) => Err(error),
+						EffectResult::Unsent(error) => Ok(Some(Ending::Settled(Settlement::refused(&error)))),
+						EffectResult::Unknown(error) => Ok(Some(Ending::Unresolved(error))),
 						EffectResult::Pending => unreachable!("completed bridge observation"),
 					};
 				}

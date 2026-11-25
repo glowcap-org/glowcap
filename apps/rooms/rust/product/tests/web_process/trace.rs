@@ -31,7 +31,7 @@ async fn host_trace_discovers_private_authority_and_follows_the_carried_feed() {
         let parsed = glowcap::parse_sturdyref(link.trim(), glowcap::CaptpVersion::V1_0).unwrap();
         assert_eq!(parsed.locator.string_hint("captp-websocket").unwrap(), Some("wss://trace.example.invalid/prefix/captp"));
         let swiss = std::str::from_utf8(&parsed.swissnum).unwrap();
-        assert_eq!(std::fs::read_to_string(state.0.join("trace")).unwrap().trim(), swiss);
+        assert!(std::fs::read_to_string(state.0.join("trace")).unwrap().trim() == swiss, "the printed trace link is not the saved swissnum");
         let carried = parsed.locator.clone().with_hint("captp-websocket", glowcap::HintValue::String(web.url("/trace/captp")));
         let denied = glowcap::format_sturdyref(&carried, "cd".repeat(32).as_bytes(), glowcap::CaptpVersion::V1_0).unwrap();
         let refused = viewer().arg(&denied).output().await.unwrap();

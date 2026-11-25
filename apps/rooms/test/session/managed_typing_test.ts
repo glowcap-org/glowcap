@@ -5,8 +5,9 @@
 // still typing is said again.
 import { RoomsError } from "../../lib/error_codes.ts";
 import { assert, assertEquals } from "../assert.ts";
-import { viewer } from "../support/managed_viewer.ts";
+import { deferred, viewer } from "../support/managed_viewer.ts";
 import { initializeApplication } from "../support/application.ts";
+import { closed } from "../support/managed_link.ts";
 
 await initializeApplication();
 
@@ -333,4 +334,76 @@ Deno.test("any other refusal ends typing for that conversation", async () => {
 	await session.typing.set("room", "seat", true);
 	assertEquals([refused, sent], [true, [true]]);
 	await session.typing.close();
+});
+
+Deno.test("a stop lost with its connection is sent again over the next link, and a start is not", async () => {
+	const { session, sent } = sender([null, closed(), closed()]);
+	await session.typing.set("room", "seat", true);
+	await session.typing.set("room", "seat", false);
+	await session.typing.set("other", "seat", true);
+	assertEquals(sent, [true, false, true]);
+	await session.typing.relink();
+	assertEquals(sent, [true, false, true, false], "only the stop still owed goes again");
+	await session.typing.relink();
+	assertEquals(sent, [true, false, true, false], "a stop that was heard is owed nothing");
+	await session.typing.close();
+});
+
+Deno.test("managed typing coalesces a burst and frees the original sender after shutdown drains", async () => {
+	const call = deferred<void>();
+	const entered = deferred<void>();
+	const values: boolean[] = [];
+	let freed = 0;
+	const session = viewer({
+		typingSender: () =>
+			Promise.resolve({
+				set(on: boolean) {
+					values.push(on);
+					entered.resolve();
+					return call.promise;
+				},
+				free() {
+					freed++;
+				},
+			}),
+	});
+	const first = session.typing.set("room", "seat", true);
+	await entered.promise;
+	for (let i = 0; i < 1000; i++) session.typing.set("room", "seat", i % 2 === 0);
+	session.typing.set("room", "seat", false);
+	call.resolve();
+	await first;
+	assertEquals(values, [true, false]);
+	await session.close();
+	assertEquals(freed, 1);
+});
+
+Deno.test("typing reports one refusal per failed authority and preserves a newer target", async () => {
+	const entered = deferred<void>();
+	const release = deferred<void>();
+	const sent: string[] = [];
+	let reports = 0;
+	const session = viewer({
+		typingSender: (id: string) =>
+			Promise.resolve({
+				set: async () => {
+					sent.push(id);
+					if (id === "old") {
+						entered.resolve();
+						await release.promise;
+						throw new Error("retired authority");
+					}
+				},
+				free() {},
+			}),
+	});
+	const first = session.typing.set("old", "seat", true).catch(() => reports++);
+	await entered.promise;
+	const repeats = Array.from({ length: 100 }, () => session.typing.set("old", "seat", true).catch(() => reports++));
+	const newer = session.typing.set("new", "seat", true);
+	release.resolve();
+	await Promise.all([first, newer, ...repeats]);
+	await session.typing.set("old", "seat", true);
+	assertEquals([sent, reports], [["old", "new"], 1]);
+	await session.close();
 });

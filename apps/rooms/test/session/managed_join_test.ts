@@ -1,14 +1,14 @@
 // A pasted room link is one retained workspace transaction, including nickname
 // selection and first directory acquisition. Refusal exposes no partial intent.
 import { LOCAL_REFUSALS } from "../../lib/text/local_refusals.ts";
+import { managedSessionText } from "../../lib/text/managed_session.ts";
 import { assert, assertEquals } from "../assert.ts";
 import { deferred, snapshot, viewer } from "../support/managed_viewer.ts";
+import { actionSession, fakeHandle, oneLink, operationOf, timedOutOutcome } from "../support/managed_link.ts";
 import { OPEN_ROOM_POLICY, PRIVATE_ROOM_POLICY } from "../../lib/room/policy.ts";
 import { ManagedOperation } from "../../web/ui/session/managed/operation.ts";
-import type { RoomsManagedCommand } from "../../../../zig-out/wasm/rooms/rooms_browser.js";
 import type { WorkspaceSnapshot } from "../../web/ui/session/managed/model.ts";
 import { ManagedActions } from "../../web/ui/session/managed/actions.ts";
-import type { ManagedRoomsSession } from "../../web/ui/session/managed/session.ts";
 import { initializeApplication } from "../support/application.ts";
 
 await initializeApplication();
@@ -30,27 +30,21 @@ Deno.test("a direct opening makes one call and waits for its inbox or failure", 
 			standing: null,
 		});
 		const openings: string[] = [];
-		const session = {
-			execute: async (
-				_id: string,
-				prepare: () => Promise<ManagedOperation>,
-				complete: (op: ManagedOperation) => Promise<void>,
-				continuation?: { settled(): Promise<void> },
-			) => {
-				await complete(await prepare());
-				await continuation?.settled();
-			},
-			refresh: () => Promise.resolve(current),
-			workspace: {
-				directoryReader: () =>
-					Promise.resolve({ memberRegistration: () => Promise.resolve("peer"), free() {} }),
-			},
+		const workspace = {
+			directoryReader: () => Promise.resolve({ memberRegistration: () => Promise.resolve("peer"), free() {} }),
+		};
+		const session = actionSession(workspace, {
+			readBeforeSending: () => Promise.resolve(current),
+			readNow: () => Promise.resolve(current),
 			command: (_name: string, args: string[]) => {
 				openings.push(args[3]);
 				submitted.resolve();
-				return Promise.resolve({ id: "conversation", result: () => answer.promise });
+				return Promise.resolve(
+					fakeHandle<ManagedOperation>({ id: "conversation", result: () => answer.promise }),
+				);
 			},
-			completeResult: () => {
+			completeResult: async (command) => {
+				await command.result();
 				current.intent.conversations.push({
 					kind: "direct",
 					id: "conversation",
@@ -67,10 +61,9 @@ Deno.test("a direct opening makes one call and waits for its inbox or failure", 
 						opening: openings[0],
 					},
 				});
-				return Promise.resolve();
 			},
-		} as unknown as ManagedRoomsSession;
-		const work = new ManagedActions(session).direct("directory", "bob", false);
+		});
+		const work = new ManagedActions(session, oneLink(workspace)).direct("directory", "bob", false);
 		const completion = Promise.allSettled([work]);
 		await submitted.promise;
 		assertEquals(openings.length, 1);
@@ -118,28 +111,20 @@ Deno.test("named direct contact reuses the open row of the current registration 
 		});
 		const calls: string[] = [];
 		let opening = "";
-		const session = {
-			execute: async (
-				_id: string,
-				prepare: () => Promise<ManagedOperation>,
-				complete: (op: ManagedOperation) => Promise<void>,
-				continuation?: { settled(): Promise<void> },
-			) => {
-				await complete(await prepare());
-				await continuation?.settled();
-			},
-			refresh: () => Promise.resolve(structuredClone(current)),
-			workspace: {
-				directoryReader: () =>
-					Promise.resolve({
-						memberRegistration: () => {
-							calls.push("lookup");
-							if (change === "lookup") current.intent.directories[0].name = "replacement-name";
-							return Promise.resolve("current-peer");
-						},
-						free: () => calls.push("free"),
-					}),
-			},
+		const workspace = {
+			directoryReader: () =>
+				Promise.resolve({
+					memberRegistration: () => {
+						calls.push("lookup");
+						if (change === "lookup") current.intent.directories[0].name = "replacement-name";
+						return Promise.resolve("current-peer");
+					},
+					free: () => calls.push("free"),
+				}),
+		};
+		const session = actionSession(workspace, {
+			readBeforeSending: () => Promise.resolve(structuredClone(current)),
+			readNow: () => Promise.resolve(structuredClone(current)),
 			command: (
 				name: string,
 				args: string[],
@@ -152,10 +137,10 @@ Deno.test("named direct contact reuses the open row of the current registration 
 				if (change === "prepare") current.intent.directories[0].name = "replacement-name";
 				validate(current);
 				calls.push("introduce");
-				return Promise.resolve({
+				return Promise.resolve(fakeHandle<ManagedOperation>({
 					id: "new-conversation",
 					result: () => Promise.resolve({ inbox: "actual-result" }),
-				});
+				}));
 			},
 			completeResult: () => {
 				calls.push("acquire");
@@ -177,8 +162,8 @@ Deno.test("named direct contact reuses the open row of the current registration 
 				});
 				return Promise.resolve();
 			},
-		} as unknown as ManagedRoomsSession;
-		const direct = new ManagedActions(session).direct("directory", "bob", false);
+		});
+		const direct = new ManagedActions(session, oneLink(workspace)).direct("directory", "bob", false);
 		if (change === "lookup" || change === "prepare") {
 			await direct.then(() => {
 				throw new Error("replaced registration was reused");
@@ -215,12 +200,17 @@ for (const existing of [true, false]) {
 		const original = structuredClone(accepted);
 		const started = deferred<void>();
 		const finish = deferred<void>();
-		let candidate!: WorkspaceSnapshot["intent"];
+		let candidate: WorkspaceSnapshot["intent"] | undefined;
+		const prepared = () => {
+			assert(candidate != null, "the acquisition was prepared");
+			return candidate;
+		};
 		let preparations = 0;
 		let submissions = 0;
 		let frees = 0;
 		const session = viewer({
 			snapshot: () => Promise.resolve(accepted),
+			custodyRecipe: () => Promise.resolve("ocapn://127.0.0.1%3A1234.tcp/s/cm9vbQ"),
 			prepareAcquisition: (
 				revision: string,
 				imports: string,
@@ -239,15 +229,15 @@ for (const existing of [true, false]) {
 				);
 				const initiating = JSON.parse(source);
 				assertEquals(initiating.role, "sessionAccess");
-				assertEquals(candidate.conversations[0].source, initiating.key);
-				if (!existing) assertEquals(candidate.directories[0].source, initiating.key);
+				assertEquals(prepared().conversations[0].source, initiating.key);
+				if (!existing) assertEquals(prepared().directories[0].source, initiating.key);
 				return Promise.resolve({
 					async submit() {
 						submissions++;
 						started.resolve();
 						await finish.promise;
-						if (submissions === 1) throw new Error("Acquisition acknowledgment unavailable");
-						accepted.intent = candidate;
+						if (submissions === 1) return timedOutOutcome();
+						accepted.intent = prepared();
 						return { status: "committed" };
 					},
 					free() {
@@ -256,7 +246,7 @@ for (const existing of [true, false]) {
 				});
 			},
 		});
-		await session.refresh();
+		await session.readNow();
 		const joining = session.actions.roomLink(directory, "ocapn://127.0.0.1%3A1234.tcp/s/cm9vbQ", "garden", {
 			route: "127.0.0.1:1234",
 			nick: { kind: "exact", name: "visitor" },
@@ -264,10 +254,10 @@ for (const existing of [true, false]) {
 		});
 		await started.promise;
 		assertEquals(accepted, original, "pending acquisition leaked a nickname or directory change");
-		assertEquals(candidate.directories[0].nick, "visitor");
-		assertEquals(candidate.directories[0].nickAllocation, "exact");
-		assertEquals(candidate.directories[0].assignedNick, undefined);
-		const selected = candidate.conversations[0];
+		assertEquals(prepared().directories[0].nick, "visitor");
+		assertEquals(prepared().directories[0].nickAllocation, "exact");
+		assertEquals(prepared().directories[0].assignedNick, undefined);
+		const selected = prepared().conversations[0];
 		assert(selected.kind === "room", "The acquired conversation must be a room");
 		assertEquals(selected.name, "garden");
 		finish.resolve();
@@ -275,7 +265,7 @@ for (const existing of [true, false]) {
 			() => {
 				throw new Error("The first submission must report its refusal");
 			},
-			(error) => assertEquals(error.message, "Acquisition acknowledgment unavailable"),
+			(error) => assertEquals(error.message, managedSessionText.acquisitionUnknown),
 		);
 		assertEquals(accepted, original, "refused acquisition leaked partial intent");
 		assertEquals(frees, 0, "refusal must retain the original acquisition");
@@ -303,7 +293,7 @@ for (const policy of [OPEN_ROOM_POLICY, PRIVATE_ROOM_POLICY]) {
 		const session = viewer({ snapshot: () => Promise.resolve(accepted) });
 		let candidate: WorkspaceSnapshot | undefined;
 		let args: string[] = [];
-		const operation = new ManagedOperation("original", {
+		const operation = operationOf("original", {
 			originalIntent: () => ["original", 1, "openManagedRoom", args],
 			adopted: () => Promise.resolve(false),
 			result: () => Promise.resolve({ room: "original-room", control: "original-control" }),
@@ -315,12 +305,12 @@ for (const policy of [OPEN_ROOM_POLICY, PRIVATE_ROOM_POLICY]) {
 			) => {
 				candidate = { revision: accepted.revision, intent: JSON.parse(intent), addresses: [] };
 				return Promise.resolve({
-					submit: () => Promise.reject(new Error("acquisition acknowledgement missing")),
+					submit: () => Promise.resolve(timedOutOutcome()),
 					free() {},
 				});
 			},
 			free() {},
-		} as unknown as RoomsManagedCommand);
+		});
 		session.command = (_name, submitted) => {
 			args = submitted ?? [];
 			return Promise.resolve(operation);

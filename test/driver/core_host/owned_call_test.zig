@@ -132,6 +132,40 @@ test "core host: retired actor remote release waits for the outer Vat boundary" 
     }
 }
 
+// The Host reports a session that closed under an operation as that kind of
+// failure and names no cause it did not establish. The operation that owns a
+// live carrier over the closed one names it: a loam restoration does, in
+// `test/loam/access/reference_test.zig`.
+test "core host: an owned call and an enliven over a session that closes report the same close" {
+    var client = support.init(a, @splat(0x53), driver.Host.Options.init(.unchecked, h.frame_cap));
+    defer client.deinit();
+    var server = support.init(a, @splat(0x54), driver.Host.Options.init(.unchecked, h.frame_cap));
+    defer server.deinit();
+    var dials: std.ArrayList(h.ParkedDial) = .empty;
+    defer dials.deinit(a);
+    const pair = try h.openPair(a, &client, &server, "127.0.0.1:7912", &dials);
+    var calls: usize = 0;
+    const actor = try server.sessionPublish(pair.b, "echo", driver.Hosting(Echo), .{ .inner = .{ .calls = &calls } });
+    defer server.releaseCapability(actor, 1) catch unreachable;
+    const fetched = try client.enlivenCapability(a, h.tcpSturdyref("127.0.0.1:7912", "echo"));
+    defer fetched.deinit();
+    try h.pumpToQuiescence(a, &.{ &client, &server }, &.{pair}, &dials);
+    const target = fetched.result().ready.capability;
+    const owned = try client.callCapability(a, pair.a, target, "echo", &.{.{ .string = "unanswered" }}, 4096);
+    defer owned.deinit();
+    const enlivened = try client.enlivenCapability(a, h.tcpSturdyref("127.0.0.1:7912", "unanswered"));
+    defer enlivened.deinit();
+    try std.testing.expect(owned.result() == .pending and enlivened.result() == .pending);
+    try client.releaseSession(pair.a);
+    const call_failure = owned.result().failed;
+    const enliven_failure = enlivened.result().failed;
+    try std.testing.expectEqual(driver.VowFailure.closed, call_failure.kind);
+    try std.testing.expectEqual(driver.VowFailure.closed, enliven_failure.kind);
+    try std.testing.expectEqual(glowcap.foundation.break_cause.BreakCause{}, call_failure.cause);
+    try std.testing.expectEqual(glowcap.foundation.break_cause.BreakCause{ .context = .{ .fetch = true } }, enliven_failure.cause);
+    try std.testing.expectEqual(@as(usize, 0), calls);
+}
+
 test "core host: owned call retains nested remote capabilities beside public completion" {
     var client = support.init(a, @splat(0x51), driver.Host.Options.init(.unchecked, h.frame_cap));
     defer client.deinit();

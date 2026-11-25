@@ -1,6 +1,9 @@
 //! A harness runs in its own process group so one signal ends the harness and
 //! every process still in that group. A process that leaves the group, as one
-//! started with `setsid` does, is not ended. While it runs, the bot records the group in its own
+//! started with `setsid` does, is not ended, and Claude Code, Codex, and Pi
+//! each start the agent's tool commands in a session of their own, so no
+//! verb or other command the agent ran is reached by this signal: a verb ends
+//! by its own budget, and any other command by nothing here. While it runs, the bot records the group in its own
 //! directory, `<bot>/groups/<conversation>`, out of the harness's reach,
 //! together with what identifies the group's leader beyond its number. A
 //! restarted bot ends a group a killed bot left behind only when that identity
@@ -16,7 +19,7 @@
 //! first write. One that does neither runs on, because finding it would mean
 //! scanning every process. A group whose leader has exited while other members
 //! live is left alone too, since nothing confirms who those members are.
-use super::error::Error;
+use super::{error::Error, store::Store, words::ENDED_GROUP};
 use nix::{
 	errno::Errno,
 	sys::signal::{Signal, killpg},
@@ -41,24 +44,142 @@ struct Record {
 	identity: Option<Identity>,
 }
 
+/// What `/proc/<pid>/stat` says of a process: its state letter and its start
+/// time in clock ticks since boot.
+#[cfg(target_os = "linux")]
+struct Stat {
+	state: char,
+	start: u64,
+}
+
+#[cfg(target_os = "linux")]
+fn stat(pid: u32) -> Result<Stat, std::io::Error> {
+	let text = std::fs::read_to_string(format!("/proc/{pid}/stat"))?;
+	// The command name may hold spaces and parentheses, so fields are counted
+	// from the last closing parenthesis. The state is field 3 and the start
+	// time field 22.
+	let unreadable = || std::io::Error::other("not a /proc stat line");
+	let (_, fields) = text.rsplit_once(')').ok_or_else(unreadable)?;
+	let mut fields = fields.split_whitespace();
+	let state = fields
+		.next()
+		.and_then(|state| state.chars().next())
+		.ok_or_else(unreadable)?;
+	let start = fields
+		.nth(18)
+		.and_then(|start| start.parse().ok())
+		.ok_or_else(unreadable)?;
+	Ok(Stat { state, start })
+}
+
+#[cfg(target_os = "linux")]
+fn boot_id() -> Result<String, std::io::Error> {
+	Ok(std::fs::read_to_string("/proc/sys/kernel/random/boot_id")?
+		.trim()
+		.to_owned())
+}
+
 /// The identity of a running process, where the platform gives one.
 #[cfg(target_os = "linux")]
 pub fn identity(pid: u32) -> Option<Identity> {
-	let boot = std::fs::read_to_string("/proc/sys/kernel/random/boot_id").ok()?;
-	let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
-	// The command name may hold spaces and parentheses, so fields are counted
-	// from the last closing parenthesis. The start time is field 22.
-	let (_, fields) = stat.rsplit_once(')')?;
-	let start = fields.split_whitespace().nth(19)?.parse().ok()?;
 	Some(Identity {
-		boot: boot.trim().to_owned(),
-		start,
+		boot: boot_id().ok()?,
+		start: stat(pid).ok()?.start,
 	})
 }
 
 #[cfg(not(target_os = "linux"))]
 pub fn identity(_pid: u32) -> Option<Identity> {
 	None
+}
+
+/// A verb process as it wrote itself into its claim: its number, what tells
+/// it apart from a later process with that number, and the process-number
+/// namespace the number is in. The number means something only to a reader in
+/// the same namespace, so a reader in another never judges it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Verb {
+	pid: u32,
+	identity: Identity,
+	namespace: String,
+}
+
+/// Whether a recorded verb process is still running, as far as the reader can
+/// tell.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Presence {
+	/// The process runs.
+	Alive,
+	/// Definitely not running: no such process, another process with that
+	/// number (a different start time), a process that has ended and waits to
+	/// be reaped, or a different boot.
+	Gone,
+	/// The reader cannot tell, for the reason given: a platform with no
+	/// evidence, a namespace that is not the writer's, or a read that failed.
+	Unknown(String),
+}
+
+#[cfg(target_os = "linux")]
+fn namespace() -> Result<String, std::io::Error> {
+	Ok(std::fs::read_link("/proc/self/ns/pid")?.to_string_lossy().into_owned())
+}
+
+impl Verb {
+	/// This process, or none where the platform or a failed read gives no
+	/// evidence. A claim written then names no verb and stays with its verb.
+	pub fn this_process() -> Option<Self> {
+		Self::of(std::process::id())
+	}
+
+	/// The process `pid`, in this process's namespace, as it runs now.
+	#[cfg(target_os = "linux")]
+	pub fn of(pid: u32) -> Option<Self> {
+		Some(Self {
+			pid,
+			identity: identity(pid)?,
+			namespace: namespace().ok()?,
+		})
+	}
+
+	#[cfg(not(target_os = "linux"))]
+	pub fn of(_pid: u32) -> Option<Self> {
+		None
+	}
+
+	/// Whether the recorded process runs. Only a definite "no such process, or
+	/// another start" reads as gone, so a read that fails or a namespace that
+	/// is not the reader's leaves the verb holding its claim.
+	///
+	/// A process number is reused only after the numbers wrap, and a process
+	/// that takes the number later starts later in the same boot (and in
+	/// another boot has another boot id), so the pair of number and start time
+	/// names one process for ever.
+	#[cfg(target_os = "linux")]
+	pub fn presence(&self) -> Presence {
+		let unreadable = |what: &str, error: std::io::Error| Presence::Unknown(format!("{what}: {error}"));
+		match namespace() {
+			Ok(own) if own == self.namespace => {}
+			Ok(_) => return Presence::Unknown("the verb runs in another process-number namespace".into()),
+			Err(error) => return unreadable("reading this process's namespace", error),
+		}
+		match boot_id() {
+			Ok(boot) if boot != self.identity.boot => return Presence::Gone,
+			Ok(_) => {}
+			Err(error) => return unreadable("reading the boot id", error),
+		}
+		match stat(self.pid) {
+			Ok(Stat { state: 'Z' | 'X', .. }) => Presence::Gone,
+			Ok(Stat { start, .. }) if start != self.identity.start => Presence::Gone,
+			Ok(_) => Presence::Alive,
+			Err(error) if error.kind() == std::io::ErrorKind::NotFound => Presence::Gone,
+			Err(error) => unreadable("reading the verb's process", error),
+		}
+	}
+
+	#[cfg(not(target_os = "linux"))]
+	pub fn presence(&self) -> Presence {
+		Presence::Unknown("this platform gives no way to tell whether a process runs".into())
+	}
 }
 
 fn pid(raw: u32) -> Result<Pid, Error> {
@@ -150,7 +271,7 @@ pub enum Reaped {
 	/// No process holds the group any more.
 	Gone,
 	/// The group may still run, but nothing confirms it is the recorded one.
-	Left(u32, &'static str),
+	Left(u32, String),
 	/// The record is not one the bot writes.
 	Discarded(String),
 }
@@ -180,15 +301,42 @@ pub fn reap(record: &Path) -> Reaped {
 		return Reaped::Gone;
 	}
 	let Some(recorded) = recorded else {
-		return Reaped::Left(group, "this platform gives no way to confirm the group's leader");
+		return Reaped::Left(group, "this platform gives no way to confirm the group's leader".into());
 	};
 	if identity(group).as_ref() != Some(&recorded) {
-		return Reaped::Left(group, "its leader is gone or is another process now");
+		return Reaped::Left(group, "its leader is gone or is another process now".into());
 	}
-	match kill(group) {
+	signalled(group, kill(group))
+}
+
+/// What a restart did once it signalled a group whose leader it confirmed. A
+/// signal that failed names its cause, so the log says why the group stayed.
+fn signalled(group: u32, killed: Result<(), Error>) -> Reaped {
+	match killed {
 		Ok(()) => Reaped::Ended(group),
-		Err(_) => Reaped::Left(group, "the group could not be signalled"),
+		Err(error) => Reaped::Left(group, format!("the group could not be signalled: {error}")),
 	}
+}
+
+/// End harness groups a killed bot left running, where their leader is
+/// confirmed, and clear every record. `serve` does it before it reads or
+/// writes anything a left harness could still change.
+pub fn reap_all(store: &Store) -> Result<(), Error> {
+	let groups = store.groups()?;
+	let entries = std::fs::read_dir(&groups).map_err(Error::io("listing harness group records"))?;
+	for entry in entries {
+		let path = entry.map_err(Error::io("listing harness group records"))?.path();
+		match reap(&path) {
+			Reaped::Gone => {}
+			Reaped::Ended(id) => store.log(&format!("{ENDED_GROUP} {id}, left running by a killed bot")),
+			Reaped::Left(id, why) => store.log(&format!("left harness group {id} alone: {why}")),
+			Reaped::Discarded(why) => store.log(&format!("discarded {}: {why}", path.display())),
+		}
+		if let Err(error) = forget(&path) {
+			store.log(&format!("removing {}: {error}", path.display()));
+		}
+	}
+	Ok(())
 }
 
 #[cfg(test)]

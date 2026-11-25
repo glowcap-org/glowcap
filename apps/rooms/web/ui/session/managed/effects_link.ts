@@ -1,95 +1,102 @@
 // What a retained change does when the link to its session is replaced under it.
 // The session's own record of the change is found again by its operation id over
-// the new link, and the work goes on with that record. Nothing is prepared or
-// sent a second time.
+// the new link, and the work goes on with that record. Nothing is sent a second
+// time.
 import { connectionLost, LocalRefusal } from "../../../../lib/text/failure.ts";
-import type { RoomsManagedCommand } from "../../../../../../zig-out/wasm/rooms/rooms_browser.js";
+import { managedSessionText as managedText } from "../../../../lib/text/managed_session.ts";
 import type { ManagedEffects } from "./effects.ts";
-import { isRetainedCommandIntent } from "./admission.ts";
-import { ManagedOperation, ReceiptRetired } from "./operation.ts";
+import { ManagedOperation, ResultExpired } from "./operation.ts";
 import { resumeEffect } from "./recovery.ts";
+import type { ReleaseBound } from "./release.ts";
 
 /** Run `work` over the receipt `id`, and again over the new link each time a
- * lost connection ends it, for as long as the page is dialing. Any other
- * failure ends the work. */
+ * lost connection ends it, for as long as the page is dialing. The work is run
+ * more than once, so it is safe to run twice. Any other
+ * failure ends the work. Its runs share one release bound
+ * (`ManagedOperation.releaseBound`), which ends with the gesture however it
+ * ends. */
 export async function surviving<T>(
 	effects: ManagedEffects,
 	id: string,
 	held: ManagedOperation | null,
 	work: (operation: ManagedOperation) => Promise<T>,
 ): Promise<T> {
+	const { environment } = effects;
+	const bound: ReleaseBound = { deadline: null };
+	const ran = new Set<ManagedOperation>();
 	let operation = held;
-	while (!effects.environment.stopped()) {
-		try {
-			operation ??= await effects.resume(id);
-			return await work(operation);
-		} catch (error) {
-			if (!await returned(effects, operation ?? effects.held(id), error)) throw error;
-			operation = null;
+	let current: ManagedOperation | null = null;
+	try {
+		while (!environment.stopped()) {
+			try {
+				operation ??= await effects.resume(id);
+				const running = operation;
+				current = running;
+				ran.add(running);
+				running.releaseBound = bound;
+				return await environment.overStamped(running.stamp, () => work(running));
+			} catch (error) {
+				if (!await environment.relinkedAfter(error)) throw error;
+				// A receipt the page finished is kept: its result is in place, and the work
+				// that is left needs no lookup of it over the new link.
+				operation = current?.finished ? current : null;
+			}
 		}
+		throw new LocalRefusal("session-closed");
+	} finally {
+		for (const run of ran) if (run.releaseBound === bound) run.releaseBound = null;
 	}
-	throw new LocalRefusal("session-closed");
 }
 
-/** Whether `error` was a lost connection, and a new link is now live. */
-export async function returned(
-	effects: ManagedEffects,
-	operation: ManagedOperation | undefined,
-	error: unknown,
-): Promise<boolean> {
-	if (!connectionLost(error)) return false;
-	effects.environment.lost(error, operation?.link ?? effects.environment.generation());
-	return await effects.environment.relinked();
-}
-
-/** Move a receipt held over a replaced link onto the new one, and say whether
- * the session still holds it. The session's record is resumed, and becomes
- * what the same operation reads, so whoever settles or completes the operation
- * goes on with it. False is exact absence. */
-async function reclaim(effects: ManagedEffects, operation: ManagedOperation): Promise<boolean> {
+/** Move a receipt held over a replaced link onto the current one, so whoever
+ * settles or completes the operation goes on with it. A lookup the new link
+ * drops under is made again over the next one. With no record there, the page
+ * cannot tell whether the change landed, and never sends it again, because the
+ * session forbids a second submission under one id. The record is forgotten
+ * only once its absence is proved, and that verdict is what the gesture hears,
+ * whatever the read after it meets. */
+export async function rehome(effects: ManagedEffects, operation: ManagedOperation): Promise<ManagedOperation> {
 	const { environment } = effects;
 	while (!environment.stopped()) {
-		const link = environment.generation();
-		if (operation.link === link) return true;
-		const recovered = await effects.workspace.recoverEffect(operation.id);
-		if (link !== environment.generation() || operation.link === link) {
-			// Another path moved it, or the link was replaced again meanwhile.
-			recovered?.free();
-			continue;
+		if (environment.isCurrent(operation.stamp)) return operation;
+		try {
+			const { recovered, link } = await environment.over(async (link) => ({
+				recovered: await link.workspace.recoverEffect(operation.id),
+				link,
+			}));
+			if (!environment.isCurrent(link) || environment.isCurrent(operation.stamp)) {
+				// Another path moved it, or the link was replaced again meanwhile.
+				recovered?.free();
+				continue;
+			}
+			if (recovered == null) return absent(effects, operation);
+			await operation.rebind(recovered, link);
+			await environment.overStamped(link, () =>
+				resumeEffect(
+					recovered,
+					() => effects.finish(operation),
+					(observed) => operation.observeStatus(observed),
+				));
+			return operation;
+		} catch (error) {
+			if (!await environment.relinkedAfter(error)) throw error;
 		}
-		if (recovered == null) return false;
-		await operation.rebind(recovered, link);
-		await resumeEffect(recovered, () => effects.finish(operation), (observed) => operation.observeStatus(observed));
-		return true;
 	}
 	throw new LocalRefusal("session-closed");
 }
 
-/** Move a receipt onto the new link. Exact absence means another viewer adopted
- * and retired it. */
-export async function rehome(effects: ManagedEffects, operation: ManagedOperation): Promise<ManagedOperation> {
-	if (await reclaim(effects, operation)) return operation;
+/** The session holds no record of `operation`: forget it, redraw what the
+ * session holds, and throw what the gesture hears. */
+async function absent(effects: ManagedEffects, operation: ManagedOperation): Promise<never> {
+	const committed = operation.committed;
 	effects.finish(operation);
-	await effects.refresh();
-	throw new ReceiptRetired();
-}
-
-/** How a command sent as its link broke goes out again, or null when the
- * session holds a trace of it, which is then adopted and settles it. With no
- * trace the old request is released, and the same operation id is prepared again
- * over the new link. A plain command keeps its original base, so the session
- * lands it once or refuses it as stale. Any other change prepares as it first
- * did, which reads the session's state anew. */
-export async function resend(
-	effects: ManagedEffects,
-	held: ManagedOperation | undefined,
-	prepare: () => Promise<RoomsManagedCommand>,
-): Promise<(() => Promise<RoomsManagedCommand>) | null> {
-	if (held == null || await reclaim(effects, held)) return null;
-	const intent = held.request.originalIntent();
-	held.finish();
-	if (!isRetainedCommandIntent(intent)) return prepare;
-	const args = intent[3].filter((arg): arg is string => typeof arg === "string");
-	if (args.length !== intent[3].length) return prepare;
-	return () => effects.workspace.prepareCommand(held.id, String(intent[1]), intent[2], args);
+	// Tolerant by design, unlike `Committed.readOr`: the verdict thrown below is
+	// the gesture's outcome whatever this read meets, and a loss here must not
+	// replace it with a rerun of a gesture that has no record to rerun.
+	await effects.readNow().catch((error: unknown) => {
+		// A lost connection was charged where it happened, and the link's notice
+		// says so. The next answer redraws the page.
+		if (!connectionLost(error)) effects.environment.report(managedText.resultRecovery, error);
+	});
+	throw committed ? new ResultExpired() : new LocalRefusal("receipt-lost");
 }

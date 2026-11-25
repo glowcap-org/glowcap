@@ -90,9 +90,9 @@ an earlier run out of the new one.
 
 Checking a change's status, reading its receipt or adopting its result needs
 the original change's permissions and its exact source witness. A
-collaborator can finish their own drafts and actions. Listing pending changes,
-recovering the original request, resuming its executor and releasing a
-receipt all need `ResolvePending`.
+collaborator can finish their own drafts and actions, read back the original
+request of their own receipts, and release those receipts. Listing pending changes
+and resuming an executor need `ResolvePending`.
 
 A receipt can be final while its executor is still held, when the outcome
 commits before the worker sees the reply. Recovery carries that same executor
@@ -220,8 +220,10 @@ source's edit and issue limits. Sharing management creates a separate,
 narrower control with the chosen powers.
 
 Revocation ends access for good. Its grant record stays as a tombstone, so an
-old link or ID can never reach access issued later, and the issuer's inventory
-lists it as revoked. Revoking from the editor also removes its row. Removing a
+old link or ID can never reach access issued later. The terminal's list shows
+it as revoked, and the editor's **Created from this access** leaves it out.
+
+Revoking from the editor also removes its row. Removing a
 row is a separate act that releases the saved row and leaves the access
 untouched. A live row asks first, because removal gives up the only way to
 manage it from this workspace. The workspace's own control is never removed.
@@ -236,9 +238,13 @@ Powers fixed when a grant is issued cannot be added later.
 controls. `issue` creates an access with observer, collaborator, or
 administrator rights and prints its link once. `list`, `pause`, `resume`,
 `revoke`, and `forget` act on an access by the id `list` shows. The running
-session holds each access's control in its workspace rows, so the page and the
-terminal list one set. The [bot guide](bot.md) uses these accesses to attach a
-coding agent.
+session holds each access's control, and a browser attached to the session
+holds only the controls it was given.
+
+`share-management` prints the link to
+one access's control, which carries the lifecycle powers the access was issued
+with. A browser that adds that link manages the access beside the terminal.
+The [bot guide](bot.md) uses these accesses to attach a coding agent.
 
 ## Evidence and costs
 

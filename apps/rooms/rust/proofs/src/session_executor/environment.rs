@@ -33,10 +33,23 @@ pub(super) struct Platform {
 	/// write parks at this gate, so a scenario that expects a parked request
 	/// to expire never races the timer against the write itself.
 	pub deadline_after_parking: Rc<RefCell<Option<super::gate::Gate>>>,
+	/// While set, every bounded wait has expired: one in flight ends when this
+	/// is set, and one that starts while it stays set ends at once. A scenario
+	/// sets it once its request waits where it means the deadline to land.
+	pub expired: Suspension,
 	pub suspended: Suspension,
 	pub observation_suspended: Suspension,
 	pub refuse_observation: Rc<Cell<bool>>,
 	pub refused_observations: Rc<Cell<usize>>,
+	/// While set, `expired` and `refuse_observation` reach only the bounded
+	/// waits whose result type's name holds this text, so a scenario names
+	/// the one observation it means to end and the others run.
+	pub only: Rc<Cell<Option<&'static str>>>,
+	/// How many bounded waits `expired` ended.
+	pub expired_waits: Rc<Cell<usize>>,
+	/// While set, bounded waits expire on this scenario clock. A fixture
+	/// advances it when the operation under observation reaches the room.
+	pub clock_ms: Rc<RefCell<Option<tokio::sync::watch::Sender<u64>>>>,
 	pub tasks: Rc<RefCell<Vec<tokio::task::AbortHandle>>>,
 }
 /// Suspension waits for a state change. Self-waking microtasks can prevent a
@@ -55,6 +68,12 @@ impl Suspension {
 	pub(super) async fn wait(&self) {
 		let mut state = self.0.subscribe();
 		while *state.borrow_and_update() {
+			state.changed().await.expect("suspension retains its sender");
+		}
+	}
+	async fn until_set(&self) {
+		let mut state = self.0.subscribe();
+		while !*state.borrow_and_update() {
 			state.changed().await.expect("suspension retains its sender");
 		}
 	}
@@ -83,10 +102,32 @@ impl Deadline for Platform {
 		}
 	}
 	async fn within<T>(&self, ms: u64, work: impl core::future::Future<Output = T>) -> Option<T> {
-		if self.refuse_observation.get() {
+		let targeted = self
+			.only
+			.get()
+			.is_none_or(|name| std::any::type_name::<T>().contains(name));
+		if targeted && self.refuse_observation.get() {
 			self.refused_observations.set(self.refused_observations.get() + 1);
 			return None;
 		}
+		tokio::select! {
+			biased;
+			() = async {
+				if targeted {
+					self.expired.until_set().await;
+				} else {
+					core::future::pending::<()>().await;
+				}
+			} => {
+				self.expired_waits.set(self.expired_waits.get() + 1);
+				None
+			}
+			result = self.observe(ms, work) => result,
+		}
+	}
+}
+impl Platform {
+	async fn observe<T>(&self, ms: u64, work: impl core::future::Future<Output = T>) -> Option<T> {
 		self.observation_suspended.wait().await;
 		tokio::pin!(work);
 		if let Some(short) = self.deadline_ms.get() {
@@ -99,9 +140,16 @@ impl Deadline for Platform {
 		}
 		self.bounded(ms, work).await
 	}
-}
-impl Platform {
 	async fn bounded<T>(&self, ms: u64, work: impl core::future::Future<Output = T>) -> Option<T> {
+		let clock = self.clock_ms.borrow().as_ref().map(|clock| clock.subscribe());
+		if let Some(mut clock) = clock {
+			let end = *clock.borrow() + ms;
+			return tokio::select! {
+				biased;
+				_ = clock.wait_for(|now| *now >= end) => None,
+				result = work => Some(result),
+			};
+		}
 		let parking = self.deadline_after_parking.borrow().clone();
 		match parking {
 			None => within(ms, work).await,

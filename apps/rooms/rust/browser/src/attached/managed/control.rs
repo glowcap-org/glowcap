@@ -69,7 +69,7 @@ fn policy_values(values: &[Permission]) -> Result<PolicyValue> {
 #[wasm_bindgen]
 pub struct RoomsManagedControl {
 	driver: Driver,
-	control: Held<Control<Platform>>,
+	pub(super) control: Held<Control<Platform>>,
 	pub(super) home: PublicationHome,
 }
 impl RoomsManagedControl {
@@ -77,16 +77,13 @@ impl RoomsManagedControl {
 		let control = driver.hold(control, size_of::<Control<Platform>>())?;
 		Ok(Self { driver, control, home })
 	}
-	pub(super) fn reference(&self) -> &Ref {
-		self.control.reference()
-	}
 }
 #[wasm_bindgen]
 impl RoomsManagedControl {
 	/// Share this exact control, including an issued or attenuated local branch.
 	/// Attached and restored handles retain authority without assuming a home.
 	pub fn publish(&self) -> js_sys::Promise {
-		self.home.publish(&self.driver, self.reference())
+		self.publication().publish(&self.driver)
 	}
 	pub fn describe(&self) -> js_sys::Promise {
 		let control = self.control.clone();
@@ -185,6 +182,62 @@ impl RoomsManagedControl {
 				home,
 			}
 			.into())
+		})
+	}
+	/// The share `issuance` prepared, through this control. A share prepared over
+	/// a link that was since replaced goes on through its control restored from
+	/// the same saved row over the new link. The caller chooses that control,
+	/// because nothing here checks the row. The request keeps its sequence, so
+	/// the session issues at most one access for it and answers a share it
+	/// already issued with that same access.
+	#[wasm_bindgen(js_name = resumeIssue)]
+	pub fn resume_issue(&self, issuance: &RoomsManagedIssuance) -> RoomsManagedIssuance {
+		RoomsManagedIssuance {
+			driver: self.driver.clone(),
+			control: self.control.clone(),
+			request: issuance.request.clone(),
+			home: self.home.clone(),
+		}
+	}
+	/// `edit`, prepared under this control's saved row over a replaced
+	/// connection, sent through this control instead. The request keeps its
+	/// sequence and revision, so the session applies it at most once and
+	/// answers one it already took with what it recorded.
+	#[wasm_bindgen(js_name = resumeEdit)]
+	pub fn resume_edit(&self, edit: &RoomsManagedEdit) -> std::result::Result<RoomsManagedEdit, JsValue> {
+		let request = edit.request.through(&self.control);
+		let bytes = request.retained_bytes();
+		let request = self
+			.driver
+			.hold(request, bytes)
+			.map_err(|error| crate::failure::js_error(&error))?;
+		Ok(RoomsManagedEdit {
+			driver: self.driver.clone(),
+			request,
+		})
+	}
+	/// `attenuation`, prepared under this control's saved row over a replaced
+	/// connection, sent through this control instead. The request keeps its
+	/// sequence and powers, so the session makes at most one control for it and
+	/// answers one it already made with that same control.
+	#[wasm_bindgen(js_name = resumeAttenuation)]
+	pub fn resume_attenuation(
+		&self,
+		attenuation: &RoomsManagedAttenuation,
+	) -> std::result::Result<RoomsManagedAttenuation, JsValue> {
+		let request = Attenuation {
+			control: self.control.clone(),
+			sequence: attenuation.request.sequence,
+			powers: attenuation.request.powers,
+			home: self.home.clone(),
+		};
+		let request = self
+			.driver
+			.hold(request, size_of::<Attenuation>())
+			.map_err(|error| crate::failure::js_error(&error))?;
+		Ok(RoomsManagedAttenuation {
+			driver: self.driver.clone(),
+			request,
 		})
 	}
 	#[wasm_bindgen(js_name = preparePolicy)]
@@ -296,19 +349,15 @@ impl RoomsManagedIssuance {
 				Ok(issued) => issued,
 				Err(error) => return super::outcome::failed(error),
 			};
-			let host = environment.runtime.host().clone();
-			let workspace = Workspace::local(host.clone(), environment.platform.clone(), issued.access);
+			let workspace = super::served::workspace_at(&environment, &home, issued.access);
 			let workspace = driver.hold(workspace, size_of::<Workspace<Platform>>())?;
 			let workspace = RoomsManagedWorkspace {
 				driver: driver.clone(),
 				workspace,
 				home: home.clone(),
 			};
-			let control = RoomsManagedControl::new(
-				driver,
-				Control::local(host, environment.platform.clone(), issued.control),
-				home,
-			)?;
+			let control = super::served::control_at(&environment, &home, issued.control);
+			let control = RoomsManagedControl::new(driver, control, home)?;
 			let output = json(r#"{"status":"committed"}"#)?;
 			super::super::view::set(&output, "access", workspace.into())?;
 			super::super::view::set(&output, "control", control.into())?;
@@ -360,16 +409,8 @@ impl RoomsManagedAttenuation {
 				.attenuate(request.sequence, request.powers)
 				.await
 				.map_err(RuntimeError::from)?;
-			RoomsManagedControl::new(
-				driver,
-				Control::local(
-					environment.runtime.host().clone(),
-					environment.platform.clone(),
-					reference,
-				),
-				request.home.clone(),
-			)
-			.map(Into::into)
+			let control = super::served::control_at(&environment, &request.home, reference);
+			RoomsManagedControl::new(driver, control, request.home.clone()).map(Into::into)
 		})
 	}
 }

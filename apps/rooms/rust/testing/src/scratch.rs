@@ -34,11 +34,27 @@ impl Scratch {
 		Self { path }
 	}
 
-	/// Name a directory for `label` and create it empty. A directory that
-	/// already exists under the name is a stale leak, and refuses the test.
+	#[cfg(unix)]
+	fn owner_only() -> fs::DirBuilder {
+		let mut builder = fs::DirBuilder::new();
+		std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
+		builder
+	}
+
+	/// The browser proof host builds this crate for wasm32, which has no Unix
+	/// modes; every test that keeps secrets here runs on Unix.
+	#[cfg(not(unix))]
+	fn owner_only() -> fs::DirBuilder {
+		fs::DirBuilder::new()
+	}
+
+	/// Name a directory for `label` and create it empty and owner-only, since
+	/// tests keep session links and keys in it. A directory that already
+	/// exists under the name is a stale leak, and refuses the test.
 	pub fn create(label: &str) -> Self {
 		let scratch = Self::new(label);
-		if let Err(error) = fs::create_dir(&scratch.path) {
+		let builder = Self::owner_only();
+		if let Err(error) = builder.create(&scratch.path) {
 			panic!("create scratch directory {}: {error}", scratch.path.display());
 		}
 		scratch
@@ -89,6 +105,9 @@ mod tests {
 			name.starts_with(&format!("rooms-scratch-guard-{}-", std::process::id())),
 			"{name}"
 		);
+		use std::os::unix::fs::PermissionsExt;
+		let mode = fs::metadata(&*scratch).unwrap().permissions().mode();
+		assert_eq!(mode & 0o777, 0o700, "the scratch directory is not owner-only");
 		fs::write(scratch.join("kept"), b"x").unwrap();
 		let path = scratch.to_path_buf();
 		drop(scratch);

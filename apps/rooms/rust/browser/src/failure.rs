@@ -85,20 +85,9 @@ pub(crate) fn project(error: &Error) -> Projection<'_> {
 			}
 			peer => Projection::local(peer, peer.failure()),
 		},
-		Error::Coded { code, detail, cause } => match cause {
-			None => Projection::new(None, Cow::Borrowed(detail), Some(Failure { code: *code, detail })),
-			Some(cause) => {
-				let said = format!("{detail}: {cause}");
-				Projection::new(
-					None,
-					Cow::Owned(said.clone()),
-					Some(Failure {
-						code: *code,
-						detail: &said,
-					}),
-				)
-			}
-		},
+		Error::Coded { code, detail } => {
+			Projection::new(None, Cow::Borrowed(detail), Some(Failure { code: *code, detail }))
+		}
 		Error::Storage(_)
 		| Error::Platform(_)
 		| Error::Refused(_)

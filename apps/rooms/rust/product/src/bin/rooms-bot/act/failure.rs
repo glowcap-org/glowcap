@@ -4,7 +4,10 @@
 //! caller can observe it instead of sending it again.
 use super::super::{error::Error, rooms::captp::Failure as Dialing};
 use rooms_application::failure::Retry;
-use rooms_services::session::{attached, control::Failure};
+use rooms_services::session::{
+	attached,
+	control::{CONFLICT, Failure},
+};
 use serde_json::{Value, json};
 
 fn action(failure: &Failure, extra: Option<(&str, u64)>) -> Error {
@@ -27,8 +30,8 @@ pub fn call(cause: &attached::Error) -> Error {
 	action(&Failure::from(cause), extra)
 }
 
-/// A failed view call whose write no verb can look at again, so it names
-/// neither operation nor base.
+/// A failed view call whose write no verb can look at again, or that sent
+/// nothing, so it names neither operation nor base.
 pub fn unobservable(cause: &attached::Error) -> Error {
 	action(&Failure::from(cause), None)
 }
@@ -44,6 +47,29 @@ pub fn attach(cause: &Dialing) -> Error {
 /// A failure the verb names itself.
 pub fn refused(failure: &Failure) -> Error {
 	action(failure, None)
+}
+
+/// A verb whose budget ended before anything reached the session.
+pub fn nothing_sent() -> Error {
+	action(
+		&Failure::new(
+			"unreachable",
+			Retry::Soon,
+			"this command's time ran out before it reached the session: nothing was sent",
+		),
+		None,
+	)
+}
+
+/// A `--dm` open the verb's budget ended. The open may have started, and the
+/// bot settles it. The post that followed it was never sent.
+pub fn open_spent() -> Error {
+	action(
+		&Failure::uncertain(
+			"this command's time ran out while it reached the conversation: the open may or may not have happened and the bot settles it, and no line was sent. Do not open it again in this turn",
+		),
+		None,
+	)
 }
 
 /// A write the session had not settled by the bound, which may still apply.
@@ -62,9 +88,21 @@ pub fn unapplied(status: &str) -> Error {
 	action(&Failure::new(status, Retry::AfterStateChange, message), None)
 }
 
+/// Whether `error` is the session's answer that the write was not applied
+/// because the workspace moved under its base, which committed nothing.
+pub fn is_conflict(error: &Error) -> bool {
+	matches!(error, Error::Action { response, .. } if response["error"]["class"] == CONFLICT && response["error"]["settling"].is_null())
+}
+
 /// An uncertain write's operation, added to the failure so it can be observed.
 pub fn with_operation(error: Error, operation: &str) -> Error {
 	with(error, "operation", json!(operation))
+}
+
+/// A failure with `name` added to what it prints, such as the `settling`
+/// mark of an action whose receipt the bot settles, so nothing is sent again.
+pub fn marked(error: Error, name: &str, value: Value) -> Error {
+	with(error, name, value)
 }
 
 /// A failure of the open a `--dm` needed, marked so an agent can tell it

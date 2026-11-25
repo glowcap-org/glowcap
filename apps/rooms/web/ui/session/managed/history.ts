@@ -58,6 +58,10 @@ export class ManagedHistory {
 	#topology = "";
 	#closed = false;
 	#epoch = 0;
+	/** How many times the link was replaced. A reader opened over an earlier
+	 * link answers no more, so one that arrives after the link it came over was
+	 * replaced is freed and opened again. */
+	#links = 0;
 	#unavailable: string | null = null;
 	readonly #hydrated = new Map<string, string>();
 	constructor(
@@ -129,6 +133,7 @@ export class ManagedHistory {
 	/** The link to the session was replaced, so the archive readers held over
 	 * it answer no more. They are chosen again over the new link. */
 	relink(): void {
+		this.#links++;
 		this.#source?.release();
 		this.#device?.release();
 		this.#source = null;
@@ -175,6 +180,15 @@ export class ManagedHistory {
 			this.#running = null;
 		}
 	}
+	/** Whether `error` is a lost connection the link tells, in which case
+	 * history shows nothing of it and reads again over the link that replaces
+	 * it. A held reader's call is not one the link hears, so it asks the link
+	 * whether it still answers, which a closed connection fails at once. */
+	#linkLost(error: unknown): boolean {
+		if (!this.#session.linkTells(error)) return false;
+		this.#session.link?.probeIfSeen();
+		return true;
+	}
 	async #read(): Promise<void> {
 		while (this.#dirty && !this.#closed) {
 			this.#dirty = false;
@@ -193,17 +207,18 @@ export class ManagedHistory {
 			const files = this.#session.permits("readFile");
 			const peer = snapshot.intent.archive != null && this.#session.permits("readArchive");
 			const selection = this.#sourceIdentity(snapshot);
+			const links = this.#links;
 			if (this.#source == null || selection !== this.#selection) {
 				this.#target(snapshot, "connecting");
 				let reader: RoomsManagedArchive;
 				let device: RoomsManagedArchive | null = null;
 				try {
-					reader = peer
-						? await this.#session.workspace.selectedArchive(files)
-						: await this.#session.workspace.deviceHistory(files);
+					reader = await this.#session.request((workspace) =>
+						peer ? workspace.selectedArchive(files) : workspace.deviceHistory(files)
+					);
 					if (peer && this.#session.permits("history")) {
 						try {
-							device = await this.#session.workspace.deviceHistory(files);
+							device = await this.#session.request((workspace) => workspace.deviceHistory(files));
 						} catch (error) {
 							reader.free();
 							throw error;
@@ -212,10 +227,11 @@ export class ManagedHistory {
 				} catch (error) {
 					const current = this.#session.current;
 					if (this.#closed) return;
-					if (current == null || selection !== this.#sourceIdentity(current)) {
+					if (current == null || selection !== this.#sourceIdentity(current) || links !== this.#links) {
 						this.#dirty = true;
 						continue;
 					}
+					if (this.#linkLost(error)) return;
 					this.#target(snapshot, "unavailable", refusalText(error));
 					throw error;
 				}
@@ -226,7 +242,8 @@ export class ManagedHistory {
 				}
 				const current = this.#session.current;
 				if (
-					current == null || !this.#readable(current) || selection !== this.#sourceIdentity(current)
+					current == null || !this.#readable(current) || selection !== this.#sourceIdentity(current) ||
+					links !== this.#links
 				) {
 					reader.free();
 					device?.free();
@@ -343,6 +360,7 @@ export class ManagedHistory {
 						this.#dirty = !this.#closed;
 						break;
 					}
+					if (this.#linkLost(error)) return;
 					projectAttachedHistoryRead(this.#page, original.key, {
 						phase: "unavailable",
 						error: refusalText(error),

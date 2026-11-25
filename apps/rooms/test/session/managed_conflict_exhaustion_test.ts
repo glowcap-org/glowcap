@@ -78,7 +78,7 @@ Deno.test("exhausted moderator conflicts show the catalog sentence", async () =>
 			return Promise.resolve({ submit: () => Promise.resolve({ status: "conflict" }), free() {} });
 		},
 	});
-	await session.refresh();
+	await session.readNow();
 	try {
 		const result = await managedRoomActions(f.page, session).stewardRoom(room.key);
 		assertEquals(result, LOCAL_REFUSALS["conflict"].summary);

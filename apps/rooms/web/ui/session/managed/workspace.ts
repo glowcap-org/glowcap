@@ -38,7 +38,7 @@ export function managedWorkspaceActions(
 		applySettings: async (next) => {
 			coverForReload();
 			try {
-				const current = await session.refresh();
+				const current = await session.readBeforeSending();
 				const dm = next.dm ?? current.intent.connection;
 				await session.actions.run("chooseConnection", [dm]);
 				const url = new URL(location.href);
@@ -54,10 +54,14 @@ export function managedWorkspaceActions(
 		exportRoomsState: async (includeCapabilities = false) => {
 			if (includeCapabilities) {
 				const exported: { revision: string; intent: WorkspaceIntent; coordinates: Coordinate[] } = await session
-					.workspace.exportConfiguration();
+					.request((
+						workspace,
+					) => workspace.exportConfiguration());
 				const imports: { coordinate: Coordinate; uri: string }[] = [];
 				for (const coordinate of exported.coordinates) {
-					const uri: string | null = await session.workspace.custodyRecipe(JSON.stringify(coordinate));
+					const uri: string | null = await session.request((workspace) =>
+						workspace.custodyRecipe(JSON.stringify(coordinate))
+					);
 					if (uri == null) {
 						throw new LocalRefusal("export-incomplete", {
 							cause: `no durable recipe for the selected ${coordinate.role}`,
@@ -65,7 +69,7 @@ export function managedWorkspaceActions(
 					}
 					imports.push({ coordinate, uri });
 				}
-				if ((await session.refresh()).revision !== exported.revision) {
+				if ((await session.readNow()).revision !== exported.revision) {
 					throw new LocalRefusal("export-changed");
 				}
 				return JSON.stringify(
@@ -115,7 +119,8 @@ export function managedWorkspaceActions(
 					data == null || typeof data !== "object" || !("version" in data) || data.version !== 1 ||
 					!("kind" in data)
 				) throw new LocalRefusal("not-export");
-				const { view, ...configuration } = data as Record<string, unknown>;
+				const view = "view" in data ? data.view : null;
+				const configuration = Object.fromEntries(Object.entries(data).filter(([key]) => key !== "view"));
 				const preferences = view == null ? null : parseRoomsViewState(view);
 				const encoded = JSON.stringify(configuration);
 				if (data.kind === "rooms-configuration") {
@@ -136,7 +141,7 @@ export function managedWorkspaceActions(
 		},
 		takeArchivePeer: (uri) =>
 			outcome(async () => {
-				const snapshot = await session.candidate();
+				const snapshot = await session.candidateBeforeSending();
 				const access = fieldKey();
 				snapshot.intent.archive = access;
 				snapshot.intent.archiveControl = null;
@@ -147,7 +152,7 @@ export function managedWorkspaceActions(
 			}),
 		retryHistory: () => outcome(retryHistory),
 		useOwnedArchive: async () => {
-			const snapshot = await session.candidate();
+			const snapshot = await session.candidateBeforeSending();
 			snapshot.intent.archive = null;
 			snapshot.intent.archiveControl = null;
 			await session.actions.replace(snapshot);

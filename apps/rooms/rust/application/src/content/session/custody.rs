@@ -268,11 +268,30 @@ pub struct ResourceBinding<C> {
 	pub resource: C,
 }
 
+/// What the source has done with its receipt. Only that source adopts or
+/// releases it, and each happens once.
+///
+/// The stored forms have one width, so a receipt's change of disposition never
+/// grows its record, and a release or an adoption cannot be refused at the
+/// session's byte cap.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Disposition {
+	/// The source may still adopt or release it.
+	#[serde(rename = "held")]
+	Held,
+	/// The first workspace adoption committed with its exact transferred
+	/// fields. Recovery cannot install the same result into a second topology.
+	#[serde(rename = "kept")]
+	Adopted,
+	/// The source gave it up (`effects::release`). The receipt answers for its
+	/// operation until the replay window evicts it.
+	#[serde(rename = "gave")]
+	Released,
+}
+
 pub struct EffectReceipt<R: References> {
 	pub operation: OperationId,
-	/// The first workspace adoption commits with its exact transferred fields.
-	/// Recovery cannot install the same result into a second topology.
-	pub adopted: bool,
+	pub disposition: Disposition,
 	/// Private capacity and coordinate reservation, committed before dispatch.
 	/// Exported intent cannot supply this sender provenance.
 	pub outgoing: Option<super::outgoing::Update>,
@@ -292,7 +311,8 @@ pub struct EffectReceipt<R: References> {
 /// results remain in the bounded receipt rather than being minted on replay.
 pub enum Outcome<R: References> {
 	Unresolved,
-	/// A terminal observation failed. The reason is diagnostic, never proof
+	/// A terminal observation failed, or the source released the receipt
+	/// before its outcome was known. The reason is diagnostic, never proof
 	/// that the target did nothing or permission to dispatch the effect again.
 	Unknown {
 		reason: Text<MAX_OBSERVATION_REASON_UNITS, true>,
@@ -319,5 +339,32 @@ mod role_order {
 		for (index, role) in Role::ALL.iter().enumerate() {
 			assert_eq!(role.index(), index);
 		}
+	}
+}
+
+#[cfg(test)]
+mod disposition_width {
+	use super::Disposition;
+
+	/// Every disposition, so a new one fails to compile here until it is
+	/// listed and its width is held.
+	fn every() -> [Disposition; 3] {
+		fn listed(disposition: Disposition) {
+			match disposition {
+				Disposition::Held | Disposition::Adopted | Disposition::Released => {}
+			}
+		}
+		let all = [Disposition::Held, Disposition::Adopted, Disposition::Released];
+		all.into_iter().for_each(listed);
+		all
+	}
+
+	#[test]
+	fn every_disposition_encodes_to_one_length() {
+		let lengths = every().map(|disposition| serde_json::to_string(&disposition).unwrap().len());
+		assert!(
+			lengths.iter().all(|length| *length == lengths[0]),
+			"a change of disposition would grow its record: {lengths:?}"
+		);
 	}
 }

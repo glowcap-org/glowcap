@@ -117,6 +117,24 @@
 .session-setup-server > .button[data-variant="link"] {
 	font-size: inherit;
 }
+/* Saved data this version can't read: what happened, then the act that asks
+   to delete it, standing above the disclosure whose confirm that act opens. */
+.session-setup-unreadable {
+	justify-self: center;
+	display: grid;
+	gap: var(--gap-group);
+	width: min(100%, 460px);
+	text-align: center;
+}
+.session-setup-unreadable > p {
+	margin: 0;
+	color: var(--ink);
+	font-size: var(--type-caption);
+	text-wrap: pretty;
+}
+.session-setup-unreadable > .actions {
+	justify-content: center;
+}
 /* The card's foot: the two acts that take saved state away, folded under one
    word until asked for. */
 .session-setup-advanced {

@@ -15,7 +15,7 @@ export interface Coordinate {
 /** Whether a parsed receipt value is a coordinate: a named role and held key. */
 export function isCoordinate(raw: unknown): raw is Coordinate {
 	return raw != null && typeof raw === "object" &&
-		typeof (raw as Coordinate).role === "string" && typeof (raw as Coordinate).key === "string";
+		"role" in raw && typeof raw.role === "string" && "key" in raw && typeof raw.key === "string";
 }
 export function coordinate(role: string, key: FieldKey): string {
 	return JSON.stringify({ role, key });
@@ -168,6 +168,9 @@ export interface EffectView {
 	operation: string;
 	status: string;
 	resumable: boolean;
+	/** Its source let the receipt go. The session keeps it only to answer a
+	 * second send of the same operation, so it is no open change. */
+	released: boolean;
 }
 /** An archive coordinate as the wire carries it. Mirrors ArchiveCoordinates
  * in lib/archive/protocol.ts, which owns no JSON schema. */

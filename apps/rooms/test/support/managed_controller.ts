@@ -6,6 +6,11 @@ import { initializeApplication } from "../support/application.ts";
 import type { ManagedRoomsSession } from "../../web/ui/session/managed/session.ts";
 import type { ManagedHistory } from "../../web/ui/session/managed/history.ts";
 import type { RoomInfo } from "../../lib/directory_publications.ts";
+import type { ManagedActions } from "../../web/ui/session/managed/actions.ts";
+import type { ManagedOperation } from "../../web/ui/session/managed/operation.ts";
+import type { RoomsManagedWorkspace } from "../../../../zig-out/wasm/rooms/rooms_browser.js";
+import { assert } from "../assert.ts";
+import { fakeHandle } from "./managed_link.ts";
 const { RoomsPage } = await import("../../web/ui/page.ts");
 const { createManagedController } = await import("../../web/ui/session/managed/controller.ts");
 const { presentationFiles } = await import("../../web/ui/session/managed/files.ts");
@@ -20,7 +25,8 @@ export function fixture(
 	const page = new RoomsPage();
 	const current = snapshot();
 	const route = "127.0.0.1:1234";
-	const id = directoryId(route)!;
+	const id = directoryId(route);
+	assert(id != null, "the route names a directory");
 	current.intent.directories.push({
 		id,
 		access: "exact-directory",
@@ -30,32 +36,47 @@ export function fixture(
 		standing: null,
 	});
 	const calls: unknown[][] = [];
-	const session = {
+	// Requests the link carries now, and listings read outside one, which a
+	// connection lost under would not charge to the link.
+	let requests = 0;
+	let readsOutside = 0;
+	const workspace = fakeHandle<RoomsManagedWorkspace>({
+		// The one held directory is reached through its own route and no other.
+		directoryRouteHeld: (directory: string, through: string) =>
+			Promise.resolve(directory === id && through === route),
+		directoryReader: (directory: string) => {
+			calls.push(["directoryReader", directory]);
+			return Promise.resolve({
+				namedRooms: () => {
+					if (requests === 0) readsOutside++;
+					duringRead();
+					return Promise.resolve(listed);
+				},
+				free: () => calls.push(["freeReader"]),
+			});
+		},
+	});
+	const session = fakeHandle<ManagedRoomsSession>({
 		current,
-		refresh: () => Promise.resolve(current),
+		readBeforeSending: () => Promise.resolve(current),
+		readNow: () => Promise.resolve(current),
 		directoryRegistered: () => Promise.resolve(),
 		permits: () => true,
-		command: (name: string, args: string[]) => {
+		command: (name: string, args: string[] = []) => {
 			calls.push([name, args]);
-			return Promise.resolve({});
+			return Promise.resolve(fakeHandle<ManagedOperation>({}));
 		},
 		completeResult: () => Promise.resolve(),
-		workspace: {
-			// The one held directory is reached through its own route and no other.
-			directoryRouteHeld: (directory: string, through: string) =>
-				Promise.resolve(directory === id && through === route),
-			directoryReader: (directory: string) => {
-				calls.push(["directoryReader", directory]);
-				return Promise.resolve({
-					namedRooms: () => {
-						duringRead();
-						return Promise.resolve(listed);
-					},
-					free: () => calls.push(["freeReader"]),
-				});
-			},
+		request: async <T>(call: (held: RoomsManagedWorkspace) => Promise<T>) => {
+			requests++;
+			try {
+				return await call(workspace);
+			} finally {
+				requests--;
+			}
 		},
-		actions: {
+		onRelink: () => () => {},
+		actions: fakeHandle<ManagedActions>({
 			publicRoom: (...args: unknown[]) => {
 				calls.push(["publicRoom", ...args.slice(0, 3)]);
 				return Promise.resolve("room");
@@ -64,8 +85,8 @@ export function fixture(
 				calls.push(["directory", ...args.slice(0, 4)]);
 				return Promise.resolve();
 			},
-			run: (...args: unknown[]) => {
-				calls.push(args);
+			run: (name: string, args: string[] = []) => {
+				calls.push([name, args]);
 				return Promise.resolve();
 			},
 			roomLink: (...args: unknown[]) => {
@@ -76,8 +97,8 @@ export function fixture(
 				calls.push(["createRoom", ...args.slice(0, 3)]);
 				return create();
 			},
-		},
-	} as unknown as ManagedRoomsSession;
+		}),
+	});
 	Object.assign(session, { navigation: new ManagedNavigation(session), openings: new ManagedOpenings(session) });
 	session.navigation.select = (id: string) => {
 		calls.push(["select", [id]]);
@@ -91,7 +112,7 @@ export function fixture(
 		{ setTheme() {}, showRoster() {}, aboutConversation() {} },
 		session,
 		files,
-		{ refresh: () => Promise.resolve() } as unknown as ManagedHistory,
+		fakeHandle<ManagedHistory>({ refresh: () => Promise.resolve() }),
 	);
 	return {
 		page,
@@ -99,7 +120,9 @@ export function fixture(
 		route,
 		calls,
 		current,
+		workspace,
 		controller,
+		readsOutside: () => readsOutside,
 		close: () => {
 			files.close();
 			for (const key of [...page.projection.get().convs.keys()]) store.forgetConv(page.projection, key);

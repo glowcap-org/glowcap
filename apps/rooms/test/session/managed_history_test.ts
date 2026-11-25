@@ -107,7 +107,7 @@ for (const allowed of [[], ["history"], ["readArchive"], ["history", "readArchiv
 		f.current.intent.archive = "selected-peer";
 		f.session.permits = (permission) => allowed.includes(permission);
 		f.add("room");
-		await f.session.refresh();
+		await f.session.readNow();
 		try {
 			await f.history.refresh();
 			assertEquals(
@@ -134,7 +134,7 @@ for (const allowed of [[], ["history"], ["readArchive"], ["history", "readArchiv
 Deno.test("managed empty peer archive settles without a conversation to hydrate", async () => {
 	const f = fixture(() => Promise.resolve(empty));
 	f.current.intent.archive = "selected-peer";
-	await f.session.refresh();
+	await f.session.readNow();
 	try {
 		await f.history.refresh();
 		const target = f.page.projection.get().archiveTarget;
@@ -151,7 +151,7 @@ Deno.test("a stale archive read cannot report the replacement connected", async 
 	const f = await fixture(() => ++reads === 1 ? old.promise : replacement.promise);
 	f.current.intent.archive = "old";
 	f.add("room");
-	await f.session.refresh();
+	await f.session.readNow();
 	f.history.start();
 	await tick();
 	const statuses: string[] = [];
@@ -161,7 +161,7 @@ Deno.test("a stale archive read cannot report the replacement connected", async 
 	});
 	try {
 		f.current.intent.archive = "replacement";
-		await f.session.refresh();
+		await f.session.readNow();
 		old.resolve(empty);
 		await tick();
 		assertEquals(reads, 2);
@@ -187,7 +187,7 @@ Deno.test("managed history reports loading and refusal per conversation, continu
 	});
 	f.add("failed");
 	f.add("empty");
-	await f.session.refresh();
+	await f.session.readNow();
 	f.history.start();
 	try {
 		await tick();
@@ -209,7 +209,7 @@ Deno.test("managed history reports loading and refusal per conversation, continu
 			"history failure keeps the original errors",
 		);
 		// Session refresh republishes the same snapshot, not a history retry.
-		await f.session.refresh();
+		await f.session.readNow();
 		await tick();
 		assertEquals(calls, 1, "an unchanged snapshot must not retry a refused history read");
 		assertEquals(f.failures.length, 1, "an unchanged snapshot must not repeat the failure report");
@@ -229,7 +229,7 @@ for (const outcome of ["success", "refusal"] as const) {
 		let calls = 0;
 		const f = await fixture(() => ++calls === 1 ? blocked.promise : Promise.resolve(empty));
 		const old = f.add("reused", "old room");
-		await f.session.refresh();
+		await f.session.readNow();
 		f.history.start();
 		try {
 			await tick();
@@ -239,7 +239,7 @@ for (const outcome of ["success", "refusal"] as const) {
 			row.name = "replacement room";
 			store.forgetConv(f.page.projection, old.key);
 			store.ensureRoom(f.page.projection, dirId("directory"), row.name, { persistId: row.id, key: old.key });
-			await f.session.refresh();
+			await f.session.readNow();
 			if (outcome === "refusal") blocked.reject(new Error("old target refused"));
 			else {blocked.resolve({
 					...empty,
@@ -278,7 +278,7 @@ Deno.test("managed history refuses an empty continuation and leaves explicit ret
 	let malformed = true;
 	const f = await fixture(() => Promise.resolve(malformed ? { next: "0", more: true, records: [] } : empty));
 	f.add("cursor");
-	await f.session.refresh();
+	await f.session.readNow();
 	f.history.start();
 	try {
 		await tick();
@@ -305,7 +305,7 @@ Deno.test("managed archive status belongs to the session and requires a successf
 	const f = fixture(() => first ? blocked.promise : Promise.resolve(empty));
 	f.add("room");
 	f.current.intent.archive = "selected-peer";
-	await f.session.refresh();
+	await f.session.readNow();
 	f.history.start();
 	const target = () => f.page.projection.get().archiveTarget;
 	const status = () => {
@@ -327,7 +327,7 @@ Deno.test("managed archive status belongs to the session and requires a successf
 		await f.history.refresh();
 		assertEquals(status(), "connected");
 		f.current.intent.archive = null;
-		await f.session.refresh();
+		await f.session.readNow();
 		await f.history.refresh();
 		assertEquals(target(), { kind: "owned", status: "connected", error: "" });
 	} finally {
@@ -342,7 +342,7 @@ Deno.test("archive shutdown fences late reads and ignores replaced or unpermitte
 	const f = fixture(() => ++reads === 1 ? old.promise : next.promise);
 	f.add("room");
 	f.current.intent.archive = "selected-peer";
-	await f.session.refresh();
+	await f.session.readNow();
 	f.history.start();
 	const status = () => {
 		const target = f.page.projection.get().archiveTarget;
@@ -429,26 +429,26 @@ Deno.test("managed history hydrates only changed exact conversations and archive
 	}
 	store.openDir(page.projection, dirId("directory"), "");
 	add("first");
-	await session.refresh();
+	await session.readNow();
 	history.start();
 	try {
 		await tick();
 		assertEquals(reads, [{ archive: null, conversation: "first" }]);
 		accepted.intent.conversations[0].draft = "new draft";
-		await session.refresh();
+		await session.readNow();
 		await tick();
 		assertEquals(reads.length, 1, "draft revisions cannot restart archive hydration");
 		add("second");
-		await session.refresh();
+		await session.readNow();
 		await tick();
 		assertEquals(reads.map((row) => row.conversation), ["first", "second"]);
 		const first = accepted.intent.conversations[0];
 		if (first.kind === "room") first.seat = "new-generation";
-		await session.refresh();
+		await session.readNow();
 		await tick();
 		assertEquals(reads.map((row) => row.conversation), ["first", "second", "first"]);
 		accepted.intent.archive = "different-exact-archive";
-		await session.refresh();
+		await session.readNow();
 		await tick();
 		assertEquals(reads.slice(3), [{ archive: "different-exact-archive", conversation: "first" }, {
 			archive: "different-exact-archive",
@@ -494,7 +494,7 @@ Deno.test("a queued history selection is read after the previous selection fails
 	});
 	f.add("failed");
 	f.add("blocked");
-	await f.session.refresh();
+	await f.session.readNow();
 	f.history.start();
 	try {
 		await tick();
@@ -503,14 +503,14 @@ Deno.test("a queued history selection is read after the previous selection fails
 		assert(changed.kind === "room", "the delayed conversation is a room");
 		changed.name = "changed selection";
 		f.add("queued");
-		await f.session.refresh();
+		await f.session.readNow();
 		pending.resolve(empty);
 		await tick();
 		assert(reads.includes("queued"), "a failed older read must drain the queued selection");
 		assertEquals(f.phase("queued"), "empty");
 		assertEquals(f.failures.length, 1, "the older failure remains reported");
 		const count = reads.length;
-		await f.session.refresh();
+		await f.session.readNow();
 		await tick();
 		assertEquals(reads.length, count, "unchanged snapshots still cannot restart a read");
 	} finally {
@@ -571,7 +571,7 @@ for (let turns = 0; turns < 7; turns++) {
 		let reads = 0;
 		const f = fixture(() => ++reads === 1 ? pending.promise : Promise.resolve(empty));
 		f.add("room");
-		await f.session.refresh();
+		await f.session.readNow();
 		try {
 			const first = f.history.refresh();
 			await tick();
@@ -592,13 +592,13 @@ for (const failedBeforeRemoval of [false, true]) {
 	Deno.test(`empty owned history settles after failure=${failedBeforeRemoval}`, async () => {
 		const f = fixture(() => Promise.reject(new Error("read failed")));
 		if (failedBeforeRemoval) f.add("removed");
-		await f.session.refresh();
+		await f.session.readNow();
 		try {
 			if (failedBeforeRemoval) {
 				await Promise.allSettled([f.history.refresh()]);
 				assertEquals(f.page.projection.get().archiveTarget.status, "unavailable");
 				f.current.intent.conversations = [];
-				await f.session.refresh();
+				await f.session.readNow();
 			}
 			await f.history.refresh();
 			assertEquals(f.page.projection.get().archiveTarget, { kind: "owned", status: "connected", error: "" });

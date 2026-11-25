@@ -5,13 +5,13 @@
 //! the conversation heard from longest ago that has no open turn is let go:
 //! its files are removed first, then its sessions, then its place here, so a
 //! crash partway lets it go again on the next batch.
-use super::{error::Error, rooms::ConversationId, sessions::Sessions, store::Store};
+use super::{error::Error, harness_sessions::HarnessSessions, rooms::ConversationId, store::Store};
 use std::collections::{BTreeMap, BTreeSet};
 
 const FILE: &str = "conversations.json";
-/// The most conversations the bot keeps state for, as many as a workspace
-/// holds. Even at the widest conversation ids the document stays under the
-/// size the bot reads back.
+// The most conversations the bot keeps state for, as many as a workspace
+// holds. Even at the widest conversation ids the document stays under the
+// size the bot reads back.
 pub use rooms_application::content::session::workspace::MAX_CONVERSATIONS;
 
 /// Each kept conversation and when it was last heard from, counted in batches.
@@ -29,7 +29,7 @@ impl Conversations {
 	pub fn heard(
 		&mut self,
 		store: &Store,
-		sessions: &mut Sessions,
+		sessions: &mut HarnessSessions,
 		open: &BTreeSet<ConversationId>,
 		heard: &BTreeSet<ConversationId>,
 	) -> Result<(), Error> {
@@ -84,7 +84,7 @@ mod tests {
 	fn past_the_bound_the_conversation_heard_from_longest_ago_is_let_go_with_all_its_state() {
 		let dir = Scratch::create("bot-conversations");
 		let store = Store::open(&dir).unwrap();
-		let mut sessions = Sessions::default();
+		let mut sessions = HarnessSessions::default();
 		let mut kept = Conversations::default();
 		let open = ids(&["c0".into()]);
 		let memory = crate::bot::home::create(store.root()).unwrap().join("memory/c1.md");
@@ -117,7 +117,7 @@ mod tests {
 		assert!(store.root().join("work/c0").exists());
 		let reloaded = Conversations::load(&store).unwrap();
 		assert_eq!(reloaded, kept);
-		assert_eq!(Sessions::load(&store).unwrap().get("pi", &first), None);
+		assert_eq!(HarnessSessions::load(&store).unwrap().get("pi", &first), None);
 		assert_eq!(
 			std::fs::read_to_string(&memory).unwrap(),
 			"Saved while c1 was kept\n",
@@ -129,7 +129,7 @@ mod tests {
 	fn a_conversation_heard_again_outlasts_older_ones() {
 		let dir = Scratch::create("bot-conversations-again");
 		let store = Store::open(&dir).unwrap();
-		let mut sessions = Sessions::default();
+		let mut sessions = HarnessSessions::default();
 		let mut kept = Conversations::default();
 		let none = BTreeSet::new();
 		let all: Vec<String> = (0..MAX_CONVERSATIONS).map(|n| format!("c{n}")).collect();

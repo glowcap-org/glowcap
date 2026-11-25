@@ -19,6 +19,8 @@ const SYSTEM_FILE: &str = "system.md";
 /// project settings a later run would otherwise read.
 const SAFE_DENIED: [&str; 2] = ["Write(./.claude/**)", "Edit(./.claude/**)"];
 
+/// The Claude Code adapter. A safe run may run the bot's own actions through
+/// the executable at `glowcap`.
 pub struct Claude {
 	glowcap: PathBuf,
 }
@@ -70,12 +72,12 @@ fn rule_path(what: &str, path: &Path) -> Result<(), String> {
 
 /// What a failure's error name and status mean. The names and the 404 are what
 /// the model and sign-in failures reported. A rate limit is recognized only
-/// by its 429 status, because no usage-limit run has been recorded. Any other
+/// by its 429 status and a service outage by 5xx. Any other
 /// name stays a crash until a recorded run shows its shape.
 fn kind(error: Option<&str>, status: Option<u64>) -> FailureKind {
 	match (error, status) {
-		(Some("authentication_failed"), _) => FailureKind::Auth,
-		(Some("model_not_found"), _) | (_, Some(404)) => FailureKind::Refused,
+		(Some("authentication_failed"), _) => FailureKind::SignIn,
+		(Some("model_not_found"), _) | (_, Some(404)) => FailureKind::Declined,
 		(_, Some(status)) => status_kind(status).unwrap_or(FailureKind::Crash),
 		_ => FailureKind::Crash,
 	}
@@ -115,7 +117,11 @@ fn result(line: &Value) -> Vec<Signal> {
 				.or(text)
 				.unwrap_or("the harness reported an error");
 			let sign_in = text.is_some_and(|text| text.contains("Please run /login"));
-			let kind = if sign_in { FailureKind::Auth } else { kind(None, status) };
+			let kind = if sign_in {
+				FailureKind::SignIn
+			} else {
+				kind(None, status)
+			};
 			vec![Signal::Failure(kind, detail.to_owned())]
 		}
 		None => Vec::new(),
@@ -182,7 +188,10 @@ impl Harness for Claude {
 		Invocation {
 			program: self.program(),
 			args,
-			env: Vec::new(),
+			env: vec![(
+				"BASH_DEFAULT_TIMEOUT_MS".into(),
+				crate::bot::act::CLAUDE_BASH_DEFAULT_MS.to_string().into(),
+			)],
 			stdin: Some(turn.prompt.to_owned()),
 			prepare: vec![
 				Prepare::Dir(turn.state.to_path_buf()),
@@ -221,7 +230,7 @@ impl Harness for Claude {
 			return None;
 		}
 		let kind = if stderr_tail.contains("[claude-code:unrecognized_model]") {
-			FailureKind::Refused
+			FailureKind::Declined
 		} else {
 			FailureKind::Crash
 		};

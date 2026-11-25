@@ -283,7 +283,7 @@ impl Session {
 	/// Successful results follow the Host's release policy sampled when the
 	/// lookup starts, including explicit release under the manual policy.
 	pub async fn fetch(&self, name: &str) -> Result<Ref> {
-		crate::promise::fetch_like(&self.shared, name.as_bytes(), name, ffi::glowcap_host_session_fetch).await
+		crate::promise::fetch_like(&self.shared, name.as_bytes(), "fetch", ffi::glowcap_host_session_fetch).await
 	}
 
 	/// Enliven a sturdyref against this session (ADR-0007): bring the durable

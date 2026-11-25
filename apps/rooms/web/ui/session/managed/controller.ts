@@ -17,14 +17,14 @@ import {
 	directoryUnreachable,
 	doorBlocked,
 	doorUnreachable,
-	type FailureNames,
+	type FailureRewording,
 	type FailureView,
 	failureView,
 	LocalRefusal,
-	namedFailure,
 	refusalText,
 	relayUnreachable,
 	renderFailure,
+	reworded,
 	transportBreak,
 } from "../../../../lib/text/failure.ts";
 import { localNetworkBlock } from "../../local_network.ts";
@@ -58,6 +58,7 @@ import {
 	serverNeedHome,
 } from "../../../../lib/text/session.ts";
 import { policyForRoomPreset, type RoomPolicy } from "../../room_policy.ts";
+import { TYPING_SOURCE } from "./typing.ts";
 
 /** Where an act picks up after the reload a newly chosen Rooms server takes:
  * a page address, built only when the act is refused for want of one, or null
@@ -68,6 +69,19 @@ type Resume = (() => string) | null;
  * the home directory's sentence as its detail, and any other address is one
  * this browser cannot open on its own. */
 const serverNeedOf = (view: FailureView): string => view.detail === serverNeedHome ? serverNeedHome : serverNeedAddress;
+
+/** Wait for the registration of directory `id` once its row is committed. The
+ * row is the one the commit left in the session, so no read waits for a link. */
+async function registeredAfter(
+	after: Pick<ManagedRoomsSession, "current" | "directoryRegistered">,
+	id: DirId,
+	signal?: AbortSignal,
+): Promise<void> {
+	const selected = after.current?.intent.directories.find((row) => row.id === id);
+	if (signal?.aborted) return;
+	if (selected == null) throw new LocalRefusal("directory-gone");
+	await after.directoryRegistered(selected, signal);
+}
 
 export function createManagedController(
 	page: RoomsPageContext,
@@ -167,7 +181,7 @@ export function createManagedController(
 	};
 	type Explain = (error: unknown, resume: Resume) => string | null;
 	// A direct line reaches for a member.
-	const DIRECT: FailureNames = new Map([["peer-unreachable", "member-unreachable"]]);
+	const DIRECT: FailureRewording = new Map([["peer-unreachable", "member-unreachable"]]);
 	// What a direct line that did not open says, whoever asked for it. A name
 	// nobody holds is said with the name. An introduction that was redeemed
 	// and reached nobody, on a page with no Rooms server, has a route through
@@ -178,7 +192,7 @@ export function createManagedController(
 		const view = failureView(error);
 		if (view.code === "peer-offline") return notRegisteredForDirect(peer);
 		if (view.code !== "peer-unreachable") return explained(error, resume);
-		if (projection.get().server != null) return renderFailure(namedFailure(view, DIRECT));
+		if (projection.get().server != null) return renderFailure(reworded(view, DIRECT));
 		store.askServer(projection, resume?.() ?? null, serverAskAfterDirect(peer));
 		return null;
 	};
@@ -214,7 +228,7 @@ export function createManagedController(
 		if (!reachableForDm(resume)) return Promise.resolve("");
 		return session.openings.run(async (opening) => {
 			const id = await session.actions.direct(directory(), peer, false, undefined, opening);
-			await opening.select(id);
+			if (id != null) await opening.select(id);
 		}, { kind: "direct", peer }).then(() => "", (error: unknown) => {
 			if (error instanceof DOMException && error.name === "AbortError") return "";
 			return dmExplained(peer)(error, resume) ?? "";
@@ -282,16 +296,18 @@ export function createManagedController(
 		if (original != null && original.nick !== "") await session.directoryRegistered(original, signal);
 		if (signal.aborted) return;
 		const read = async () => {
-			const reader = await session.workspace.directoryReader(id);
-			let matches: RoomInfo[];
-			try {
-				if (signal.aborted) return null;
-				matches = await reader.namedRooms(name);
-			} finally {
-				reader.free();
-			}
-			if (signal.aborted) return null;
-			const snapshot = await session.refresh();
+			// The listing is read in the link's request, so a connection lost
+			// under it is the link's.
+			const matches = await session.request(async (workspace): Promise<RoomInfo[] | null> => {
+				const reader = await workspace.directoryReader(id);
+				try {
+					return signal.aborted ? null : await reader.namedRooms(name);
+				} finally {
+					reader.free();
+				}
+			});
+			if (matches == null || signal.aborted) return null;
+			const snapshot = await session.readBeforeSending();
 			if (signal.aborted) return null;
 			const current = snapshot.intent.directories.find((row) => row.id === id);
 			if (original == null || current?.access !== original.access || current.source !== original.source) {
@@ -327,7 +343,7 @@ export function createManagedController(
 	async function namedRoom(id: DirId, name: string, policy: RoomPolicy, opening: ConversationOpening): Promise<void> {
 		const keys = joinRefusalKeys(id, name);
 		const refusal = activeRefusal(projection.get().actionRefusals, keys);
-		if (remaining(refusal) > 0) throw refusal!.failure;
+		if (refusal != null && remaining(refusal) > 0) throw refusal.failure;
 		for (const key of keys) clearRefusal(projection, key);
 		try {
 			await enterNamedRoom(id, name, policy, opening);
@@ -360,7 +376,8 @@ export function createManagedController(
 			// typed doors and replaces the held one, which keeps its home mark and
 			// takes it under the one rule a new directory does. A blank address,
 			// or the held route again, changes the nickname at most.
-			const reroute = address !== "" && !(await session.workspace.directoryRouteHeld(id, route));
+			const reroute = address !== "" &&
+				!(await session.request((workspace) => workspace.directoryRouteHeld(id, route)));
 			if (signal?.aborted) return id;
 			if (reroute) await session.actions.directory(id, route, nick, takesHome(route, home), signal);
 			else if (row.nick !== name || row.nickAllocation !== allocation) {
@@ -369,12 +386,7 @@ export function createManagedController(
 		}
 		if (signal?.aborted) return id;
 		store.openDir(projection, id, route);
-		if (name !== "" && !signal?.aborted) {
-			const selected = (await session.refresh()).intent.directories.find((row) => row.id === id);
-			if (signal?.aborted) return id;
-			if (selected == null) throw new LocalRefusal("directory-gone");
-			await session.directoryRegistered(selected, signal);
-		}
+		if (name !== "" && !signal?.aborted) await registeredAfter(session, id, signal);
 		return id;
 	}
 	return {
@@ -465,7 +477,7 @@ export function createManagedController(
 								nick,
 								home: takesHome(plan.address, false),
 							}, opening);
-							await opening.select(room);
+							if (room != null) await opening.select(room);
 							if (signal.aborted) return { ok: true };
 							store.openDir(projection, id, plan.address);
 						} else {
@@ -538,7 +550,7 @@ export function createManagedController(
 					await session.directoryRegistered(directory, opening.signal);
 					opening.signal.throwIfAborted();
 					const next = await session.actions.direct(dir, peer, false, registration, opening);
-					await opening.select(next);
+					if (next != null) await opening.select(next);
 					return "";
 				} catch (error) {
 					return explain(error, resume) ?? "";
@@ -561,7 +573,7 @@ export function createManagedController(
 				: null;
 			if (selected == null) return;
 			void session.typing.set(row.persistId, selected, on).catch((error: unknown) => {
-				store.noteTrouble(projection, "typing", refusalText(error));
+				store.noteTrouble(projection, TYPING_SOURCE, refusalText(error));
 			});
 		},
 		setStanding: (value) => run("setStanding", value).then(() => undefined),

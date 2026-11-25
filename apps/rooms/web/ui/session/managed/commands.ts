@@ -131,7 +131,7 @@ export function managedCommandPowers(
 							: { kind: "automatic", base: nick },
 						home: row?.home ?? false,
 					}, opening);
-					await opening.select(room);
+					if (room != null) await opening.select(room);
 				});
 			} catch (error) {
 				return error instanceof LocalRefusal ? refusalText(error) : thatLinkDidNotOpen(refusalText(error));
@@ -193,6 +193,7 @@ export function managedCommandPowers(
 			}
 			return unlessUnregistered(who, async () => {
 				const direct = await session.actions.direct(row.directory, who, false);
+				if (direct == null) throw new LocalRefusal("invite-unsent");
 				await session.actions.run("offerRoom", [row.id, direct]);
 			});
 		},

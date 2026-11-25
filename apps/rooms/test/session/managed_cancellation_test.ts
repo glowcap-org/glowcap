@@ -1,4 +1,5 @@
 // A cancelled gesture already supplies its decision, including after a lost reply.
+import { timedOutOutcome } from "../support/managed_link.ts";
 import { assertEquals } from "../assert.ts";
 import { deferred, snapshot, viewer } from "../support/managed_viewer.ts";
 import { ConversationOpening } from "../../web/ui/session/managed/openings.ts";
@@ -28,7 +29,7 @@ for (const timing of ["before failure", "after failure"] as const) {
 						if (++attempts === 1) {
 							submitted.resolve();
 							await release.promise;
-							throw new Error("lost admission reply");
+							return timedOutOutcome();
 						}
 						current.intent.conversations.push({ kind: "room", ...row, draft: "" });
 						return { status: "committed" };
@@ -86,7 +87,7 @@ Deno.test("automatic cancellation recovery stops after a refusal and retains the
 			Promise.resolve({
 				submit: () => {
 					submissions++;
-					return Promise.reject(new Error("directory unavailable"));
+					return Promise.resolve(timedOutOutcome());
 				},
 				free() {},
 			}),
@@ -132,7 +133,7 @@ for (const failure of ["admission", "cleanup"] as const) {
 							await release.promise;
 						}
 						if (name === (failure === "admission" ? "openManagedRoom" : "leaveConversation")) {
-							throw new Error("lost reply");
+							return timedOutOutcome();
 						}
 						return { status: "committed" };
 					},

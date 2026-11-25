@@ -1,14 +1,16 @@
 // Recompose only refused workspace deltas around the original committed receipt.
+import { operationOf, timedOutOutcome } from "../support/managed_link.ts";
 import { failureView, LocalRefusal } from "../../lib/text/failure.ts";
 import { recoveryLetGoAsk } from "../../lib/text/recovery.ts";
 import { assert, assertEquals } from "../assert.ts";
 import { deferred, snapshot, viewer } from "../support/managed_viewer.ts";
-import { ManagedOperation, ResultAcquisitionError } from "../../web/ui/session/managed/operation.ts";
+import { ResultAcquisitionError } from "../../web/ui/session/managed/operation.ts";
 import { completeResult } from "../../web/ui/session/managed/completion.ts";
 import { readDirectReceipt } from "../../web/ui/session/managed/direct_receipt.ts";
 import { CompletedLine } from "../../web/ui/session/managed/completed_line.ts";
 import type { BridgeForm } from "../../lib/bridge/form.ts";
 import type { RoomsManagedCommand } from "../../../../zig-out/wasm/rooms/rooms_browser.js";
+import { fakeHandle } from "../support/managed_link.ts";
 
 for (
 	const original of [
@@ -23,12 +25,12 @@ for (
 ) {
 	Deno.test(`malformed retained intent refuses completion: ${JSON.stringify(original)}`, async () => {
 		const receipt = { room: "returned-room", control: "returned-control" };
-		const operation = new ManagedOperation("creation", {
+		const operation = operationOf("creation", {
 			result: () => Promise.resolve(receipt),
 			adopted: () => Promise.resolve(false),
 			originalIntent: () => original,
 			free() {},
-		} as unknown as RoomsManagedCommand);
+		});
 		const session = viewer({ snapshot: () => Promise.resolve(snapshot()) });
 		try {
 			const [outcome] = await Promise.allSettled([completeResult(session, operation)]);
@@ -68,7 +70,7 @@ for (const upload of ["post", { refile: 7 }]) {
 		});
 		const result = { id: 7, line: "returned-line", history: null };
 		let acquisitions = 0;
-		const operation = new ManagedOperation("upload", {
+		const operation = operationOf("upload", {
 			result: () => Promise.resolve(result),
 			adopted: () => Promise.resolve(false),
 			originalIntent: () => ({
@@ -88,7 +90,7 @@ for (const upload of ["post", { refile: 7 }]) {
 				return Promise.resolve({ submit: () => Promise.resolve({ status: "committed" }), free() {} });
 			},
 			free() {},
-		} as unknown as RoomsManagedCommand);
+		});
 		const session = viewer({ snapshot: () => Promise.resolve(current) });
 		try {
 			const completed = await completeResult(session, operation);
@@ -104,7 +106,7 @@ for (const upload of ["post", { refile: 7 }]) {
 
 Deno.test("canonical bridge intent completes without acquiring conversation custody", async () => {
 	const result = { applied: true };
-	const operation = new ManagedOperation("bridge", {
+	const operation = operationOf("bridge", {
 		result: () => Promise.resolve(result),
 		adopted: () => Promise.resolve(false),
 		originalIntent: () => ({
@@ -137,7 +139,7 @@ Deno.test("canonical bridge intent completes without acquiring conversation cust
 			throw new Error("bridge completion has no workspace result to acquire");
 		},
 		free() {},
-	} as unknown as RoomsManagedCommand);
+	});
 	const session = viewer({ snapshot: () => Promise.resolve(snapshot()) });
 	try {
 		assert(await completeResult(session, operation) === result, "bridge completion borrows its original result");
@@ -155,12 +157,12 @@ Deno.test("direct receipt validation borrows the acquired inbox receipt", () => 
 
 for (const receipt of [{}, { inbox: 1 }, { status: "pending" }]) {
 	Deno.test(`malformed direct receipt retains recovery before custody moves: ${JSON.stringify(receipt)}`, async () => {
-		const operation = new ManagedOperation("direct", {
+		const operation = operationOf("direct", {
 			result: () => Promise.resolve(receipt),
 			adopted: () => Promise.resolve(false),
 			originalIntent: () => ["direct", 1, "startDirect", ["directory", "bo", "registration", "opening"]],
 			free() {},
-		} as unknown as RoomsManagedCommand);
+		});
 		const session = viewer({ snapshot: () => Promise.resolve(snapshot()) });
 		try {
 			const [outcome] = await Promise.allSettled([completeResult(session, operation)]);
@@ -182,7 +184,7 @@ Deno.test("operator moderator issuance answers the stewardship row and stores no
 	const current = snapshot();
 	const original = structuredClone(current.intent);
 	const row = ["durable-directory-name", "same label", "private", 3, "returned-moderator", null, false];
-	const operation = new ManagedOperation("moderator", {
+	const operation = operationOf("moderator", {
 		result: () => Promise.resolve(row),
 		adopted: () => Promise.resolve(false),
 		originalIntent: () => ["moderator", 1, "operator", ["operator-key", "giveModerator", "durable-directory-name"]],
@@ -190,7 +192,7 @@ Deno.test("operator moderator issuance answers the stewardship row and stores no
 			throw new Error("operator issuance prepared an acquisition");
 		},
 		free() {},
-	} as unknown as RoomsManagedCommand);
+	});
 	const session = viewer({ snapshot: () => Promise.resolve(current) });
 	try {
 		assertEquals(await completeResult(session, operation), row);
@@ -208,7 +210,7 @@ type Conversation = ReturnType<typeof snapshot>["intent"]["conversations"][numbe
 async function adoptedLink(room: Conversation): Promise<Conversation> {
 	const current = snapshot();
 	current.intent.conversations.push(room);
-	const operation = new ManagedOperation("link", {
+	const operation = operationOf("link", {
 		result: () => Promise.resolve({ room: "original-result" }),
 		adopted: () => Promise.resolve(false),
 		originalIntent: () => ["link", 1, "ensureRoomLink", ["room"]],
@@ -221,7 +223,7 @@ async function adoptedLink(room: Conversation): Promise<Conversation> {
 				free() {},
 			}),
 		free() {},
-	} as unknown as RoomsManagedCommand);
+	});
 	const session = viewer({ snapshot: () => Promise.resolve(current) });
 	try {
 		await completeResult(session, operation);
@@ -302,7 +304,7 @@ for (const change of ["unrelated", "registration"] as const) {
 			standing: null,
 		});
 		let preparations = 0;
-		const operation = new ManagedOperation("direct", {
+		const operation = operationOf("direct", {
 			result: () => Promise.resolve({ inbox: "result" }),
 			adopted: () => Promise.resolve(false),
 			originalIntent: () => ["direct", 1, "startDirect", ["directory", "bob", "peer-registration", "opening"]],
@@ -323,7 +325,7 @@ for (const change of ["unrelated", "registration"] as const) {
 				});
 			},
 			free() {},
-		} as unknown as RoomsManagedCommand);
+		});
 		const session = viewer({ snapshot: () => Promise.resolve(current) });
 		try {
 			const [outcome] = await Promise.allSettled([completeResult(session, operation)]);
@@ -366,7 +368,7 @@ for (const first of ["conflict", "uncertain", "replaced"]) {
 		let receiptsFreed = 0;
 		let intentsDecoded = 0;
 		const result = { room: "original-room", control: "original-control" };
-		const operation = new ManagedOperation("creation", {
+		const operation = operationOf("creation", {
 			result: () => Promise.resolve(result),
 			adopted: () => Promise.resolve(false),
 			originalIntent: () => {
@@ -380,7 +382,7 @@ for (const first of ["conflict", "uncertain", "replaced"]) {
 					submit: () => {
 						if (index === 0) {
 							if (first === "uncertain" && submissions++ === 0) {
-								return Promise.reject(new Error("lost reply"));
+								return Promise.resolve(timedOutOutcome());
 							}
 							current.revision = "2";
 							current.intent.standing = "unrelated edit";
@@ -395,7 +397,7 @@ for (const first of ["conflict", "uncertain", "replaced"]) {
 				});
 			},
 			free: () => receiptsFreed++,
-		} as unknown as RoomsManagedCommand);
+		});
 		const session = viewer({ snapshot: () => Promise.resolve(current) });
 		try {
 			const completing = completeResult(session, operation);
@@ -451,7 +453,7 @@ Deno.test("viewer result completion and recovery share adoption and release the 
 	let commands = 0;
 	let candidates = 0;
 	let receipts = 0;
-	const request = {
+	const request = fakeHandle<RoomsManagedCommand>({
 		submit: () => {
 			commands++;
 			return Promise.resolve({ status: "pending" });
@@ -472,7 +474,7 @@ Deno.test("viewer result completion and recovery share adoption and release the 
 				free: () => candidates++,
 			}),
 		free: () => receipts++,
-	} as unknown as RoomsManagedCommand;
+	});
 	const session = viewer({ snapshot: () => Promise.resolve(current) });
 	try {
 		const operation = await session.perform("creation", () => Promise.resolve(request));
@@ -508,7 +510,7 @@ Deno.test("operation close drains result preparation before releasing Wasm wrapp
 	let receipts = 0;
 	let candidates = 0;
 	let submissions = 0;
-	const operation = new ManagedOperation("creation", {
+	const operation = operationOf("creation", {
 		result: () => Promise.resolve({ room: "original-room", control: "original-control" }),
 		adopted: () => Promise.resolve(false),
 		originalIntent: () => ["creation", 1, "openManagedRoom", ["directory", "garden"]],
@@ -517,7 +519,7 @@ Deno.test("operation close drains result preparation before releasing Wasm wrapp
 			return prepared.promise;
 		},
 		free: () => receipts++,
-	} as unknown as RoomsManagedCommand);
+	});
 	const session = viewer({ snapshot: () => Promise.resolve(current) });
 	try {
 		const completing = completeResult(session, operation);
@@ -555,7 +557,7 @@ Deno.test("direct receipt adoption preserves sender provenance and a later ident
 	});
 	let mappings: unknown;
 	let releases: unknown;
-	const operation = new ManagedOperation("send", {
+	const operation = operationOf("send", {
 		result: () => Promise.resolve({ id: 7, line: "receipt-line" }),
 		adopted: () => Promise.resolve(false),
 		originalIntent: () => ["send", 1, "say", ["direct", "hello"]],
@@ -571,7 +573,7 @@ Deno.test("direct receipt adoption preserves sender provenance and a later ident
 			});
 		},
 		free() {},
-	} as unknown as RoomsManagedCommand);
+	});
 	const session = viewer({ snapshot: () => Promise.resolve(current) });
 	try {
 		await completeResult(session, operation);

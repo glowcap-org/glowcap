@@ -19,6 +19,8 @@ const REPLY_BYTES: usize = CHUNK_BYTES + 8192;
 pub(super) struct Trace {
 	pub(super) steps: RefCell<Vec<&'static str>>,
 	pub(super) writes: RefCell<Vec<usize>>,
+	/// The offset of every read of a source, in order.
+	pub(super) offsets: RefCell<Vec<usize>>,
 	pub(super) deferred: Cell<bool>,
 	pub(super) readers: RefCell<Vec<Ref>>,
 	short: Cell<bool>,
@@ -53,6 +55,12 @@ impl Content for Target {
 		})
 	}
 	fn invoke(&self, call: &mut Call<'_>, input: Invocation<'_>) -> Result<Argument> {
+		if input.verb == "configureLiveUpload" && input.field_count > 3 {
+			// A later interruption scenario's live upload takes the place of the
+			// one before it, which that scenario has closed.
+			call.replace_reference(3, &Ref::try_from(&input.args[0]).unwrap())?;
+			return Ok(Argument::Void);
+		}
 		if matches!(input.verb, "configure" | "configureLiveUpload") {
 			for value in input.args {
 				call.append_reference(&Ref::try_from(value).unwrap())?;
@@ -97,6 +105,7 @@ impl Content for Target {
 				assert_eq!(length, CHUNK_BYTES.min(SIZE - offset));
 				assert!(offset < SIZE);
 				self.0.steps.borrow_mut().push("read");
+				self.0.offsets.borrow_mut().push(offset);
 				Ok(Argument::Bytes(if self.0.short.get() {
 					Vec::new()
 				} else {
@@ -222,6 +231,7 @@ pub(super) async fn request(
 	}
 	(args, intent.canonical().unwrap())
 }
+pub(super) const FIXTURE_SIZE: usize = SIZE;
 pub(super) async fn outcome(host: &Host, source: &Ref, id: &str, canonical: &str) -> Outcome {
 	assert_eq!(finished(host, source, id, source).await.as_str(), Some("committed"));
 	let value = host
@@ -292,6 +302,13 @@ pub(super) async fn run() {
 					platform.clone(),
 					std::num::NonZeroUsize::new(REPLY_BYTES).unwrap(),
 				);
+				let reported = Rc::new(std::cell::Cell::new(0));
+				owner
+					.on_trouble({
+						let reported = reported.clone();
+						move |_, _| reported.set(reported.get() + 1)
+					})
+					.unwrap();
 				// This streaming fixture exercises custody and interruption beyond
 				// ordinary bursts; admission's default profile has its own proofs.
 				owner
@@ -436,6 +453,8 @@ pub(super) async fn run() {
 				);
 				super::upload_interruption::run(&host, &owner, &platform, &targets[0], &source, &targets[2], &trace)
 					.await;
+				super::upload_bound::run(&host, &platform, &root, &source, &targets, &trace).await;
+				super::upload_fill::run(&host, &platform, &source, &targets, &trace).await;
 				let before = trace.steps.borrow().len();
 				trace.short.set(true);
 				let (args, canonical) =
@@ -513,11 +532,20 @@ pub(super) async fn run() {
 				trace.refused.set(None);
 				trace.refuse_discard.set(false);
 				trace.malformed.set(true);
+				let before = reported.get();
 				let (args, _) = request(&host, &source, &targets[2], "unknown-upload", Kind::Post, true).await;
 				mutate(&host, &source, "sendFiles", &args).await.unwrap();
 				assert_eq!(
 					finished(&host, &source, "unknown-upload", &source).await.as_str(),
 					Some("unknown")
+				);
+				// The executor reports why it left the receipt unresolved
+				// before it lets go of the job, and only then does the receipt
+				// read unknown.
+				assert_eq!(
+					reported.get(),
+					before + 1,
+					"the unresolved upload's cause was not reported"
 				);
 				owner
 					.import(coordinate(custody::Role::RoomFiles, 2), targets[0].clone(), None)

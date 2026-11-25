@@ -1,5 +1,9 @@
 // Recovery controls name retained tasks that have stopped, never live work.
+import { refusalCode } from "../support/browser_failure.ts";
 import { assert, assertEquals } from "../assert.ts";
+import { settle } from "../support/wait.ts";
+import { connectionLost } from "../../lib/text/failure.ts";
+import { closed, linkedWorkspace, oneLink } from "../support/managed_link.ts";
 import { deferred, snapshot, viewer } from "../support/managed_viewer.ts";
 import type { RoomsManagedCommand, RoomsManagedRecoveredEffect } from "../../../../zig-out/wasm/rooms/rooms_browser.js";
 import type { ObservationView } from "../../web/ui/session/managed/model.ts";
@@ -10,18 +14,19 @@ import {
 	ResultExpired,
 	TerminalObservationError,
 } from "../../web/ui/session/managed/operation.ts";
+import { fakeHandle } from "../support/managed_link.ts";
 
 Deno.test("paused unknown execution resumes before reading its unavailable result", async () => {
 	let reads = 0;
 	let retired = false;
-	const request = {
+	const request = fakeHandle<RoomsManagedRecoveredEffect>({
 		status: () => Promise.resolve("unknown"),
 		resume: () => Promise.resolve("pending"),
 		result: () => {
 			reads++;
 			return Promise.reject(new Error("The original operation is unknown. Its receipt remains held."));
 		},
-	} as unknown as RoomsManagedRecoveredEffect;
+	});
 	assertEquals(await resumeEffect(request, () => retired = true), "pending");
 	assertEquals([reads, retired], [0, false]);
 });
@@ -30,14 +35,14 @@ Deno.test("refused resume retires only a terminal original observation", async (
 	for (const terminal of [false, true]) {
 		let retired = false;
 		const refusal = new Error("the original executor is unavailable");
-		const request = {
+		const request = fakeHandle<RoomsManagedRecoveredEffect>({
 			status: () => Promise.resolve("unknown"),
 			resume: () => Promise.reject(refusal),
 			result: () =>
 				terminal
 					? Promise.resolve({ observationFailure: "the connection ended" })
 					: Promise.reject(new Error("the result read was refused")),
-		} as unknown as RoomsManagedRecoveredEffect;
+		});
 		const error = await resumeEffect(request, () => retired = true).then(() => undefined, (error) => error);
 		assertEquals(retired, terminal);
 		assertEquals(terminal ? error instanceof TerminalObservationError : error === refusal, true);
@@ -86,6 +91,25 @@ Deno.test("startup releases terminal diagnostics and retains interrupted or refu
 	assertEquals(session.pending, ["interrupted", "refused"]);
 	assertEquals(freed.filter((id) => id === "terminal"), ["terminal"]);
 	assertEquals(failures.length, 3);
+	await session.close();
+});
+
+Deno.test("startup skips a listed receipt whose release already happened", async () => {
+	const failures: unknown[] = [];
+	const asked: string[] = [];
+	const { workspace } = linkedWorkspace("released", [], {
+		effects: () =>
+			Promise.resolve([{ operation: "released", status: "committed", resumable: false, released: false }]),
+		// The session answers Void to the receipt's intent, which the binding
+		// reads as no receipt to recover.
+		recoverEffect: (id: string) => {
+			asked.push(id);
+			return Promise.resolve(undefined);
+		},
+	});
+	const session = viewer(workspace, (_source, error) => failures.push(error));
+	await session.start();
+	assertEquals([asked, session.pending, failures], [["released"], [], []]);
 	await session.close();
 });
 
@@ -149,17 +173,16 @@ Deno.test("command admission hides live work and exposes its exact uncertain rec
 				free() {},
 			}),
 	});
-	const request = {
+	const request = fakeHandle<RoomsManagedCommand>({
 		submit: () => submitted.promise,
 		status: () => Promise.resolve(status),
 		free() {},
-	} as unknown as RoomsManagedCommand;
+	});
 	const admissions: string[][] = [];
 	session.subscribe(() => admissions.push([...session.recoverable]));
 	const operation = session.perform("original", () => Promise.resolve(request));
 	const uncertain = Promise.allSettled([operation]);
-	await Promise.resolve();
-	await Promise.resolve();
+	await settle();
 	assertEquals(session.pending, ["original"]);
 	assertEquals(session.recoverable, []);
 	assertEquals(admissions.every((ids) => ids.length === 0), true);
@@ -180,17 +203,18 @@ Deno.test("command admission hides live work and exposes its exact uncertain rec
 Deno.test("a running gesture hides its retained command through result acquisition", async () => {
 	const completion = deferred<void>();
 	const session = viewer({ snapshot: () => Promise.resolve(snapshot()) });
-	let command!: Awaited<ReturnType<typeof session.perform>>;
+	let command: Awaited<ReturnType<typeof session.perform>> | null = null;
 	const gesture = session.execute("original", async () => {
 		command = await session.perform("original", () =>
-			Promise.resolve({
+			Promise.resolve(fakeHandle<RoomsManagedCommand>({
 				submit: () => Promise.resolve({ status: "committed" }),
 				status: () => Promise.resolve("committed"),
 				free() {},
-			} as unknown as RoomsManagedCommand));
+			})));
 		return command;
 	}, async () => {
 		await completion.promise;
+		assert(command != null, "the gesture's command was admitted");
 		session.finish(command);
 	});
 	for (let turn = 0; turn < 8; turn++) await Promise.resolve();
@@ -231,17 +255,39 @@ Deno.test("an acquisition decision appears after uncertainty and disappears duri
 	await session.close();
 });
 
+Deno.test("an import still held after an uncertain reply keeps its state, so only the same import retries", async () => {
+	let prepared = 0, attempts = 0;
+	const session = viewer({
+		snapshot: () => Promise.resolve(snapshot()),
+		prepareConfigurationImport: () => {
+			prepared++;
+			return Promise.resolve({
+				submit: () => Promise.resolve({ status: ++attempts === 1 ? "uncertain" : "committed" }),
+				free() {},
+			});
+		},
+	});
+	await Promise.allSettled([session.actions.importState("{}")]);
+	assertEquals(session.actions.recoverable.length, 1, "the uncertain import is held");
+	const other = await session.actions.importState('{"other":true}').then(() => null, (error: unknown) => error);
+	assertEquals(refusalCode(other), "local-import-in-progress");
+	await session.actions.importState("{}");
+	assertEquals([prepared, attempts, session.actions.pending.length], [1, 2, 0], "the same request retried once");
+	await session.actions.importState('{"other":true}');
+	assertEquals(prepared, 2, "a settled import frees the next one");
+	await session.close();
+});
 Deno.test("a retained receipt another viewer retired is released when recovery finds it absent", async () => {
 	const submitted = deferred<{ status: string }>();
 	const session = viewer({
 		snapshot: () => Promise.resolve(snapshot()),
 		recoverEffect: () => Promise.resolve(undefined),
 	});
-	const request = {
+	const request = fakeHandle<RoomsManagedCommand>({
 		submit: () => submitted.promise,
 		status: () => Promise.resolve("failed"),
 		free() {},
-	} as unknown as RoomsManagedCommand;
+	});
 	const uncertain = Promise.allSettled([session.perform("retired", () => Promise.resolve(request))]);
 	submitted.resolve({ status: "unknown" });
 	await uncertain;
@@ -263,14 +309,14 @@ Deno.test("a committed receipt whose result expired with its session settles ins
 				free() {},
 			}),
 	});
-	const request = {
+	const request = fakeHandle<RoomsManagedCommand>({
 		submit: () => submitted.promise,
 		status: () => Promise.resolve(status),
 		result: () =>
 			Promise.reject(Object.assign(new Error("expired result"), { status: -12, reason: "LiveReferenceExpired" })),
 		adopted: () => Promise.resolve(false),
 		free() {},
-	} as unknown as RoomsManagedCommand;
+	});
 	const uncertain = Promise.allSettled([session.perform("expired", () => Promise.resolve(request))]);
 	submitted.resolve({ status: "unknown" });
 	await uncertain;
@@ -310,16 +356,16 @@ Deno.test("letting a receipt go releases it upstream and forgets the held operat
 			Promise.resolve({
 				release: () => {
 					released.push(id);
-					return Promise.resolve();
+					return Promise.resolve("released");
 				},
 				free() {},
 			}),
 	});
-	const request = {
+	const request = fakeHandle<RoomsManagedCommand>({
 		submit: () => submitted.promise,
 		status: () => Promise.resolve("failed"),
 		free() {},
-	} as unknown as RoomsManagedCommand;
+	});
 	const uncertain = Promise.allSettled([session.perform("abandoned", () => Promise.resolve(request))]);
 	submitted.resolve({ status: "unknown" });
 	await uncertain;
@@ -332,18 +378,25 @@ Deno.test("letting a receipt go releases it upstream and forgets the held operat
 
 Deno.test("an operation still running here cannot be let go", async () => {
 	const submitted = deferred<{ status: string }>();
-	const session = viewer({ snapshot: () => Promise.resolve(snapshot()) });
-	const request = {
+	let released = 0;
+	const session = viewer({
+		snapshot: () => Promise.resolve(snapshot()),
+		recoverEffect: () => {
+			released++;
+			return Promise.resolve(undefined);
+		},
+	});
+	const request = fakeHandle<RoomsManagedCommand>({
 		submit: () => submitted.promise,
 		status: () => Promise.resolve("pending"),
 		free() {},
-	} as unknown as RoomsManagedCommand;
+	});
 	const running = Promise.allSettled([session.perform("live", () => Promise.resolve(request))]);
-	await Promise.resolve();
-	await Promise.resolve();
+	await settle();
 	assertEquals(session.pending, ["live"]);
-	const refused = await session.releaseOperation("live").then(() => false, () => true);
-	assertEquals(refused, true);
+	const refused = await session.releaseOperation("live").then(() => null, refusalCode);
+	assertEquals(refused, "local-change-busy");
+	assertEquals(released, 0, "the session was never asked to release a change still in flight");
 	assertEquals(session.pending, ["live"]);
 	submitted.resolve({ status: "committed" });
 	await running;
@@ -359,13 +412,13 @@ Deno.test("an uncertain result acquisition keeps its receipt until the original 
 			return Promise.resolve(undefined);
 		},
 	});
-	const request = {
+	const request = fakeHandle<RoomsManagedCommand>({
 		submit: () => Promise.resolve({ status: "committed" }),
 		status: () => Promise.resolve("committed"),
 		prepareResultAcquisition: () =>
 			Promise.resolve({ submit: () => Promise.resolve({ status: "uncertain" }), free() {} }),
 		free() {},
-	} as unknown as RoomsManagedCommand;
+	});
 	const operation = await session.perform("acquiring", () => Promise.resolve(request));
 	await operation.acquire(snapshot(), []).catch(() => {});
 	assertEquals(operation.acquiring, true);
@@ -377,10 +430,10 @@ Deno.test("an uncertain result acquisition keeps its receipt until the original 
 Deno.test("failed resume preserves its earlier committed status for the operation owner", async () => {
 	const cause = new Error("resume unavailable");
 	const observed: string[] = [];
-	const request = {
+	const request = fakeHandle<RoomsManagedRecoveredEffect>({
 		status: () => Promise.resolve("committed"),
 		resume: () => Promise.reject(cause),
-	} as unknown as RoomsManagedRecoveredEffect;
+	});
 	const outcome = (await Promise.allSettled([resumeEffect(request, () => {}, (status) => observed.push(status))]))[0];
 	assertEquals(observed, ["committed"]);
 	assertEquals(outcome.status, "rejected");
@@ -391,15 +444,17 @@ Deno.test("failed resume preserves its earlier committed status for the operatio
 });
 
 Deno.test("startup retains committed inventory evidence before reading a recovered result", async () => {
-	const request = { free() {} } as unknown as RoomsManagedRecoveredEffect;
-	const session = viewer({
+	const request = fakeHandle<RoomsManagedRecoveredEffect>({ free() {} });
+	const workspace = {
 		effects: () => Promise.resolve([{ operation: "known", status: "committed" }]),
 		recoverEffect: () => Promise.resolve(request),
-	});
+	};
+	const session = viewer(workspace);
 	let committed = false;
 	try {
 		await restoreEffects({
-			workspace: session.workspace,
+			port: oneLink(workspace),
+			known: () => false,
 			retain: (operation) => {
 				committed = operation.committed;
 			},
@@ -414,4 +469,15 @@ Deno.test("startup retains committed inventory evidence before reading a recover
 	} finally {
 		await session.close();
 	}
+});
+
+Deno.test("a lost connection while a committed change resumes stays a lost connection", async () => {
+	const error = await resumeEffect(
+		fakeHandle<RoomsManagedRecoveredEffect>({
+			status: () => Promise.resolve("committed"),
+			resume: () => Promise.reject(closed()),
+		}),
+		() => {},
+	).then(() => null, (failure: unknown) => failure);
+	assert(connectionLost(error), "the break is the link's to heal, not a result that needs recovery");
 });

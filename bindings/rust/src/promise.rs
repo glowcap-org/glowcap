@@ -24,6 +24,13 @@ pub(crate) async fn await_minted(shared: &Rc<SessionShared>, vow: u64) -> Result
 	shared.host.observe_vow_outcome(vow).await
 }
 
+/// What `operation` fails with when the partner answered with a value that is
+/// not a capability. The name or sturdyref it asked for holds a swissnum, which
+/// is the authority itself, so the failure names only the operation.
+pub(crate) fn not_a_capability(operation: &'static str) -> Error {
+	Error::broken(format!("{operation} did not resolve to a capability"))
+}
+
 /// The one mint/await/classify body under `fetch` and `enliven`: mint the
 /// host vow with `mint`, await its drain-routed completion, and classify:
 /// only an opaque Host reference is a capability this surface can hand out.
@@ -35,7 +42,7 @@ pub(crate) async fn await_minted(shared: &Rc<SessionShared>, vow: u64) -> Result
 pub(crate) async fn fetch_like(
 	shared: &Rc<SessionShared>,
 	swiss: &[u8],
-	label: &str,
+	operation: &'static str,
 	mint: unsafe extern "C" fn(*mut ffi::GlowcapHostSession, *const u8, usize, *mut u64) -> i32,
 ) -> Result<Ref> {
 	shared.guard_open()?;
@@ -53,7 +60,7 @@ pub(crate) async fn fetch_like(
 		};
 		Ok(reference)
 	} else {
-		Err(Error::broken(format!("{label:?} did not resolve to a capability")))
+		Err(not_a_capability(operation))
 	}
 }
 

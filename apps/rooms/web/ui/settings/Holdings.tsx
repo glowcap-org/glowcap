@@ -10,6 +10,7 @@ import { CopyField } from "../Copy.tsx";
 import type { ArchiveTargetView } from "../archive_model.ts";
 import { useRoomsBrowser, useRoomsController } from "../controller/browser.ts";
 import { useRoomsSession } from "../controller/session.ts";
+import { useAsyncAction } from "../async_action.ts";
 import { useRoomsState } from "../hooks.ts";
 import type { RoomConv } from "../conversation.ts";
 import { CapabilitySetForm } from "./CapabilitySet.tsx";
@@ -20,6 +21,8 @@ import {
 	holdingsCopyAttached,
 	holdingsCopyHosted,
 	holdingsEntryLink,
+	holdingsLinkPending,
+	holdingsLinkUnread,
 	holdingsManager,
 	holdingsModerator,
 	holdingsOpenRoomControls,
@@ -30,6 +33,42 @@ import {
 import { holdingsLocalLead, holdingsSharedLead } from "../../../lib/text/ops.ts";
 import { sessionAccessTitle } from "../../../lib/text/settings.ts";
 import { refusalText } from "../../../lib/text/failure.ts";
+import { sessionTryNow } from "../../../lib/text/page.ts";
+import type { SharedRoomsControllerSelection } from "../../../lib/rooms_state.ts";
+
+/** The link to the shared session this page shows: the link once it is read,
+ * why its read failed with the way to read it again, or that it shows once
+ * Rooms reaches the session. Reading again settles into the selection, which
+ * shows the link or the new failure, so the press holds no answer of its own. */
+export function SessionLinkHolding({ shared }: { shared: SharedRoomsControllerSelection }) {
+	const reread = useAsyncAction((_signal, readAgain: () => Promise<void>) => readAgain());
+	if (shared.sturdyref != null) {
+		return (
+			<CopyField
+				id="currentSessionCapability"
+				text={shared.sturdyref}
+				label={shared.kind === "hosted" ? holdingsCopyHosted : holdingsCopyAttached}
+			/>
+		);
+	}
+	const unread = shared.kind === "attached" ? shared.unread : undefined;
+	if (unread == null) return <p className="hint">{holdingsLinkPending}</p>;
+	return (
+		<>
+			<Said kind="failure">{holdingsLinkUnread(refusalText(unread.failure))}</Said>
+			<div className="actions">
+				<Button
+					id="currentSessionLinkTryNow"
+					variant="quiet"
+					busy={reread.busy}
+					onClick={() => void reread.run(unread.readAgain)}
+				>
+					{sessionTryNow}
+				</Button>
+			</div>
+		</>
+	);
+}
 
 export function Holdings({ archiveTarget }: { archiveTarget: ArchiveTargetView }) {
 	const browser = useRoomsBrowser();
@@ -88,11 +127,7 @@ export function Holdings({ archiveTarget }: { archiveTarget: ArchiveTargetView }
 				<>
 					<h3 className="well-title overline" id="sessionHoldingLegend">{sessionAccessTitle}</h3>
 					<div className="group well" role="group" aria-labelledby="sessionHoldingLegend">
-						<CopyField
-							id="currentSessionCapability"
-							text={shared.sturdyref}
-							label={controller.kind === "hosted" ? holdingsCopyHosted : holdingsCopyAttached}
-						/>
+						<SessionLinkHolding shared={shared} />
 					</div>
 				</>
 			)}

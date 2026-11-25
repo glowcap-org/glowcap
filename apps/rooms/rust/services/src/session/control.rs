@@ -10,7 +10,7 @@ mod inbox;
 mod request;
 mod worker;
 pub use accesses::rights;
-pub use failure::Failure;
+pub use failure::{CONFLICT, Failure};
 use feed::{Application, Feed};
 use rooms_application::failure::Retry;
 use serde_json::{Value, json};
@@ -58,6 +58,7 @@ request::request! {
 		AccessList => "access-list" {},
 		AccessChange => "access-change" { id: String, change: crate::session::attached::Lifecycle },
 		AccessForget => "access-forget" { id: String },
+		AccessShare => "access-share" { id: String },
 	}
 }
 
@@ -296,6 +297,7 @@ impl Control {
 			RequestBody::AccessList {} => accesses::list(app).await,
 			RequestBody::AccessChange { id, change } => accesses::change(app, &id, change).await,
 			RequestBody::AccessForget { id } => accesses::forget(app, &id).await,
+			RequestBody::AccessShare { id } => accesses::share(app, &id).await,
 			RequestBody::Command { id, base, name, args } => {
 				let status = self.commands.submit(&app.workspace, &id, base, &name, &args).await?;
 				Ok(json!({"ok": true, "operation": id, "status":format!("{status:?}").to_lowercase()}))

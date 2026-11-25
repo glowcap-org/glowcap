@@ -135,7 +135,17 @@ pub(super) async fn membership(
 	assert_eq!(rolled_back.revision, snapshot.revision);
 	assert_ne!(rolled_back.intent, intent, "staged selection rolls back with custody");
 	refuse.set(false);
+	assert_eq!(
+		workspace.held_effects().await.unwrap(),
+		[id.as_str()],
+		"a committed result its source has not adopted keeps its place"
+	);
 	acquisition.submit().await.unwrap();
+	assert_eq!(
+		workspace.held_effects().await.unwrap(),
+		Vec::<String>::new(),
+		"an adopted result keeps no place, so it is no longer listed"
+	);
 	let after = workspace.snapshot().await.unwrap();
 	assert_eq!(after.intent, intent);
 	// Record revisions are Store commit numbers. Grant and receipt commits may

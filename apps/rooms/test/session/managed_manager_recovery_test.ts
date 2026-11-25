@@ -1,14 +1,15 @@
 // A recovered manager lands in exactly the room its request was admitted for, or the result stays held.
+import { operationOf } from "../support/managed_link.ts";
 import { failureView } from "../../lib/text/failure.ts";
 import { assert, assertEquals } from "../assert.ts";
 import { snapshot, viewer } from "../support/managed_viewer.ts";
-import { ManagedOperation, ResultAcquisitionError } from "../../web/ui/session/managed/operation.ts";
+import { ResultAcquisitionError } from "../../web/ui/session/managed/operation.ts";
 import { completeResult } from "../../web/ui/session/managed/completion.ts";
 import type { RoomsManagedCommand } from "../../../../zig-out/wasm/rooms/rooms_browser.js";
+import { fakeHandle } from "../support/managed_link.ts";
+import type { RoomIntent } from "../../web/ui/session/managed/model.ts";
 
-type Conversation = ReturnType<typeof snapshot>["intent"]["conversations"][number];
-
-function room(id: string, extra: Record<string, unknown> = {}): Conversation {
+function room(id: string, extra: Partial<RoomIntent> = {}): RoomIntent {
 	return {
 		kind: "room",
 		id,
@@ -22,11 +23,11 @@ function room(id: string, extra: Record<string, unknown> = {}): Conversation {
 		standing: null,
 		draft: "",
 		...extra,
-	} as Conversation;
+	};
 }
 /** The request a recovery was admitted with: the operator and the room it names. */
 function recovery(witness: Record<string, unknown>, acquisition: (intent: string) => void) {
-	return new ManagedOperation("manager", {
+	return operationOf("manager", {
 		result: () => Promise.resolve({ control: "returned-control" }),
 		adopted: () => Promise.resolve(false),
 		originalIntent: () => ["manager", 1, "recoverRoomManager", ["operator-key", JSON.stringify(witness)]],
@@ -35,7 +36,7 @@ function recovery(witness: Record<string, unknown>, acquisition: (intent: string
 			return Promise.resolve({ submit: () => Promise.resolve({ status: "committed" }), free() {} });
 		},
 		free() {},
-	} as unknown as RoomsManagedCommand);
+	});
 }
 const witness = (id: string) => ({
 	id,
@@ -101,7 +102,7 @@ const bare = (id: string) => {
 	const { access: _access, ...rest } = witness(id);
 	return rest;
 };
-async function landing(witnessed: Record<string, unknown>, row: Record<string, unknown>) {
+async function landing(witnessed: Record<string, unknown>, row: Partial<RoomIntent>) {
 	const current = snapshot();
 	current.intent.conversations.push(room("room", row));
 	let candidate: Intent | undefined;
@@ -158,7 +159,7 @@ Deno.test("a seat-lost recovery stays releasable", async () => {
 				resume: () => Promise.resolve("committed"),
 				release: () => {
 					released.push(id);
-					return Promise.resolve();
+					return Promise.resolve("released");
 				},
 				free() {},
 			}),
@@ -187,7 +188,7 @@ Deno.test("a seat-lost recovery stays releasable", async () => {
 
 /** A receipt an older Rooms wrote: the generic operator request that carried the manager identity. */
 function oldRecovery(acquisitions: string[]) {
-	return {
+	return fakeHandle<RoomsManagedCommand>({
 		result: () => Promise.resolve({ control: "returned-control" }),
 		adopted: () => Promise.resolve(false),
 		originalIntent: () => ["old", 1, "operator", ["operator-key", "giveManager", "manager-identity"]],
@@ -196,14 +197,14 @@ function oldRecovery(acquisitions: string[]) {
 			return Promise.resolve({ submit: () => Promise.resolve({ status: "committed" }), free() {} });
 		},
 		free() {},
-	} as unknown as RoomsManagedCommand;
+	});
 }
 
 Deno.test("an old operator recovery result is refused, never acquired or taken as success", async () => {
 	const current = snapshot();
 	current.intent.conversations.push(room("room"));
 	const acquisitions: string[] = [];
-	const operation = new ManagedOperation("old", oldRecovery(acquisitions));
+	const operation = operationOf("old", oldRecovery(acquisitions));
 	const session = viewer({ snapshot: () => Promise.resolve(current) });
 	try {
 		const [outcome] = await Promise.allSettled([completeResult(session, operation)]);
@@ -222,7 +223,7 @@ Deno.test("other operator results still complete without acquiring anything", as
 	const acquisitions: string[] = [];
 	const request = oldRecovery(acquisitions);
 	request.originalIntent = () => ["other", 1, "operator", ["operator-key", "somethingElse", "x"]];
-	const operation = new ManagedOperation("other", request);
+	const operation = operationOf("other", request);
 	const session = viewer({ snapshot: () => Promise.resolve(snapshot()) });
 	try {
 		assertEquals(await completeResult(session, operation), { control: "returned-control" });
@@ -247,7 +248,7 @@ Deno.test("resuming an old held recovery stays held and can be released", async 
 				resume: () => Promise.resolve("committed"),
 				release: () => {
 					released.push(id);
-					return Promise.resolve();
+					return Promise.resolve("released");
 				},
 				free() {},
 			}),

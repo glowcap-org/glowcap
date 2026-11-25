@@ -1,5 +1,7 @@
 // Immediate conversation selection survives delayed admission and exact target retirement.
-import { assertEquals } from "../assert.ts";
+import { assert, assertEquals } from "../assert.ts";
+import { refusalCode } from "../support/browser_failure.ts";
+import { fakeEnvironment, fakeHandle, ownerEntry } from "../support/managed_link.ts";
 import { deferred, snapshot, viewer } from "../support/managed_viewer.ts";
 import { ManagedOpenings } from "../../web/ui/session/managed/openings.ts";
 import { ManagedNavigation } from "../../web/ui/session/managed/navigation.ts";
@@ -26,24 +28,29 @@ for (const cancelAt of ["handoff", "selection"] as const) {
 		});
 		const selected: string[] = [];
 		const departed: string[] = [];
-		const session = {
+		const session = fakeHandle<ManagedRoomsSession>({
 			pending: [],
-			refresh: () => Promise.resolve(current),
-			command: (_name: string, args: string[]) => {
-				departed.push(args[0]);
-				return Promise.resolve({});
-			},
-			completeResult: () => Promise.resolve(),
-			navigation: {
-				select: async (id: string) => {
+			effects: fakeEnvironment().effects,
+			linkEnded: () => false,
+			readBeforeSending: () => Promise.resolve(current),
+			readNow: () => Promise.resolve(current),
+			...ownerEntry({
+				command: (_name: string, args: string[]) => {
+					departed.push(args[0]);
+					return Promise.resolve({} as never);
+				},
+				completeResult: () => Promise.resolve(),
+			}),
+			navigation: fakeHandle<ManagedNavigation>({
+				selectAfterCommit: async (id: string) => {
 					selected.push(id);
 					if (cancelAt === "selection") {
 						reached.resolve();
 						await release.promise;
 					}
 				},
-			},
-		} as unknown as ManagedRoomsSession;
+			}),
+		});
 		const openings = new ManagedOpenings(session);
 		const outcome = Promise.allSettled([openings.run(
 			async (attempt) => {
@@ -222,7 +229,7 @@ for (const conflict of [false, true]) {
 					free() {},
 				}),
 		});
-		await session.refresh();
+		await session.readNow();
 		session.completeResult = () => Promise.resolve();
 		const navigation = new ManagedNavigation(session);
 		const first = navigation.select("first");
@@ -269,11 +276,12 @@ Deno.test("navigation revision contention preserves the visible room and permits
 				free() {},
 			}),
 	});
-	await session.refresh();
+	await session.readNow();
 	session.completeResult = () => Promise.resolve();
 	const navigation = new ManagedNavigation(session);
 	const [outcome] = await Promise.allSettled([navigation.select("room")]);
-	assertEquals(outcome.status, "rejected");
+	assert(outcome.status === "rejected", "the exhausted save is refused");
+	assertEquals(refusalCode(outcome.reason), "local-conflict");
 	assertEquals(attempts, 4);
 	assertEquals(navigation.selected, "room");
 	conflicts = false;
@@ -310,7 +318,7 @@ Deno.test("known navigation refusal releases its visible selection after the roo
 				free() {},
 			}),
 	});
-	await session.refresh();
+	await session.readNow();
 	const navigation = new ManagedNavigation(session);
 	const [outcome] = await Promise.allSettled([navigation.select("room")]);
 	assertEquals(outcome.status, "rejected");
@@ -358,6 +366,7 @@ for (const superseded of ["none", "room", "view"] as const) {
 		const openings = new ManagedOpenings(session);
 		const opening = openings.run(async (attempt) => {
 			const id = await session.actions.direct("directory", "bo", false);
+			assert(id != null, "the direct conversation was acquired");
 			await attempt.select(id);
 		}, { kind: "direct", peer: "bo" });
 		assertEquals(openings.destination, { kind: "direct", peer: "bo" });

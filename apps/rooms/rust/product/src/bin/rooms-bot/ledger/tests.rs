@@ -1,7 +1,7 @@
 use super::*;
 use crate::bot::{
 	classify::{MAX_LABEL_BYTES, MAX_NAME_BYTES},
-	rooms::Attachment,
+	rooms::{Attachment, Base, Kind},
 };
 use rooms_application::room::line::{MAX_LINE_BYTES, MAX_MESSAGE_FILES};
 use rooms_testing::scratch::Scratch;
@@ -51,7 +51,10 @@ fn a_turn_walks_from_running_through_each_line_to_done() {
 	assert!(matches!(
 		ledger.phase(id),
 		Some(Phase::Running {
-			progress: Progress::InFlight,
+			runs: Runs {
+				progress: Progress::InFlight,
+				..
+			},
 			..
 		})
 	));
@@ -59,8 +62,10 @@ fn a_turn_walks_from_running_through_each_line_to_done() {
 	assert!(matches!(
 		ledger.phase(id),
 		Some(Phase::Running {
-			spent: 1,
-			progress: Progress::Ready,
+			runs: Runs {
+				spent: 1,
+				progress: Progress::Ready,
+			},
 			..
 		})
 	));
@@ -129,28 +134,6 @@ fn a_line_settled_without_being_kept_is_never_sent_again() {
 		"the owed release did not survive a restart"
 	);
 	ledger.part_sent(&store, id).unwrap();
-	let handed = Attempt::Handed {
-		base: Base(3),
-		after: event(1),
-	};
-	ledger
-		.attempt(
-			&store,
-			id,
-			Attempt::Sent {
-				base: Base(3),
-				after: event(1),
-				looks: 0,
-			},
-		)
-		.unwrap();
-	ledger.attempt(&store, id, handed).unwrap();
-	assert!(
-		ledger
-			.attempt(&store, id, Attempt::Committed { base: Base(3) })
-			.is_err()
-	);
-	assert!(ledger.reissue(&store, id, "y".into()).is_err());
 }
 
 #[test]
@@ -221,13 +204,10 @@ fn a_damaged_ledger_is_refused_by_name() {
 
 #[test]
 fn a_write_that_never_landed_leaves_memory_as_the_file_holds_it() {
-	use std::os::unix::fs::PermissionsExt;
 	let (_dir, store, mut ledger) = fresh("bot-ledger-unchanged");
-	// A directory nobody may write refuses the staged copy before any rename.
-	let root = store.root().to_owned();
-	std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o500)).unwrap();
+	let displaced = crate::bot::store::Displaced::new(store.root());
 	let refused = ledger.begin(&store, asked(&[1]));
-	std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o700)).unwrap();
+	displaced.restore();
 	assert!(matches!(refused, Err(Error::Storage(_))), "{refused:?}");
 	assert!(ledger.open().is_empty() && !ledger.covers(&event(1)));
 	assert_eq!(ledger.begin(&store, asked(&[1])).unwrap(), TurnId(0));
@@ -241,12 +221,24 @@ fn a_write_that_may_have_landed_is_written_again_before_anything_else() {
 	// which the file may hold either document.
 	std::fs::remove_file(&file).unwrap();
 	std::fs::create_dir_all(file.join("block")).unwrap();
-	assert!(matches!(ledger.begin(&store, asked(&[1])), Err(Error::Unsettled(_))));
+	assert_eq!(
+		ledger.begin(&store, asked(&[1])).unwrap(),
+		TurnId(0),
+		"the caller holds the turn memory holds"
+	);
 	assert!(
 		ledger.covers(&event(1)),
 		"memory holds the document that may be on disk"
 	);
-	assert!(ledger.durable(&store).is_err(), "the file still cannot be replaced");
+	assert!(
+		matches!(ledger.durable(&store), Err(Error::Unsettled(_))),
+		"the file still cannot be replaced"
+	);
+	assert!(
+		matches!(ledger.begin(&store, asked(&[2])), Err(Error::Unsettled(_))),
+		"no change is made while the last one is unwritten"
+	);
+	assert!(!ledger.covers(&event(2)));
 	std::fs::remove_dir_all(&file).unwrap();
 	assert_eq!(ledger.begin(&store, asked(&[2])).unwrap(), TurnId(1));
 	let read = Ledger::load(&store).unwrap().unwrap();
@@ -255,6 +247,42 @@ fn a_write_that_may_have_landed_is_written_again_before_anything_else() {
 		"the next change wrote the unsettled one again first"
 	);
 	assert_eq!(read.open(), [TurnId(0), TurnId(1)]);
+}
+
+#[test]
+fn a_run_whose_start_cannot_be_made_durable_spends_nothing() {
+	let (_dir, store, mut ledger) = fresh("bot-ledger-start-run");
+	let id = ledger.begin(&store, asked(&[1])).unwrap();
+	let file = store.root().join("turns.json");
+	std::fs::remove_file(&file).unwrap();
+	std::fs::create_dir_all(file.join("block")).unwrap();
+	assert!(matches!(ledger.start_run(&store, id, 0), Err(Error::Unsettled(_))));
+	assert!(
+		matches!(
+			ledger.phase(id),
+			Some(Phase::Running {
+				runs: Runs {
+					progress: Progress::Ready,
+					..
+				},
+				..
+			})
+		),
+		"a run the harness never began is in memory as started"
+	);
+	std::fs::remove_dir_all(&file).unwrap();
+	ledger.start_run(&store, id, 0).unwrap();
+	let read = Ledger::load(&store).unwrap().unwrap();
+	assert!(matches!(
+		read.phase(id),
+		Some(Phase::Running {
+			runs: Runs {
+				spent: 0,
+				progress: Progress::InFlight,
+			},
+			..
+		})
+	));
 }
 
 #[test]
@@ -368,6 +396,17 @@ fn the_ledger_at_every_bound_stays_under_the_size_it_reads_back() {
 		cursor_seq: Seq(u64::MAX),
 		next_turn: TurnId(u64::MAX),
 		rows: BTreeMap::new(),
+		replaced: (0..MAX_REPLACED)
+			.map(|_| Replaced {
+				operation: "f".repeat(32),
+				base: Base(u64::MAX),
+				conversation: ConversationId::new(widest(rooms_application::content::session::workspace::MAX_ID_UNITS)),
+				text: widest(MAX_LINE_BYTES),
+			})
+			.collect(),
+		left: (0..MAX_REPLACED).map(|index| format!("{index:032x}")).collect(),
+		replaced_actions: (0..MAX_REPLACED).map(|index| format!("{index:032x}")).collect(),
+		unlisted: Some(Unlisted::Paused),
 		unsettled: false,
 	};
 	for id in 0..MAX_OPEN as u64 {
@@ -382,9 +421,11 @@ fn the_ledger_at_every_bound_stays_under_the_size_it_reads_back() {
 					kind: Kind::Direct,
 					triggers,
 				},
-				spent: u32::MAX,
+				runs: Runs {
+					spent: u32::MAX,
+					progress: Progress::CutOff,
+				},
 				note: Some(widest(MAX_NOTE_BYTES)),
-				progress: Progress::CutOff,
 			},
 		);
 	}
@@ -426,6 +467,77 @@ fn the_ledger_at_every_bound_stays_under_the_size_it_reads_back() {
 	assert!(sending <= MAX_LEDGER_BYTES, "{sending} bytes");
 }
 
+/// A turn with `count` lines, each sent and committed at base 1.
+fn sending(store: &Store, ledger: &mut Ledger, count: usize) -> TurnId {
+	let id = ledger.begin(store, asked(&[1])).unwrap();
+	let parts = (0..count).map(|line| part(&format!("op{line}"), "text")).collect();
+	ledger.answer(store, id, Content::Answer, parts).unwrap();
+	id
+}
+
+fn replaced(operation: &str) -> Replaced {
+	Replaced {
+		operation: operation.into(),
+		base: Base(1),
+		conversation: ConversationId::new("c1"),
+		text: "text".into(),
+	}
+}
+
+#[test]
+fn a_line_finished_by_its_echo_is_settled_and_recorded_in_one_write_and_dropped_when_asked() {
+	let (_dir, store, mut ledger) = fresh("bot-ledger-replaced");
+	let id = sending(&store, &mut ledger, 2);
+	assert_eq!(ledger.part_replaced(&store, id, replaced("op0")).unwrap(), None);
+	let Some(Phase::Sending { sent, .. }) = ledger.phase(id) else {
+		panic!("the turn is not sending");
+	};
+	assert_eq!((*sent, ledger.replaced()), (1, &[replaced("op0")][..]));
+	let loaded = Ledger::load(&store).unwrap().unwrap();
+	assert_eq!(loaded.replaced(), ledger.replaced(), "the record is in the file");
+	assert!(loaded.sent().is_empty(), "a settled line is no line to ask about");
+	ledger
+		.drop_replaced(&store, &BTreeSet::from(["other".to_owned()]))
+		.unwrap();
+	assert_eq!(ledger.replaced().len(), 1, "a record nobody named stays");
+	ledger
+		.drop_replaced(&store, &BTreeSet::from(["op0".to_owned()]))
+		.unwrap();
+	assert!(ledger.replaced().is_empty());
+	assert!(Ledger::load(&store).unwrap().unwrap().replaced().is_empty());
+}
+
+#[test]
+fn a_record_past_the_bound_drops_the_oldest_and_returns_it() {
+	let (_dir, store, mut ledger) = fresh("bot-ledger-replaced-bound");
+	let id = sending(&store, &mut ledger, MAX_REPLACED + 1);
+	for line in 0..MAX_REPLACED {
+		assert_eq!(
+			ledger
+				.part_replaced(&store, id, replaced(&format!("op{line}")))
+				.unwrap(),
+			None
+		);
+	}
+	let dropped = ledger
+		.part_replaced(&store, id, replaced(&format!("op{MAX_REPLACED}")))
+		.unwrap();
+	assert_eq!(dropped, Some(replaced("op0")));
+	assert_eq!(ledger.replaced().len(), MAX_REPLACED);
+	assert_eq!(ledger.replaced()[0], replaced("op1"));
+}
+
+#[test]
+fn a_ledger_holding_more_records_than_the_session_has_places_or_one_twice_is_unreadable() {
+	let (_dir, store, mut ledger) = fresh("bot-ledger-replaced-unreadable");
+	ledger.replaced = (0..=MAX_REPLACED).map(|line| replaced(&format!("op{line}"))).collect();
+	ledger.persist(&store).unwrap();
+	assert!(matches!(Ledger::load(&store), Err(Error::Unreadable { .. })));
+	ledger.replaced = vec![replaced("op0"), replaced("op0")];
+	ledger.persist(&store).unwrap();
+	assert!(matches!(Ledger::load(&store), Err(Error::Unreadable { .. })));
+}
+
 #[test]
 fn a_ledger_past_its_bound_is_a_typed_refusal_before_any_write() {
 	let (_dir, store, mut ledger) = fresh("bot-ledger-too-large");
@@ -435,4 +547,15 @@ fn a_ledger_past_its_bound_is_a_typed_refusal_before_any_write() {
 	assert!(matches!(ledger.begin(&store, huge), Err(Error::TooLarge { .. })));
 	assert_eq!(std::fs::read(store.root().join("turns.json")).unwrap(), before);
 	assert!(ledger.open().is_empty());
+}
+
+/// The process test of a crowd of conversations (`tests/bot_process/turns.rs`)
+/// cannot import the bound, so it must name the rows the ledger holds.
+#[test]
+fn the_crowd_process_test_names_the_rows_the_ledger_holds() {
+	let test = include_str!("../../../../tests/bot_process/turns.rs");
+	assert!(
+		test.contains(&format!("const ROWS: u64 = {MAX_ROWS};")),
+		"turns.rs names another row count than MAX_ROWS ({MAX_ROWS})"
+	);
 }

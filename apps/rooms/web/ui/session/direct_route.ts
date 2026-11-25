@@ -12,5 +12,6 @@ import { coordinate } from "./managed/model.ts";
 export async function directRoute(session: ManagedRoomsSession, conv: DmConv): Promise<string | null> {
 	const row = conversationById(session.current, conv.persistId);
 	if (row?.kind !== "direct" || row.access == null || row.closed || !session.permits("observeWorkspace")) return null;
-	return await session.workspace.directRoute(coordinate("directAccess", row.access));
+	const access = coordinate("directAccess", row.access);
+	return await session.request((workspace) => workspace.directRoute(access));
 }

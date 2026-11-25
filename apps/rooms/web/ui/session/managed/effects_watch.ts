@@ -18,8 +18,11 @@ export async function watchReceipt(
 		const status = await operation.status();
 		lifecycle.outcome = status === "committed" ? "committed" : status === "pending" ? "pending" : "unknown";
 		if (status === "committed") {
+			// This read is the receipt's own acquisition, not a follow-up: its failure
+			// is the receipt's recovery verdict (`addressed-snapshot`), so it stays
+			// raw and never falls back to a notice.
 			try {
-				await effects.refresh();
+				await effects.readNow();
 			} catch (error) {
 				environment.changed();
 				throw operation.completionError(error, "addressed-snapshot");

@@ -46,8 +46,8 @@ impl<P: Tasks + Deadline + Clone + 'static> SessionContent<P> {
 				authority::requirement(input, &self.owner(input.verb)?.writer.root()?)?;
 				authority::references(input, &metadata)?
 			}
-			"unadopted-effects" | "release-unadopted-effect" => {
-				super::unadopted::references(input, &self.owner(input.verb)?.writer.root()?, &metadata)?
+			"inert-effects" | "release-inert-effect" => {
+				super::inert::references(input, &self.owner(input.verb)?.writer.root()?, &metadata)?
 			}
 			"record-inbox" => {
 				recording::authorize(input, &self.owner(input.verb)?.writer.root()?)?;
@@ -85,7 +85,9 @@ impl<P: Tasks + Deadline + Clone + 'static> SessionContent<P> {
 				let receipt = selected.ok_or_else(|| refuse("unknown effect"))?;
 				vec![restore_source(receipt)?]
 			}
-			"effect-intent" | "release-effect" => selected.map(restore_source).transpose()?.into_iter().collect(),
+			"effect-intent" | "effect-holder" | "release-effect" => {
+				selected.map(restore_source).transpose()?.into_iter().collect()
+			}
 			"effect-adopted" | "resume-effect" => {
 				vec![restore_source(selected.ok_or_else(|| refuse("unknown effect"))?)?]
 			}
@@ -93,6 +95,13 @@ impl<P: Tasks + Deadline + Clone + 'static> SessionContent<P> {
 				.effects
 				.as_slice()
 				.iter()
+				.map(restore_source)
+				.collect::<Result<_>>()?,
+			"held-effects" => metadata
+				.effects
+				.as_slice()
+				.iter()
+				.filter(|receipt| effects::keeps_place(receipt))
 				.map(restore_source)
 				.collect::<Result<_>>()?,
 			"import-result" | "acquire-result-workspace" | "acquire-created-room" => {

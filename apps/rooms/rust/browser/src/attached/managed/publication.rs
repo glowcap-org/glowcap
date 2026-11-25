@@ -1,9 +1,30 @@
 //! Publication follows the established home of a held capability. Derivation
 //! preserves that home. The receiving Host never substitutes its own route.
 use super::*;
-use rooms_glowcap::client::Deadline;
 use rooms_runtime::Error as RuntimeError;
-use std::future::IntoFuture;
+
+/// A held use or control, asked for its publication name over its own route,
+/// so a link lost under the question is named as one.
+#[derive(Clone)]
+enum Published {
+	Workspace(Held<Workspace<Platform>>),
+	Control(Held<Control<Platform>>),
+}
+impl Published {
+	fn reference(&self) -> &Ref {
+		match self {
+			Self::Workspace(workspace) => workspace.reference(),
+			Self::Control(control) => control.reference(),
+		}
+	}
+	async fn durable_name(&self) -> Result<String> {
+		match self {
+			Self::Workspace(workspace) => workspace.durable_name().await,
+			Self::Control(control) => control.durable_name().await,
+		}
+		.map_err(RuntimeError::from)
+	}
+}
 
 #[derive(Clone)]
 pub(super) enum PublicationHome {
@@ -22,46 +43,58 @@ impl PublicationHome {
 		let bytes = size_of::<String>() + uri.capacity();
 		Ok(Self::Remote(driver.hold(uri, bytes)?))
 	}
-	pub(super) async fn recipe(&self, environment: &Environment, reference: &Ref) -> Result<Option<String>> {
-		match self {
-			Self::LocalOwner => Ok(None),
-			Self::Remote(uri) => {
+}
+
+/// A held use or control with the home it is published from, which a share
+/// and a saved row both read.
+#[derive(Clone)]
+pub(super) struct Publication {
+	held: Published,
+	home: PublicationHome,
+}
+impl Publication {
+	pub(super) fn reference(&self) -> &Ref {
+		self.held.reference()
+	}
+	/// The link that redeems the capability at its original home, or none
+	/// when this page's own session owns it.
+	pub(super) async fn recipe(&self) -> Result<Option<String>> {
+		match &self.home {
+			PublicationHome::LocalOwner => Ok(None),
+			PublicationHome::Remote(uri) => {
 				let route = glowcap::parse_sturdyref(uri, glowcap::CaptpVersion::V1_0).map_err(RuntimeError::from)?;
-				let reply = environment
-					.platform
-					.within(
-						rooms_application::room::authority::REQUEST_TIMEOUT_MS,
-						environment
-							.runtime
-							.host()
-							.send(reference, "durable-name", &[])
-							.into_future(),
-					)
-					.await
-					.ok_or_else(|| {
-						RuntimeError::from(rooms_glowcap::client::Error::Timeout("Original owner publication"))
-					})?
-					.map_err(RuntimeError::from)?;
-				let name = reply
-					.as_str()
-					.filter(|name| !name.is_empty() && name.len() <= 64)
-					.ok_or_else(|| RuntimeError::invalid("Original owner returned no publication name"))?;
+				let name = self.held.durable_name().await?;
 				glowcap::format_sturdyref(&route.locator, name.as_bytes(), glowcap::CaptpVersion::V1_0)
 					.map(Some)
 					.map_err(RuntimeError::from)
 			}
 		}
 	}
-	pub(super) fn publish(&self, driver: &Driver, reference: &Ref) -> js_sys::Promise {
-		let reference = reference.clone();
-		let home = self.clone();
+	pub(super) fn publish(self, driver: &Driver) -> js_sys::Promise {
 		driver.submit(0, move |environment| async move {
-			let link = match home.recipe(&environment, &reference).await? {
+			let link = match self.recipe().await? {
 				Some(link) => link,
-				None => owner(&environment)?.publish(&environment, &reference).await?,
+				None => owner(&environment)?.publish(&environment, self.reference()).await?,
 			};
 			Ok(link.into())
 		})
+	}
+}
+
+impl RoomsManagedWorkspace {
+	pub(super) fn publication(&self) -> Publication {
+		Publication {
+			held: Published::Workspace(self.workspace.clone()),
+			home: self.home.clone(),
+		}
+	}
+}
+impl RoomsManagedControl {
+	pub(super) fn publication(&self) -> Publication {
+		Publication {
+			held: Published::Control(self.control.clone()),
+			home: self.home.clone(),
+		}
 	}
 }
 
@@ -69,6 +102,6 @@ impl PublicationHome {
 impl RoomsManagedWorkspace {
 	/// Share this exact use endpoint, independently of its management control.
 	pub fn publish(&self) -> js_sys::Promise {
-		self.home.publish(&self.driver, self.workspace.reference())
+		self.publication().publish(&self.driver)
 	}
 }

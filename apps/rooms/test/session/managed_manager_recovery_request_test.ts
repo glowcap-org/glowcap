@@ -5,9 +5,15 @@ import { ManagedReads } from "../../web/ui/session/managed/reads.ts";
 import { assert, assertEquals } from "../assert.ts";
 import { snapshot } from "../support/managed_viewer.ts";
 import type { ManagedRoomsSession } from "../../web/ui/session/managed/session.ts";
-import type { WorkspaceSnapshot } from "../../web/ui/session/managed/model.ts";
-import type { RoomsPageContext } from "../../web/ui/page.ts";
+import type { RoomIntent, WorkspaceSnapshot } from "../../web/ui/session/managed/model.ts";
 import { LocalRefusal, refusalText } from "../../lib/text/failure.ts";
+import { actionSession, fakeHandle, oneLink } from "../support/managed_link.ts";
+import type { ManagedEffects } from "../../web/ui/session/managed/effects.ts";
+import type { ManagedOpenings } from "../../web/ui/session/managed/openings.ts";
+import type { ManagedNavigation } from "../../web/ui/session/managed/navigation.ts";
+import type { ManagedDrafts } from "../../web/ui/session/managed/drafts.ts";
+import { ManagedActions } from "../../web/ui/session/managed/actions.ts";
+import type { ManagedOperation } from "../../web/ui/session/managed/operation.ts";
 
 const { RoomsPage } = await import("../../web/ui/page.ts");
 const { managedOperations } = await import("../../web/ui/session/managed/operations.ts");
@@ -21,7 +27,7 @@ interface Requested {
 	args: string[];
 	fence?: Fence;
 }
-function fixture(room: Record<string, unknown> = {}, operator = true) {
+function fixture(room: Partial<RoomIntent> = {}, operator = true) {
 	const current = snapshot();
 	if (operator) current.intent.operators = ["operator-key"];
 	current.intent.directories.push({
@@ -45,40 +51,48 @@ function fixture(room: Record<string, unknown> = {}, operator = true) {
 		standing: null,
 		draft: "",
 		...room,
-	} as never);
+	});
 	const requests: Requested[] = [];
 	let completed = 0;
 	const page = new RoomsPage();
-	const session = {
+	const session = fakeHandle<ManagedRoomsSession>({
+		onRelink: () => () => {},
 		reads: new ManagedReads(),
 		current,
-		effects: {
+		effects: fakeHandle<ManagedEffects>({
 			standingVersion: "",
 			roomStandingPending: () => false,
 			cancelledConversations: [],
 			standing: (_name: string, _target: string | null, accepted: string | null) => accepted,
-		},
+		}),
 		access: { status: "active" },
 		pending: [],
 		pendingOperations: [],
 		recoverable: [],
-		openings: { destination: null },
-		navigation: {},
-		drafts: { value: (_id: string, text: string) => text },
-		actions: { pending: [], recoverable: [], cancelledConversations: [] },
-		command: (name: string, args: string[], _id: string, fence?: Fence) => {
-			requests.push({ name, args, fence });
-			return Promise.resolve({});
-		},
-		completeResult: () => {
-			completed++;
-			return Promise.resolve();
-		},
-	} as unknown as ManagedRoomsSession;
+		openings: fakeHandle<ManagedOpenings>({ destination: null }),
+		navigation: fakeHandle<ManagedNavigation>({}),
+		drafts: fakeHandle<ManagedDrafts>({ value: (_id: string, text: string) => text }),
+		// The real actions, over the owner entry the pieces below stand in for.
+		actions: new ManagedActions(
+			actionSession({}, {
+				current,
+				command: (name: string, args: string[] = [], _id?: string, fence?: Fence) => {
+					requests.push({ name, args, fence });
+					return Promise.resolve(fakeHandle<ManagedOperation>({}));
+				},
+				completeResult: () => {
+					completed++;
+					return Promise.resolve();
+				},
+			}),
+			oneLink({}),
+		),
+	});
 	const files = presentationFiles(page.projection, () => null);
 	new ManagedProjection(page, session, files, () => {}, () => {}).apply();
-	const row = store.convByPersistId(page.projection, "garden")!;
-	const operations = managedOperations(page as RoomsPageContext, session);
+	const row = store.convByPersistId(page.projection, "garden");
+	assert(row != null, "the room is shown");
+	const operations = managedOperations(page, session);
 	return { current, requests, completed: () => completed, operations, row, files };
 }
 
@@ -129,10 +143,12 @@ Deno.test("re-preparation keeps an unrelated change and refuses a change to the 
 	const held = fixture();
 	try {
 		await held.operations.recoverRoomManager(held.row.key);
-		const fence = held.requests[0].fence!;
-		const changed = (edit: (room: Record<string, unknown>) => void): WorkspaceSnapshot => {
+		const fence = held.requests[0].fence;
+		assert(fence != null, "the request is fenced");
+		const changed = (edit: (room: RoomIntent) => void): WorkspaceSnapshot => {
 			const next = structuredClone(held.current);
-			const room = next.intent.conversations[0] as unknown as Record<string, unknown>;
+			const room = next.intent.conversations[0];
+			assert(room?.kind === "room", "the room is held");
 			edit(room);
 			return next;
 		};
@@ -140,10 +156,10 @@ Deno.test("re-preparation keeps an unrelated change and refuses a change to the 
 		fence(changed((room) => room.name = "renamed"));
 		for (
 			const edit of [
-				(room: Record<string, unknown>) => room.seat = "another-seat",
-				(room: Record<string, unknown>) => room.access = "another-entrance",
-				(room: Record<string, unknown>) => room.directory = "elsewhere",
-				(room: Record<string, unknown>) => room.control = "manager",
+				(room: RoomIntent) => room.seat = "another-seat",
+				(room: RoomIntent) => room.access = "another-entrance",
+				(room: RoomIntent) => room.directory = "elsewhere",
+				(room: RoomIntent) => room.control = "manager",
 			]
 		) {
 			let refused = false;

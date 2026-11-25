@@ -70,6 +70,18 @@ impl Owner {
 		*self.outcome.borrow_mut() = Outcome::Unknown(error);
 		self.changed.notify_waiters();
 	}
+	/// The job that owned this admission was retired before it reported an
+	/// outcome. `cause` is none when the job had dispatched nothing, so no
+	/// endpoint exists, and otherwise the failure that paused it. An outcome
+	/// the job already reported stays.
+	pub(in crate::session::managed) fn forfeit(&self, cause: Option<glowcap::Error>) {
+		let mut outcome = self.outcome.borrow_mut();
+		if matches!(*outcome, Outcome::Pending) {
+			*outcome = cause.map_or(Outcome::Absent, Outcome::Unknown);
+			drop(outcome);
+			self.changed.notify_waiters();
+		}
+	}
 	pub(in crate::session::managed) fn closing(&self) -> bool {
 		self.closing.get()
 	}

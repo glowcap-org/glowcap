@@ -301,6 +301,15 @@ impl<D: Deadline + Clone> Grants<D> {
 	pub async fn revoke(&self, name: &str) -> Result<(), Error> {
 		change(&self.held(name).await?, Lifecycle::Revoke).await
 	}
+	/// The access this link's own control manages, or `None` once that access
+	/// is revoked.
+	pub async fn own(&self) -> Result<Option<Grant>, Error> {
+		describe(&self.control).await
+	}
+	/// Pause, resume, or revoke the access this link's own control manages.
+	pub async fn change_own(&self, lifecycle: Lifecycle) -> Result<(), Error> {
+		change(&self.control, lifecycle).await
+	}
 	/// The control a management name publishes, fetched from this session.
 	async fn held(&self, name: &str) -> Result<Control<D>, Error> {
 		if name.is_empty() || name.len() > 64 {
@@ -311,8 +320,8 @@ impl<D: Deadline + Clone> Grants<D> {
 			.platform()
 			.within(REQUEST_TIMEOUT_MS, self.client.session().fetch(name))
 			.await
-			.ok_or(Error::Unreachable(ClientError::Timeout("the session did not answer")))?
-			.map_err(|error| link::refusal(error.into()))?;
+			.ok_or(Error::Unreachable(ClientError::Timeout(link::NO_ANSWER)))?
+			.map_err(|error| link::refused_or_failed(error.into()))?;
 		Ok(Control::new(self.client.clone(), reference))
 	}
 }

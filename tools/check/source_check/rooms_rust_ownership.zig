@@ -95,12 +95,36 @@ fn checkRuntimeLayout(
         {
             try appendViolation(gpa, violations, source_root ++ "/{s}: domain module must live below a grouped runtime root", .{entry.name});
         }
-        if (entry.kind == .directory and !std.mem.eql(u8, entry.name, "documents") and
-            !text_match.inSet(&runtime_domain_roots, entry.name))
+        if (entry.kind == .directory and !text_match.inSet(&runtime_domain_roots, entry.name) and
+            try supportChildren(io, gpa, src, entry.name, violations) == .stray)
         {
-            try appendViolation(gpa, violations, source_root ++ "/{s}: unexpected runtime root directory; place the module under its owning domain", .{entry.name});
+            try appendViolation(gpa, violations, source_root ++ "/{s}: unexpected runtime root directory; place the module under its owning domain, or beside the support file `{s}.rs` it belongs to", .{ entry.name, entry.name });
         }
     }
+}
+
+/// What the root directory `name` is: the child modules of a support file
+/// `runtime_support_files` lists, which sits beside it as `name.rs`, or a
+/// stray. The crate root's children sit in `src` itself, so `lib` is a stray.
+/// A support file that could not be inspected is reported here, once.
+fn supportChildren(
+    io: std.Io,
+    gpa: std.mem.Allocator,
+    src: std.Io.Dir,
+    name: []const u8,
+    violations: *std.ArrayList([]const u8),
+) !enum { children, stray, uninspected } {
+    var file_buf: [64]u8 = undefined;
+    const file = std.mem.print(&file_buf, "{s}.rs", .{name}) catch return .stray;
+    if (std.mem.eql(u8, file, "lib.rs") or !text_match.inSet(&runtime_support_files, file)) return .stray;
+    src.access(io, file, .{}) catch |err| switch (err) {
+        error.FileNotFound => return .stray,
+        else => {
+            try appendViolation(gpa, violations, "apps/rooms/rust/runtime/src/{s}: could not inspect the support file with {s}", .{ file, @errorName(err) });
+            return .uninspected;
+        },
+    };
+    return .children;
 }
 
 fn rejectDependency(
@@ -178,7 +202,13 @@ test "Rooms runtime keeps domain roots instead of flat owner modules" {
     var tmp = std.testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
     const source_root = "apps/rooms/rust/runtime/src";
-    try tmp.dir.createDirPath(std.testing.io, source_root ++ "/documents");
+    // A support file's child modules sit beside it. A directory named after a
+    // support file that is not there is stray, and so is one beside the crate
+    // root, whose children sit in `src` itself.
+    try tmp.dir.createDirPath(std.testing.io, source_root ++ "/error");
+    try tmp.dir.writeFile(std.testing.io, .{ .sub_path = source_root ++ "/error.rs", .data = "mod retry;" });
+    try tmp.dir.createDirPath(std.testing.io, source_root ++ "/clock");
+    try tmp.dir.createDirPath(std.testing.io, source_root ++ "/lib");
     var declarations: std.ArrayList(u8) = .empty;
     defer declarations.deinit(gpa);
     for (runtime_domain_roots) |domain| {
@@ -205,16 +235,20 @@ test "Rooms runtime keeps domain roots instead of flat owner modules" {
         violations.deinit(gpa);
     }
     try checkRuntimeLayout(std.testing.io, gpa, tmp.dir, &violations);
-    try std.testing.expectEqual(@as(usize, 3), violations.items.len);
+    try std.testing.expectEqual(@as(usize, 5), violations.items.len);
     var missing_session = false;
     var flat_file = false;
     var flat_directory = false;
+    var orphan_children = false;
+    var crate_root_children = false;
     for (violations.items) |message| {
         missing_session = missing_session or std.mem.find(u8, message, "pub mod session;") != null;
         flat_file = flat_file or std.mem.find(u8, message, "session_service.rs") != null;
         flat_directory = flat_directory or std.mem.find(u8, message, "direct_events") != null;
+        orphan_children = orphan_children or std.mem.find(u8, message, "src/clock:") != null;
+        crate_root_children = crate_root_children or std.mem.find(u8, message, "src/lib:") != null;
     }
-    try std.testing.expect(missing_session and flat_file and flat_directory);
+    try std.testing.expect(missing_session and flat_file and flat_directory and orphan_children and crate_root_children);
 }
 
 test "retired Rooms owners and crate boundaries cannot return" {

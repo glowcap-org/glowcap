@@ -3,10 +3,11 @@
 //! with the printed link, so the proof reaches what the access allows. The
 //! session keeps each control in its workspace rows, so an access is managed
 //! by the id the list shows, with nothing kept from the issue's output.
-use super::session_rig::{Fixture, attach, call, free_port, host, run_within, text_arrived};
+use super::session_rig::{Fixture, LinkSecret, attach, call, free_port, host, run_within, text_arrived};
 use glowcap::PendingWork;
 use rooms_platform::HostPlatform;
-use rooms_services::session::attached::{EffectStatus, Error, View};
+use rooms_application::content::session::{Preset, Terms};
+use rooms_services::session::attached::{EffectStatus, Error, Grants, Lifecycle, State, View};
 use serde_json::{Value, json};
 use std::{path::Path, time::Duration};
 
@@ -26,8 +27,12 @@ fn request(state: &Path, verb: &str, named: Value) -> (bool, String, String) {
 
 fn access(state: &Path, verb: &str, named: Value) -> Value {
 	let (ok, stdout, stderr) = request(state, verb, named.clone());
-	assert!(ok, "access {verb} {named}: {stdout}{stderr}");
-	assert_eq!(stdout.lines().count(), 1, "one JSON line: {stdout:?}");
+	assert!(ok, "access {verb} {named}: {stderr}");
+	assert_eq!(
+		stdout.lines().count(),
+		1,
+		"access {verb} printed more than one JSON line"
+	);
 	serde_json::from_str(&stdout).unwrap()
 }
 
@@ -63,25 +68,30 @@ fn a_person_issues_lists_pauses_resumes_and_revokes_access_from_the_terminal() {
 		"issue",
 		json!({"label": ["the bot"], "rights": ["collaborator"]}),
 	);
-	assert!(ok, "{stdout}{stderr}");
+	assert!(ok, "{stderr}");
 	let issued: Value = serde_json::from_str(&stdout).unwrap();
 	let link = issued["link"].as_str().unwrap().to_owned();
 	let id = issued["id"].as_str().unwrap().to_owned();
 	assert_eq!(issued["label"], "the bot");
-	assert_eq!(issued.as_object().unwrap().len(), 5, "{issued}");
-	assert!(!stderr.contains(&link), "the link reached stderr");
+	let fields: Vec<&String> = issued.as_object().unwrap().keys().collect();
+	assert_eq!(fields.len(), 5, "{fields:?}");
+	let secret = LinkSecret::of(&link);
+	secret.assert_absent(&stderr, "the issue's stderr");
 	// A refused value is refused exactly, before anything is issued.
 	for rights in ["root", "Observer", ""] {
 		let (ok, stdout, stderr) = request(&one.state, "issue", json!({"label": ["x"], "rights": [rights]}));
 		assert!(!ok, "{rights:?} was accepted");
-		assert!(!stdout.contains(&link) && !stderr.contains(&link));
+		secret.assert_absent(&stdout, "a refused issue's output");
+		secret.assert_absent(&stderr, "a refused issue's stderr");
 		assert!(stdout.contains("--rights"), "{stdout}");
 	}
 	let (ok, stdout, _) = request(&one.state, "issue", json!({"label": ["x"]}));
-	assert!(!ok && stdout.contains("--rights is required"), "{stdout}");
+	// An accepted issue printed a link, so only a refusal's output is shown.
+	assert!(!ok, "an issue without --rights was accepted");
+	assert!(stdout.contains("--rights is required"), "{stdout}");
 	let listed = row(&one.state, "the bot");
 	assert_eq!(listed["id"], id.as_str());
-	assert!(!listed.to_string().contains(&link), "the list quoted the link");
+	secret.assert_absent(listed.to_string(), "the access list");
 	assert_eq!(
 		(listed["state"].clone(), listed["effective"].clone()),
 		(json!("active"), json!("active"))
@@ -139,6 +149,54 @@ fn a_person_issues_lists_pauses_resumes_and_revokes_access_from_the_terminal() {
 		access(&one.state, "revoke", named());
 		holder.close(PendingWork::Cancel).await.unwrap();
 	});
+	fixture.finish();
+}
+
+/// A person hands one access's management to another place, such as a
+/// browser's session access list. The link manages that one access with the
+/// powers its control was issued with, and the session keeps managing it too.
+#[test]
+fn a_shared_management_link_manages_the_one_access_it_names() {
+	let fixture = Fixture::start("access-share", &["share-one", "share-two"], "share-room");
+	let one = &fixture.peers[0];
+	let issue = |label: &str| access(&one.state, "issue", json!({"label": [label], "rights": ["observer"]}));
+	let shared = issue("shared");
+	issue("other");
+	let named = |issued: &Value| json!({"id": [issued["id"].as_str().unwrap()]});
+	let (ok, stdout, stderr) = request(&one.state, "share-management", named(&shared));
+	assert!(ok, "{stderr}");
+	assert_eq!(stdout.lines().count(), 1, "the link is printed on one JSON line");
+	let answer: Value = serde_json::from_str(&stdout).unwrap();
+	let link = answer["link"].as_str().unwrap().to_owned();
+	assert_eq!(answer["id"], shared["id"]);
+	let secret = LinkSecret::of(&link);
+	secret.assert_absent(&stderr, "the share's stderr");
+	secret.assert_absent(access(&one.state, "list", json!({})).to_string(), "the access list");
+	assert_ne!(link, shared["link"], "the management link is not the use link");
+	// Sharing again names the same control, so a lost link is read again.
+	assert_eq!(access(&one.state, "share-management", named(&shared))["link"], link.as_str());
+	run_within(Duration::from_secs(60), async {
+		let holder = host().await;
+		let grants = Grants::attach(&holder, HostPlatform, &link).await.unwrap();
+		let held = grants.own().await.unwrap().expect("the shared access is live");
+		assert_eq!((held.label.as_str(), held.state), ("shared", State::Active));
+		grants.change_own(Lifecycle::Pause).await.unwrap();
+		assert_eq!(row(&one.state, "shared")["state"], "paused");
+		assert_eq!(row(&one.state, "other")["state"], "active");
+		// The control was issued to change one access's lifecycle and no more.
+		let terms = Terms::new(Preset::Observer.values()).unwrap();
+		assert!(grants.issue("wider", &terms).await.is_err());
+		access(&one.state, "resume", named(&shared));
+		assert_eq!(grants.own().await.unwrap().unwrap().state, State::Active);
+		grants.change_own(Lifecycle::Revoke).await.unwrap();
+		assert_eq!(row(&one.state, "shared")["state"], "revoked");
+		assert_eq!(row(&one.state, "other")["state"], "active");
+		holder.close(PendingWork::Cancel).await.unwrap();
+	});
+	let (ok, stdout, _) = request(&one.state, "share-management", named(&shared));
+	assert!(!ok && stdout.contains("revoked"), "{stdout}");
+	let (ok, stdout, _) = request(&one.state, "share-management", json!({"id": ["no-such-access"]}));
+	assert!(!ok && stdout.contains("no access is kept"), "{stdout}");
 	fixture.finish();
 }
 
@@ -216,8 +274,8 @@ fn an_issue_the_session_stopped_in_the_middle_of_is_finished_by_issuing_again() 
 	let state = fixture.peers[0].state.clone();
 	let named = || json!({"id": ["kept-bot"], "label": ["the bot"], "rights": ["collaborator"]});
 	fixture.peers[0].restart_at(Some("after-issue"));
-	let (ok, stdout, stderr) = request(&state, "issue", named());
-	assert!(!ok, "the session finished an issue it was to stop in: {stdout}{stderr}");
+	let (ok, _, stderr) = request(&state, "issue", named());
+	assert!(!ok, "the session finished an issue it was to stop in: {stderr}");
 	assert!(
 		!fixture.peers[0].process.wait().success(),
 		"the session was not stopped after the issue"

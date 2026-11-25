@@ -2,6 +2,7 @@
 // only that layer. An incoming update wins over an older local completion.
 import * as store from "../../store.ts";
 import type { RoomsPageContext } from "../../page.ts";
+import type { Committed } from "./committed.ts";
 import type { ManagedRoomsSession } from "./session.ts";
 import { LocalRefusal, refusalText } from "../../../../lib/text/failure.ts";
 
@@ -11,7 +12,7 @@ export async function editLine(
 	key: string,
 	id: number,
 	text: string,
-	after: () => Promise<void> = () => Promise.resolve(),
+	after: (committed: Committed) => Promise<void> = () => Promise.resolve(),
 ): Promise<void> {
 	const projection = page.projection;
 	const row = store.getConv(projection, key);
@@ -44,12 +45,20 @@ export async function editLine(
 		if (untouched) installed = current();
 	};
 	try {
-		await session.execute(operation, () => session.command("editLine", args, operation), async (command) => {
-			await command.result();
-			patch(true);
-			session.finish(command);
-			await after();
-		});
+		await session.press(
+			operation,
+			({ command }) => command("editLine", args, operation),
+			async (command, committed) => {
+				// Run again over the next link when a loss ends `after`, the edit is
+				// shown once and its receipt stays finished.
+				if (!command.finished) {
+					await command.result();
+					patch(true);
+					session.finish(command);
+				}
+				await after(committed);
+			},
+		);
 	} catch (error) {
 		patch(false, refusalText(error));
 		// The line owns this refusal, including an unknown retained outcome.

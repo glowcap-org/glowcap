@@ -32,8 +32,8 @@ async fn attached(link: &str, management_link: &str, original_base: Option<u64>)
 	let parsed = glowcap::parse_sturdyref(link, CaptpVersion::V1_0).unwrap();
 	let management = glowcap::parse_sturdyref(management_link, CaptpVersion::V1_0).unwrap();
 	assert_eq!(parsed.locator, management.locator);
-	assert_ne!(
-		parsed.swissnum, management.swissnum,
+	assert!(
+		parsed.swissnum != management.swissnum,
 		"management has its own publication"
 	);
 	let runtime = Runtime::open(RuntimeConfig::providers([

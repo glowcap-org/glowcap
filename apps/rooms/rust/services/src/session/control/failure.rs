@@ -4,7 +4,9 @@ use rooms_runtime::Error;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
-const CONFLICT: &str = "conflict";
+/// The class of a write the session refused because the workspace moved under
+/// its base, which committed nothing.
+pub const CONFLICT: &str = "conflict";
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Failure {
@@ -32,6 +34,11 @@ impl Failure {
 	}
 	pub fn exhausted(message: impl ToString) -> Self {
 		Self::new("exhausted", Retry::AfterStateChange, message)
+	}
+	/// A refusal that changed nothing and clears soon, as an executor still
+	/// running: asking again is right, and observing is not needed.
+	pub fn busy(message: impl ToString) -> Self {
+		Self::new("busy", Retry::Soon, message)
 	}
 	pub fn uncertain(message: impl ToString) -> Self {
 		Self::new("uncertain", Retry::AfterStateChange, message)
@@ -87,8 +94,8 @@ impl From<Error> for Failure {
 impl From<&crate::session::attached::Error> for Failure {
 	fn from(error: &crate::session::attached::Error) -> Self {
 		use crate::session::attached::Error::{
-			Budget, Conflict, Exists, Input, Io, Malformed, Paused, Peer, Refused, Revoked, Stale, Uncertain, Unkept,
-			Unopened, Unreachable,
+			Budget, Conflict, Exists, Forfeited, Input, Io, Malformed, Paused, Peer, Refused, Revoked, Stale,
+			Uncertain, Unkeepable, Unkept, Unopened, Unreachable,
 		};
 		let (class, retry) = match error {
 			Refused => ("refused", Retry::AfterRequestChange),
@@ -100,7 +107,9 @@ impl From<&crate::session::attached::Error> for Failure {
 			Conflict => (CONFLICT, Retry::Soon),
 			Stale => ("restarted", Retry::AfterRequestChange),
 			Unkept { .. } => ("unkept", Retry::Never),
+			Forfeited { .. } => ("forfeited", Retry::Never),
 			Unopened { .. } => ("unopened", Retry::AfterStateChange),
+			Unkeepable { .. } => ("unkeepable", Retry::AfterRequestChange),
 			Input(_) => ("invalid", Retry::AfterRequestChange),
 			Malformed(_) => ("system", Retry::Never),
 			Budget => ("exhausted", Retry::AfterStateChange),
@@ -159,6 +168,14 @@ mod tests {
 		);
 		let pending = Failure::from(StorageError::Pending);
 		assert_eq!((pending.class.as_str(), pending.retry.as_str()), ("busy", "soon"));
+	}
+	/// A release answered running changed nothing and clears soon, so a plan
+	/// reads it as busy, which says to ask again, and not as uncertain, which
+	/// says to observe first.
+	#[test]
+	fn a_busy_failure_advises_asking_again() {
+		let busy = Failure::busy("the executor runs");
+		assert_eq!((busy.class.as_str(), busy.retry.as_str()), ("busy", "soon"));
 	}
 	#[test]
 	fn transport_and_application_failures_keep_their_meaning() {

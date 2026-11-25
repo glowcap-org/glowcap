@@ -23,7 +23,7 @@ Deno.test("managed directory revisit reuses custody and nickname choice is local
 // the held mark, and the offer takes it only where no directory is home.
 Deno.test("managed directory reach re-routes a held directory through an address it is not held by", async () => {
 	const f = fixture();
-	f.page.managedSession!.workspace.directoryRouteHeld = () => Promise.resolve(false);
+	f.workspace.directoryRouteHeld = () => Promise.resolve(false);
 	try {
 		const nick = { kind: "exact", name: "ada" } as const;
 		assertEquals(await f.controller.reachDirectory(f.route, nick, { home: true }), "");
@@ -38,8 +38,9 @@ Deno.test("managed directory reach re-routes a held directory through an address
 // A re-route that fails leaves the held directory as it was and says why.
 Deno.test("managed directory reach says why a re-route failed and changes nothing else", async () => {
 	const f = fixture();
-	const session = f.page.managedSession!;
-	session.workspace.directoryRouteHeld = () => Promise.resolve(false);
+	const session = f.page.managedSession;
+	assert(session != null, "the page shows its session");
+	f.workspace.directoryRouteHeld = () => Promise.resolve(false);
 	session.actions.directory = () => Promise.reject(new Error("The relay did not answer"));
 	try {
 		const said = await f.controller.reachDirectory(f.route, { kind: "exact", name: "ada" });

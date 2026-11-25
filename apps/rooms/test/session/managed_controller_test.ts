@@ -253,6 +253,7 @@ Deno.test("managed rail naming creates an absent room through authoritative dire
 		assertEquals(f.calls.slice(0, 2), [["directoryReader", f.id], ["freeReader"]]);
 		assertEquals(f.calls[2].slice(0, 3), ["createRoom", f.id, "new-room"]);
 		assertEquals(f.calls[3], ["select", ["room"]]);
+		assertEquals(f.readsOutside(), 0, "the listing is read inside the link's request");
 	} finally {
 		f.close();
 	}
@@ -573,7 +574,7 @@ for (const replaced of [false, true]) {
 					free() {},
 				}),
 		});
-		await session.refresh();
+		await session.readNow();
 		session.completeResult = () => {
 			completed++;
 			return Promise.resolve();

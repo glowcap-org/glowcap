@@ -407,6 +407,70 @@ test "loam foreign save reports why its proof could not restore" {
     try std.testing.expectEqual(@as(usize, 0), source.attached.reference_saves);
 }
 
+test "loam foreign save names a session that closed before its proof's restoration answered" {
+    var source_backend = try h.loam.Volatile.init(a, h.f.store_id, 16 * 1024 * 1024);
+    defer source_backend.deinit();
+    var source_store = try h.loam.core.Store.init(a, try source_backend.open(), &f.schemas, h.limits);
+    defer source_store.deinit() catch unreachable;
+    const source_data = try h.seed(&source_store, &source_backend);
+    var target_backend = try h.loam.Volatile.init(a, @fromBackingInt(98), 16 * 1024 * 1024);
+    defer target_backend.deinit();
+    var target_store = try h.loam.core.Store.init(a, try target_backend.open(), &h.schemas, h.limits);
+    defer target_store.deinit() catch unreachable;
+    const target_data = try h.seed(&target_store, &target_backend);
+    var source: h.Hosted = undefined;
+    try source.init(&source_store, &source_backend, source_data);
+    defer source.deinit();
+    source.service.contents = &f.contents;
+    var target: h.Hosted = undefined;
+    try target.initIdentity(&target_store, &target_backend, target_data, .{}, @splat(0x65));
+    defer target.deinit();
+    const name = try f.publication(&target, &target_backend, target_data.use, @splat(0x78));
+    const pair = try f.pairs.openPair(&source.host, &target.host, "127.0.0.1:9791");
+    const original = try f.fetch(&source, &source_backend, &target, &target_backend, pair, name);
+    defer source.host.releaseCapabilityTerminal(original, null);
+    const uri = try f.uri(a, h.driver.Host.DurableSwiss.fromEntropy(@splat(0x79)));
+    defer a.free(uri);
+    while (try f.pairs.shuttle(pair)) {}
+
+    // The save's proof fetches the name over the live session, and the
+    // transport closes before the target answers.
+    const call = try source.host.callLocalCapability(a, source.use, "put", &.{ .{ .integer = 0 }, .{ .capability = original }, .{ .string = uri } }, 4096);
+    defer call.deinit();
+    try closeBeforeFetchAnswered(&source, &source_backend, &target, pair, call);
+    try std.testing.expectEqual(h.driver.BreakCause.local(.closed).withFetch().withRestoration(), call.result().failed.cause);
+    try std.testing.expectEqual(@as(usize, 0), source.attached.reference_saves);
+}
+
+/// Drive `call` until its fetch leaves the source, close the pair's transport
+/// before the target answers it, and drive the source until `call` settles.
+fn closeBeforeFetchAnswered(source: *h.Hosted, source_backend: *h.loam.Volatile, target: *h.Hosted, pair: f.pairs.Pair, call: anytype) !void {
+    var sent = false;
+    for (0..256) |_| {
+        _ = try source.attached.advanceProgress();
+        if (try source.reads(source_backend)) |batch| try source.attached.completeWrite(batch.ticket, source_backend.commit(batch));
+        while (try source.host.nextAction()) |action| switch (action) {
+            .flush => |flushed| if (flushed == pair.a.peer_handle) while (try pair.a.takeOutbound()) |frame_value| {
+                var frame = frame_value;
+                frame.deinit();
+                sent = true;
+            },
+            else => {},
+        };
+        if (sent) break;
+    } else return error.FetchNotSent;
+    try source.host.transportClosed(pair.a, "transport closed in this scenario");
+    try target.host.transportClosed(pair.b, "transport closed in this scenario");
+    try retireSession(&source.host, pair.a);
+    try retireSession(&target.host, pair.b);
+    for (0..256) |_| {
+        _ = try source.attached.advanceProgress();
+        if (try source.reads(source_backend)) |batch| try source.attached.completeWrite(batch.ticket, source_backend.commit(batch));
+        if (call.result() != .pending) return;
+    }
+    return error.DidNotSettle;
+}
+
 /// Drain one ended session's terminal effects and release it.
 fn retireSession(host: *h.driver.Host, session: *h.driver.HostSession) !void {
     const peer = session.peer_handle;
@@ -421,39 +485,89 @@ fn retireSession(host: *h.driver.Host, session: *h.driver.HostSession) !void {
     return error.SessionDidNotClose;
 }
 
+/// A source that saved a capability its target published and let the
+/// reference sleep, so its next use restores it from the target. It is
+/// initialized in place, because each Hosted points into its own store.
+const SavedForeign = struct {
+    source_backend: h.loam.Volatile,
+    source_store: h.loam.core.Store,
+    target_backend: h.loam.Volatile,
+    target_store: h.loam.core.Store,
+    source: h.Hosted,
+    target: h.Hosted,
+    pair: f.pairs.Pair,
+
+    fn init(self: *SavedForeign, target_id: @TypeOf(h.f.store_id), publication: u8) !void {
+        self.source_backend = try h.loam.Volatile.init(a, h.f.store_id, 16 * 1024 * 1024);
+        errdefer self.source_backend.deinit();
+        self.source_store = try h.loam.core.Store.init(a, try self.source_backend.open(), &f.schemas, h.limits);
+        errdefer self.source_store.deinit() catch unreachable;
+        const source_data = try h.seed(&self.source_store, &self.source_backend);
+        self.target_backend = try h.loam.Volatile.init(a, target_id, 16 * 1024 * 1024);
+        errdefer self.target_backend.deinit();
+        self.target_store = try h.loam.core.Store.init(a, try self.target_backend.open(), &h.schemas, h.limits);
+        errdefer self.target_store.deinit() catch unreachable;
+        const target_data = try h.seed(&self.target_store, &self.target_backend);
+        try self.source.init(&self.source_store, &self.source_backend, source_data);
+        errdefer self.source.deinit();
+        self.source.service.contents = &f.contents;
+        try self.target.initIdentity(&self.target_store, &self.target_backend, target_data, .{}, @splat(0x65));
+        errdefer self.target.deinit();
+        const name = try f.publication(&self.target, &self.target_backend, target_data.use, @splat(publication));
+        self.pair = try f.pairs.openPair(&self.source.host, &self.target.host, "127.0.0.1:9791");
+        const original = try f.fetch(&self.source, &self.source_backend, &self.target, &self.target_backend, self.pair, name);
+        const uri = try f.uri(a, name);
+        defer a.free(uri);
+        const saved = try f.send(&self.source, &self.source_backend, &self.target, &self.target_backend, self.pair, self.source.use, "put", &.{ .{ .integer = 0 }, .{ .capability = original }, .{ .string = uri } });
+        defer saved.deinit();
+        try std.testing.expect(saved.result().ready.boolean);
+        self.source.host.releaseCapabilityTerminal(original, null);
+        try self.source.attached.sleep(self.source.use);
+    }
+
+    fn deinit(self: *SavedForeign) void {
+        self.target.deinit();
+        self.source.deinit();
+        self.target_store.deinit() catch unreachable;
+        self.target_backend.deinit();
+        self.source_store.deinit() catch unreachable;
+        self.source_backend.deinit();
+    }
+};
+
+test "loam foreign restoration names a session that closed before it answered" {
+    var saved: SavedForeign = undefined;
+    try saved.init(@fromBackingInt(97), 0x77);
+    defer saved.deinit();
+    const source = &saved.source;
+    const source_backend = &saved.source_backend;
+    const target = &saved.target;
+    const pair = saved.pair;
+
+    while (try f.pairs.shuttle(pair)) {}
+
+    // The cold restore fetches over the live session, and the transport closes
+    // before the target answers.
+    const call = try source.host.callLocalCapability(a, source.use, "ref", &.{.{ .integer = 0 }}, 4096);
+    defer call.deinit();
+    try closeBeforeFetchAnswered(source, source_backend, target, pair, call);
+    try std.testing.expectEqual(h.driver.BreakCause.local(.closed).withFetch().withRestoration(), call.result().failed.cause);
+    try std.testing.expectEqual(@as(usize, 0), source.host.pending_operations);
+}
+
 test "loam foreign restoration reports why the Host could not reach its target" {
     try foreignRestorationFailure(.peer_unreachable);
     try foreignRestorationFailure(.transport_unavailable);
 }
 
 fn foreignRestorationFailure(failure: h.driver.RouteFailure) !void {
-    var source_backend = try h.loam.Volatile.init(a, h.f.store_id, 16 * 1024 * 1024);
-    defer source_backend.deinit();
-    var source_store = try h.loam.core.Store.init(a, try source_backend.open(), &f.schemas, h.limits);
-    defer source_store.deinit() catch unreachable;
-    const source_data = try h.seed(&source_store, &source_backend);
-    var target_backend = try h.loam.Volatile.init(a, @fromBackingInt(96), 16 * 1024 * 1024);
-    defer target_backend.deinit();
-    var target_store = try h.loam.core.Store.init(a, try target_backend.open(), &h.schemas, h.limits);
-    defer target_store.deinit() catch unreachable;
-    const target_data = try h.seed(&target_store, &target_backend);
-    var source: h.Hosted = undefined;
-    try source.init(&source_store, &source_backend, source_data);
-    defer source.deinit();
-    source.service.contents = &f.contents;
-    var target: h.Hosted = undefined;
-    try target.initIdentity(&target_store, &target_backend, target_data, .{}, @splat(0x65));
-    defer target.deinit();
-    const name = try f.publication(&target, &target_backend, target_data.use, @splat(0x76));
-    const pair = try f.pairs.openPair(&source.host, &target.host, "127.0.0.1:9791");
-    const original = try f.fetch(&source, &source_backend, &target, &target_backend, pair, name);
-    const uri = try f.uri(a, name);
-    defer a.free(uri);
-    const saved = try f.send(&source, &source_backend, &target, &target_backend, pair, source.use, "put", &.{ .{ .integer = 0 }, .{ .capability = original }, .{ .string = uri } });
+    var saved: SavedForeign = undefined;
+    try saved.init(@fromBackingInt(96), 0x76);
     defer saved.deinit();
-    try std.testing.expect(saved.result().ready.boolean);
-    source.host.releaseCapabilityTerminal(original, null);
-    try source.attached.sleep(source.use);
+    const source = &saved.source;
+    const source_backend = &saved.source_backend;
+    const target = &saved.target;
+    const pair = saved.pair;
 
     // The session ends, so the cold restore dials again, and that dial fails.
     try h.driver.testing.condemn(&source.host, pair.a, .connection_lost, "ended in this scenario");
@@ -468,7 +582,7 @@ fn foreignRestorationFailure(failure: h.driver.RouteFailure) !void {
             else => {},
         };
         _ = try source.attached.advanceProgress();
-        if (try source.reads(&source_backend)) |batch| try source.attached.completeWrite(batch.ticket, source_backend.commit(batch));
+        if (try source.reads(source_backend)) |batch| try source.attached.completeWrite(batch.ticket, source_backend.commit(batch));
         if (call.result() != .pending) break;
     } else return error.DidNotSettle;
     try std.testing.expectEqualStrings("ExporterUnreachable: UnknownTransport", call.result().failed.message);

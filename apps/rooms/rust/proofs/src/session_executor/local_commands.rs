@@ -2,6 +2,7 @@
 //! and cold replay. Revoked upstream authority cannot gate a local gesture.
 use super::*;
 use rooms_application::{content::permissions::Permission, content::session::workspace};
+mod intent;
 mod selection;
 
 struct Audit {
@@ -350,6 +351,20 @@ pub(super) async fn run() {
 							.is_err()
 					);
 				}
+				intent::run(
+					&host,
+					&owner,
+					&policy,
+					&source,
+					terms,
+					intent::Askers {
+						control: &control,
+						sibling: &other,
+						observer: &observer,
+					},
+					("local-draft", &canonical),
+				)
+				.await;
 				assert!(host.send(&source, "effect-inventory", &[]).await.is_err());
 				assert!(
 					host.send(

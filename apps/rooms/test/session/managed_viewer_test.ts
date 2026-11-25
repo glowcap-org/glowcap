@@ -1,16 +1,34 @@
 // Viewer failures retain the accepted projection, original cursor and exact
 // wrapper ownership. Rust browser proofs separately exercise actual authority.
+import { operationOf, timedOutOutcome } from "../support/managed_link.ts";
 import { ManagedRoomsSession } from "../../web/ui/session/managed/session.ts";
 import { assert, assertEquals } from "../assert.ts";
 import { ActivityDelivery, releaseActivity } from "../../web/ui/session/managed/activity.ts";
-import type { ActivityPage, ActivityRead, ObservationView } from "../../web/ui/session/managed/model.ts";
+import type {
+	ActivityNotice,
+	ActivityPage,
+	ActivityRead,
+	ObservationView,
+} from "../../web/ui/session/managed/model.ts";
 import { ManagedOperation } from "../../web/ui/session/managed/operation.ts";
 import { completeResult } from "../../web/ui/session/managed/completion.ts";
-import type { RoomsManagedApplication, RoomsManagedWorkspace } from "../../../../zig-out/wasm/rooms/rooms_browser.js";
+import type {
+	RoomsManagedApplication,
+	RoomsManagedFile,
+	RoomsManagedIncoming,
+	RoomsManagedWorkspace,
+} from "../../../../zig-out/wasm/rooms/rooms_browser.js";
 
+import { managedSessionText } from "../../lib/text/managed_session.ts";
 import { deferred, snapshot, viewer } from "../support/managed_viewer.ts";
+import { fakeHandle } from "../support/managed_link.ts";
+import { FIRST_LINK } from "../../web/ui/session/managed/link_port.ts";
 
-for (const consumer of ["refresh", "candidate", "command"] as const) {
+const FIRST = { generation: FIRST_LINK };
+
+for (
+	const consumer of ["readNow", "readBeforeSending", "candidateNow", "candidateBeforeSending", "command"] as const
+) {
 	Deno.test(`${consumer} uses the accepted revision when an older snapshot finishes later`, async () => {
 		const older = deferred<ReturnType<typeof snapshot>>();
 		const started = deferred<void>();
@@ -35,7 +53,7 @@ for (const consumer of ["refresh", "candidate", "command"] as const) {
 		try {
 			const reading = consumer === "command" ? session.command("select", ["room"]) : session[consumer]();
 			await started.promise;
-			await session.refresh();
+			await session.readNow();
 			older.resolve(snapshot());
 			const result = await reading;
 			if (result instanceof ManagedOperation) {
@@ -43,7 +61,7 @@ for (const consumer of ["refresh", "candidate", "command"] as const) {
 				assertEquals(prepared, "2");
 			} else {
 				assertEquals(result.revision, "2");
-				if (consumer === "candidate") assert(result !== latest, "editable candidates own their copy");
+				if (consumer.startsWith("candidate")) assert(result !== latest, "editable candidates own their copy");
 			}
 			assertEquals(session.current, latest);
 			assertEquals(reads, consumer === "command" ? 3 : 2, "reuse accepted evidence without another read");
@@ -68,7 +86,7 @@ Deno.test("managed command admission reads past a delayed presentation revision"
 			});
 		},
 	});
-	await session.refresh();
+	await session.readNow();
 	current = { ...snapshot(), revision: "2" };
 	assertEquals(session.current?.revision, "1");
 	const operation = await session.command("select", ["room"]);
@@ -91,7 +109,7 @@ for (const outcome of ["registered", "replaced", "cancelled"] as const) {
 		};
 		current.intent.directories.push(original);
 		const session = viewer({ snapshot: () => Promise.resolve(current) });
-		await session.refresh();
+		await session.readNow();
 		const abort = new AbortController();
 		let settled = false;
 		const ready = session.directoryRegistered(original, abort.signal).finally(() => settled = true);
@@ -103,7 +121,7 @@ for (const outcome of ["registered", "replaced", "cancelled"] as const) {
 			current.intent.directories[0] = outcome === "registered"
 				? { ...original, name: "registration", assignedNick: "ada" }
 				: { ...original, source: "replacement" };
-			await session.refresh();
+			await session.readNow();
 		}
 		assertEquals((await result)[0].status, outcome === "replaced" ? "rejected" : "fulfilled");
 		await session.close();
@@ -124,7 +142,7 @@ Deno.test("cold managed result adoption survives a lost acknowledgement and late
 	let adopted = false;
 	let acquisitions = 0;
 	const recovered = () =>
-		new ManagedOperation(
+		operationOf(
 			"original",
 			{
 				originalIntent: () => ["original", 1, "openManagedRoom", ["directory", "Room"]],
@@ -144,7 +162,7 @@ Deno.test("cold managed result adoption survives a lost acknowledgement and late
 					},
 					free() {},
 				}),
-			} as unknown as ConstructorParameters<typeof ManagedOperation>[1],
+			},
 		);
 	await completeResult(session, recovered()).catch(() => {});
 	assert(adopted, "the first adoption committed before its acknowledgement was lost");
@@ -302,23 +320,23 @@ Deno.test("managed close drains preparation and releases a late command exactly 
 
 Deno.test("managed activity custody transfers all handles once across presentation failure", () => {
 	let released = 0;
-	const handle = { free: () => released++ };
-	const page = {
+	const release = () => released++;
+	const page: ActivityPage<unknown> = {
 		cursor: "original",
 		event: {
 			at: 0,
 			target: { kind: "room", id: "room" },
 			notice: {},
-			files: [handle],
-			authority: handle,
-			route: handle,
+			files: [fakeHandle<RoomsManagedFile>({ free: release })],
+			authority: fakeHandle<RoomsManagedIncoming>({ free: release }),
+			route: fakeHandle<RoomsManagedIncoming>({ free: release }),
 		},
-	} as unknown as ActivityPage;
-	const rejected = new ActivityDelivery(page, false);
+	};
+	const rejected = new ActivityDelivery(page, false, FIRST);
 	rejected.close();
 	rejected.close();
 	assertEquals(released, 3);
-	const offered = new ActivityDelivery(page, false);
+	const offered = new ActivityDelivery(page, false, FIRST);
 	const accepted = offered.take();
 	offered.close();
 	assertEquals(released, 3, "the reader cannot release handles after ownership transfers");
@@ -326,50 +344,21 @@ Deno.test("managed activity custody transfers all handles once across presentati
 	assertEquals(released, 6);
 });
 
-Deno.test("managed typing coalesces a burst and frees the original sender after shutdown drains", async () => {
-	const call = deferred<void>();
-	const entered = deferred<void>();
-	const values: boolean[] = [];
-	let freed = 0;
-	const session = viewer({
-		typingSender: () =>
-			Promise.resolve({
-				set(on: boolean) {
-					values.push(on);
-					entered.resolve();
-					return call.promise;
-				},
-				free() {
-					freed++;
-				},
-			}),
-	});
-	const first = session.typing.set("room", "seat", true);
-	await entered.promise;
-	for (let i = 0; i < 1000; i++) session.typing.set("room", "seat", i % 2 === 0);
-	session.typing.set("room", "seat", false);
-	call.resolve();
-	await first;
-	assertEquals(values, [true, false]);
-	await session.close();
-	assertEquals(freed, 1);
-});
-
 Deno.test("managed workspace selection rejects a different gesture while original preparation waits", async () => {
 	const attaching = deferred<RoomsManagedWorkspace>();
 	let preparations = 0;
-	const custody = {
+	const custody = fakeHandle<RoomsManagedWorkspace>({
 		free() {},
 		prepareSelectWorkspace: () => {
 			preparations++;
 			return Promise.resolve({ submit: () => Promise.resolve({ status: "committed" }), free() {} });
 		},
-	} as unknown as RoomsManagedWorkspace;
-	const application = {
+	});
+	const application = fakeHandle<RoomsManagedApplication>({
 		attachWorkspace: () => attaching.promise,
 		close: () => Promise.resolve(),
 		free() {},
-	} as unknown as RoomsManagedApplication;
+	});
 	const session = new ManagedRoomsSession(application, custody, custody, () => {});
 	const first = session.selectWorkspace("original");
 	let refused = false;
@@ -379,7 +368,7 @@ Deno.test("managed workspace selection rejects a different gesture while origina
 		refused = true;
 	}
 	assert(refused, "a replacement cannot borrow the first gesture's success");
-	attaching.resolve({ free() {} } as RoomsManagedWorkspace);
+	attaching.resolve(fakeHandle<RoomsManagedWorkspace>({ free() {} }));
 	await first;
 	assertEquals(preparations, 1);
 	await session.close();
@@ -394,7 +383,7 @@ Deno.test("managed recovery coalesces the original completion across concurrent 
 		snapshot: () => Promise.resolve(snapshot()),
 		prepareCommand: () =>
 			Promise.resolve({
-				submit: () => Promise.reject(new Error("commit acknowledgment missing")),
+				submit: () => Promise.resolve(timedOutOutcome()),
 				status: () => Promise.resolve("committed"),
 				free() {},
 			}),
@@ -408,7 +397,7 @@ Deno.test("managed recovery coalesces the original completion across concurrent 
 				free() {},
 			}),
 	});
-	await session.refresh();
+	await session.readNow();
 	await Promise.allSettled([
 		session.execute("original", () => session.command("select", [], "original"), async (operation) => {
 			completions++;
@@ -433,14 +422,14 @@ Deno.test("managed result recovery joins acquisition preparation and close drain
 	const preparing = deferred<unknown>();
 	let submissions = 0;
 	let freed = 0;
-	const operation = new ManagedOperation(
+	const operation = operationOf(
 		"original",
 		{
 			prepareResultAcquisition: () => preparing.promise,
 			free() {
 				freed++;
 			},
-		} as unknown as import("../../../../zig-out/wasm/rooms/rooms_browser.js").RoomsManagedCommand,
+		},
 	);
 	const first = operation.acquire(snapshot(), []);
 	assert(
@@ -464,15 +453,14 @@ Deno.test("managed result recovery joins acquisition preparation and close drain
 	assertEquals(freed, 2);
 });
 
-for (
-	const notice of [{ kind: "handRoom", label: "Room" }, {
-		kind: "handArchive",
-		directory: "dir",
-		scope: "room",
-		conversation: "garden",
-	}]
-) {
-	Deno.test(`managed ${notice.kind} arrival retry after commitment keeps the original incoming acquisition`, async () => {
+const handedNotices: ActivityNotice[] = [{ kind: "handRoom", label: "Room" }, {
+	kind: "handArchive",
+	directory: "dir",
+	scope: "room",
+	conversation: "garden",
+}];
+for (const notice of handedNotices) {
+	Deno.test(`managed ${notice.kind} arrival whose redraw read fails after commitment is received once, with a notice`, async () => {
 		const accepted = snapshot();
 		accepted.intent.conversations.push({
 			kind: "direct",
@@ -486,20 +474,21 @@ for (
 		let preparations = 0;
 		let submissions = 0;
 		let failRefresh = false;
+		const notices: string[] = [];
 		const session = viewer({
 			snapshot: () =>
 				failRefresh
 					? Promise.reject(new Error("projection unavailable after commit"))
 					: Promise.resolve(accepted),
-		});
-		await session.refresh();
-		const page = {
+		}, (source) => notices.push(source));
+		await session.readNow();
+		const page: ActivityPage = {
 			cursor: "original-cursor",
 			event: {
 				at: 0,
 				target: { kind: "direct", id: "dm" },
 				notice,
-				authority: {
+				authority: fakeHandle<RoomsManagedIncoming>({
 					prepareAcquisition: (
 						_revision: string,
 						destination: string,
@@ -524,12 +513,16 @@ for (
 							free() {},
 						});
 					},
-				},
+				}),
 			},
-		} as unknown as ActivityPage;
-		assertEquals((await Promise.allSettled([session.actions.receive(page)]))[0].status, "rejected");
+		};
+		// The arrival committed and only the redraw failed, so the press is done
+		// and says so with a notice. Nothing is held for a second attempt.
+		assertEquals((await Promise.allSettled([session.actions.receive(page, FIRST)]))[0].status, "fulfilled");
+		assertEquals(notices, [managedSessionText.changeUnread]);
+		assertEquals(session.actions.recoverable, []);
 		failRefresh = false;
-		await session.actions.receive(page);
+		await session.actions.receive(page, FIRST);
 		assertEquals(preparations, 1);
 		assertEquals(submissions, 1);
 		assertEquals(
@@ -573,36 +566,6 @@ Deno.test("managed acquisition refusal wakes recovery and retry retires the orig
 		stop();
 		await session.close();
 	}
-});
-
-Deno.test("typing reports one refusal per failed authority and preserves a newer target", async () => {
-	const entered = deferred<void>();
-	const release = deferred<void>();
-	const sent: string[] = [];
-	let reports = 0;
-	const session = viewer({
-		typingSender: (id: string) =>
-			Promise.resolve({
-				set: async () => {
-					sent.push(id);
-					if (id === "old") {
-						entered.resolve();
-						await release.promise;
-						throw new Error("retired authority");
-					}
-				},
-				free() {},
-			}),
-	});
-	const first = session.typing.set("old", "seat", true).catch(() => reports++);
-	await entered.promise;
-	const repeats = Array.from({ length: 100 }, () => session.typing.set("old", "seat", true).catch(() => reports++));
-	const newer = session.typing.set("new", "seat", true);
-	release.resolve();
-	await Promise.all([first, newer, ...repeats]);
-	await session.typing.set("old", "seat", true);
-	assertEquals([sent, reports], [["old", "new"], 1]);
-	await session.close();
 });
 
 Deno.test("shared reads enforce capacity, drain before retirement and reject new work", async () => {

@@ -1,5 +1,10 @@
 //! Archive sharing retains exact source and recipient through both upstream acts.
-use super::{State, executor::Seat, records, results::Settlement};
+use super::{
+	State,
+	executor::{Ending, Seat},
+	records,
+	results::Settlement,
+};
 use glowcap::{
 	Argument, Ref, Result,
 	loam::{self, Call, Continuation, EffectExecution, EffectResult, Invocation, ReferenceRequest},
@@ -185,7 +190,7 @@ pub(super) fn admit<P: Tasks + Deadline + Clone + 'static>(
 	if let Some(direct) = selected.direct {
 		targets.push(resolve(call, direct)?);
 	}
-	let seat = Seat::reserve(owner, request.id())?;
+	let seat = Seat::reserve(owner, request.id(), record.effects.as_slice())?;
 	let (reservation, pending) = call.reserve_continuation_copying(&targets)?;
 	let source = reservation.source()?;
 	let canonical = request
@@ -243,10 +248,6 @@ pub(super) struct Pipeline {
 	read_result: Option<Result<Argument>>,
 	finished: bool,
 }
-pub(super) enum Completion {
-	Settled(Settlement),
-	Unknown(glowcap::Error),
-}
 impl Pipeline {
 	pub fn new(host: glowcap::Host, continuation: Continuation, intent: Intent, reply_bytes: usize) -> Self {
 		Self {
@@ -276,7 +277,10 @@ impl Pipeline {
 			.await?;
 		Ok(result)
 	}
-	pub async fn advance(&mut self) -> Result<Option<Completion>> {
+	/// Run the share to its completion. `Ok(None)` answers only an advance
+	/// after the completion was returned, and the executor settles that
+	/// completion without asking again.
+	pub async fn advance(&mut self) -> Result<Option<Ending>> {
 		if self.finished {
 			return Ok(None);
 		}
@@ -325,13 +329,21 @@ impl Pipeline {
 			};
 			match observed {
 				EffectResult::Ready(value) => {
-					if self.intent.durable {
-						let uri = value
+					// An answer that is no recipe or capability can never be read
+					// by a later resume, so the request ends unresolved.
+					let readable = if self.intent.durable {
+						value
 							.as_str()
-							.ok_or_else(|| loam::refusal("archive issuer returned no recipe"))?;
-						glowcap::parse_sturdyref(uri, glowcap::CaptpVersion::V1_0)?;
+							.ok_or_else(|| loam::refusal("archive issuer returned no recipe"))
+							.and_then(|uri| glowcap::parse_sturdyref(uri, glowcap::CaptpVersion::V1_0).map(|_| ()))
 					} else {
-						Ref::try_from(&value).map_err(|_| loam::refusal("archive narrowing returned no capability"))?;
+						Ref::try_from(&value)
+							.map(|_| ())
+							.map_err(|_| loam::refusal("archive narrowing returned no capability"))
+					};
+					if let Err(cause) = readable {
+						self.finished = true;
+						return Ok(Some(Ending::Unresolved(cause)));
 					}
 					self.prepared = Some(value);
 					self.read_result = None;
@@ -339,11 +351,11 @@ impl Pipeline {
 				}
 				EffectResult::Unsent(_) => {
 					self.finished = true;
-					return Ok(Some(Completion::Settled(Settlement::absent())));
+					return Ok(Some(Ending::Settled(Settlement::absent())));
 				}
 				EffectResult::Unknown(error) => {
 					self.finished = true;
-					return Ok(Some(Completion::Unknown(error)));
+					return Ok(Some(Ending::Unknown(error)));
 				}
 				EffectResult::Pending => unreachable!("completed archive observation"),
 			}
@@ -365,27 +377,31 @@ impl Pipeline {
 		};
 		match self.perform(1, verb, &args).await? {
 			EffectResult::Ready(value) => {
-				let super::results::Prepared::Complete(outcome) = super::results::Prepared::read(
+				let outcome = match super::results::Prepared::read(
 					rooms_application::session::effect::Reply::Acknowledgment,
 					&value,
 					"",
 					None,
-				)?
-				else {
-					unreachable!("acknowledgment carries no acquisition")
+				) {
+					Ok(super::results::Prepared::Complete(outcome)) => outcome,
+					Ok(_) => unreachable!("acknowledgment carries no acquisition"),
+					Err(cause) => {
+						self.finished = true;
+						return Ok(Some(Ending::Unresolved(cause)));
+					}
 				};
 				self.finished = true;
 				self.pending = None;
 				self.prepared.take();
-				Ok(Some(Completion::Settled(outcome)))
+				Ok(Some(Ending::Settled(outcome)))
 			}
 			EffectResult::Unsent(_) => {
 				self.finished = true;
-				Ok(Some(Completion::Settled(Settlement::absent())))
+				Ok(Some(Ending::Settled(Settlement::absent())))
 			}
 			EffectResult::Unknown(error) => {
 				self.finished = true;
-				Ok(Some(Completion::Unknown(error)))
+				Ok(Some(Ending::Unknown(error)))
 			}
 			EffectResult::Pending => unreachable!("completed archive delivery"),
 		}

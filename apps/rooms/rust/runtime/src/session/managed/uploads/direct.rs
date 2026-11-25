@@ -64,7 +64,7 @@ impl Pipeline {
 		};
 		self.continuation.execute(index, verb, &args, self.reply_bytes)
 	}
-	pub async fn advance(&mut self) -> Result<Option<Settlement>> {
+	pub async fn advance(&mut self) -> Result<Option<Ending>> {
 		if self.finished {
 			return Ok(None);
 		}
@@ -73,7 +73,7 @@ impl Pipeline {
 				Ok(execution) => self.pending = Some(execution),
 				Err(error) => {
 					self.finished = true;
-					return Ok(Some(Settlement::refused(&error)));
+					return Ok(Some(Ending::Settled(Settlement::refused(&error))));
 				}
 			}
 		}
@@ -92,16 +92,26 @@ impl Pipeline {
 				} else {
 					Reply::Acknowledgment
 				};
-				let Ok(Prepared::Complete(settlement)) = Prepared::read(reply, &value, "", None) else {
-					return Ok(None);
+				let settlement = match Prepared::read(reply, &value, "", None) {
+					Ok(Prepared::Complete(settlement)) => settlement,
+					Ok(_) => {
+						return Ok(Some(Ending::Unresolved(refuse(
+							"direct upload answer is not a settlement",
+						))));
+					}
+					Err(cause) => return Ok(Some(Ending::Unresolved(cause))),
 				};
-				complete(settlement, reply, None).map(Some)
+				Ok(Some(match Posted::read(settlement, reply) {
+					Ok(posted) => Ending::Settled(posted.finish(None)),
+					Err(cause) => Ending::Unresolved(cause),
+				}))
 			}
-			EffectResult::Unsent(error) => Ok(Some(Settlement::refused(&error))),
+			EffectResult::Unsent(error) => Ok(Some(Ending::Settled(Settlement::refused(&error)))),
 			EffectResult::Unknown(error) if rooms_glowcap::client::binding_admission_refusal(&error).is_some() => {
-				Ok(Some(Settlement::refused(&error)))
+				Ok(Some(Ending::Settled(Settlement::refused(&error))))
 			}
-			_ => Ok(None),
+			EffectResult::Unknown(cause) => Ok(Some(Ending::Unresolved(cause))),
+			EffectResult::Pending => unreachable!("completed direct upload"),
 		}
 	}
 }

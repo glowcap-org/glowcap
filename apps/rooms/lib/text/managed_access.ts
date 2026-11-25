@@ -1,4 +1,7 @@
 // Copy for explicit session use and separately held management.
+import type { FailureWords } from "./failure.ts";
+import type { RoomsErrorCode } from "../error_codes.ts";
+import { sessionTryNow } from "./page.ts";
 export const managedAccessText = {
 	"title": "Session access",
 	"heldTitle": "Access",
@@ -29,6 +32,9 @@ export const managedAccessText = {
 	"discard": "Discard mine",
 	"missingEdit": "Rooms couldn't confirm whether your change was saved. It is kept, so you can check again.",
 	"recoverEdit": "Check again",
+	"unsentEdit": "Your change wasn't sent. Discard it to make another.",
+	"sentUnreached":
+		`Your change was sent, but this access can't be reached to confirm it. ${sessionTryNow} checks it.`,
 	"committedEdit": "Saved.",
 	"staleEdit":
 		"Someone else changed this access while you were editing, so your change wasn't saved. It is kept here.",
@@ -41,6 +47,7 @@ export const managedAccessText = {
 	"powerless":
 		"This access was created without any way to manage it, so it can't be changed, paused or revoked from here.",
 	"copyControl": "Copy management link",
+	"giveUpControl": "Give it up",
 	"observeWorkspace": "See the session",
 	"interactWorkspace": "Act in the session",
 	"replaceWorkspace": "Replace the session's rooms and settings",
@@ -81,6 +88,8 @@ export const managedAccessText = {
 	"removeConfirm": "Remove it from your list?",
 	"removeSaid":
 		"You won't be able to pause, change or revoke it from here again. Anyone using its link keeps their access.",
+	"removeUnconfirmedSaid":
+		"Your last change to it was sent, but no answer came back. Removing it stops Rooms checking whether that change was made, and doesn't undo it.",
 	"endedSaid": "It no longer works. Removing it only tidies your list.",
 	"descendantsTitle": "Created from this access",
 	"loadingDescendants": "Reading…",
@@ -120,7 +129,14 @@ export const managedAccessText = {
 	"recoverReturned": "Finish setting it up",
 	"issueLinkPending": "Its link isn't made yet, so nobody can use it. Finish setting it up to get the link.",
 	"issueBusy": "Wait for the access to finish being created.",
-	"descriptive": "To manage one of these, open it from its own row.",
+	"removeHere": "Remove it from your list.",
+	"removeInManage": "Remove it from your list in Manage.",
+	"issueAnswerPending": "Waiting for the session to answer. You can close this, and the share goes on.",
+	"issueSourceUnreached":
+		`Rooms can't reach the access you're sharing from right now. Choose ${sessionTryNow} on it in the list of access, and this share goes on from there.`,
+	"issueSourceGone":
+		"Rooms can't reach the access you're sharing from, so nothing can be shared from it. Share from another access.",
+	"descriptive": "This list only shows them. To manage one here, add its management link under Session access.",
 	"unlabelled": "Unnamed access",
 	"notSaved": "Not saved",
 	"permissionsTitle": "Permissions",
@@ -130,10 +146,13 @@ export const managedAccessText = {
 	"observation": "Session observation",
 	"management": "Session management",
 	"activity": "Session activity",
-	"link": "Session connection",
 	"manage": "Manage…",
 	"done": "Done",
 } as const;
+/** A narrower control whose answer was lost, which the next press asks for
+ * again with the same choices. */
+export const narrowerPending =
+	`Rooms couldn't confirm the management link you asked for last, so its choices stay. ${managedAccessText.prepareControl} asks the session for that same link. ${managedAccessText.giveUpControl} lets you choose again. If that link was made, it was never shown, so no one has it.`;
 export const issueLead = (label: string | null): string =>
 	label == null
 		? "A new link to this session, allowing only what you choose."
@@ -146,6 +165,39 @@ export const allowedPermissions = (names: readonly string[]): string =>
 		? "Allows nothing."
 		: `Allows ${names.length === 1 ? names[0] : `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`}.`;
 export const savedControlSource = (id: string): string => `Saved management control ${id}`;
+/** An access row whose access the page's link could not reach. The failure's
+ * own words are about a session link, and the row's subject is the access.
+ * Each action holds whatever the row offers. A row whose Try now cannot help
+ * names its Remove after these words, where its offers put it. */
+export const unreachedAccess: ReadonlyMap<RoomsErrorCode, FailureWords> = new Map([
+	["session-unreachable", {
+		summary: "Rooms couldn't reach this access's session.",
+		action: "Try again once the device or server keeping it is running.",
+	}],
+	["session-request-timed-out", {
+		summary: "This access's session didn't answer in time.",
+		action: "Try again in a moment.",
+	}],
+	["session-not-reached-yet", {
+		summary: "Rooms ran out of time before it could reach this access's session.",
+		action: "Try again in a moment.",
+	}],
+	["session-restoration-failed", {
+		summary: "Rooms couldn't restore this access from what this browser saved.",
+		action: "Try again once its session is running.",
+	}],
+	// Its session waits for a transport this browser can use, which nothing
+	// done from this browser brings, so trying again here cannot help.
+	["saved-transport-unavailable", {
+		summary: "This browser can't reach the kind of address this access's session uses.",
+		action: "Open it from a browser or device that can.",
+		retry: "after-request-change",
+	}],
+	["session-capability-gone", {
+		summary: "This access no longer works, because its session no longer holds it.",
+		action: null,
+	}],
+]);
 export const permissionDependency = (permission: string, prerequisite: string): string =>
 	`${permission} requires ${prerequisite}.`;
 export const permissionMatch = (label: string): string => `Matches ${label}.`;

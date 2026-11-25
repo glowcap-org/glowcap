@@ -28,35 +28,44 @@ import { reserveSelectionForAddress } from "./page_bootstrap.ts";
 import { RoomsPage } from "./page.ts";
 import { bindNetwork, bindTabVisibility, RoomsProjectionProvider } from "./hooks.ts";
 import { dmFrom } from "./dm_transport.ts";
-import { ManagedSessionStartupFailure, openManagedSession } from "./session/managed/open.ts";
-import { attachedSessionFailureText } from "./session/attached_failure.ts";
+import {
+	ManagedSessionStartupFailure,
+	openManagedSession,
+	type OpenOrigin,
+	openOver,
+	presentSession,
+} from "./session/managed/open.ts";
 import { ManagedSessionProvider } from "./session/managed/context.tsx";
+import type { ManagedRoomsSession } from "./session/managed/session.ts";
 import { ManagedProjection } from "./session/managed/projection.ts";
 import { presentationFiles } from "./session/managed/files.ts";
 import { createManagedController } from "./session/managed/controller.ts";
 import { ManagedHistory } from "./session/managed/history.ts";
 import * as application from "./application.ts";
 import { RoomsBrowserProvider } from "./controller/browser.ts";
-import { createRoomsBrowserController, forgetWorkspaceChoice, workspaceChosen } from "./controller/create_browser.ts";
+import {
+	createRoomsBrowserController,
+	forgetWorkspaceChoice,
+	setupRefusal,
+	workspaceChosen,
+} from "./controller/create_browser.ts";
 import { finishBrowserDataDeletion, reloadWhenAnotherTabDeletes } from "./controller/browser_data.ts";
 import { ModalProvider } from "./modal.ts";
 import type { RoomsSessionController } from "./controller/session.ts";
 import { failureView, LocalRefusal, refusalText, renderFailure } from "../../lib/text/failure.ts";
-import { membershipStatus } from "./session/managed/membership_status.ts";
 import * as store from "./store.ts";
-import { relayAway } from "./store/projection.ts";
 import { bindViewPreferences } from "./view_preferences.ts";
 import { bindGroundToConnections } from "./mycelium/link.ts";
-import { bindReloadToBuild, type BuildReload, type PageQuiet, servedPageBuild } from "./build_link.ts";
-import { bindLinkToPage } from "./link_binding.ts";
+import { bindReloadToBuild, type BuildReload, pageReloadLoss } from "./build_reload.ts";
+import { servedPageBuild } from "./served_build.ts";
 import { pagePath, pathOffer } from "./page_base.ts";
-import { chooseServer, serverInUse, serverOffer } from "./server_choice.ts";
+import { chooseServer, serverOffer } from "./server_choice.ts";
 import { sessionOffer } from "./session_offer.ts";
 import { reachesLocalNetwork } from "./local_network.ts";
-import { locateRoomsServer } from "./server_probe.ts";
+import { openServedDirectory, showServedDirectory, startLocalRooms } from "./served_directory.ts";
 import { sessionDidNotOpen } from "../../lib/text/session.ts";
 import { settingsServerOffer, settingsServerRefused } from "../../lib/text/settings.ts";
-import { NO_SERVER, roomsErrorIn } from "../../lib/error_codes.ts";
+import { roomsErrorIn } from "../../lib/error_codes.ts";
 
 const page = new RoomsPage();
 function report(source: string, error: unknown): void {
@@ -72,18 +81,9 @@ function report(source: string, error: unknown): void {
 bindGroundToConnections(page.projection);
 // A page whose server has moved to a new build reloads into it.
 const build = servedPageBuild(document);
-// What a reload would drop: an unsaved edit, picked files, a change on its way.
-const quiet: PageQuiet = {
-	idle: () =>
-		(page.managedSession?.idle ?? true) &&
-		![...page.projection.get().drafts.values()].some((draft) => draft.files.length > 0),
-	subscribe: (listener) => {
-		const stops = [page.projection.subscribe(listener)];
-		if (page.managedSession != null) stops.push(page.managedSession.subscribe(listener));
-		return () => stops.forEach((stop) => stop());
-	},
-};
-const reload: BuildReload | null = build == null ? null : bindReloadToBuild(page.projection, build, quiet);
+const reload: BuildReload | null = build == null
+	? null
+	: bindReloadToBuild(page.projection, build, pageReloadLoss(page));
 // The stylesheet refuses page scaling everywhere the root's `touch-action` is
 // honoured. This is WebKit's half, which arrives as its own gesture events.
 refusePageScaling();
@@ -92,7 +92,8 @@ bindNetwork(page.projection);
 const browser = createRoomsBrowserController(page, navigateTo, addressOfActive, () => openWorkspace("local"));
 let openingWorkspace: ReturnType<typeof openManagedSession> | null = null;
 function openWorkspace(selection: "saved" | "local" = "saved"): ReturnType<typeof openManagedSession> {
-	return openingWorkspace ??= openManagedSession(report, selection).then((opened) => {
+	const failed = (error: unknown, origin: OpenOrigin) => store.noteSessionOpenFailure(page.projection, error, origin);
+	return openingWorkspace ??= openManagedSession(report, selection, failed).then((opened) => {
 		page.managedSession = opened.session;
 		addEventListener("pagehide", () => {
 			void opened.session.close().catch((error) =>
@@ -259,10 +260,27 @@ async function start(): Promise<void> {
 		opened = await openWorkspace();
 	} catch (error) {
 		standAtFrontOfPrivilegedAddress();
-		await showSessionSetup("", attachedSessionFailureText(error, serverInUse()));
+		await showSessionSetup("", setupRefusal(page.projection, error));
 		return;
 	}
 	const { session: managed, local } = opened;
+	// A page that does not open closes its session, so nothing dials behind it.
+	let stopOnFailure = () => {};
+	await openOver(
+		managed,
+		() => stopOnFailure(),
+		() => showEstablishedPage(managed, local, (stop) => stopOnFailure = stop),
+	);
+}
+
+/** Present the session `managed` opened and render the page over it.
+ * `presenting` hears how to stop the presentation as soon as it starts, so a
+ * page that fails to open after that stops it. */
+async function showEstablishedPage(
+	managed: ManagedRoomsSession,
+	local: boolean,
+	presenting: (stop: () => void) => void,
+): Promise<void> {
 	if (local && managed.current != null) {
 		const search = new URLSearchParams(location.search);
 		const current = managed.current.intent;
@@ -271,17 +289,14 @@ async function start(): Promise<void> {
 			await managed.actions.run("chooseConnection", [connection]);
 		}
 	}
-	page.controllerSelection.set(
-		local ? { kind: "local" } : { kind: "attached", sturdyref: await managed.workspace.publish() },
-	);
+	const stopPresenting = presentSession(page, managed, report);
+	presenting(stopPresenting);
 	noteBootPhase(local ? "rooms" : "session");
 	const establishedUi = loadEstablished();
 	prefetch(() => establishedUi);
 	if (pagePath().startsWith("/ops")) prefetch(loadOpsPage);
 	const history = new ManagedHistory(page, managed, report);
-	// A page attached to a session elsewhere keeps its link to it by itself.
 	if (managed.link != null) {
-		bindLinkToPage(page.projection, managed.link);
 		managed.onRelink(() => history.relink());
 		// A link that returns may return to a server with a new build.
 		if (reload != null) managed.onRelink(() => reload.check());
@@ -297,24 +312,7 @@ async function start(): Promise<void> {
 	);
 	const stopProjection = projection.bind();
 	let selfLocator: string | null = null;
-	// The Rooms server this browser uses names the directory a blank address
-	// means: the one this device chose, else the one that sent this page. A
-	// static host is no server, so with no choice there is none.
-	const server = serverInUse();
-	const directoryOf = async (base: string) => {
-		const reply = await locateRoomsServer(base);
-		return reply.kind === "answers" ? reply.directory : null;
-	};
-	const servedDirectory = server == null ? null : await directoryOf(server.base);
-	page.projection.set({ server: server == null ? null : { ...server, directory: servedDirectory } });
-	// A server that was not answering when the page opened names its directory
-	// once it is reached, so a blank address finds it without a reload.
-	const readServedDirectory = async () => {
-		const held = page.projection.get().server;
-		if (held == null || held.directory != null) return;
-		const directory = await directoryOf(held.base);
-		if (directory != null) page.projection.set({ server: { ...held, directory } });
-	};
+	const servedDirectory = await showServedDirectory(page);
 	const session: RoomsSessionController = createManagedController(
 		page,
 		browser,
@@ -324,43 +322,12 @@ async function start(): Promise<void> {
 		() => selfLocator,
 	);
 	if (local) {
-		try {
-			selfLocator = await managed.application.startRooms(membershipStatus(page.projection, report));
-		} catch (error) {
-			// Relay-only messages keep this browser's address off WebRTC, so a
-			// page with no Rooms server has no address to give. That is the page's
-			// state, not trouble: it stays open, and Settings is where a server is
-			// chosen. Anything else is the failure it is.
-			if (server != null || roomsErrorIn(error)?.code !== NO_SERVER) throw error;
-		}
-		// The session opens whether or not the relay answers. Its state is a
-		// fact on the page, and its reasons go to the trouble journal.
-		// A page with no Rooms server registers nowhere, so it has no relay
-		// state to show.
-		if (server != null) {
-			page.projection.set({ relay: "connecting" });
-			await managed.application.observeRelay((reason: string | null) => {
-				// Every seat retries on its own, so the journal records a change of
-				// reason once rather than every attempt.
-				const was = page.projection.get().relay;
-				if (reason == null ? was === "reached" : relayAway(was) && was.away === reason) return;
-				if (reason != null) report(managedText.roomsServer, reason);
-				page.projection.set({ relay: reason == null ? "reached" : { away: reason } });
-				if (reason == null) void readServedDirectory();
-			});
-		}
-		// A session that holds no directory opens in the served one, without
-		// claiming a nickname, and takes it as home. A session that holds any
-		// keeps its own, and the join card offers the served one.
-		if (servedDirectory != null && managed.current?.intent.directories.length === 0) {
-			page.projection.set({ openingDirectory: true });
-			const reason = await session.reachDirectory("", { kind: "exact", name: "" });
-			page.projection.set({ openingDirectory: false });
-			if (reason !== "") report(managedText.roomsConnection, reason);
-		}
+		selfLocator = await startLocalRooms(page, managed, report);
+		await openServedDirectory(page, managed, session, servedDirectory, report);
 	}
 	history.start();
 	managed.bindPresentation(async () => {
+		stopPresenting();
 		stopProjection();
 		files.close();
 		await history.close();

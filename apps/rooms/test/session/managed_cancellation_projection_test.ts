@@ -72,7 +72,7 @@ for (const owner of ["acquisition", "creation"] as const) {
 					current.intent.conversations.push({ ...room(), id: late, name: "late-room", seat: "late-seat" });
 					current.revision = "2";
 					session.finish(operation);
-					await session.refresh();
+					await session.readNow();
 				} else {
 					departing.resolve();
 					if (cleanup === "refused") throw new Error("departure unavailable");
@@ -80,7 +80,7 @@ for (const owner of ["acquisition", "creation"] as const) {
 					current.intent.conversations = current.intent.conversations.filter((row) => row.id !== args[0]);
 					current.revision = "3";
 					session.finish(operation);
-					await session.refresh();
+					await session.readNow();
 				}
 			};
 			const page = new RoomsPage();
@@ -93,7 +93,7 @@ for (const owner of ["acquisition", "creation"] as const) {
 			});
 			const cancel = new AbortController();
 			try {
-				await session.refresh();
+				await session.readNow();
 				const previous = store.activeConv(page.projection)!.key;
 				const outcome = Promise.allSettled([session.openings.run(
 					async (opening) => {
@@ -109,7 +109,7 @@ for (const owner of ["acquisition", "creation"] as const) {
 				cancel.abort();
 				reply.resolve();
 				await departing.promise;
-				await session.refresh();
+				await session.readNow();
 				assertEquals(current.intent.conversations.some((row) => row.id === late), true);
 				assertEquals(store.convByPersistId(page.projection, late), null);
 				assertEquals(store.activeConv(page.projection)?.key, previous);

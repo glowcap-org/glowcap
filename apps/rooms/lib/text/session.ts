@@ -96,3 +96,7 @@ export const sessionDeleteSay =
 export const sessionConfirmKeep = "Keep it";
 export const sessionResetCommit = "Forget rooms and settings";
 export const sessionDeleteCommit = "Delete browser data";
+/** Said on session setup when this browser's saved session can't be read, over
+ * the act that asks to delete this browser's data. */
+export const sessionUnreadableSay =
+	"This version of Rooms can't read the session saved in this browser, so it can't open. To start a new one, delete this browser's data. That erases the saved session and everything else this page keeps in this browser.";

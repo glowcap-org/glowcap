@@ -83,16 +83,8 @@ impl RoomsManagedWorkspace {
 		};
 		let workspace = self.workspace.clone();
 		let driver = self.driver.clone();
-		self.driver.submit(256, move |environment| async move {
-			let reference = workspace
-				.archive_reader(selected, files)
-				.await
-				.map_err(RuntimeError::from)?;
-			let archive = Archive::local(
-				environment.runtime.host().clone(),
-				environment.platform.clone(),
-				reference,
-			);
+		self.driver.submit(256, move |_| async move {
+			let archive = workspace.archive(selected, files).await.map_err(RuntimeError::from)?;
 			RoomsManagedArchive::new(driver, archive).map(Into::into)
 		})
 	}

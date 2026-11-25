@@ -124,7 +124,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Activity<P> {
 	}
 }
 
-/// The line a refused cursor answers with. A catalog code leads the line a
+/// The line a refused read answers with. A catalog code leads the line a
 /// reader sends, so the page reads it as the code. Any other refusal keeps its
 /// rendered text.
 fn refusal_line(error: &glowcap::Error) -> String {
@@ -160,7 +160,7 @@ pub(in crate::session::managed) fn answer<P: Tasks + Deadline + Clone + 'static>
 		let result = work.await;
 		let outcome = match result {
 			Ok(value) => resolver.fulfill_value(&value),
-			Err(error) => resolver.break_with(&error.to_string()),
+			Err(error) => resolver.break_with(&refusal_line(&error)),
 		};
 		if let Some(activity) = weak.upgrade() {
 			if let Err(error) = outcome {
@@ -237,7 +237,7 @@ pub(super) async fn receive<P: Tasks + Deadline + Clone + 'static>(
 		notified.as_mut().enable();
 		let end = activity.cursor();
 		if cursor > end {
-			return Err(loam::refusal("activity cursor belongs to another incarnation"));
+			return Err(stale_cursor("activity cursor belongs to another incarnation"));
 		}
 		let selected = first_after(&activity.entries.borrow(), cursor).map(|entry| {
 			(

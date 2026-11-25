@@ -4,7 +4,7 @@ use super::super::{
 	executor::Seat,
 	records::{self, Field, References},
 };
-use super::{dispatch, refuse, values};
+use super::{dispatch, page_of, refuse, values};
 use glowcap::{
 	Argument, Ref, Result,
 	loam::{self, Call, Invocation},
@@ -12,7 +12,7 @@ use glowcap::{
 use rooms_application::{
 	content::session::{
 		custody::{self, FieldKey, Held, Outcome},
-		effects, local,
+		effects, local, workspace,
 	},
 	fields::{List, Text},
 	session::command::Request,
@@ -37,6 +37,10 @@ pub(super) fn admit<P: Tasks + Deadline + Clone + 'static>(
 		// after comparing its original selection with the current workspace.
 		return Ok("conflict".into());
 	}
+	// The allowance bounds the work every request costs the session, so a
+	// request refused below, `receipts-full` included, still spends it. The
+	// charge is in memory and the Loam rollback of a refused callback leaves
+	// it spent.
 	owner
 		.admission
 		.borrow_mut()
@@ -55,9 +59,9 @@ pub(super) fn admit<P: Tasks + Deadline + Clone + 'static>(
 			));
 		}
 		local::apply(&request, &mut record.intent, &mut record.custody).map_err(|refusal| {
-			refuse(match refusal {
-				local::Refusal::DirectOpen => super::DIRECT_OPEN,
-				_ => "invalid workspace gesture",
+			refuse(&match refusal {
+				local::Refusal::DirectOpen => workspace::InvalidIntent::DirectOpen.to_string(),
+				_ => "invalid workspace gesture".to_owned(),
 			})
 		})?;
 		let erasing = retention && !record.intent.keep_history;
@@ -131,10 +135,7 @@ pub(super) fn admit<P: Tasks + Deadline + Clone + 'static>(
 		let Field::Retained(location) = records::reference(&target) else {
 			return Err(refuse("callback must be selected from retained custody"));
 		};
-		let page = input
-			.graph
-			.and_then(|pages| pages.get(location.page.checked_sub(1)?))
-			.ok_or_else(|| refuse("invalid callback page"))?;
+		let page = page_of(input, *location, "invalid callback page")?;
 		runtime_targets[1] = Ref::try_from(&call.disclose_page(page, location.field, true)?)
 			.map_err(|_| refuse("callback capability required"))?;
 	}
@@ -154,7 +155,7 @@ pub(super) fn admit<P: Tasks + Deadline + Clone + 'static>(
 		mutation.verb = verb.into();
 		runtime_targets.truncate(1);
 	}
-	let seat = Seat::reserve(owner, request.id())?;
+	let seat = Seat::reserve(owner, request.id(), record.effects.as_slice())?;
 	// Disclosure lends callback custody only through this call. The
 	// continuation owns the facet before any commit or worker wait.
 	let (reservation, pending) = call.reserve_continuation_copying(&runtime_targets)?;
@@ -300,10 +301,7 @@ fn saved_recipe(
 	let Field::Retained(location) = records::reference(&field) else {
 		return Ok(None);
 	};
-	let page = input
-		.graph
-		.and_then(|pages| pages.get(location.page.checked_sub(1)?))
-		.ok_or_else(|| refuse("invalid selected authority page"))?;
+	let page = page_of(input, *location, "invalid selected authority page")?;
 	Ok(call.page_saved_uri(page, location.field)?.map(str::to_owned))
 }
 pub(in crate::session::managed) fn receipt(
@@ -317,7 +315,7 @@ pub(in crate::session::managed) fn receipt(
 		NonZeroU64::new(input.bound_resource.id.generation).ok_or_else(|| refuse("invalid resource incarnation"))?;
 	Ok(custody::EffectReceipt {
 		operation,
-		adopted: false,
+		disposition: custody::Disposition::Held,
 		outgoing: None,
 		introduction: None,
 		canonical_intent,
@@ -335,6 +333,9 @@ pub(in crate::session::managed) fn reserve<P: Tasks + Deadline + Clone + 'static
 	record: &mut records::Record,
 	receipt: custody::EffectReceipt<References>,
 ) -> Result<()> {
+	// A paused job whose receipt is settled pins that receipt for nothing, so
+	// it is retired before the window looks for a receipt to evict.
+	super::super::executor::retire_ended(owner, record.effects.as_slice());
 	effects::reserve(&mut record.effects, receipt, |operation| {
 		// Jobs are keyed by text, so an operation without scalar text has none.
 		operation
@@ -342,5 +343,14 @@ pub(in crate::session::managed) fn reserve<P: Tasks + Deadline + Clone + 'static
 			.as_str()
 			.is_some_and(|id| owner.jobs.borrow().contains_key(id))
 	})
-	.map_err(|_| refuse("effect receipts are full"))
+	.map_err(|refusal| match refusal {
+		effects::Refusal::Capacity => loam::refusal(
+			rooms_application::failure::FailureCode::ReceiptsFull
+				.line("every receipt place holds an unfinished request"),
+		),
+		effects::Refusal::Source | effects::Refusal::Intent => refuse("effect witness or intent differs"),
+		effects::Refusal::Unresolved => refuse("effect receipt is already held"),
+		effects::Refusal::Settled => refuse("a new effect receipt must be unresolved"),
+		effects::Refusal::Unknown => refuse("unknown effect"),
+	})
 }

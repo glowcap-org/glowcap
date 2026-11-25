@@ -146,6 +146,18 @@ pub fn register(b: *std.Build, check_step: *std.Build.Step, runtime_gate: *execu
     });
     wasm_lint.step.dependOn(wasm_archives);
     lint_step.dependOn(&wasm_lint.step);
+    // The proofs' `async-host` feature is the browser proof host, and the pass
+    // above never compiles it, so a Host-only import in its test support
+    // reached the browser unseen. Read it again with the feature on.
+    const wasm_host_lint = commands.addRootedSystemCommand(b, .build_tool, &.{"env"});
+    commands.addLibDirArg(wasm_host_lint, .wasm);
+    wasm_host_lint.addArgs(&.{
+        "cargo", "clippy",                "--quiet",  "--locked",               "--manifest-path", "apps/rooms/rust/Cargo.toml",
+        "-p",    "rooms-contract-proofs", "--target", "wasm32-unknown-unknown", "--features",      "async-host",
+        "--",    "-D",                    "warnings",
+    });
+    wasm_host_lint.step.dependOn(wasm_archives);
+    lint_step.dependOn(&wasm_host_lint.step);
     runtime_gate.add(lint_step);
 
     const wasm = commands.addRootedSystemCommand(b, .build_tool, &.{"env"});

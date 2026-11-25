@@ -8,6 +8,7 @@ import { SubmissionRefused } from "../../web/ui/session/managed/acquisition.ts";
 import { refusalText } from "../../lib/text/failure.ts";
 import { retryCountdown } from "../../lib/text/admission.ts";
 import { ROOMS_FAILURES } from "../../lib/failure_data.ts";
+import { timedOutOutcome } from "../support/managed_link.ts";
 
 await initializeApplication();
 
@@ -136,7 +137,7 @@ Deno.test("managed commands prepare after the previous local admission", async (
 			});
 		},
 	});
-	await session.refresh();
+	await session.readNow();
 	const first = session.command("first");
 	await entered.promise;
 	const second = session.command("second");
@@ -172,7 +173,7 @@ Deno.test("a slow upstream effect holds back no later command", async () => {
 	session.finish(quick);
 	upstream = "committed";
 	settled.resolve("committed");
-	await session.refresh();
+	await session.readNow();
 	session.finish(await slow);
 	await session.close();
 });
@@ -198,7 +199,7 @@ Deno.test("receipt observation survives workspace wakes, renews finite reads and
 	});
 	const outcome = Promise.allSettled([session.command("operations", [], "original")]);
 	await entered[0].promise;
-	for (let index = 0; index < 8; index++) await session.refresh();
+	for (let index = 0; index < 8; index++) await session.readNow();
 	assertEquals(reads, 1);
 	first.resolve("pending");
 	await entered[1].promise;
@@ -333,7 +334,7 @@ for (const change of ["callback", "access", "source", "uncertain"] as const) {
 					originalIntent: () => [id, Number(revision), name, args],
 					submit: () => {
 						if (++submissions > 1) return Promise.resolve({ status: "committed" });
-						if (change === "uncertain") return Promise.reject(new Error("acknowledgment lost"));
+						if (change === "uncertain") return Promise.resolve(timedOutOutcome());
 						current = structuredClone(current);
 						current.revision = "2";
 						const direct = current.intent.conversations[1];
@@ -454,10 +455,10 @@ Deno.test("owned admission and settlement never publish a recovery decision", as
 	const decisions: string[][] = [];
 	const stop = session.subscribe(() => decisions.push([...session.recoverable]));
 	const pending = session.command("first", [], "owned");
-	await session.refresh();
+	await session.readNow();
 	admitted.resolve();
 	for (let i = 0; i < 20; i++) await Promise.resolve();
-	await session.refresh();
+	await session.readNow();
 	assertEquals(session.recoverable, []);
 	status = "committed";
 	settled.resolve();
@@ -473,7 +474,7 @@ Deno.test("lost admission explicitly orphans only the retained operation", async
 		snapshot: () => Promise.resolve(snapshot()),
 		prepareCommand: () =>
 			Promise.resolve({
-				submit: () => Promise.reject(new Error("reply lost")),
+				submit: () => Promise.resolve(timedOutOutcome()),
 				free() {},
 			}),
 	});
@@ -500,7 +501,7 @@ for (const name of Object.keys(GESTURES)) {
 		const decisions: string[][] = [];
 		const stop = session.subscribe(() => decisions.push([...session.recoverable]));
 		const work = session.command(name, [], "owned");
-		await session.refresh();
+		await session.readNow();
 		reply.resolve({ status: "committed" });
 		const operation = await work;
 		assertEquals(decisions.every((ids) => ids.length === 0), true);

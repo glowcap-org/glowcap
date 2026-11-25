@@ -3,7 +3,7 @@ use super::write_property;
 use rooms_application::{
 	content::{
 		permissions::Permission,
-		session::{self, custody, local, records, requirements, workspace},
+		session::{self, custody, effects, local, records, requirements, workspace},
 	},
 	session::{
 		checkpoint::commands,
@@ -173,5 +173,16 @@ pub fn generate() -> Result<String, String> {
 		write_property(&mut output, &name.to_string(), json!(requirement));
 	}
 	output.push_str("} as const;\n");
+	// A receipt release resolves to one of these words, as the session
+	// answered it.
+	let _ = writeln!(
+		output,
+		"export const RECEIPT_RELEASES = {} as const;",
+		json!(effects::Release::ALL.map(effects::Release::wire))
+	);
+	output.push_str("export type ReceiptRelease = (typeof RECEIPT_RELEASES)[number];\n");
+	output.push_str(
+		"export function isReceiptRelease(word: unknown): word is ReceiptRelease {\n\treturn RECEIPT_RELEASES.some((release) => release === word);\n}\n",
+	);
 	canonical_typescript(output)
 }

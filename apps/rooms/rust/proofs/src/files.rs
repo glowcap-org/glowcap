@@ -51,6 +51,7 @@ pub fn run() {
 	empty_files_and_limits();
 	chunk_bounds();
 	upload_window();
+	post_restarts_window();
 	line_mutations();
 	attachment_custody();
 	current_attachment_fixtures();
@@ -500,6 +501,23 @@ fn upload_window() {
 	store.advance(6 + UPLOAD_IDLE_MS).unwrap();
 	assert_eq!(store.write(&upload, &[7]), Err(FileError::Spent));
 	assert_eq!(store.usage(), FileUsage::default());
+}
+
+/// The window of a staged file runs from its attach to the post, and the post
+/// starts it again, so a file the post found nearly expired still has its
+/// whole window to receive its first chunk.
+fn post_restarts_window() {
+	let mut store = FileStore::default();
+	let room = store.room().unwrap();
+	let member = store.member(&room).unwrap();
+	let upload = store.attach(&member, description(2 * CHUNK_BYTES as u64)).unwrap();
+	store.advance(UPLOAD_IDLE_MS - 1).unwrap();
+	let _file = store.post(&member).unwrap().pop().unwrap();
+	assert_eq!(store.next_deadline(), Some(UPLOAD_IDLE_MS - 1 + UPLOAD_IDLE_MS));
+	store.advance(2 * UPLOAD_IDLE_MS - 2).unwrap();
+	store.write(&upload, &vec![7; CHUNK_BYTES]).unwrap();
+	store.advance(3 * UPLOAD_IDLE_MS - 1).unwrap();
+	assert_eq!(store.write(&upload, &[7]), Err(FileError::Spent));
 }
 
 fn chunk_bounds() {

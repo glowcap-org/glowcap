@@ -12,6 +12,9 @@ import { recoveryStatus } from "../../../../lib/text/recovery.ts";
 import { refusalText } from "../../../../lib/text/failure.ts";
 
 type OpenChangeState = keyof typeof recoveryStatus;
+function isOpenChangeState(status: string): status is OpenChangeState {
+	return Object.hasOwn(recoveryStatus, status);
+}
 
 type OpenChange = {
 	readonly id: string;
@@ -33,8 +36,7 @@ export function openChanges(session: ManagedRoomsSession, rows: readonly EffectV
 	);
 	const recoverable = new Set([...session.recoverable, ...session.actions.recoverable]);
 	const receipted = new Set((rows ?? []).map((row) => row.operation));
-	const known = (status: string): OpenChangeState =>
-		(status in recoveryStatus ? status : "unknown") as OpenChangeState;
+	const known = (status: string): OpenChangeState => isOpenChangeState(status) ? status : "unknown";
 	// What each held acquisition's lifecycle knows of its outcome.
 	const outcomes = new Map(session.actions.diagnostics.map((row) => [row.operation, row.outcome]));
 	return [
@@ -52,23 +54,24 @@ export function openChanges(session: ManagedRoomsSession, rows: readonly EffectV
 				letGo: ready,
 			};
 		}),
-		...(rows ?? []).filter((row) => row.status !== "committed" || holding.has(row.operation)).map(
-			(row): OpenChange => {
-				const id = row.operation;
-				const ready = holding.has(id) ? recoverable.has(id) : row.resumable;
-				// Held work that is not recoverable is still running here.
-				const running = holding.has(id) && !ready;
-				return {
-					id,
-					status: row.status,
-					resumable: row.resumable,
-					state: running ? "working" : known(row.status),
-					act: ready ? "complete" : null,
-					// Paused executors still own admitted work and its settlement.
-					letGo: !running && !row.resumable && !acquiring.has(id) && row.status !== "pending",
-				};
-			},
-		),
+		...(rows ?? []).filter((row) => !row.released && (row.status !== "committed" || holding.has(row.operation)))
+			.map(
+				(row): OpenChange => {
+					const id = row.operation;
+					const ready = holding.has(id) ? recoverable.has(id) : row.resumable;
+					// Held work that is not recoverable is still running here.
+					const running = holding.has(id) && !ready;
+					return {
+						id,
+						status: row.status,
+						resumable: row.resumable,
+						state: running ? "working" : known(row.status),
+						act: ready ? "complete" : null,
+						// Paused executors still own admitted work and its settlement.
+						letGo: !running && !row.resumable && !acquiring.has(id) && row.status !== "pending",
+					};
+				},
+			),
 		// Held here with no receipt: still being admitted, or its receipt has
 		// left the window, which leaves its outcome unknown for good.
 		...session.pending.filter((id) => !receipted.has(id)).map((id): OpenChange => ({
@@ -83,15 +86,24 @@ export function openChanges(session: ManagedRoomsSession, rows: readonly EffectV
 
 /** The open changes, re-read from the workspace whenever the session changes
  * while `active`. `rows` is null until the first read since activation lands,
- * and `failure` is the words of a read that did not land, or empty. The
+ * and `failure` is the words of a read that did not land, or empty. `away` says
+ * the read failed only because the link is being replaced. The
  * caller repaints when the session's own admission and retry state changes,
  * not only when a read lands. */
 export function useOpenChanges(
 	session: ManagedRoomsSession,
 	active: boolean,
-): { readonly rows: EffectView[] | null; readonly changes: OpenChange[]; readonly failure: string } {
+): {
+	readonly rows: EffectView[] | null;
+	readonly changes: OpenChange[];
+	readonly failure: string;
+	readonly away: boolean;
+} {
 	const [rows, setRows] = useState<EffectView[] | null>(null);
 	const [failure, setFailure] = useState("");
+	// The read ended because the link is away, so the rows stay and read again
+	// once a link replaces it.
+	const [away, setAway] = useState(false);
 	useSyncExternalStore(session.subscribe, () =>
 		JSON.stringify([
 			session.pending,
@@ -105,6 +117,7 @@ export function useOpenChanges(
 		if (!active) {
 			setRows(null);
 			setFailure("");
+			setAway(false);
 			return;
 		}
 		let current = true;
@@ -122,13 +135,17 @@ export function useOpenChanges(
 					while (current && dirty) {
 						dirty = false;
 						try {
-							const read: EffectView[] = await session.workspace.effects();
+							const read: EffectView[] = await session.request((workspace) => workspace.effects());
 							if (current && !dirty) {
 								setRows(read);
 								setFailure("");
+								setAway(false);
 							}
 						} catch (error) {
-							if (current && !dirty) setFailure(refusalText(error));
+							if (current && !dirty) {
+								setAway(session.linkEnded(error));
+								setFailure(refusalText(error));
+							}
 						}
 					}
 				} finally {
@@ -143,5 +160,5 @@ export function useOpenChanges(
 			unsubscribe();
 		};
 	}, [active, session]);
-	return { rows, changes: openChanges(session, rows), failure };
+	return { rows, changes: openChanges(session, rows), failure, away };
 }

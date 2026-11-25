@@ -130,6 +130,8 @@ export const historyPeerCommit = "Use archive peer";
  * the access title is in `settings.ts`. */
 export const holdingsCopyHosted = "Copy the hosted session link";
 export const holdingsCopyAttached = "Copy the attached session link";
+export const holdingsLinkPending = "This session's link shows here once Rooms reaches the session.";
+export const holdingsLinkUnread = (why: string): string => `Rooms couldn't read this session's link: ${why}`;
 export const holdingsSavedTitle = "Saved room links";
 export const holdingsSavedEmpty = "This session has no saved room links.";
 export const holdingsEntryLink = "Entry link";
