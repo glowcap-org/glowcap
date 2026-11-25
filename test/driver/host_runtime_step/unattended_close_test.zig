@@ -4,8 +4,9 @@
 //! sweep reads a departure that arrived with the opening record once the
 //! session's open has committed, and a later departure is read as it arrives.
 //! The close is observed after the open's observer has returned, and it
-//! reports the clean end when nothing waits in the core and `TruncatedFrame`
-//! when a tail does.
+//! reports the clean end whether or not whole frames wait undispatched, so
+//! it reads the same however the transport batched what the partner sent.
+//! Only the front of a frame with nothing behind it is `TruncatedFrame`.
 
 const std = @import("std");
 
@@ -29,14 +30,14 @@ fn expectClosedOnceAfterOpen(rig: *Rig, failure: ?anyerror) !void {
     try std.testing.expectEqual(failure, rig.observed.close_failure);
 }
 
-test "a hello, its requests, and the partner's departure in one record end a session surfaced unattended with a truncated frame" {
+test "a hello, its requests, and the partner's departure in one record end a session surfaced unattended cleanly" {
     const rig = try Rig.build(std.testing.allocator, .{ .fetches = 5, .opens_on_read = true, .unattended_on_open = true });
     defer rig.destroy();
     rig.resident.read_result = 0;
     rig.resident.signal_closed = true;
     rig.resident.offer(&rig.burst);
     try stepThroughClose(rig);
-    try expectClosedOnceAfterOpen(rig, error.TruncatedFrame);
+    try expectClosedOnceAfterOpen(rig, null);
 }
 
 test "a hello with nothing behind it and the partner's departure in one record end a session surfaced unattended cleanly" {
@@ -49,7 +50,7 @@ test "a hello with nothing behind it and the partner's departure in one record e
     try expectClosedOnceAfterOpen(rig, null);
 }
 
-test "a hello coalesced with the partner's next frames, then its departure in a later record, end a session surfaced unattended with a truncated frame" {
+test "a hello coalesced with the partner's next frames, then its departure in a later record, end a session surfaced unattended cleanly" {
     const rig = try Rig.build(std.testing.allocator, .{ .fetches = 5, .opens_on_read = true, .unattended_on_open = true });
     defer rig.destroy();
     rig.resident.offer(&rig.burst);
@@ -62,10 +63,10 @@ test "a hello coalesced with the partner's next frames, then its departure in a 
     rig.resident.offer(rig.packets.items[0..1]);
     rig.resident.read_result = 0;
     try stepThroughClose(rig);
-    try expectClosedOnceAfterOpen(rig, error.TruncatedFrame);
+    try expectClosedOnceAfterOpen(rig, null);
 }
 
-test "a hello coalesced with the partner's abort, then its departure in a later record, end a session surfaced unattended with a truncated frame" {
+test "a hello coalesced with the partner's abort, then its departure in a later record, end a session surfaced unattended cleanly" {
     const rig = try Rig.build(std.testing.allocator, .{ .fetches = 0, .opens_on_read = true, .unattended_on_open = true });
     defer rig.destroy();
     const bytes = try rig.helloThenAbort();
@@ -76,6 +77,21 @@ test "a hello coalesced with the partner's abort, then its departure in a later 
     // The later record reads one more packet and then the end of the stream.
     rig.resident.offer(&.{@as([]const u8, "x")});
     rig.resident.read_result = 0;
+    try stepThroughClose(rig);
+    try expectClosedOnceAfterOpen(rig, null);
+}
+
+test "a hello, the front of a frame, and the partner's departure end a session surfaced unattended with a truncated frame" {
+    const rig = try Rig.build(std.testing.allocator, .{ .fetches = 0, .opens_on_read = true, .unattended_on_open = true });
+    defer rig.destroy();
+    var cut: std.ArrayList(u8) = .empty;
+    defer cut.deinit(std.testing.allocator);
+    for (rig.burst) |packet| try cut.appendSlice(std.testing.allocator, packet);
+    // A prefix that promises nine bytes, and two of them.
+    try cut.appendSlice(std.testing.allocator, "9:ab");
+    rig.resident.read_result = 0;
+    rig.resident.signal_closed = true;
+    rig.resident.offer(&.{cut.items});
     try stepThroughClose(rig);
     try expectClosedOnceAfterOpen(rig, error.TruncatedFrame);
 }

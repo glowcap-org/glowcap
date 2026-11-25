@@ -349,7 +349,7 @@ fn wouldBlock(wire: *Wire, total: usize) error{ TruncatedFrame, EndOfStream }!us
 /// wire's core holds input a resume can move, because it would read as a
 /// truncated frame, and `read_deferred` brings the sweep back to it once that
 /// input has moved. An unattended wire dispatches nothing, so no resume moves
-/// that input and the end is final.
+/// that input and the end is final (`endOfStream`).
 fn endOfRead(wire: *Wire, total: usize) error{ TruncatedFrame, EndOfStream }!usize {
     if (wire.attended and wire.session.inboundResumable()) {
         wire.link.read_deferred = true;
@@ -358,8 +358,15 @@ fn endOfRead(wire: *Wire, total: usize) error{ TruncatedFrame, EndOfStream }!usi
     return endOfStream(wire);
 }
 
+/// How a stream that ended reads. It is truncated only when the core holds
+/// the front of a frame and nothing that could complete it. Whole frames an
+/// unattended session never dispatched, in the core's tail or parked on the
+/// wire, are dropped with the session and leave the end clean, so the end
+/// reads the same however the transport batched what the partner sent.
 fn endOfStream(wire: *Wire) error{ TruncatedFrame, EndOfStream } {
-    return if (wire.session.feed_tail.isActive()) error.TruncatedFrame else error.EndOfStream;
+    const partial = wire.session.feed_tail.isActive() and !wire.session.inboundResumable() and
+        wire.link.parked.items.len == 0;
+    return if (partial) error.TruncatedFrame else error.EndOfStream;
 }
 
 /// Park `chunk` for an unattended wire, or feed it to the core, which keeps
