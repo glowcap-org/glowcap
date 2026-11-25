@@ -414,12 +414,14 @@ pub async fn settle<R: Rooms>(
 	let root = store.root();
 	// A claim cut off at a start that the session does not list holds no
 	// place and never will: the session cannot say what it did.
+	// The outcome is written before the log says so, so a reader of the log
+	// finds the claim already settled.
 	for operation in cut.iter().filter(|operation| !held.contains(*operation)) {
+		wrote(store, operation, finish(root, operation, Outcome::Unknown));
 		store.log(&format!(
 			"{} was cut off and the session no longer lists it, so the bot cannot say what it did",
 			words::action(operation)
 		));
-		wrote(store, operation, finish(root, operation, Outcome::Unknown));
 	}
 	let mut listed = Listed::default();
 	if let Some(why) = unjudged {
