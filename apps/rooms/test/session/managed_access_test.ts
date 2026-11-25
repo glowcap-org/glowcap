@@ -19,6 +19,7 @@ import {
 	keptPowers,
 	type ManagementView,
 	NO_MANAGEMENT,
+	usableGrants,
 } from "../../web/ui/session/managed/access_powers.ts";
 import type { DescribedControl, HeldControl } from "../../web/ui/session/managed/held_control.ts";
 import type { EditIntent, EditState } from "../../web/ui/session/managed/edit_state.ts";
@@ -198,6 +199,22 @@ Deno.test("managed close drains a control description without adopting late cust
 	await Promise.all([holding, closing]);
 	assertEquals(access.held.length, 0);
 	assertEquals(freed, 1);
+});
+
+Deno.test("a revoked access is left out of what an access was used to create", () => {
+	const row = (label: string, effectiveStatus: GrantView["effectiveStatus"]): GrantView => ({
+		slot: 1,
+		generation: "1",
+		revision: "1",
+		label,
+		status: effectiveStatus,
+		effectiveStatus,
+		configured: { permissions: [], bounds: [] },
+		ceiling: { permissions: [], bounds: [] },
+		delegationDepth: 0,
+	});
+	const shown = usableGrants([row("ended", "revoked"), row("on", "active"), row("held", "paused")]);
+	assertEquals(shown.map((grant) => grant.label), ["on", "held"]);
 });
 
 Deno.test("the issuer keeps every power its source can pass on", async () => {

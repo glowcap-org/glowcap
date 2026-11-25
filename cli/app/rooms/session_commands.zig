@@ -57,6 +57,7 @@ const access_commands = [_]types.Command{
     .{ .name = "resume", .short_help = "Let a paused access work again", .flags = &.{ dir, access_id }, .run = run("access-resume") },
     .{ .name = "revoke", .short_help = "End an access for good", .flags = &.{ dir, access_id }, .run = run("access-revoke") },
     .{ .name = "forget", .short_help = "Drop a revoked access from the list", .flags = &.{ dir, access_id }, .run = run("access-forget") },
+    .{ .name = "share-management", .short_help = "Print the link that lets a browser or another person pause, resume, or revoke one access", .flags = &.{ dir, access_id }, .run = run("access-share-management") },
 };
 pub const commands = [_]types.Command{
     .{ .name = "serve", .short_help = "Serve a foreground session for a host supervisor or attached browser", .flags = &([_]Flag{dir} ++ serve_options), .run = @import("mod.zig").run("rooms-session", .session_serve) },

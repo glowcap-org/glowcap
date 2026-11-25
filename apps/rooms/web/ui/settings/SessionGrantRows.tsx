@@ -3,7 +3,7 @@
 import type { ReactNode } from "react";
 import { currentLabel, currentPermissions, managedAccessText as text } from "../../../lib/text/managed_access.ts";
 import type { CardOffers } from "../session/managed/access_card.ts";
-import { grantIdentity, type GrantView } from "../session/managed/access_powers.ts";
+import { grantIdentity, type GrantView, usableGrants } from "../session/managed/access_powers.ts";
 import type { EditIntent } from "../session/managed/edit_state.ts";
 import { type DescribedControl, knownLabel, knownPermissions, OWN_CONTROL } from "../session/managed/held_control.ts";
 import { LocalRefusal, refusalText } from "../../../lib/text/failure.ts";
@@ -240,24 +240,26 @@ export function RemoveRow({ offers, running, ended, asking, setAsking, remove }:
 	);
 }
 
-/** The accesses made from this one, a page at a time. An empty list has
- * nothing to manage, so the section appears once it has rows. A first page
- * that did not land offers Try now (`listingAgain`). */
+/** The accesses made from this one that can still be used, a page at a
+ * time. The list describes them and manages none, so the section appears
+ * once it has a row to show or another page to read. A first page that did
+ * not land offers Try now (`listingAgain`). */
 export function DescendantsSection({ descendants, inspect }: {
 	descendants: { rows: GrantView[]; cursor: Uint8Array | null } | null;
 	inspect: { busy: boolean; refused: string | null; again: boolean; run(cursor?: Uint8Array): void };
 }) {
-	if (descendants != null && descendants.rows.length === 0) return null;
+	const rows = descendants == null ? [] : usableGrants(descendants.rows);
 	const more = descendants?.cursor ?? null;
+	if (descendants != null && rows.length === 0 && more == null) return null;
 	return (
 		<>
 			<h3 className="well-title overline" id="sessionGrantDescendantsTitle">{text.descendantsTitle}</h3>
 			<div className="group well" role="group" aria-labelledby="sessionGrantDescendantsTitle">
 				{descendants == null
 					? inspect.busy && <p className="empty">{text.loadingDescendants}</p>
-					: (
+					: rows.length > 0 && (
 						<ul className="entries">
-							{descendants.rows.map((row) => (
+							{rows.map((row) => (
 								<li className="entry" key={grantIdentity(row)}>
 									<div className="entry-head" data-one-line>
 										<span className="entry-name">{row.label || text.unlabelled}</span>
@@ -267,7 +269,7 @@ export function DescendantsSection({ descendants, inspect }: {
 							))}
 						</ul>
 					)}
-				{descendants != null && <p className="hint">{text.descriptive}</p>}
+				{rows.length > 0 && <p className="hint">{text.descriptive}</p>}
 				{more != null && (
 					<div className="actions">
 						<Button

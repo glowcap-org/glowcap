@@ -136,7 +136,7 @@ export const managedAccessText = {
 		`Rooms can't reach the access you're sharing from right now. Choose ${sessionTryNow} on it in the list of access, and this share goes on from there.`,
 	"issueSourceGone":
 		"Rooms can't reach the access you're sharing from, so nothing can be shared from it. Share from another access.",
-	"descriptive": "To manage one of these, open it from its own row.",
+	"descriptive": "This list only shows them. To manage one here, add its management link under Session access.",
 	"unlabelled": "Unnamed access",
 	"notSaved": "Not saved",
 	"permissionsTitle": "Permissions",

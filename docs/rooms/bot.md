@@ -268,9 +268,12 @@ glowcap apps rooms session access pause --dir "$HOME/.rooms/helper" --id <id>
 glowcap apps rooms session access resume --dir "$HOME/.rooms/helper" --id <id>
 glowcap apps rooms session access revoke --dir "$HOME/.rooms/helper" --id <id>
 glowcap apps rooms session access forget --dir "$HOME/.rooms/helper" --id <id>
+glowcap apps rooms session access share-management --dir "$HOME/.rooms/helper" --id <id>
 ```
 
-`list` shows each access with its id, rights, and whether it is active, paused, or revoked. A paused access stops working until you resume it, and a revoked one is over for good. `forget` drops a revoked access from the list and refuses one that still works. The session page lists the same accesses. A failed command prints `{"ok":false,"error":{"class":...,"retry":...,"message":...}}`, the same shape the `bot` commands print.
+`list` shows each access with its id, rights, and whether it is active, paused, or revoked. A paused access stops working until you resume it, and a revoked one is over for good. `forget` drops a revoked access from the list and refuses one that still works. A failed command prints `{"ok":false,"error":{"class":...,"retry":...,"message":...}}`, the same shape the `bot` commands print.
+
+`share-management` prints a management link for one access as `{"ok":true,"id":...,"link":...}`. In a browser attached to the session, open **Session access**, press **Add…** beside **A management link someone gave you**, and paste the link. That browser can then pause, resume, and revoke the access, and cannot change its rights. Anyone who holds the link can do the same until the access is revoked, so treat it as a secret. Running the command again prints the same link.
 
 ### Replacing the link
 

@@ -72,6 +72,11 @@ export function editableUnder(source: ManagementView): RoomsPermission[] | undef
 	const issue = source.issueCeiling?.permissions;
 	return edit == null || issue == null ? undefined : edit.filter((permission) => issue.includes(permission));
 }
+/** The accesses of `rows` that someone can still use or resume. A revoked
+ * access stays in the session's records for good and offers nothing to do. */
+export function usableGrants(rows: readonly GrantView[]): GrantView[] {
+	return rows.filter((row) => row.effectiveStatus !== "revoked");
+}
 export function grantIdentity(row: GrantView): string {
 	return `${row.slot}:${row.generation}`;
 }

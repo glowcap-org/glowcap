@@ -6,7 +6,8 @@
 use super::session_rig::{Fixture, LinkSecret, attach, call, free_port, host, run_within, text_arrived};
 use glowcap::PendingWork;
 use rooms_platform::HostPlatform;
-use rooms_services::session::attached::{EffectStatus, Error, View};
+use rooms_application::content::session::{Preset, Terms};
+use rooms_services::session::attached::{EffectStatus, Error, Grants, Lifecycle, State, View};
 use serde_json::{Value, json};
 use std::{path::Path, time::Duration};
 
@@ -148,6 +149,54 @@ fn a_person_issues_lists_pauses_resumes_and_revokes_access_from_the_terminal() {
 		access(&one.state, "revoke", named());
 		holder.close(PendingWork::Cancel).await.unwrap();
 	});
+	fixture.finish();
+}
+
+/// A person hands one access's management to another place, such as a
+/// browser's session access list. The link manages that one access with the
+/// powers its control was issued with, and the session keeps managing it too.
+#[test]
+fn a_shared_management_link_manages_the_one_access_it_names() {
+	let fixture = Fixture::start("access-share", &["share-one", "share-two"], "share-room");
+	let one = &fixture.peers[0];
+	let issue = |label: &str| access(&one.state, "issue", json!({"label": [label], "rights": ["observer"]}));
+	let shared = issue("shared");
+	issue("other");
+	let named = |issued: &Value| json!({"id": [issued["id"].as_str().unwrap()]});
+	let (ok, stdout, stderr) = request(&one.state, "share-management", named(&shared));
+	assert!(ok, "{stderr}");
+	assert_eq!(stdout.lines().count(), 1, "the link is printed on one JSON line");
+	let answer: Value = serde_json::from_str(&stdout).unwrap();
+	let link = answer["link"].as_str().unwrap().to_owned();
+	assert_eq!(answer["id"], shared["id"]);
+	let secret = LinkSecret::of(&link);
+	secret.assert_absent(&stderr, "the share's stderr");
+	secret.assert_absent(access(&one.state, "list", json!({})).to_string(), "the access list");
+	assert_ne!(link, shared["link"], "the management link is not the use link");
+	// Sharing again names the same control, so a lost link is read again.
+	assert_eq!(access(&one.state, "share-management", named(&shared))["link"], link.as_str());
+	run_within(Duration::from_secs(60), async {
+		let holder = host().await;
+		let grants = Grants::attach(&holder, HostPlatform, &link).await.unwrap();
+		let held = grants.own().await.unwrap().expect("the shared access is live");
+		assert_eq!((held.label.as_str(), held.state), ("shared", State::Active));
+		grants.change_own(Lifecycle::Pause).await.unwrap();
+		assert_eq!(row(&one.state, "shared")["state"], "paused");
+		assert_eq!(row(&one.state, "other")["state"], "active");
+		// The control was issued to change one access's lifecycle and no more.
+		let terms = Terms::new(Preset::Observer.values()).unwrap();
+		assert!(grants.issue("wider", &terms).await.is_err());
+		access(&one.state, "resume", named(&shared));
+		assert_eq!(grants.own().await.unwrap().unwrap().state, State::Active);
+		grants.change_own(Lifecycle::Revoke).await.unwrap();
+		assert_eq!(row(&one.state, "shared")["state"], "revoked");
+		assert_eq!(row(&one.state, "other")["state"], "active");
+		holder.close(PendingWork::Cancel).await.unwrap();
+	});
+	let (ok, stdout, _) = request(&one.state, "share-management", named(&shared));
+	assert!(!ok && stdout.contains("revoked"), "{stdout}");
+	let (ok, stdout, _) = request(&one.state, "share-management", json!({"id": ["no-such-access"]}));
+	assert!(!ok && stdout.contains("no access is kept"), "{stdout}");
 	fixture.finish();
 }
 
