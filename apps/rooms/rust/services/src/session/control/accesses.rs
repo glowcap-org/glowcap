@@ -3,7 +3,8 @@
 //! the workspace's `accesses` rows, the rows the page keeps its controls in,
 //! so the terminal and the page list and change one set. A row's id is how
 //! the terminal names an access. No bearer name leaves the session except the
-//! use link of an access just issued, in that one reply.
+//! use link of an access just issued and the management link `share` answers,
+//! each in its one reply.
 //!
 //! Issuing commits its row first, with the place the access is derived at,
 //! then issues there, then saves the control into that row. Issuing again at
@@ -254,6 +255,27 @@ pub(super) async fn change(app: &Application, id: &str, lifecycle: Lifecycle) ->
 	attached::change(&control, lifecycle).await.map_err(failure)?;
 	let now = attached::describe(&control).await.map_err(failure)?;
 	Ok(json!({"ok": true, "id": id, "state": now.map_or("revoked", |grant| state(grant.state))}))
+}
+
+/// The management link of the access row `id` keeps the control of. The link
+/// names that control, so its holder can read, pause, resume, and revoke the
+/// access, the powers the control was issued with, and can neither change the
+/// access's rights nor issue under it. It works until the access is revoked,
+/// and it leaves the session only in this verb's reply.
+pub(super) async fn share(app: &Application, id: &str) -> Result<Value, Failure> {
+	let control = restore(app, kept(app, id).await?.1).await?;
+	if attached::describe(&control).await.map_err(failure)?.is_none() {
+		return Err(Failure::invalid(format!(
+			"access {id} is revoked, so nothing is left to manage"
+		)));
+	}
+	let name = control
+		.durable_name()
+		.await
+		.map_err(|error| failure(attached::failed(error)))?;
+	let link = glowcap::format_sturdyref(&app.locator, name.as_bytes(), glowcap::CaptpVersion::V1_0)
+		.map_err(|_| failure(Error::Malformed("the control name does not make a link")))?;
+	Ok(json!({"ok": true, "id": id, "link": link}))
 }
 
 /// Stop keeping the control of a revoked access, which frees its row. An
