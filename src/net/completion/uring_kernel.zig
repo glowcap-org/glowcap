@@ -82,3 +82,42 @@ pub fn completionFromCqe(cqe: linux.io_uring_cqe, buffers: []u8, buf_bytes: u32)
     }
     return comp;
 }
+
+/// The completion identity of the ring's watch on the inner epoll descriptor.
+/// Its top three bits are 7. The Loop's `Op` tags stay in 0...5, and the
+/// resident's `Kind` sits at bit 56 with a value of at most 8, so neither
+/// emits it.
+pub const watch_user_data: u64 = 0b111 << 61;
+
+/// Prepare the one multishot poll that watches `epoll_fd`.
+pub fn prepWatch(sqe: *linux.io_uring_sqe, epoll_fd: linux.fd_t) void {
+    sqe.prep_poll_add(epoll_fd, linux.POLL.IN);
+    sqe.len = linux.IORING_POLL_ADD_MULTI;
+    sqe.user_data = watch_user_data;
+}
+
+/// How a watch completion left the watch. It is `live` while the kernel
+/// promises more. Only the ring's teardown or an explicit cancel ends one
+/// without error, and that one may be queued again. Any other refusal would
+/// repeat on every re-arm, so it is `failed` with its cause.
+pub const WatchEnd = union(enum) { live, ended, failed: anyerror };
+
+pub fn watchEnd(cqe: linux.io_uring_cqe) WatchEnd {
+    if (cqe.flags & linux.IORING_CQE_F_MORE != 0) return .live;
+    const canceled = -@as(i32, @backingInt(linux.E.CANCELED));
+    if (cqe.res >= 0 or cqe.res == canceled) return .ended;
+    return .{ .failed = completion.failureFromErrno(linux.errno(@as(usize, @bitCast(@as(isize, cqe.res))))) };
+}
+
+/// Return pool buffer `buffer_id` to the kernel's buffer ring.
+pub fn returnBuffer(
+    buf_ring: *align(std.heap.page_size_min) linux.io_uring_buf_ring,
+    buffers: []u8,
+    buf_bytes: u32,
+    buf_count: u16,
+    buffer_id: u16,
+) void {
+    const IoUring = linux.IoUring;
+    IoUring.buf_ring_add(buf_ring, bufferSlice(buffers, buf_bytes, buffer_id), buffer_id, IoUring.buf_ring_mask(buf_count), 0);
+    IoUring.buf_ring_advance(buf_ring, 1);
+}

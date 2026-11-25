@@ -309,20 +309,26 @@ pub const Backend = struct {
     /// each readiness of the set, and a set already ready when the poll is
     /// submitted reports at once.
     fn armWatch(self: *Backend) !void {
-        const inner = self.inner orelse return;
-        if (self.watch_armed or self.listener_fault != null) return;
-        const sqe = try self.getSqe();
-        sqe.prep_poll_add(inner.epoll_fd, linux.POLL.IN);
-        sqe.len = linux.IORING_POLL_ADD_MULTI;
-        sqe.user_data = watch_ud;
+        if (!self.watchOwed()) return;
+        kernel.prepWatch(try self.getSqe(), self.inner.?.epoll_fd);
         self.watch_armed = true;
     }
 
-    /// Backend-private completion identity for the ring's watch on the inner
-    /// epoll descriptor. Its top three bits are 7. The Loop's `Op` tags stay
-    /// in 0...5, and the resident's `Kind` sits at bit 56 with a value of at
-    /// most 8, so neither emits it.
-    const watch_ud: u64 = 0b111 << 61;
+    /// `armWatch` for the completion path, which may run under `peek` and so
+    /// submits nothing: the watch is queued only when the submission queue
+    /// has room. Otherwise it stays unarmed until the next `flush`, which
+    /// arms it and reports its own refusal, and `dirty` holds whatever the
+    /// set gained meanwhile.
+    fn armWatchInRoom(self: *Backend) void {
+        if (self.fault != null or !self.watchOwed()) return;
+        // best-effort: a full queue leaves the watch for the next `flush`.
+        kernel.prepWatch(self.ring.get_sqe() catch return, self.inner.?.epoll_fd);
+        self.watch_armed = true;
+    }
+
+    fn watchOwed(self: *const Backend) bool {
+        return self.inner != null and !self.watch_armed and self.listener_fault == null;
+    }
 
     /// Start an outbound TCP connect: open a socket, submit connect, return the
     /// fd. On submit failure the socket is closed here, the Loop never sees it.
@@ -410,9 +416,11 @@ pub const Backend = struct {
         fd: Fd,
     ) !void {
         if (self.tracked(fd)) {
-            // A listener poll or accept lives on the inner backend, not in the
-            // ring: it completes the target with -1, then the cancel with 0.
-            // A target the inner backend does not hold is a ring operation.
+            // A listener poll lives on the inner backend, not in the ring: it
+            // completes the target with -1, then the cancel with 0. An armed
+            // accept is no cancel target there, as on the epoll backend, and
+            // ends with its listener's close. A target the inner backend
+            // refuses goes to the ring, which answers for what it holds.
             if (self.inner.?.submitCancel(cancel_user_data, target_user_data, fd)) {
                 self.dirty = true;
                 return;
@@ -465,15 +473,7 @@ pub const Backend = struct {
 
     pub fn recycleBorrowed(self: *Backend, comp: completion.Completion) void {
         std.debug.assert(comp.borrowed.kind == .recv);
-        const buffer_id: u16 = @intCast(comp.borrowed.token);
-        IoUring.buf_ring_add(
-            self.buf_ring,
-            kernel.bufferSlice(self.buffers, self.buf_bytes, buffer_id),
-            buffer_id,
-            IoUring.buf_ring_mask(self.buf_count),
-            0,
-        );
-        IoUring.buf_ring_advance(self.buf_ring, 1);
+        kernel.returnBuffer(self.buf_ring, self.buffers, self.buf_bytes, self.buf_count, @intCast(comp.borrowed.token));
     }
 
     /// Flush queued submissions, reap, and otherwise wait inside the ring
@@ -536,7 +536,7 @@ pub const Backend = struct {
         const want = @min(out.len - produced, cqes.len);
         const n = if (want == 0) 0 else try self.ring.copy_cqes(cqes[0..want], 0);
         for (cqes[0..n]) |cqe| {
-            if (cqe.user_data == watch_ud) {
+            if (cqe.user_data == kernel.watch_user_data) {
                 self.watchReported(cqe);
                 continue;
             }
@@ -567,26 +567,24 @@ pub const Backend = struct {
     }
 
     /// A watch completion makes the inner backend worth a peek. One that ends
-    /// without `IORING_CQE_F_MORE` is queued again here, so no turn leaves the
-    /// listeners deaf. One that ends in failure latches `listener_fault`: only
-    /// the ring's teardown or an explicit cancel ends one without error, and
-    /// any other refusal would repeat on every re-arm. The latch keeps every
-    /// completion this call's caller already holds.
+    /// without `IORING_CQE_F_MORE` is queued again here when the submission
+    /// queue has room, and by the next `flush` otherwise (`armWatchInRoom`).
+    /// One that failed latches `listener_fault` (`kernel.watchEnd`). The latch
+    /// keeps every completion this call's caller already holds.
     fn watchReported(self: *Backend, cqe: linux.io_uring_cqe) void {
         self.dirty = true;
-        if (cqe.flags & linux.IORING_CQE_F_MORE != 0) return;
-        self.watch_armed = false;
-        const canceled = -@as(i32, @backingInt(linux.E.CANCELED));
-        if (cqe.res < 0 and cqe.res != canceled) {
-            const cause = completion.failureFromErrno(linux.errno(@as(usize, @bitCast(@as(isize, cqe.res)))));
-            if (self.listener_fault == null) self.listener_fault = cause;
-            if (self.deferred_error == null) self.deferred_error = cause;
-            return;
+        switch (kernel.watchEnd(cqe)) {
+            .live => return,
+            .ended => {},
+            .failed => |cause| {
+                self.watch_armed = false;
+                if (self.listener_fault == null) self.listener_fault = cause;
+                if (self.deferred_error == null) self.deferred_error = cause;
+                return;
+            },
         }
-        // best-effort: a refusal (no submission slot) leaves the watch unarmed
-        // until the next `flush`, which arms it and reports its own refusal;
-        // `dirty` holds whatever the set gained meanwhile.
-        self.armWatch() catch {};
+        self.watch_armed = false;
+        self.armWatchInRoom();
     }
 
     /// The interface every listener binds. `openListener` chooses only the
@@ -640,11 +638,11 @@ pub const white_box = if (builtin.is_test) struct {
     pub const TestBackend = Backend;
     pub const initFailureFor = kernel.classifyInitFailure;
     pub const bufferRingFailureFor = kernel.classifyBufferRingFailure;
-    pub const watch_user_data = Backend.watch_ud;
+    pub const watch_user_data = kernel.watch_user_data;
     pub const nodelayEnabled = socket_tcp.white_box.nodelayEnabled;
 
     /// Deliver a watch completion with `res`, as the ring would, without the ring.
     pub fn reportWatch(backend: *Backend, res: i32) void {
-        backend.watchReported(.{ .user_data = Backend.watch_ud, .res = res, .flags = 0 });
+        backend.watchReported(.{ .user_data = kernel.watch_user_data, .res = res, .flags = 0 });
     }
 } else struct {};

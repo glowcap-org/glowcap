@@ -357,11 +357,17 @@ test "io_uring listener set: a refused re-arm is no fault, and the next flush ar
     const f = try Fixture.init();
     defer f.deinit();
     try f.backend.flush();
-    // A refusal for lack of a submission slot cannot be produced on demand, so
-    // a ring fault stands in for it: `getSqe` refuses, as it would.
-    f.backend.fault = error.Planted;
+    // The submission queue is full of a caller's batch when the watch ends.
+    const batched = f.backend.ring.sq.sqes.len;
+    for (0..batched) |_| {
+        const sqe = try f.backend.ring.get_sqe();
+        sqe.prep_nop();
+        sqe.user_data = 99;
+    }
+    try std.testing.expectError(error.SubmissionQueueFull, f.backend.ring.get_sqe());
     white_box.reportWatch(&f.backend, -@as(i32, @backingInt(linux.E.CANCELED)));
-    f.backend.fault = null;
+    // The completion path submitted nothing to make room: the batch still waits.
+    try std.testing.expectEqual(batched, @as(usize, f.backend.ring.sq_ready()));
     try std.testing.expect(!probe.watchArmed(&f.backend));
     try std.testing.expectEqual(@as(?anyerror, null), f.backend.listener_fault);
     try std.testing.expectEqual(@as(?anyerror, null), f.backend.deferred_error);
