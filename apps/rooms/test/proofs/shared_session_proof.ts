@@ -279,7 +279,21 @@ try {
 	const sent = async () => {
 		const rows = second.locator(".bubble").filter({ hasText: draft });
 		const classes = await rows.evaluateAll((found) => found.map((row) => row.className));
-		return `the sending view shows ${classes.length} such line: ${JSON.stringify(classes)}`;
+		const runtime = await openRoomsRuntime({ cleartext: [tcp.plain] });
+		try {
+			const session = await dial(`127.0.0.1:${sessionPort}`, runtime);
+			const effects = await ask(
+				session,
+				await session.enliven(link),
+				"effect-inventory",
+				[],
+				"effect inventory did not answer",
+			);
+			return `the sending view shows ${classes.length} such line: ${JSON.stringify(classes)}; ` +
+				`session effects=${JSON.stringify(effects)}`;
+		} finally {
+			await runtime.close();
+		}
 	};
 	await bubble(first, draft, async () => `the other view; ${await sent()}`);
 	await bubble(second, draft, async () => `the sending view; ${await sent()}`);
