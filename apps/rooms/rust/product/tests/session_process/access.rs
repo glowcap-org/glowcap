@@ -5,8 +5,8 @@
 //! by the id the list shows, with nothing kept from the issue's output.
 use super::session_rig::{Fixture, LinkSecret, attach, call, free_port, host, run_within, text_arrived};
 use glowcap::PendingWork;
-use rooms_platform::HostPlatform;
 use rooms_application::content::session::{Preset, Terms};
+use rooms_platform::HostPlatform;
 use rooms_services::session::attached::{EffectStatus, Error, Grants, Lifecycle, State, View};
 use serde_json::{Value, json};
 use std::{path::Path, time::Duration};
@@ -174,7 +174,10 @@ fn a_shared_management_link_manages_the_one_access_it_names() {
 	secret.assert_absent(access(&one.state, "list", json!({})).to_string(), "the access list");
 	assert_ne!(link, shared["link"], "the management link is not the use link");
 	// Sharing again names the same control, so a lost link is read again.
-	assert_eq!(access(&one.state, "share-management", named(&shared))["link"], link.as_str());
+	assert_eq!(
+		access(&one.state, "share-management", named(&shared))["link"],
+		link.as_str()
+	);
 	run_within(Duration::from_secs(60), async {
 		let holder = host().await;
 		let grants = Grants::attach(&holder, HostPlatform, &link).await.unwrap();
