@@ -70,7 +70,7 @@
 //!   `holder-answers` how each ask of whose receipt an operation is, one per
 //!   line: a failure as in `send-faults`, `ok` to answer, or for a list
 //!   `wait`, which writes `held-asked` and answers once `held-go` exists,
-//!   or fails after [`HELD_WAIT`].
+//!   or fails after [`HELD_WAIT`]. An ask answering `nobody` has no holder.
 //!   Each takes the first, and with none left the list lists and the ask
 //!   answers this access.
 //!
