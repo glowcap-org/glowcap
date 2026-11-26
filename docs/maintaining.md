@@ -392,12 +392,16 @@ a signing key on the maintainer's account, so upload the public key before
 applying the rulesets.
 
 Every commit on a pull-request branch needs a verified signature, including
-commits that will be squashed. For a GitHub-signed PR update, use `gh api
-graphql` with `createCommitOnBranch`. Supply the staged file changes and the
+commits that will be squashed.
+
+For a GitHub-signed PR update, call `createCommitOnBranch` through
+`gh api graphql`. Supply the staged file changes and the
 PR's current head as `expectedHeadOid`. Before advancing the local branch,
 check that GitHub verified the signature and that the commit's tree matches
-`git write-tree`. This route works without a local signing key. For a locally
-signed commit, use `git commit -S` and `git verify-commit` before pushing.
+`git write-tree`.
+
+For a locally signed commit, use `git commit -S` and `git verify-commit`
+before pushing.
 GitHub also signs the squash commit it creates. The administrator's
 pull-request bypass does not apply to pushes or to `main`.
 
