@@ -143,6 +143,10 @@ async fn a_last_list_that_fails_refuses_the_replacement_and_records_nothing() {
 	let (_scratch, store, settled) = settled_with_one_running_action("bot-replace-listed", "ok").await;
 	settled.unwrap();
 	assert_eq!(replaced_actions(&store), vec![format!("{:032x}", 7)]);
+	assert!(
+		!store.root().join("legacy-action-ids.json").exists(),
+		"the last list migrated a surviving claim"
+	);
 }
 
 /// A list the session refuses for good refuses the replacement too, and

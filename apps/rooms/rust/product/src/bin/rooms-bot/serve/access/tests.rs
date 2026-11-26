@@ -99,6 +99,10 @@ async fn a_late_open_is_recognized_after_a_start_removed_its_note() {
 			.await
 			.unwrap()
 			.unwrap();
+		assert!(
+			!store.root().join("legacy-action-ids.json").exists(),
+			"asking alone migrated notes"
+		);
 		placed.place(&store, &mut snapshot).unwrap();
 		assert!(opens::unplaced(store.root()).unwrap().is_empty());
 		drop(store);

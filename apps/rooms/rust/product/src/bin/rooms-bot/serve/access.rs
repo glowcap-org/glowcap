@@ -85,6 +85,9 @@ impl Leftovers {
 	/// of replaced lines nobody holds and of replaced actions no other access
 	/// holds. Each step is safe to repeat, so a failure is tried again.
 	pub fn place(&self, store: &Store, ledger: &mut Ledger) -> Result<(), Error> {
+		// Link acceptance commits these placements. Save the legacy witnesses
+		// before the first removal so a stop partway through can repeat them.
+		opens::action::remember_start(store, ledger, self.notes.iter().map(|(note, _)| note.operation()))?;
 		for (note, holder) in &self.notes {
 			note.place(store, *holder)?;
 		}
@@ -113,9 +116,7 @@ pub async fn ask<R: Rooms>(
 		wait: Backoff::standard(),
 	};
 	let mut found = Leftovers::default();
-	let notes = opens::unplaced(store.root())?;
-	opens::action::remember_start(store, ledger, &notes)?;
-	for note in notes {
+	for note in opens::unplaced(store.root())? {
 		let Some(holder) = asking.whose(note.operation()).await? else {
 			return Ok(None);
 		};

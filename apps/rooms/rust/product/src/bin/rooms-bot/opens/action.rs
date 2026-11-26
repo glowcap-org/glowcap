@@ -414,6 +414,7 @@ pub async fn settle<R: Rooms>(
 	ledger.borrow_mut().forget_left(store, &cleared)?;
 	let claims = ACTIONS.names(store.root())?;
 	let origin = Origin::read(store, key, &claims)?;
+	origin.remember_claims(store)?;
 	let Owners { owned, cut, unjudged } = owners(store, ledger, claims)?;
 	let root = store.root();
 	// A claim cut off at a start that the session does not list holds no
