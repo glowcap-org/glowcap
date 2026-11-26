@@ -36,6 +36,12 @@ export function sessionEffectMany(count: number): string {
 	return `${count} session operations need your decision.`;
 }
 export const sessionPausedSaid = "Your access to this shared session is paused.";
+export const sessionAccessNext = {
+	paused: "Ask the person who manages your access to resume it. This page will reconnect automatically.",
+	revoked: "Ask for a new session link, then attach it in Session settings.",
+	outOfScope: "Open Session settings to attach a link for the session you want to use.",
+} as const;
+export const openSessionSettings = "Open Session settings";
 export const sessionReconnecting =
 	"This page is reconnecting to this session on its own. You don't need to do anything.";
 export const sessionOffline = "This device is offline. This page reconnects to this session when the network is back.";

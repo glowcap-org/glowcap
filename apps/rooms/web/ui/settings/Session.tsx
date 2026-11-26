@@ -15,7 +15,8 @@ import type { ArchiveTargetView } from "../archive_model.ts";
 import { useRoomsController } from "../controller/browser.ts";
 import { CopyField } from "../Copy.tsx";
 import { EntryAct, EntryActs } from "../EntryAct.tsx";
-import { useSessionPaused } from "../hooks.ts";
+import { managedSessionText } from "../../../lib/text/managed_session.ts";
+import { useRoomsState } from "../hooks.ts";
 import { Icon } from "../icons.tsx";
 import { useOpenModal } from "../modal.ts";
 import { HistorySettings } from "./History.tsx";
@@ -59,7 +60,7 @@ export function SessionSettings(
 	const canInteract = useSessionPermission("interactWorkspace");
 	const canReplace = useSessionPermission("replaceWorkspace");
 	const canManageCustody = useSessionPermission("manageCustody");
-	const paused = useSessionPaused();
+	const accessStatus = useRoomsState((state) => state.managedAccess.status);
 	const controller = useRoomsController();
 	const hosting = controller.kind === "hosted";
 	const shared = sharedRoomsSession(controller);
@@ -80,8 +81,10 @@ export function SessionSettings(
 	// Read only is what the last arm here means, so a capability carrying nothing
 	// has to be answered before it. While paused, this said the link was read
 	// only, its future state rather than its present one.
-	const accessSaid = paused
+	const accessSaid = accessStatus === "paused"
 		? currentSessionPaused
+		: accessStatus !== "active"
+		? managedSessionText[accessStatus]
 		: canAdminister
 		? currentSessionAdmin
 		: canInteract

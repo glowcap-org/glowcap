@@ -253,6 +253,21 @@ def check_source_installation(root, launcher):
         assert (root / "share/glowcap/DEPENDENCY-NOTICES.txt").stat().st_size > 0, "missing dependency notices"
         check_skills(root)
         check_completion(root)
+        # Every command the bot teaches its agent must reach the turn handler
+        # through the installed CLI, even when there is no running turn.
+        prompt = launcher.parent / "apps/rooms/rust/product/src/bin/rooms-bot/system.txt"
+        examples = re.findall(r"^ +\{glowcap\} apps rooms bot (.+)$", prompt.read_text(), re.MULTILINE)
+        assert examples, "the bot's prompt advertised no commands"
+        for example in examples:
+            required = example.partition(" [")[0].split()
+            result = subprocess.run(
+                [str(root / "bin/glowcap"), "apps", "rooms", "bot", *required],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            assert result.returncode == 1 and "only during a bot's turn" in result.stderr, (example, result)
+            assert json.loads(result.stdout)["error"]["class"] == "invalid", (example, result.stdout)
         rooms_peer.main(launcher.parent, transport="iroh")
         print("glowcap-install-test: checkout launcher serves Rooms; installed sessions, skills and completion passed")
 

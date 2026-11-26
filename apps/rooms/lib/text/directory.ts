@@ -6,7 +6,7 @@
 /** What a surface says while this browser's access to the session is paused.
  * The session has stopped telling this browser what it holds, so the surface
  * has nothing to show. */
-export const nothingWhilePaused = "Not shown while your access is paused.";
+export const nothingWhilePaused = "Unavailable with this access.";
 
 /** The wording of each connection phase. A sentence that names a phase
  * lowercases these, so a row and the card for the same directory agree. */

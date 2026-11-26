@@ -447,6 +447,8 @@ def child_output(binary, scratch):
     )
     workspace = scratch / "deployment config"
     args = [str(binary), "apps", "rooms", "deployment"]
+    missing = run(*args, "doctor", "--dir", workspace, env=dict(env, PATH=str(scratch / "no tools")), ok=False)
+    assert "Docker was not found on PATH" in missing.stderr and "Install Docker with Compose" in missing.stderr
     # A held-open child proves output arrives before completion. Successful
     # query stdout is private data; action stdout and all stderr remain live.
     for phase, verb in (("query", "status"), ("action", "doctor")):
@@ -500,6 +502,7 @@ def child_output(binary, scratch):
     assert failed.stdout == ""
     assert "query failure on stdout" in failed.stderr and "query failure on stderr" in failed.stderr
     assert 'docker "version" "--format"' in failed.stderr and "exited with code 9" in failed.stderr
+    assert "Docker daemon" in failed.stderr
 
 
 def deadline(binary, scratch):

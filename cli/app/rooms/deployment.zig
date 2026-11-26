@@ -133,16 +133,22 @@ fn perform(ctx: *Ctx, parsed: *types.Parsed, comptime verb: Verb) !void {
             error.FileNotFound => try stdout(ctx.io, "configuration directory: missing (run deployment up to initialize)\n"),
             else => return err,
         }
-        try docker.run(&.{"version"}, 15);
-        try docker.run(&.{ "compose", "version" }, 15);
-        return;
     }
 
-    _ = docker.query(&.{ "version", "--format", "{{.Server.Version}}" }) catch |err| {
-        log.err(ctx.io, "Docker with Compose and a reachable daemon are required on this host. Start Docker, then rerun this command.", .{});
+    const show_versions = verb == .doctor;
+    versionProbe(docker, if (show_versions) &.{"version"} else &.{ "version", "--format", "{{.Server.Version}}" }, show_versions) catch |err| {
+        if (err == error.FileNotFound) {
+            log.err(ctx.io, "Docker was not found on PATH. Install Docker with Compose, then rerun this command.", .{});
+        } else {
+            log.err(ctx.io, "Check that the Docker daemon is running and that your user can reach it with `docker version`.", .{});
+        }
         return err;
     };
-    _ = try docker.query(&.{ "compose", "version" });
+    versionProbe(docker, &.{ "compose", "version" }, show_versions) catch |err| {
+        log.err(ctx.io, "Check that Docker Compose is installed with `docker compose version`.", .{});
+        return err;
+    };
+    if (verb == .doctor) return;
     const directory = if (starts)
         try Io.Dir.cwd().createDirPathOpen(ctx.io, absolute_dir, .{ .permissions = .fromMode(0o700) })
     else
@@ -210,6 +216,10 @@ fn perform(ctx: *Ctx, parsed: *types.Parsed, comptime verb: Verb) !void {
         .reset => try operations.reset(docker, unit, parsed.flagBool("yes")),
         .doctor => unreachable, // answered above, before any configuration exists
     }
+}
+
+fn versionProbe(docker: Docker, operands: []const []const u8, show: bool) !void {
+    if (show) try docker.run(operands, 15) else _ = try docker.query(operands);
 }
 
 fn prepareCheckout(ctx: *Ctx, parsed: *types.Parsed, gpa: std.mem.Allocator, root: []const u8) !void {

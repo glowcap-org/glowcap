@@ -3,6 +3,7 @@
 import type { Browser, Page } from "playwright";
 import { Buffer } from "node:buffer";
 import { managedAccessText as text } from "../../lib/text/managed_access.ts";
+import { openSessionSettings, sessionAccessNext } from "../../lib/text/page.ts";
 import { managedSessionText } from "../../lib/text/managed_session.ts";
 import { fail } from "../support/fail.ts";
 import { openLineMenu, say, waitForPostedLine } from "./harness.ts";
@@ -198,6 +199,11 @@ export async function proveManagedAccessEditor(browser: Browser, owner: Page, ht
 				).innerText()}`,
 			)
 		);
+		await observer.getByText(sessionAccessNext.paused, { exact: true }).waitFor();
+		if (await observer.locator("#joinForm").count()) fail("paused access still offers a form to join a room");
+		await observer.getByRole("button", { name: openSessionSettings }).click();
+		await observer.locator("#sessionTab[aria-selected=true]").waitFor();
+		await observer.click("#settingsClose");
 		await observer.reload();
 		await observer.locator(".session-paused-notice").waitFor().catch(async () =>
 			fail(`paused reload did not settle: ${await observer.locator("body").innerText()}`)
@@ -208,6 +214,7 @@ export async function proveManagedAccessEditor(browser: Browser, owner: Page, ht
 		await editor.getByRole("button", { name: text.revokeAsk, exact: true }).click();
 		await editor.getByRole("button", { name: text.revoke, exact: true }).click();
 		await observer.getByText(managedSessionText.revoked, { exact: true }).waitFor();
+		await observer.getByText(sessionAccessNext.revoked, { exact: true }).waitFor();
 		// Revoking takes the row off the list, the access it was created from
 		// stops showing it, and the removal survives a reload.
 		await editor.waitFor({ state: "hidden" }).catch(async () =>

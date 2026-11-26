@@ -60,4 +60,5 @@ pub const commands = [_]types.Command{
     }, .run = during_turn("send") },
     .{ .name = "command", .short_help = "During a turn, run a Rooms application command as the bot", .flags = &.{ operation, base }, .positionals = &.{.{ .name = "arguments", .help = "Command name followed by its arguments", .variadic = true }}, .run = during_turn("command") },
     .{ .name = "workspace", .short_help = "During a turn, show the workspace the bot sees", .flags = &.{}, .run = during_turn("workspace") },
+    .{ .name = "actions", .short_help = "During a turn, list the bot's actions and their outcomes from its own record", .run = during_turn("actions") },
 };

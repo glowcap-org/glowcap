@@ -218,7 +218,7 @@ export function rowJoinRoomOn(name: string): string {
 }
 
 /** Why the field under a conversation cannot send right now. */
-export const cannotSendPaused = "You can't send while your access is paused.";
+export const cannotSendPaused = "You can't send with this access.";
 export const cannotSendReadOnly = "Your session link is read only, so you can't send here.";
 export const cannotSendDmClosed = "This direct message is closed.";
 export const cannotSendRegistrationEnded =

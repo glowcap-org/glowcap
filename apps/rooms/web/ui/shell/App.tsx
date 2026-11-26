@@ -430,7 +430,7 @@ export function App() {
 					aboutConv={state.aboutConv}
 					aboutDir={state.aboutDir !== null}
 				/>
-				<SessionPausedNotice />
+				{(conv !== null || ops.on) && <SessionPausedNotice />}
 				<SessionLinkNotice />
 				<SessionEffectNotice />
 				<ServerAsk />

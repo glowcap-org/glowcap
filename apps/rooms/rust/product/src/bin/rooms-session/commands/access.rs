@@ -95,12 +95,6 @@ impl Action {
 
 pub async fn run(options: &Options) -> Result<Value, Failure> {
 	let body = Action::read(options)?.body()?;
-	if !options.state.join("control.sock").exists() {
-		return Err(Failure::invalid(format!(
-			"no session is running in {}. Start it with session start, then try again",
-			options.state.display()
-		)));
-	}
 	request(&options.state, body).await
 }
 
