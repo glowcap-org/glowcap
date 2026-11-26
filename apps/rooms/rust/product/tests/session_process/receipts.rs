@@ -1,6 +1,6 @@
 //! What a session's receipts decide about a line sent again, and who frees a
 //! receipt nobody kept, against real session processes.
-use super::receipts_late::second_client;
+use super::receipts_late::{post_when_paced, second_client, wait_for_room_seat};
 use super::session_rig::{Fixture, attach, call, call_when_paced, free_places, free_port, host, run_within};
 use super::*;
 use glowcap::PendingWork;
@@ -437,24 +437,13 @@ fn a_window_full_of_paused_executors_refuses_another_request_as_receipts_full() 
 		let issued = grants.issue("the pauser", &terms).await.unwrap();
 		let holder = host().await;
 		let view = attach(&holder, &issued.link).await;
+		wait_for_room_seat(&view, &room).await;
 		let mut held = 0;
 		let mut refused = None;
 		for round in 0.. {
-			let base = view.revision().await.unwrap();
-			match view
-				.say_at(&format!("paused-{round}"), base, &room, &format!("paused {round}"))
-				.await
-			{
-				Err(Error::Peer(cause))
-					if cause.failure_code() == Some(rooms_application::failure::FailureCode::RateLimited) =>
-				{
-					tokio::time::sleep(Duration::from_millis(200)).await;
-				}
-				// The restarted session takes the room's seat again before
-				// it posts there.
-				Err(Error::Peer(cause)) if held == 0 && cause.failure_code().is_none() => {
-					tokio::time::sleep(Duration::from_millis(200)).await;
-				}
+			let (_, status) =
+				post_when_paced(&view, &format!("paused-{round}"), &room, &format!("paused {round}")).await;
+			match status {
 				Err(Error::Peer(cause)) if held == MAX_EFFECTS => {
 					refused = Some(cause);
 					break;
