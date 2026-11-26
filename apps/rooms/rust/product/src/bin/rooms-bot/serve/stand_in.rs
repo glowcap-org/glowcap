@@ -44,6 +44,7 @@ pub async fn run(directory: Directory, prepared: Prepared, shutdown: watch::Rece
 		facts,
 		linking: _,
 	} = prepared;
+	crate::bot::identity::seed(&store)?;
 	let rooms = crate::bot::rooms::files::Files::open(&directory);
 	let start = if stored.is_none() {
 		Start::First(None)

@@ -14,9 +14,9 @@
 //! is refused until it settles.
 use super::{Step, Turn, failure, verbs::resend};
 use crate::bot::{
-	engine,
 	error::Error,
 	fault::{self, Fail},
+	identity,
 	opens::{self, Open},
 	request::Request,
 	rooms::{Base, ConversationId, captp::Live},
@@ -272,7 +272,7 @@ impl DirectReach<'_> {
 			}
 			Ok(Reach::Introduce(introduction)) => {
 				turn.open()?;
-				let operation = engine::operation()?;
+				let operation = identity::new_action(&self.root)?;
 				let base = live.view.revision().await.map_err(|cause| failure::call(&cause))?;
 				// The log line comes first, so a refusal to write it leaves no
 				// note to send.

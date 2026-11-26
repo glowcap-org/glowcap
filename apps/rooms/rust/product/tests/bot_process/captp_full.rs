@@ -9,7 +9,7 @@ use super::session_rig::{attach, host, run_within};
 use super::words;
 use glowcap::PendingWork;
 use rooms_application::{content::session::custody::MAX_EFFECTS, failure::FailureCode};
-use rooms_services::session::attached::{EffectStatus, Error, Release};
+use rooms_services::session::attached::{EffectStatus, Error, Holder, Release};
 use serde_json::Value;
 use std::{collections::BTreeSet, time::Duration};
 
@@ -84,14 +84,14 @@ impl Held {
 /// takes one on the bot's side, and answer the line that opened it.
 const OPENING: &str = "the conversation is open";
 
-/// The operations of the tries the full session refused, in order, as the
+/// The operations of the tries the session refused with this code, in order, as the
 /// bot's log names them.
-fn refused(world: &World) -> Vec<String> {
+fn refused(world: &World, code: FailureCode) -> Vec<String> {
 	world
 		.rig
 		.log()
 		.lines()
-		.filter(|line| line.contains(FailureCode::ReceiptsFull.wire()))
+		.filter(|line| line.contains(code.wire()))
 		.filter_map(|line| line.split_once("sending operation ")?.1.split_once(' '))
 		.map(|(operation, _)| operation.to_owned())
 		.collect()
@@ -169,7 +169,10 @@ fn the_loop_settles_a_note_of_a_turn_whose_reply_waits_for_its_place() {
 			super::captp_direct::turn(&world, &[super::captp_direct::say(super::captp::FRIEND, "kept")]),
 			"exit=1"
 		);
-		assert!(!refused(&world).is_empty(), "the session never refused the reply");
+		assert!(
+			!refused(&world, FailureCode::ReceiptsFull).is_empty(),
+			"the session never refused the reply"
+		);
 		eventually("the note to settle and go", || {
 			let status = world.rig.status();
 			(status["status"]["unsettled_opens"] == 0 && status["status"]["sending"] == 0).then_some(())
@@ -200,7 +203,7 @@ fn a_reply_waiting_for_a_place_survives_a_session_restart_and_posts_once() {
 		eventually("the bot to hold its third try", || {
 			world.rig.dir.join("retry-held").exists().then_some(())
 		});
-		let tries = refused(&world);
+		let tries = refused(&world, FailureCode::ReceiptsFull);
 		assert_eq!(tries.len(), 2, "the hold came after two refusals: {tries:?}");
 		let distinct: BTreeSet<_> = tries.iter().collect();
 		assert_eq!(
@@ -216,15 +219,41 @@ fn a_reply_waiting_for_a_place_survives_a_session_restart_and_posts_once() {
 		);
 		held.free_one().await;
 		let joins = world.count_starting("room", &format!("{BOT} joined"));
-		world.fixture.peers[0].restart_at(None);
-		// The restarted session takes its room seat before it takes a request.
-		eventually("the restarted session to take its seat", || {
+		world.fixture.peers[0].restart_at(Some("room-post-before-seat"));
+		// Upstream membership is visible before the local seat is adopted.
+		eventually("the other member to see the restarted session join", || {
 			(world.count_starting("room", &format!("{BOT} joined")) > joins).then_some(())
 		});
 		assert_eq!(world.count("room", text), 0, "the reply posted before the restart");
+		let checking = host().await;
+		let view = attach(&checking, &world.fixture.peers[0].link).await;
+		let base = view.revision().await.unwrap();
+		let Err(Error::Peer(missing)) = view.say_at("absent-room", base, "missing-room", text).await else {
+			panic!("a nonexistent room did not refuse the post");
+		};
+		assert!(
+			missing.admission_refusal().is_none(),
+			"an unrelated room waited for this seat"
+		);
+		assert_eq!(view.holder("absent-room").await.unwrap(), Holder::Nobody);
 		std::fs::write(world.rig.dir.join("retry-go"), b"").unwrap();
 		world.await_line("room", text);
-		assert_eq!(refused(&world), tries, "the bot was refused again after the restart");
+		let waiting = refused(&world, FailureCode::RoomJoining);
+		assert!(!waiting.is_empty(), "the post never reached the pending seat");
+		for operation in waiting {
+			assert_eq!(
+				view.holder(&operation).await.unwrap(),
+				Holder::Nobody,
+				"a refused try took a receipt"
+			);
+		}
+		drop(view);
+		checking.close(PendingWork::Cancel).await.unwrap();
+		assert_eq!(
+			refused(&world, FailureCode::ReceiptsFull),
+			tries,
+			"the restarted session ran out of receipt places again"
+		);
 		world.stopped(bot);
 		held.free_all().await;
 	});

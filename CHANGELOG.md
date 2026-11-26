@@ -51,6 +51,10 @@ Releases before 0.1.7 are in the
 
 ### Fixed
 
+- A Rooms bot keeps its queued reply when its nickname has reappeared in the room but its restarted session is still taking its seat. The session reports `room-joining` and the bot posts the reply once the seat is ready.
+
+- A Rooms bot now checks which action IDs it issued before settling receipts. A session restoring its room membership keeps its receipt and can finish joining. Use a fresh ID for each new request and issue separate access links to independent clients.
+
 - A Rooms access can open and drop successive readers without exhausting its continuation limit. A Host now releases an actor’s projected export once its partner and the session’s local work have finished with it.
 - A process that dies without closing its listener (abort, `SIGKILL`, out of memory) no longer keeps its port bound on Linux. The io_uring backend held an accept on the listening socket, and the kernel kept the socket until it retired the ring, so a restart in place on the same port could fail with "address already in use" after the process was gone. Listeners now wait in an epoll set the ring only watches, and the port is free as soon as the process is. A provider whose listener readiness descriptor is a listening socket, as the TCP and onion providers' are, waits there too. A driver provider package whose resident readiness descriptor is a listening socket is now refused at registration with `ReadinessDescriptorListening`, and the multiplexed transport's `readiness_fd` documents it. If the watch the ring keeps on those listeners ever fails, the loop reports the kernel's cause once, new listener work refuses with it, and closing still completes.
 - A restarted `rooms-session` no longer exits with "session lifetime is still pending". Start waits for its lifetime to confirm before its first private write, so a slow or busy storage lane delays the start and no longer refuses it.

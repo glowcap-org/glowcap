@@ -29,6 +29,7 @@ struct Running<P: Tasks> {
 	// aliases. This is custody for cleanup, never another authority inventory.
 	target: Option<glowcap::Ref>,
 	stop: watch::Sender<bool>,
+	ready: watch::Sender<Option<Result<()>>>,
 	// Closing the view cannot turn a failed cleanup wait into a ready loop.
 	_retry: watch::Sender<u64>,
 	ended: watch::Sender<Option<Result<()>>>,
@@ -103,6 +104,19 @@ impl<P: Tasks> Budget<P> {
 			.filter(|worker| worker.admission == id)
 			.and_then(|worker| worker.retirement.clone())
 	}
+	/// The live worker is still acquiring its own admission. Once the worker
+	/// fails, becomes ready, or starts closing, its receipt cannot justify
+	/// delaying a different request.
+	pub(in crate::session::managed) fn acquiring(&self, admission: &str) -> bool {
+		let key = admission.rsplit_once(':').map_or(admission, |(worker, _)| worker);
+		self.tasks.borrow().get(key).is_some_and(|worker| {
+			worker.admission == admission
+				&& worker.retirement.is_some()
+				&& !*worker.stop.borrow()
+				&& worker.ready.borrow().is_none()
+				&& worker.ended.borrow().is_none()
+		})
+	}
 	pub(in crate::session::managed) fn worker_retirement(&self, id: &str) -> Option<Rc<super::retirement::Owner>> {
 		self.tasks.borrow().get(id).and_then(|worker| worker.retirement.clone())
 	}
@@ -129,30 +143,6 @@ impl<P: Tasks> Budget<P> {
 			let Some(ended) = next else { return Ok(()) };
 			super::outcome(ended).await?;
 		}
-	}
-	pub(super) fn retain(
-		&self,
-		id: String,
-		task: P::Task,
-		stop: watch::Sender<bool>,
-		retry: watch::Sender<u64>,
-		ended: watch::Sender<Option<Result<()>>>,
-		retirement: Option<Rc<super::retirement::Owner>>,
-	) {
-		let admission = id.clone();
-		let old = self.tasks.borrow_mut().insert(
-			id,
-			Running {
-				admission,
-				_task: task,
-				target: None,
-				stop,
-				_retry: retry,
-				ended,
-				retirement,
-			},
-		);
-		assert!(old.is_none(), "membership admitted before task insertion");
 	}
 }
 pub(super) struct Charge<P: Tasks> {
@@ -243,7 +233,18 @@ where
 		drop(charge);
 		completion.send_replace(Some(outcome));
 	});
-	budget.retain(id, task, stop.clone(), retry.clone(), ended.clone(), retirement);
+	let worker = Running {
+		admission: id.clone(),
+		_task: task,
+		target: None,
+		stop: stop.clone(),
+		ready: readiness.clone(),
+		_retry: retry.clone(),
+		ended: ended.clone(),
+		retirement,
+	};
+	let old = budget.tasks.borrow_mut().insert(id, worker);
+	assert!(old.is_none(), "membership admitted before task insertion");
 	super::Membership {
 		_budget: budget.clone(),
 		stop,

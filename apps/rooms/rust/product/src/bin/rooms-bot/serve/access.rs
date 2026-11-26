@@ -85,6 +85,9 @@ impl Leftovers {
 	/// of replaced lines nobody holds and of replaced actions no other access
 	/// holds. Each step is safe to repeat, so a failure is tried again.
 	pub fn place(&self, store: &Store, ledger: &mut Ledger) -> Result<(), Error> {
+		// Link acceptance commits these placements. Save the legacy witnesses
+		// before the first removal so a stop partway through can repeat them.
+		opens::action::remember_start(store, ledger, self.notes.iter().map(|(note, _)| note.operation()))?;
 		for (note, holder) in &self.notes {
 			note.place(store, *holder)?;
 		}

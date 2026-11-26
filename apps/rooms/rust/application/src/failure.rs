@@ -53,6 +53,7 @@ macro_rules! codes {
 codes! {
 	RateLimited => ("rate-limited", "operation", Soon, "This action is temporarily rate limited.", Some("Wait for the retry time before trying again.")),
 	AdmissionBusy => ("admission-busy", "server", Soon, "This server is handling as much work as it can.", Some("Try again in a moment.")),
+	RoomJoining => ("room-joining", "room", AfterStateChange, "This session is still joining the room.", Some("Try again once it has joined.")),
 	ReceiptsFull => ("receipts-full", "session", AfterStateChange, "This session is holding as many unfinished requests as it can.", Some("Try again once one of them finishes or is given up.")),
 	NoServer => ("no-server", "server", AfterStateChange, "This page has no Rooms server to reach through.", Some("Choose one in Settings, under Connection.")),
 	RequestTooLarge => ("request-too-large", "operation", AfterRequestChange, "This request exceeds its work allowance.", Some("Reduce the request before trying again.")),
@@ -125,7 +126,7 @@ impl FailureCode {
 	pub fn admission(self) -> bool {
 		matches!(
 			self,
-			Self::RateLimited | Self::AdmissionBusy | Self::ReceiptsFull | Self::RequestTooLarge
+			Self::RateLimited | Self::AdmissionBusy | Self::RoomJoining | Self::ReceiptsFull | Self::RequestTooLarge
 		)
 	}
 	/// Whether this code names a failure to reach a peer, a member, or the

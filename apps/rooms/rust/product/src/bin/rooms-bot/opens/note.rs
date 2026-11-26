@@ -49,10 +49,10 @@ pub(in crate::bot) struct Notes {
 	label: fn(&str) -> String,
 }
 
-/// Whether `operation` is one the bot mints, 32 hexadecimal digits, so it
-/// can name a file.
+/// Accept both the original operation filename and an authenticated action ID.
+/// The filename grammar alone says nothing about which bot issued it.
 pub(super) fn minted(operation: &str) -> bool {
-	operation.len() == 32 && operation.bytes().all(|byte| byte.is_ascii_hexdigit())
+	crate::bot::identity::legacy_id(operation) || crate::bot::identity::signed_id(operation)
 }
 
 /// Where a note stands with the serving access.

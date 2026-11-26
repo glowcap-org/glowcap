@@ -39,14 +39,11 @@ fn a_pending_open_settles_without_a_turn_and_an_unreadable_note_is_left_unsettle
 	assert!(bot.stop().success());
 }
 
-/// The agent's actions an earlier serve left, which the session lists as
-/// keeping a place. A start removes every claim, and the list decides each
-/// action alike, whether or not a claim named it: a pending one is asked
-/// about again until the session keeps it, and an unknown one is given up.
-/// When the session will not take its receipt back it is counted while the
-/// session lists it, across a restart too.
+/// The bot remembers the IDs of an older version's claims before removing
+/// them and can still settle their receipts at the next start. An older ID
+/// with no claim can belong to someone else sharing the access.
 #[test]
-fn a_listed_action_is_settled_whether_or_not_it_was_claimed() {
+fn legacy_claims_still_settle_across_restart_and_an_unclaimed_legacy_id_stays_held() {
 	let rig = Rig::new("bot-actions");
 	assert!(rig.serve(json!({}), None).stop().success());
 	let held = rig.dir.join("turn-actions");
@@ -58,11 +55,7 @@ fn a_listed_action_is_settled_whether_or_not_it_was_claimed() {
 	}
 	let listed: String = (1..=3).map(|index| format!("{}\n", operation(index))).collect();
 	std::fs::write(rig.rooms.join("held-actions"), listed).unwrap();
-	std::fs::write(
-		rig.rooms.join("action-answers"),
-		"pending\nunknown\nkept\nkept\nunknown\n",
-	)
-	.unwrap();
+	std::fs::write(rig.rooms.join("action-answers"), "pending\nunknown\nkept\nunknown\n").unwrap();
 	// The session refuses the receipt back at this start and the next.
 	std::fs::write(rig.rooms.join("release-answers"), "refused\nrefused\n").unwrap();
 	let bot = rig.serve(json!({}), None);
@@ -75,7 +68,10 @@ fn a_listed_action_is_settled_whether_or_not_it_was_claimed() {
 	eventually("the pending action to be kept", || {
 		rig.log().contains(&kept(1)).then_some(())
 	});
-	assert!(rig.log().contains(&kept(3)), "an action no claim named is kept too");
+	assert!(
+		!rig.log().contains(&words::action(&operation(3))),
+		"an unclaimed legacy action was touched"
+	);
 	assert_eq!(
 		std::fs::read_dir(&held).unwrap().count(),
 		0,
@@ -88,7 +84,7 @@ fn a_listed_action_is_settled_whether_or_not_it_was_claimed() {
 	assert_eq!(calls.matches("\"release-action\"").count(), 1, "{calls}");
 	assert_eq!(
 		std::fs::read_to_string(rig.rooms.join("held-actions")).unwrap(),
-		format!("{}\n", operation(2))
+		format!("{}\n{}\n", operation(2), operation(3))
 	);
 	let bot = rig.serve(json!({}), None);
 	eventually("the restart to count the unsettled action", || {
@@ -129,6 +125,13 @@ fn a_failing_look_at_the_opens_stops_no_action_list_and_status_reports_it() {
 		(rig.status()["status"]["last_error"]["during"] == "saving").then_some(())
 	});
 	let operation = format!("{:032x}", 1);
+	let claims = rig.dir.join("turn-actions");
+	std::fs::create_dir_all(&claims).unwrap();
+	std::fs::write(
+		claims.join(format!("{operation}.json")),
+		json!({"turn":9999,"what":{"say":{"to":"here"}},"outcome":null}).to_string(),
+	)
+	.unwrap();
 	std::fs::write(rig.rooms.join("held-actions"), format!("{operation}\n")).unwrap();
 	std::fs::write(rig.rooms.join("action-answers"), "kept\n").unwrap();
 	rig.direct(1, "c1", "please reply:hello there");

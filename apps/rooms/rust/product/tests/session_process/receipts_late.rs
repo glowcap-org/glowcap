@@ -38,12 +38,25 @@ async fn resumable(workspace: &rooms_glowcap::client::workspace::Workspace<HostP
 	entry.unwrap_or_else(|| panic!("no receipt for {operation}")).resumable
 }
 
-/// Post `text` under `operation` at the current base, again while the
-/// session paces it or, in round 0, while the restarted session takes the
-/// room's seat again, and answer the base it posted at and what it answered.
-async fn post_when_ready(
+/// Wait for the restarted session to adopt its seat before testing what a post does.
+pub(super) async fn wait_for_room_seat(view: &View<HostPlatform>, room: &str) {
+	let deadline = Instant::now() + Duration::from_secs(10);
+	loop {
+		let snapshot = view.snapshot().await.unwrap();
+		if snapshot.intent.room(room).is_some_and(|row| row.seat.is_some()) {
+			return;
+		}
+		assert!(
+			Instant::now() < deadline,
+			"the restarted session never regained its seat in {room}"
+		);
+		tokio::time::sleep(Duration::from_millis(50)).await;
+	}
+}
+
+/// Post at the current base, retrying only the session's pacing refusal.
+pub(super) async fn post_when_paced(
 	view: &View<HostPlatform>,
-	round: usize,
 	operation: &str,
 	room: &str,
 	text: &str,
@@ -54,9 +67,6 @@ async fn post_when_ready(
 			Err(Error::Peer(cause))
 				if cause.failure_code() == Some(rooms_application::failure::FailureCode::RateLimited) =>
 			{
-				tokio::time::sleep(Duration::from_millis(200)).await;
-			}
-			Err(Error::Peer(cause)) if round == 0 && cause.failure_code().is_none() => {
 				tokio::time::sleep(Duration::from_millis(200)).await;
 			}
 			other => return (base, other),
@@ -80,9 +90,10 @@ fn executors_whose_settlement_answer_came_late_hold_no_seat() {
 		// on its own.
 		let reading = host().await;
 		let reader = second_client(&reading, &link).await;
+		wait_for_room_seat(&view, &room).await;
 		for round in 0..=MAX_EFFECTS {
 			let (operation, text) = (format!("late-{round}"), format!("late {round}"));
-			let (base, status) = post_when_ready(&view, round, &operation, &room, &text).await;
+			let (base, status) = post_when_paced(&view, &operation, &room, &text).await;
 			assert_eq!(status.unwrap(), EffectStatus::Committed, "round {round}");
 			view.keep_line(&operation, base, &room, &text).await.unwrap();
 			if round == 0 {
@@ -252,9 +263,10 @@ fn a_paused_job_whose_receipt_is_unresolved_survives_a_later_admission() {
 		// on its own.
 		let reading = host().await;
 		let reader = second_client(&reading, &link).await;
-		let (_, first) = post_when_ready(&view, 0, "unresolved-0", &room, "unresolved 0").await;
+		wait_for_room_seat(&view, &room).await;
+		let (_, first) = post_when_paced(&view, "unresolved-0", &room, "unresolved 0").await;
 		assert_eq!(first.unwrap(), EffectStatus::Unknown, "the fault never paused the job");
-		let (base, second) = post_when_ready(&view, 1, "unresolved-1", &room, "unresolved 1").await;
+		let (base, second) = post_when_paced(&view, "unresolved-1", &room, "unresolved 1").await;
 		assert_eq!(second.unwrap(), EffectStatus::Committed);
 		view.keep_line("unresolved-1", base, &room, "unresolved 1")
 			.await

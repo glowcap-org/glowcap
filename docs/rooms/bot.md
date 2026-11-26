@@ -169,7 +169,11 @@ When keeping fails for a reason that clears with time, such as a lost connection
 
 An action whose own answer was lost and that a look then found committed prints `"looked": true`, with `base` when the answer was uncertain. When the bot could not keep what the look found, it also prints `"kept": false` and the `receipt` state, as for a `command` result it did not keep.
 
-The session tells each access which of its own receipts still hold a place, and that list decides which actions the bot settles. The bot asks for it at each start, which judges each claim by its verb's process as above, as soon as a turn's agent stops, on its backoff while a listed action is still running, and otherwise every <!-- value ../../apps/rooms/rust/product/src/bin/rooms-bot/opens.rs SWEEP seconds -->60 seconds<!-- /value -->. It keeps what a listed action returned when it commits and gives the receipt back when the session cannot say, leaving alone a reply line or open the bot settles another way. A request that reaches the session after its verb died is found the same way.
+The session lists receipts held by the access. The bot recognizes the action IDs it minted using the identity saved in its directory. Every client must choose a fresh ID for each new request. If someone reuses one of the bot's IDs after the session forgets the original receipt, the ID alone cannot tell who sent the later request. Give each independent bot or person its own access with `session access issue`, as in [First run](#first-run).
+
+The bot checks its receipts at each start, when a turn's agent stops, and on its backoff while an action is still running. Otherwise it checks every <!-- value ../../apps/rooms/rust/product/src/bin/rooms-bot/opens.rs SWEEP seconds -->60 seconds<!-- /value -->. It keeps what an action returned when it commits and gives the receipt back when the session cannot say. A request that reaches the session after its verb dies is found the same way.
+
+Keep `peer.json` with the rest of the bot directory when moving or restoring it. On upgrade, the bot saves the older action IDs named in its local claims, direct-message open notes, and reply records in `legacy-action-ids.json`. An older receipt with no surviving ownership record stays with the access. Its holder can settle it, and an operator can revoke the access when it is no longer needed.
 
 ## Choosing the agent and its permission
 
@@ -252,7 +256,7 @@ The cursor, the turn counts, and the counts kept in `turns.json` show only what 
 
 `bot ready --dir <bot directory>` exits 0 only while a `serve` holds the directory, has written its status, reports `status.access` as `active`, and has neither a `status.last_error` from reading the session (`during` is `receiving`) nor a `status.unanswered` of kind `sign-in`. Otherwise it prints why and exits nonzero, so a container health check can use it. After a sign-in refusal, sign the agent in again as the user that runs `serve`, then send the bot a message or restart it: the agent starts fresh each turn, and the next answered turn clears the failure. A health check can run at any time, including while `serve` is starting, and it never stops a `serve` from starting or mistakes another check for one. A `serve` still starting reports its own `pid` and a `status.access` of `unknown`, or `paused` when that access is paused, so `ready` fails until it serves.
 
-After a session restart, `bot ready` can pass while the session is still rejoining a room. Wait until the bot’s session nickname appears in that room’s member list before sending it a mention.
+After a session restart, `bot ready` can pass while the session is still rejoining a room. Wait until the bot’s session nickname appears in that room’s member list before sending it a mention. If the session is still acquiring its seat when the bot tries to post a reply, the session answers `room-joining` before sending anything. The bot keeps the reply and retries.
 
 Codex reports a failure only as text, so the bot knows a Codex sign-in refusal by the HTTP status 401 or 403 that the text names. A refusal worded without that status counts as a crash, so `ready` still exits 0 while every turn fails. For a Codex bot, a `status.unanswered` of kind `crash` that comes back turn after turn can mean a lost sign-in.
 

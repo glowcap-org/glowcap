@@ -36,6 +36,7 @@ async fn last_look_keeps_the_note(label: &str, turn_open: bool) -> bool {
 	std::fs::create_dir_all(&session).unwrap();
 	let rooms = Files::open(&session);
 	let store = Store::open(&scratch.join("bot")).unwrap();
+	crate::bot::identity::seed(&store).unwrap();
 	let mut ledger = Ledger::start(&store, Cursor::start()).unwrap();
 	let conversation = ConversationId::new("c1");
 	let turn = ledger
@@ -101,8 +102,20 @@ async fn settled_within(
 	std::fs::create_dir_all(&session).unwrap();
 	let rooms = Files::open(&session);
 	let store = Store::open(&scratch.join("bot")).unwrap();
+	crate::bot::identity::seed(&store).unwrap();
 	let ledger = Ledger::start(&store, Cursor::start()).unwrap();
 	prepare(&session, &store);
+	crate::bot::opens::action::note(
+		store.root(),
+		&format!("{:032x}", 7),
+		&crate::bot::opens::action::Action::new(
+			crate::bot::ledger::TurnId(1),
+			crate::bot::opens::action::What::Say {
+				to: crate::bot::opens::action::Place::Here,
+			},
+		),
+	)
+	.unwrap();
 	std::fs::write(session.join("held-actions"), format!("{:032x}\n", 7)).unwrap();
 	std::fs::write(session.join("held-answers"), format!("{list}\n")).unwrap();
 	std::fs::write(session.join("action-answers"), "pending\n").unwrap();
@@ -130,6 +143,10 @@ async fn a_last_list_that_fails_refuses_the_replacement_and_records_nothing() {
 	let (_scratch, store, settled) = settled_with_one_running_action("bot-replace-listed", "ok").await;
 	settled.unwrap();
 	assert_eq!(replaced_actions(&store), vec![format!("{:032x}", 7)]);
+	assert!(
+		!store.root().join("legacy-action-ids.json").exists(),
+		"the last list migrated a surviving claim"
+	);
 }
 
 /// A list the session refuses for good refuses the replacement too, and

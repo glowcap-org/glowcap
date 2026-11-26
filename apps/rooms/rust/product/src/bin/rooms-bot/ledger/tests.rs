@@ -391,6 +391,10 @@ fn widest_trigger(seq: u64) -> Trigger {
 
 #[test]
 fn the_ledger_at_every_bound_stays_under_the_size_it_reads_back() {
+	let scratch = rooms_testing::scratch::Scratch::create("bot-ledger-size");
+	let store = Store::open(&scratch).unwrap();
+	crate::bot::identity::seed(&store).unwrap();
+	let key = crate::bot::identity::action_key(store.root()).unwrap();
 	let mut ledger = Ledger {
 		cursor: Cursor::new(widest(Cursor::MAX_BYTES)).unwrap(),
 		cursor_seq: Seq(u64::MAX),
@@ -398,14 +402,14 @@ fn the_ledger_at_every_bound_stays_under_the_size_it_reads_back() {
 		rows: BTreeMap::new(),
 		replaced: (0..MAX_REPLACED)
 			.map(|_| Replaced {
-				operation: "f".repeat(32),
+				operation: key.mint().unwrap(),
 				base: Base(u64::MAX),
 				conversation: ConversationId::new(widest(rooms_application::content::session::workspace::MAX_ID_UNITS)),
 				text: widest(MAX_LINE_BYTES),
 			})
 			.collect(),
-		left: (0..MAX_REPLACED).map(|index| format!("{index:032x}")).collect(),
-		replaced_actions: (0..MAX_REPLACED).map(|index| format!("{index:032x}")).collect(),
+		left: (0..MAX_REPLACED).map(|_| key.mint().unwrap()).collect(),
+		replaced_actions: (0..MAX_REPLACED).map(|_| key.mint().unwrap()).collect(),
 		unlisted: Some(Unlisted::Paused),
 		unsettled: false,
 	};
@@ -444,7 +448,7 @@ fn the_ledger_at_every_bound_stays_under_the_size_it_reads_back() {
 	assert!(running <= MAX_LEDGER_BYTES, "{running} bytes");
 	// A sending row holds its lines in place of its triggers. Check that shape too.
 	let parts = (0..crate::bot::reply::MAX_PARTS)
-		.map(|_| part(&"f".repeat(32), &widest(MAX_LINE_BYTES)))
+		.map(|_| part(&key.mint().unwrap(), &widest(MAX_LINE_BYTES)))
 		.collect::<Vec<_>>();
 	for phase in ledger.rows.values_mut().filter(|phase| phase.is_open()) {
 		*phase = Phase::Sending {

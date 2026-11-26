@@ -70,7 +70,7 @@
 //!   `holder-answers` how each ask of whose receipt an operation is, one per
 //!   line: a failure as in `send-faults`, `ok` to answer, or for a list
 //!   `wait`, which writes `held-asked` and answers once `held-go` exists,
-//!   or fails after [`HELD_WAIT`].
+//!   or fails after [`HELD_WAIT`]. An ask answering `nobody` has no holder.
 //!   Each takes the first, and with none left the list lists and the ask
 //!   answers this access.
 //!
@@ -510,9 +510,13 @@ impl Rooms for Files {
 		std::fs::copy(&source, destination).map_err(|error| RoomsError::new(RoomsErrorKind::Refused, error))
 	}
 
-	/// The directory stand-in has one access, which sent everything in it.
+	/// By default the stand-in's one access sent everything in it.
 	async fn holder(&self, _operation: &str) -> Result<super::Holder, RoomsError> {
-		if let Some(error) = self.take("holder-answers")?.as_deref().and_then(failure) {
+		let answer = self.take("holder-answers")?;
+		if answer.as_deref() == Some("nobody") {
+			return Ok(super::Holder::Nobody);
+		}
+		if let Some(error) = answer.as_deref().and_then(failure) {
 			return Err(error);
 		}
 		Ok(super::Holder::Mine)

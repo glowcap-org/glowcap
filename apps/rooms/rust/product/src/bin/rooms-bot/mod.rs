@@ -16,6 +16,7 @@ mod group;
 mod harness;
 mod harness_sessions;
 mod home;
+mod identity;
 mod inbox;
 mod ledger;
 mod link;

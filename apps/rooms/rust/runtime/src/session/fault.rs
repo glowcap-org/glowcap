@@ -53,9 +53,28 @@ points! {
 	/// As [`Self::LateLineSettlements`], and no admission retires a settled
 	/// job, so only a release of its receipt can.
 	LateLineSettlementsHeld = "late-line-settlements-held",
+	/// Hold room seat acquisition until a post reaches its admission fence.
+	RoomPostBeforeSeat = "room-post-before-seat",
 	/// Every append of an upload's fill takes [`UPLOAD_WRITE_DELAY_MS`] before
 	/// it is sent, as a slow room does.
 	SlowUploadWrites = "slow-upload-writes",
+}
+
+#[cfg(feature = "test-support")]
+static ROOM_POST: tokio::sync::Notify = tokio::sync::Notify::const_new();
+
+#[cfg(feature = "test-support")]
+pub(crate) async fn before_room_seat() {
+	if armed() == Some(SessionFault::RoomPostBeforeSeat) {
+		ROOM_POST.notified().await;
+	}
+}
+
+pub(crate) fn room_post_waited() {
+	#[cfg(feature = "test-support")]
+	if armed() == Some(SessionFault::RoomPostBeforeSeat) {
+		ROOM_POST.notify_one();
+	}
 }
 
 /// How long one append waits while [`SessionFault::SlowUploadWrites`] is armed.

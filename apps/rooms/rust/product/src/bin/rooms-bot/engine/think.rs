@@ -12,7 +12,7 @@
 //! as a [`Cause`].
 mod cause;
 mod typing;
-use super::{Backoff, Env, Step, failure_part, operation, report_failure, reset, stopping, waited};
+use super::{Backoff, Env, Step, failure_part, report_failure, reset, stopping, waited};
 use crate::bot::words::{COULD_NOT_STOP_TYPING, SAVE_RETRIED_WITHOUT_RUNNING};
 use crate::bot::{
 	act, actions, config, context,
@@ -151,7 +151,7 @@ async fn think<R: Rooms>(env: &Env<'_, R>, id: TurnId, stop: &mut watch::Receive
 		}
 		if reset::is_whole(&asked) {
 			let part = Part {
-				operation: operation()?,
+				operation: crate::bot::identity::new_action(env.store.root())?,
 				text: words::RESET_CONFIRMED.into(),
 			};
 			return fix_reply(env, id, (Content::Answer, vec![part], None), stop).await;
@@ -210,11 +210,12 @@ fn answer_parts<R: Rooms>(env: &Env<'_, R>, id: TurnId, text: &str, resets: bool
 			reply::MAX_PARTS
 		));
 	}
+	let key = crate::bot::identity::action_key(env.store.root())?;
 	parts
 		.into_iter()
 		.map(|text| {
 			Ok(Part {
-				operation: operation()?,
+				operation: key.mint()?,
 				text,
 			})
 		})
@@ -230,7 +231,7 @@ async fn fail_turn<R: Rooms>(
 	cause: Option<Cause>,
 	stop: &mut watch::Receiver<bool>,
 ) -> Result<Step, Error> {
-	let part = failure_part(reason)?;
+	let part = failure_part(env.store, reason)?;
 	fix_reply(env, id, (Content::Failure, vec![part], cause), stop).await
 }
 
