@@ -1,9 +1,10 @@
 //! A one-partner `listen` reports how its one session ended: the argv front
 //! exits with a failed session's code, and the MCP front names its cause in
-//! `listener_stopped`. Each case's partner sends a frame past the listener's
-//! cap, a failure the listener's own session detects.
+//! `listener_stopped`. Those partners send a frame past the listener's cap.
+//! A client that exits before dialing still joins its listening fixture.
 
 const std = @import("std");
+const glowcap = @import("glowcap");
 const Runtime = @import("runtime_fixture.zig").Runtime;
 const cli = @import("cli");
 const listen_fixture = @import("listen_fixture.zig");
@@ -24,10 +25,10 @@ test "a one-shot listen exits with its partner's session failure" {
     cli.signals.resetForTest();
     defer cli.signals.resetForTest();
 
-    var host = makeCtx(io, gpa, &runtime.environ, 31);
-    defer host.deinit();
     var host_capture: std.ArrayList(u8) = .empty;
     defer host_capture.deinit(gpa);
+    var host = makeCtx(io, gpa, &runtime.environ, 31);
+    defer host.deinit();
     host.sink = .{ .buffer = &host_capture };
 
     var listen_parsed = cli.cmd_types.Parsed{ .gpa = gpa };
@@ -37,7 +38,8 @@ test "a one-shot listen exits with its partner's session failure" {
 
     var listen_args = ListenArgs{ .ctx = &host, .parsed = &listen_parsed };
     var host_future = try io.concurrent(runListen, .{&listen_args});
-    const uri = try waitListenLocator(&host, &host_future, io);
+    defer listen_fixture.stopAndJoin(&host_future, io);
+    const uri = try waitListenLocator(&host);
 
     var client = makeCtx(io, gpa, &runtime.environ, 32);
     defer client.deinit();
@@ -54,11 +56,11 @@ test "a one-partner MCP listen reports its partner's session failure" {
     defer runtime.deinit();
     const io = runtime.io();
 
+    var host_capture: std.ArrayList(u8) = .empty;
+    defer host_capture.deinit(gpa);
     var host = makeCtx(io, gpa, &runtime.environ, 33);
     defer host.deinit();
     host.front = .mcp;
-    var host_capture: std.ArrayList(u8) = .empty;
-    defer host_capture.deinit(gpa);
     host.sink = .{ .buffer = &host_capture };
 
     var listen_parsed = cli.cmd_types.Parsed{ .gpa = gpa };
@@ -97,4 +99,40 @@ fn tellPastFrameCap(client: *Ctx, uri: []const u8) !void {
     defer client.gpa.free(oversized);
     @memset(oversized, 'x');
     try session.tell(greeter, "greet", &.{.{ .string = oversized }});
+}
+
+test "a foreground listener releases its port when the client fixture exits early" {
+    const gpa = std.testing.allocator;
+    var runtime: Runtime = undefined;
+    runtime.init(gpa);
+    defer runtime.deinit();
+    const io = runtime.io();
+    cli.signals.resetForTest();
+    defer cli.signals.resetForTest();
+
+    var capture: std.ArrayList(u8) = .empty;
+    defer capture.deinit(gpa);
+    var host = makeCtx(io, gpa, &runtime.environ, 34);
+    defer host.deinit();
+    host.sink = .{ .buffer = &capture };
+    var parsed: cli.cmd_types.Parsed = .{ .gpa = gpa };
+    defer parsed.deinit();
+    try parsed.setString("bind", "127.0.0.1:0");
+    var args: ListenArgs = .{ .ctx = &host, .parsed = &parsed };
+    try std.testing.expectError(error.ClientSetupFailed, leaveBeforeDial(&args));
+
+    var arena = std.heap.ArenaAllocator.init(gpa);
+    defer arena.deinit();
+    const peer = try glowcap.ocapn.model.uri.parsePeer(arena.allocator(), host.publishedLocator().?);
+    const tcp = glowcap.net.tcp;
+    var rebound = try tcp.Listener.bind(io, try tcp.parseDesignator(peer.designator));
+    defer rebound.deinit();
+}
+
+fn leaveBeforeDial(args: *ListenArgs) !void {
+    const io = args.ctx.io;
+    var future = try io.concurrent(runListen, .{args});
+    defer listen_fixture.stopAndJoin(&future, io);
+    _ = try waitListenLocator(args.ctx);
+    return error.ClientSetupFailed;
 }

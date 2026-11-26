@@ -32,16 +32,20 @@ pub fn runListen(args: *ListenArgs) !u8 {
     return cli.ocapn.cmdListen(args.ctx, args.parsed);
 }
 
-pub fn waitListenLocator(host: *Ctx, host_future: anytype, io: std.Io) ![]const u8 {
+/// The task borrows its context and parsed arguments until joined. A caller
+/// checks its exit code on the normal path. On an early return, stop wakes
+/// the foreground accept/serve loop and the join finishes before teardown.
+pub fn stopAndJoin(host_future: anytype, io: std.Io) void {
+    cli.signals.requestStop();
+    // tolerant: preserve the caller's outcome. Re-awaiting a completed future returns its cached result.
+    _ = host_future.await(io) catch {};
+}
+
+pub fn waitListenLocator(host: *Ctx) ![]const u8 {
     var spins: usize = 0;
     while (true) : (spins += 1) {
         if (host.publishedLocator()) |loc| return loc;
-        if (spins > 50_000) {
-            cli.signals.requestStop();
-            // tolerant: the host's own error is replaced by the timeout error returned next, which names the failure.
-            _ = host_future.await(io) catch {};
-            return error.ListenLocatorTimeout;
-        }
+        if (spins > 50_000) return error.ListenLocatorTimeout;
         std.Thread.yield() catch {};
     }
 }

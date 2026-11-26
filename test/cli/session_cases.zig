@@ -30,11 +30,11 @@ test "writeResult appends to sink buffer" {
     var runtime: Runtime = undefined;
     runtime.init(gpa);
     defer runtime.deinit();
+    var capture: std.ArrayList(u8) = .empty;
+    defer capture.deinit(gpa);
     var c = makeCtx(runtime.io(), gpa, &runtime.environ);
     defer c.deinit();
 
-    var capture: std.ArrayList(u8) = .empty;
-    defer capture.deinit(gpa);
     c.sink = .{ .buffer = &capture };
     try c.writeResult("hello-captp\n");
     try std.testing.expectEqualStrings("hello-captp\n", capture.items);
@@ -45,11 +45,11 @@ test "a broken reply's JSON carries the cause its text cannot establish" {
     var runtime: Runtime = undefined;
     runtime.init(gpa);
     defer runtime.deinit();
+    var capture: std.ArrayList(u8) = .empty;
+    defer capture.deinit(gpa);
     var c = makeCtx(runtime.io(), gpa, &runtime.environ);
     defer c.deinit();
 
-    var capture: std.ArrayList(u8) = .empty;
-    defer capture.deinit(gpa);
     c.sink = .{ .buffer = &capture };
     const Broken = glowcap.foundation.break_cause.Broken;
     const BreakCause = glowcap.foundation.break_cause.BreakCause;
@@ -87,11 +87,11 @@ test "listen backgrounds on the MCP front: bind now, one listener, close stops i
     var runtime: Runtime = undefined;
     runtime.init(gpa);
     defer runtime.deinit();
+    var capture: std.ArrayList(u8) = .empty;
+    defer capture.deinit(gpa);
     var c = makeCtx(runtime.io(), gpa, &runtime.environ);
     defer c.deinit();
     c.front = .mcp;
-    var capture: std.ArrayList(u8) = .empty;
-    defer capture.deinit(gpa);
     c.sink = .{ .buffer = &capture };
 
     var parsed = cli.cmd_types.Parsed{ .gpa = gpa };
@@ -324,6 +324,8 @@ test "info succeeds under state-dir lock with preset identity path" {
     var id_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
     const id_path = try std.mem.print(&id_buf, "{s}/identity", .{dir});
 
+    var capture: std.ArrayList(u8) = .empty;
+    defer capture.deinit(gpa);
     var c = makeCtx(io, gpa, &runtime.environ);
     defer c.deinit();
     @memcpy(c.identity_path_buf[0..id_path.len], id_path);
@@ -331,8 +333,6 @@ test "info succeeds under state-dir lock with preset identity path" {
     c.secret = null; // force ensureSecret → lock + mint
     c.json = .json;
 
-    var capture: std.ArrayList(u8) = .empty;
-    defer capture.deinit(gpa);
     c.sink = .{ .buffer = &capture };
 
     var parsed = cli.cmd_types.Parsed{ .gpa = gpa };
@@ -407,11 +407,11 @@ test "listen --rendezvous reaches the background front, not just argv" {
     var runtime: Runtime = undefined;
     runtime.init(gpa);
     defer runtime.deinit();
+    var capture: std.ArrayList(u8) = .empty;
+    defer capture.deinit(gpa);
     var c = makeCtx(runtime.io(), gpa, &runtime.environ);
     defer c.deinit();
     c.front = .mcp;
-    var capture: std.ArrayList(u8) = .empty;
-    defer capture.deinit(gpa);
     c.sink = .{ .buffer = &capture };
 
     // A relay URL that parses but has nobody behind it yet: the listener
@@ -453,11 +453,11 @@ test "info reports a background listener that died on its own" {
     var runtime: Runtime = undefined;
     runtime.init(gpa);
     defer runtime.deinit();
+    var capture: std.ArrayList(u8) = .empty;
+    defer capture.deinit(gpa);
     var c = makeCtx(runtime.io(), gpa, &runtime.environ);
     defer c.deinit();
     c.front = .mcp;
-    var capture: std.ArrayList(u8) = .empty;
-    defer capture.deinit(gpa);
     c.sink = .{ .buffer = &capture };
 
     var parsed = cli.cmd_types.Parsed{ .gpa = gpa };
@@ -517,11 +517,11 @@ test "close keeps accept-thread listener failure as the command outcome" {
     var runtime: Runtime = undefined;
     runtime.init(gpa);
     defer runtime.deinit();
+    var capture: std.ArrayList(u8) = .empty;
+    defer capture.deinit(gpa);
     var c = makeCtx(runtime.io(), gpa, &runtime.environ);
     defer c.deinit();
     c.front = .mcp;
-    var capture: std.ArrayList(u8) = .empty;
-    defer capture.deinit(gpa);
     c.sink = .{ .buffer = &capture };
 
     var parsed = cli.cmd_types.Parsed{ .gpa = gpa };
@@ -550,11 +550,11 @@ test "a background listener the kernel refuses stops, and info names the cause" 
     var runtime: Runtime = undefined;
     runtime.init(gpa);
     defer runtime.deinit();
+    var capture: std.ArrayList(u8) = .empty;
+    defer capture.deinit(gpa);
     var c = makeCtx(runtime.io(), gpa, &runtime.environ);
     defer c.deinit();
     c.front = .mcp;
-    var capture: std.ArrayList(u8) = .empty;
-    defer capture.deinit(gpa);
     c.sink = .{ .buffer = &capture };
 
     var parsed = cli.cmd_types.Parsed{ .gpa = gpa };
@@ -572,13 +572,19 @@ test "a background listener the kernel refuses stops, and info names the cause" 
         // accept is over the quota.
         const quota = try descriptor_quota.Lowered.begin(1);
         defer quota.end();
-        const dialed = try address.connect(runtime.io(), .{ .mode = .stream });
-        defer dialed.close(runtime.io());
+        // Closing the refused arrival may reset the dial before connect
+        // returns. In either case the accept thread records the outcome.
+        const dialed: ?ip.Stream = address.connect(runtime.io(), .{ .mode = .stream }) catch |err| switch (err) {
+            error.ConnectionResetByPeer => null,
+            else => return err,
+        };
+        defer if (dialed) |stream| stream.close(runtime.io());
         var waited: usize = 0;
         while (listener.stop_reason.load(.acquire) == null) : (waited += 1) {
             if (waited == 500) return error.ListenerKeptReportingLive;
             try std.Io.sleep(runtime.io(), .fromMilliseconds(10), .awake);
         }
+        try std.testing.expectEqualStrings("ProcessFdQuotaExceeded", std.mem.span(listener.stop_reason.load(.acquire).?));
     }
 
     var info_parsed = cli.cmd_types.Parsed{ .gpa = gpa };
@@ -591,7 +597,7 @@ test "a background listener the kernel refuses stops, and info names the cause" 
     capture.clearRetainingCapacity();
     var close_parsed = cli.cmd_types.Parsed{ .gpa = gpa };
     defer close_parsed.deinit();
-    _ = try cli.ocapn.cmdClose(&c, &close_parsed);
+    try std.testing.expectEqual(cli.exit_codes.dial, try cli.ocapn.cmdClose(&c, &close_parsed));
     try std.testing.expect(c.background_listener == null);
     try std.testing.expect(std.mem.find(u8, capture.items, "ProcessFdQuotaExceeded") != null);
 }

@@ -21,6 +21,7 @@ pub const Front = enum { argv, repl, mcp };
 /// Where CapTP verb results go (never inferred from a nullable buffer pointer).
 pub const Sink = union(enum) {
     stdout,
+    /// Borrowed while installed. Context teardown can still write a close failure here.
     buffer: *std.ArrayList(u8),
 };
 
