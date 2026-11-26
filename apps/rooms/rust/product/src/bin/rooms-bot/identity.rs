@@ -58,10 +58,13 @@ fn mac(key: &[u8; 16], nonce: &str) -> Hmac<Sha256> {
 }
 
 pub fn new_action(root: &Path) -> Result<String, Error> {
-	let key = action_key(root)?;
+	mint_action(&action_key(root)?)
+}
+
+pub fn mint_action(key: &[u8; 16]) -> Result<String, Error> {
 	let mut nonce = [0; 16];
 	rooms_platform::entropy::fill(&mut nonce).map_err(|error| Error::Entropy(error.to_string()))?;
-	Ok(sign(&key, &lower_hex(&nonce)))
+	Ok(sign(key, &lower_hex(&nonce)))
 }
 
 pub fn sign(key: &[u8; 16], nonce: &str) -> String {

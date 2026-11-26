@@ -210,11 +210,12 @@ fn answer_parts<R: Rooms>(env: &Env<'_, R>, id: TurnId, text: &str, resets: bool
 			reply::MAX_PARTS
 		));
 	}
+	let key = crate::bot::identity::action_key(env.store.root())?;
 	parts
 		.into_iter()
 		.map(|text| {
 			Ok(Part {
-				operation: crate::bot::identity::new_action(env.store.root())?,
+				operation: crate::bot::identity::mint_action(&key)?,
 				text,
 			})
 		})
