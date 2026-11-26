@@ -8,7 +8,7 @@ use std::collections::BTreeSet;
 const LEGACY: &str = "legacy-action-ids.json";
 
 pub(super) struct Origin {
-	key: [u8; 16],
+	key: identity::ActionKey,
 	legacy: Legacy,
 }
 
@@ -63,7 +63,7 @@ impl Legacy {
 }
 
 impl Origin {
-	pub(super) fn read(store: &Store, key: [u8; 16], claims: &[Name]) -> Result<Self, Error> {
+	pub(super) fn read(store: &Store, key: identity::ActionKey, claims: &[Name]) -> Result<Self, Error> {
 		Ok(Self {
 			key,
 			legacy: Legacy::witnessed(store, claims.iter().map(|name| name.operation.as_str()))?,
@@ -77,6 +77,6 @@ impl Origin {
 	}
 
 	pub(super) fn owns(&self, id: &str) -> bool {
-		self.legacy.ids.contains(id) || identity::owns_action(&self.key, id)
+		self.legacy.ids.contains(id) || self.key.owns(id)
 	}
 }

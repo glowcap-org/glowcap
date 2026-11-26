@@ -215,7 +215,7 @@ fn answer_parts<R: Rooms>(env: &Env<'_, R>, id: TurnId, text: &str, resets: bool
 		.into_iter()
 		.map(|text| {
 			Ok(Part {
-				operation: crate::bot::identity::mint_action(&key)?,
+				operation: key.mint()?,
 				text,
 			})
 		})

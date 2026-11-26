@@ -52,7 +52,7 @@ pub(in crate::bot) struct Notes {
 /// Accept both the original operation filename and an authenticated action ID.
 /// The filename grammar alone says nothing about which bot issued it.
 pub(super) fn minted(operation: &str) -> bool {
-	crate::bot::identity::legacy_id(operation) || crate::bot::identity::signed_id(operation).is_some()
+	crate::bot::identity::legacy_id(operation) || crate::bot::identity::signed_id(operation)
 }
 
 /// Where a note stands with the serving access.

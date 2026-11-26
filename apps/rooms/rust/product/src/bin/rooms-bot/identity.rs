@@ -43,50 +43,60 @@ fn read(root: &Path) -> Result<Option<Identity>, Error> {
 
 /// Independent of the Host seed, the peer document's other 16 random bytes
 /// authenticate the bot's action IDs after their turn claims are gone.
-pub fn action_key(root: &Path) -> Result<[u8; 16], Error> {
+pub struct ActionKey([u8; 16]);
+
+pub fn action_key(root: &Path) -> Result<ActionKey, Error> {
 	read(root)?
-		.map(|identity| *identity.entropy())
+		.map(|identity| ActionKey(*identity.entropy()))
 		.ok_or_else(|| Error::unreadable(FILE, "restore the identity belonging to this bot directory"))
 }
 
-fn mac(key: &[u8; 16], nonce: &str) -> Hmac<Sha256> {
-	#[expect(clippy::expect_used, reason = "HMAC accepts a 16-byte key")]
-	let mut mac = Hmac::<Sha256>::new_from_slice(key).expect("HMAC accepts a 16-byte key");
-	mac.update(b"glowcap Rooms bot action v1\0");
-	mac.update(nonce.as_bytes());
-	mac
+/// The canonical hexadecimal nonce covered by the MAC. Its text is part of
+/// the stored operation ID and must authenticate identically after an upgrade.
+struct ActionNonce<'a>(&'a str);
+
+impl ActionKey {
+	fn mac(&self, nonce: ActionNonce<'_>) -> Hmac<Sha256> {
+		#[expect(clippy::expect_used, reason = "HMAC accepts a 16-byte key")]
+		let mut mac = Hmac::<Sha256>::new_from_slice(&self.0).expect("HMAC accepts a 16-byte key");
+		mac.update(b"glowcap Rooms bot action v1\0");
+		mac.update(nonce.0.as_bytes());
+		mac
+	}
+
+	pub fn mint(&self) -> Result<String, Error> {
+		let mut fresh = [0; 16];
+		rooms_platform::entropy::fill(&mut fresh).map_err(|error| Error::Entropy(error.to_string()))?;
+		let nonce = lower_hex(&fresh);
+		let tag = self.mac(ActionNonce(&nonce)).finalize().into_bytes();
+		Ok(format!("{nonce}-{}", lower_hex(&tag)))
+	}
+
+	pub fn owns(&self, id: &str) -> bool {
+		signed_parts(id).is_some_and(|(nonce, tag)| self.mac(nonce).verify_slice(tag.bytes()).is_ok())
+	}
 }
 
 pub fn new_action(root: &Path) -> Result<String, Error> {
-	mint_action(&action_key(root)?)
-}
-
-pub fn mint_action(key: &[u8; 16]) -> Result<String, Error> {
-	let mut nonce = [0; 16];
-	rooms_platform::entropy::fill(&mut nonce).map_err(|error| Error::Entropy(error.to_string()))?;
-	Ok(sign(key, &lower_hex(&nonce)))
-}
-
-pub fn sign(key: &[u8; 16], nonce: &str) -> String {
-	format!("{nonce}-{}", lower_hex(&mac(key, nonce).finalize().into_bytes()))
+	action_key(root)?.mint()
 }
 
 pub fn legacy_id(id: &str) -> bool {
 	id.len() == 32 && id.bytes().all(|b| b.is_ascii_hexdigit())
 }
 
-pub fn signed_id(id: &str) -> Option<(&str, Hex<32>)> {
+pub fn signed_id(id: &str) -> bool {
+	signed_parts(id).is_some()
+}
+
+fn signed_parts(id: &str) -> Option<(ActionNonce<'_>, Hex<32>)> {
 	let (nonce, tag) = id.split_once('-')?;
-	if !legacy_id(nonce) || nonce.bytes().chain(tag.bytes()).any(|b| b.is_ascii_uppercase()) {
+	if !legacy_id(nonce) || nonce.bytes().any(|b| b.is_ascii_uppercase()) {
 		return None;
 	}
 	use serde::Deserialize;
 	let tag = Hex::deserialize(serde::de::value::StrDeserializer::<serde::de::value::Error>::new(tag)).ok()?;
-	Some((nonce, tag))
-}
-
-pub fn owns_action(key: &[u8; 16], id: &str) -> bool {
-	signed_id(id).is_some_and(|(nonce, tag)| mac(key, nonce).verify_slice(tag.bytes()).is_ok())
+	Some((ActionNonce(nonce), tag))
 }
 
 #[cfg(test)]
@@ -102,7 +112,7 @@ mod tests {
 		let id = new_action(store.root()).unwrap();
 		let moved = Store::open(&dir.join("moved")).unwrap();
 		std::fs::copy(store.root().join(FILE), moved.root().join(FILE)).unwrap();
-		assert!(owns_action(&action_key(moved.root()).unwrap(), &id));
+		assert!(action_key(moved.root()).unwrap().owns(&id));
 		let missing = Store::open(&dir.join("missing")).unwrap();
 		assert!(action_key(missing.root()).is_err());
 		assert!(!missing.root().join(FILE).exists());

@@ -12,9 +12,13 @@ use crate::bot::{
 };
 use rooms_testing::scratch::Scratch;
 
-fn operation(index: usize) -> String {
-	let nonce = format!("{index:032x}");
-	crate::bot::identity::sign(&[3; 16], &nonce)
+fn legacy_id(index: usize) -> String {
+	format!("{index:032x}")
+}
+
+fn issued<const N: usize>(store: &Store) -> [String; N] {
+	let key = crate::bot::identity::action_key(store.root()).unwrap();
+	std::array::from_fn(|_| key.mint().unwrap())
 }
 
 fn turn(id: u64) -> Action {
@@ -25,15 +29,15 @@ fn turn(id: u64) -> Action {
 fn an_action_past_the_sessions_receipt_places_is_refused_before_it_is_claimed() {
 	let scratch = Scratch::create("bot-actions-bound");
 	for index in 0..MAX_EFFECTS {
-		note(&scratch, &operation(index), &turn(0)).unwrap();
+		note(&scratch, &legacy_id(index), &turn(0)).unwrap();
 	}
-	let past = operation(MAX_EFFECTS);
+	let past = legacy_id(MAX_EFFECTS);
 	let Err(Error::Usage(refused)) = note(&scratch, &past, &turn(0)) else {
 		panic!("a claim past the bound was written");
 	};
 	assert!(refused.contains("actions are still settling"), "{refused}");
 	assert!(claimed(&scratch, &past, TurnId(0)).unwrap().is_none());
-	forget(&scratch, &operation(2)).unwrap();
+	forget(&scratch, &legacy_id(2)).unwrap();
 	note(&scratch, &past, &turn(0)).unwrap();
 	assert!(claimed(&scratch, &past, TurnId(0)).unwrap().is_some());
 	assert!(
@@ -71,7 +75,7 @@ fn a_claim_belongs_to_its_verb_only_while_that_verb_runs() {
 	};
 	assert_eq!(holder(&ended), Holder::Nobody);
 	assert!(matches!(holder(&turn_of(1, None)), Holder::Unjudged(_)));
-	let (live, gone) = (operation(1), operation(2));
+	let (live, gone) = (legacy_id(1), legacy_id(2));
 	note(&scratch, &live, &turn(4)).unwrap();
 	note(&scratch, &gone, &turn_of(4, Some(ended_verb()))).unwrap();
 	assert_eq!(cut_set(&scratch), BTreeSet::from([gone]));
@@ -98,7 +102,7 @@ async fn the_loop_writes_what_it_settled_into_the_claims_of_a_running_turn() {
 		}],
 	};
 	let id = ledger.borrow_mut().begin(&store, asked).unwrap();
-	let (posted, gone, nothing) = (operation(1), operation(2), operation(3));
+	let [posted, gone, nothing, reply] = issued(&store);
 	let send = What::Send {
 		to: Place::Here,
 		files: 2,
@@ -130,7 +134,7 @@ async fn the_loop_writes_what_it_settled_into_the_claims_of_a_running_turn() {
 	assert_eq!(earlier(root, id).unwrap().len(), 3, "the running turn keeps its claims");
 	assert_eq!(held_except(root, "").unwrap(), 0, "an ended action holds no place");
 	let part = Part {
-		operation: operation(9),
+		operation: reply,
 		text: "done".into(),
 	};
 	ledger
@@ -164,7 +168,7 @@ async fn the_loop_settles_nothing_under_a_verb_that_runs() {
 		}],
 	};
 	let id = ledger.borrow_mut().begin(&store, asked).unwrap();
-	let (live, unjudged) = (operation(1), operation(2));
+	let [live, unjudged] = issued(&store);
 	note(root, &live, &Action::new(id, What::Say { to: Place::Here })).unwrap();
 	note(root, &unjudged, &turn_of(id.0, None)).unwrap();
 	std::fs::write(scratch.join("session/held-actions"), format!("{live}\n{unjudged}\n")).unwrap();
@@ -206,7 +210,7 @@ async fn the_last_list_writes_the_outcome_of_a_running_turns_claim() {
 		}],
 	};
 	let id = ledger.borrow_mut().begin(&store, asked).unwrap();
-	let said = operation(1);
+	let [said] = issued(&store);
 	note(root, &said, &Action::new(id, What::Say { to: Place::Here })).unwrap();
 	std::fs::write(scratch.join("session/held-actions"), format!("{said}\n")).unwrap();
 	std::fs::write(scratch.join("session/action-answers"), "kept\n").unwrap();
@@ -221,12 +225,7 @@ fn rig(label: &str) -> (Scratch, Files, Store, RefCell<Ledger>) {
 	let session = scratch.join("session");
 	std::fs::create_dir_all(&session).unwrap();
 	let store = Store::open(&scratch.join("bot")).unwrap();
-	store
-		.write_bytes(
-			rooms_application::archive::identity::FILE,
-			&rooms_application::archive::identity::Identity::new([1; 32], [3; 16]).encode(),
-		)
-		.unwrap();
+	crate::bot::identity::seed(&store).unwrap();
 	let ledger = Ledger::start(&store, Cursor::start()).unwrap();
 	(scratch, Files::open(&session), store, RefCell::new(ledger))
 }
@@ -244,10 +243,12 @@ fn held(scratch: &Scratch) -> String {
 async fn the_list_settles_each_unowned_action_by_the_sessions_answer() {
 	let (scratch, rooms, store, ledger) = rig("bot-actions-list");
 	let root = store.root();
-	let listed: String = (1..=5).map(|index| format!("{}\n", operation(index))).collect();
+	let ids = issued(&store);
+	let [pending, _, _, ended, line] = &ids;
+	let listed = ids.join("\n") + "\n";
 	std::fs::write(scratch.join("session/held-actions"), listed).unwrap();
-	note(root, &operation(4), &turn(9)).unwrap();
-	ledger.borrow_mut().leave(&store, &operation(5)).unwrap();
+	note(root, ended, &turn(9)).unwrap();
+	ledger.borrow_mut().leave(&store, line).unwrap();
 	std::fs::write(scratch.join("session/action-answers"), "pending\nkept\nunknown\nkept\n").unwrap();
 	std::fs::write(scratch.join("session/release-answers"), "released\n").unwrap();
 	let mut strays = Strays::default();
@@ -261,11 +262,11 @@ async fn the_list_settles_each_unowned_action_by_the_sessions_answer() {
 		}
 	);
 	assert_eq!(ACTIONS.names(root).unwrap().len(), 0, "the ended turn's claim is gone");
-	assert_eq!(held(&scratch), format!("{}\n{}\n", operation(1), operation(5)));
+	assert_eq!(held(&scratch), format!("{pending}\n{line}\n"));
 	let calls = std::fs::read_to_string(scratch.join("session/calls.jsonl")).unwrap();
 	assert_eq!(calls.matches("settle-action").count(), 4, "{calls}");
 	assert_eq!(calls.matches("release-action").count(), 1, "{calls}");
-	assert!(!calls.contains(&operation(5)), "the ledger's line is its own: {calls}");
+	assert!(!calls.contains(line), "the ledger's line is its own: {calls}");
 	std::fs::write(scratch.join("session/action-answers"), "kept\n").unwrap();
 	let second = settle(&rooms, &store, &ledger, &mut strays).await.unwrap();
 	assert_eq!(
@@ -276,7 +277,7 @@ async fn the_list_settles_each_unowned_action_by_the_sessions_answer() {
 			..Listed::default()
 		}
 	);
-	assert_eq!(held(&scratch), format!("{}\n", operation(5)));
+	assert_eq!(held(&scratch), format!("{line}\n"));
 	assert_eq!(ledger.borrow().left(), 1, "a listed line's record stays");
 	std::fs::write(scratch.join("session/held-actions"), "").unwrap();
 	settle(&rooms, &store, &ledger, &mut strays).await.unwrap();
@@ -294,7 +295,8 @@ async fn the_list_settles_each_unowned_action_by_the_sessions_answer() {
 #[tokio::test]
 async fn an_action_the_session_will_not_take_back_is_counted_once() {
 	let (scratch, rooms, store, ledger) = rig("bot-actions-left");
-	std::fs::write(scratch.join("session/held-actions"), format!("{}\n", operation(6))).unwrap();
+	let [operation] = issued(&store);
+	std::fs::write(scratch.join("session/held-actions"), format!("{operation}\n")).unwrap();
 	std::fs::write(scratch.join("session/action-answers"), "unknown\n").unwrap();
 	std::fs::write(scratch.join("session/release-answers"), "refused\n").unwrap();
 	let mut strays = Strays::default();
@@ -328,7 +330,7 @@ async fn an_action_the_session_will_not_take_back_is_counted_once() {
 #[tokio::test]
 async fn a_restart_mid_delivery_leaves_the_sent_and_replaced_lines_to_their_delivery() {
 	let (scratch, rooms, store, ledger) = rig("bot-actions-mid-delivery");
-	let (replaced, sent, stray) = (operation(1), operation(2), operation(3));
+	let [replaced, sent, stray] = issued(&store);
 	{
 		let mut ledger = ledger.borrow_mut();
 		let asked = Asked {
@@ -388,7 +390,7 @@ async fn a_restart_mid_delivery_leaves_the_sent_and_replaced_lines_to_their_deli
 #[tokio::test]
 async fn a_listed_open_is_left_to_its_note() {
 	let (scratch, rooms, store, ledger) = rig("bot-actions-open");
-	let (open, stray) = (operation(1), operation(2));
+	let [open, stray] = issued(&store);
 	let introduction = rooms_services::session::attached::Introduction {
 		directory: "d".into(),
 		peer: "ann".into(),
@@ -418,21 +420,22 @@ async fn a_listed_open_is_left_to_its_note() {
 async fn a_left_record_written_while_the_list_is_asked_waits_for_the_next_list() {
 	let (scratch, rooms, store, ledger) = rig("bot-actions-left-records");
 	let session = scratch.join("session");
-	ledger.borrow_mut().leave(&store, &operation(1)).unwrap();
+	let [before, during] = issued(&store);
+	ledger.borrow_mut().leave(&store, &before).unwrap();
 	std::fs::write(session.join("held-answers"), "wait\n").unwrap();
 	let mut strays = Strays::default();
 	let write = async {
 		while !session.join("held-asked").exists() {
 			tokio::task::yield_now().await;
 		}
-		ledger.borrow_mut().leave(&store, &operation(2)).unwrap();
+		ledger.borrow_mut().leave(&store, &during).unwrap();
 		std::fs::write(session.join("held-go"), "").unwrap();
 	};
 	let (listed, ()) = tokio::join!(settle(&rooms, &store, &ledger, &mut strays), write);
 	listed.unwrap();
 	assert_eq!(
 		ledger.borrow().left_lines(),
-		[operation(2)],
+		[during],
 		"the record from before the list went, and the one written during it stayed"
 	);
 	settle(&rooms, &store, &ledger, &mut strays).await.unwrap();
@@ -446,7 +449,8 @@ async fn a_left_record_written_while_the_list_is_asked_waits_for_the_next_list()
 #[tokio::test]
 async fn an_action_waiting_on_a_cause_is_named_and_one_still_running_is_not() {
 	let (scratch, rooms, store, ledger) = rig("bot-actions-waiting");
-	std::fs::write(scratch.join("session/held-actions"), format!("{}\n", operation(7))).unwrap();
+	let [operation] = issued(&store);
+	std::fs::write(scratch.join("session/held-actions"), format!("{operation}\n")).unwrap();
 	std::fs::write(scratch.join("session/action-answers"), "pending\nunreachable\nkept\n").unwrap();
 	let mut strays = Strays::default();
 	let running = settle(&rooms, &store, &ledger, &mut strays).await.unwrap();
@@ -455,7 +459,7 @@ async fn an_action_waiting_on_a_cause_is_named_and_one_still_running_is_not() {
 	assert!(waiting.pending, "{waiting:?}");
 	let said = waiting.waiting.expect("the cause is named");
 	assert!(
-		said.contains(&operation(7)) && said.contains("the stand-in injected unreachable"),
+		said.contains(&operation) && said.contains("the stand-in injected unreachable"),
 		"{said}"
 	);
 	let kept = settle(&rooms, &store, &ledger, &mut strays).await.unwrap();
@@ -469,14 +473,17 @@ async fn an_action_waiting_on_a_cause_is_named_and_one_still_running_is_not() {
 async fn only_actions_issued_by_this_bot_are_settled() {
 	for replacing in [false, true] {
 		let (scratch, rooms, store, ledger) = rig("bot-actions-shared-access");
-		let ours = operation(1);
-		let (_, our_tag) = ours.split_once('-').expect("signed operation has a tag");
-		let wrong_bot = crate::bot::identity::sign(&[9; 16], &format!("{:032x}", 2));
+		let [ours] = issued(&store);
+		let mut changed_nonce = ours.clone();
+		changed_nonce.replace_range(..1, if ours.starts_with('0') { "1" } else { "0" });
+		let other = Store::open(&scratch.join("other-bot")).unwrap();
+		crate::bot::identity::seed(&other).unwrap();
+		let [wrong_bot] = issued(&other);
 		let foreign = [
 			format!("membership-{}:2", "e".repeat(32)),
 			format!("{:032x}", 3),
 			wrong_bot,
-			format!("{:032x}-{our_tag}", 4),
+			changed_nonce,
 		];
 		let remaining = foreign.join("\n") + "\n";
 		std::fs::write(scratch.join("session/held-actions"), format!("{ours}\n{remaining}")).unwrap();
@@ -494,7 +501,8 @@ async fn only_actions_issued_by_this_bot_are_settled() {
 #[tokio::test]
 async fn both_lists_refuse_to_discard_receipts_if_the_identity_was_lost() {
 	let (scratch, rooms, store, ledger) = rig("bot-lost-receipt-key");
-	let our_receipt = format!("{}\n", operation(1));
+	let [operation] = issued(&store);
+	let our_receipt = format!("{operation}\n");
 	std::fs::write(scratch.join("session/held-actions"), &our_receipt).unwrap();
 	std::fs::remove_file(store.root().join(rooms_application::archive::identity::FILE)).unwrap();
 	assert!(settle(&rooms, &store, &ledger, &mut Strays::default()).await.is_err());
