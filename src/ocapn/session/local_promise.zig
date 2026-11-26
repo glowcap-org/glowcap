@@ -205,16 +205,16 @@ pub const Custody = struct {
         return .{ .resumes = resumes };
     }
 
-    pub fn retain(owner: *Session, reference: model.Reference) error{QueueCapExceeded}!void {
-        if (reference != .near) return;
+    pub fn retain(owner: *Session, reference: model.Reference, stamp: u64) error{QueueCapExceeded}!void {
+        if (reference != .near or owner.exports.holdActor(reference.near.export_position, stamp, true)) return;
         const purpose = owner.exports.purposePtr(reference.near.export_position) orelse return;
         if (purpose.* != .local_promise_answer) return;
         const count = &purpose.local_promise_answer.staging_owners;
         count.* = std.math.add(u32, count.*, 1) catch return error.QueueCapExceeded;
     }
 
-    pub fn release(owner: *Session, reference: model.Reference) void {
-        if (reference != .near) return;
+    pub fn release(owner: *Session, reference: model.Reference, stamp: u64) void {
+        if (reference != .near or owner.exports.holdActor(reference.near.export_position, stamp, false)) return;
         // A failed turn may revoke its fresh, unshared Host projection before
         // withdrawing the provisional Node payload. Turn abort is synchronous:
         // that payload cannot publish, and its later custody release is spent.

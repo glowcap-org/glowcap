@@ -52,6 +52,7 @@ const Dispatch = union(enum) {
     fn fromQueued(msg: Queued) Dispatch {
         return switch (msg) {
             .message => |message| .{ .delivery = message.delivery() },
+            .held => |held| .{ .delivery = held.message.delivery() },
             .owned => |body| .{ .owned = body },
         };
     }

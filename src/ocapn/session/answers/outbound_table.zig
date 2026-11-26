@@ -47,13 +47,13 @@ pub const OutboundAnswerTable = struct {
 
     /// Free every row, returning the charges its payloads' final releases
     /// gave back for the session to subtract.
-    pub fn deinit(self: *OutboundAnswerTable, allocator: std.mem.Allocator) store.ReleasedCharges {
+    pub fn deinit(self: *OutboundAnswerTable, owner: *@import("../mod.zig").Session) store.ReleasedCharges {
         var released: store.ReleasedCharges = .none;
         for (self.rows.slots.items) |*slot| switch (slot.*) {
-            .live => |*cell| released.add(store.deinitAnswerCell(allocator, cell)),
+            .live => |*cell| released.add(store.deinitAnswerCell(owner, cell)),
             else => {},
         };
-        self.rows.deinit(allocator);
+        self.rows.deinit(owner.allocator);
         return released;
     }
 

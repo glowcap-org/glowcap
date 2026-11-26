@@ -92,7 +92,7 @@ pub fn prepareGc(self: *Session, positions: []const u64) !void {
         const row = self.inbound_answers.getPtr(name) orelse unreachable;
         const answer_payload = row.payload orelse unreachable;
         row.payload = null;
-        const released = answers.releaseAnswerPayload(self.allocator, answer_payload);
+        const released = answers.releaseAnswerPayload(self, answer_payload);
         std.debug.assert(released.resolution == 0 and released.queued_calls == 0);
     };
 
@@ -203,7 +203,7 @@ pub fn validateSettlement(
 /// through `releaseCarrier`, which also retires the rows its notification
 /// completed.
 pub fn releasePayload(self: *Session, answer_payload: *answers.AnswerPayload) void {
-    self.returnReleasedCharges(answers.releaseAnswerPayload(self.allocator, answer_payload));
+    self.returnReleasedCharges(answers.releaseAnswerPayload(self, answer_payload));
 }
 
 /// Subtract the exact charges a final payload release gave back.
@@ -357,7 +357,7 @@ pub fn deinitDetached(self: *Session) answers.ReleasedCharges {
     const store = self.detached_inbound_answers orelse return .none;
     var released: answers.ReleasedCharges = .none;
     var rows = store.rows.valueIterator();
-    while (rows.next()) |row| released.add(answers.releaseAnswerPayload(self.allocator, row.payload));
+    while (rows.next()) |row| released.add(answers.releaseAnswerPayload(self, row.payload));
     store.rows.deinit(self.allocator);
     self.allocator.destroy(store);
     self.detached_inbound_answers = null;

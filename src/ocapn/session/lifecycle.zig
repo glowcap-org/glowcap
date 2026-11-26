@@ -145,12 +145,12 @@ pub fn deinit(self: *Session) void {
     if (comptime builtin.optimize.runtimeSafety()) audit.check(self) catch unreachable;
     // Every Host subscription unsubscribed before teardown.
     std.debug.assert(self.inbound_answers.host_promises == 0);
-    self.exports.deinit(self.allocator);
     self.imports.deinit(self.allocator);
-    var released = self.inbound_answers.deinit(self.allocator);
-    released.add(self.outbound_answers.deinit(self.allocator));
+    var released = self.inbound_answers.deinit(self);
+    released.add(self.outbound_answers.deinit(self));
     released.add(answer_notifications.deinitDetached(self));
     self.returnReleasedCharges(released);
+    self.exports.deinit(self.allocator);
     local_promise.destroyRegistry(self);
     if (self.import_release_outbox) |outbox| outbox.deinit(self);
     std.debug.assert(self.retained_sent_answer_bytes == 0);

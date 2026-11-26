@@ -142,11 +142,11 @@ fn a_person_issues_lists_pauses_resumes_and_revokes_access_from_the_terminal() {
 	fixture.finish();
 }
 
-/// Each typing signal opens a reader in the session and lets it go, and the
-/// session holds at most 64 at once. An access that sends more than that
-/// keeps working only if a released reader gives its place back.
+/// Each activity reader occupies one of the session's 64 continuation
+/// places. Reuse a single connection while opening and dropping more than
+/// that many distinct readers, then send through the same access.
 #[test]
-fn an_access_keeps_sending_after_more_signals_than_the_session_holds_at_once() {
+fn an_access_keeps_sending_after_more_readers_than_the_session_holds_at_once() {
 	let fixture = Fixture::start("access-many", &["many-one", "many-two"], "many-room");
 	let one = &fixture.peers[0];
 	let issued = access(
@@ -154,19 +154,22 @@ fn an_access_keeps_sending_after_more_signals_than_the_session_holds_at_once() {
 		"issue",
 		json!({"label": ["bot"], "rights": ["collaborator"]}),
 	);
-	let link = issued["link"].as_str().unwrap().to_owned();
+	let link = issued["link"].as_str().unwrap();
 	run_within(Duration::from_secs(120), async {
 		let holder = host().await;
-		let view = attach(&holder, &link).await;
-		let room = fixture.room_id(0);
-		for signal in 0..100 {
-			// The directory limits how often typing may change, and that
-			// refusal still opened and released a reader.
-			if let Err(error) = view.typing(&room, signal % 2 == 0).await {
-				let refusal = format!("{error:?}");
-				assert!(refusal.contains("rate-limited"), "signal {signal}: {refusal}");
-			}
+		let parsed = glowcap::parse_sturdyref(link, glowcap::CaptpVersion::V1_0).unwrap();
+		let connection = holder.connect(&parsed.locator, Default::default()).await.unwrap();
+		let reference = connection
+			.fetch(std::str::from_utf8(&parsed.swissnum).unwrap())
+			.await
+			.unwrap();
+		let client = rooms_glowcap::client::Client::new(connection, HostPlatform);
+		let workspace = rooms_glowcap::client::workspace::Workspace::new(client.clone(), reference.clone());
+		for _ in 0..100 {
+			drop(workspace.activity_reader().await.unwrap());
 		}
+		let view = View::attach_reference(client, reference).await.unwrap();
+		let room = fixture.room_id(0);
 		let said = view.say("access-many-say", &room, "still here").await.unwrap();
 		assert_eq!(said.status, EffectStatus::Committed);
 		holder.close(PendingWork::Cancel).await.unwrap();

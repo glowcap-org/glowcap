@@ -48,6 +48,7 @@ pub const Batch = struct {
     payload: passable.Outbound,
     payload_owned: bool = true,
     local_custody_owned: bool = false,
+    export_stamp: u64 = 0,
     failure_target: ?passable.FailureTarget,
     /// A break reason the Node owes the inbound-answer target itself when the
     /// batch fails: proxy admission escrows it for a recipient's projection,
@@ -71,7 +72,7 @@ pub const Batch = struct {
             owner.cancelInlinePassableStaging(reservation);
         }
         if (self.local_custody_owned) {
-            local_custody.release(&owner.session_state, &self.payload);
+            local_custody.release(&owner.session_state, &self.payload, self.export_stamp);
             self.local_custody_owned = false;
         }
         if (self.payload_owned) {
@@ -293,7 +294,7 @@ pub fn finish(self: *Node, batch_id: passable.BatchId) !void {
     defer if (return_custody and batch.payload_owned and !batch.local_custody_owned) {
         // These counts were just returned, and the synchronous pause admits no
         // competing owner, so restoration cannot overflow.
-        local_custody.restore(&recipient.session_state, &batch.payload);
+        local_custody.restore(&recipient.session_state, &batch.payload, batch.export_stamp);
         batch.local_custody_owned = true;
     };
     switch (batch.payload) {
@@ -320,7 +321,7 @@ pub fn finish(self: *Node, batch_id: passable.BatchId) !void {
             batch.promises.len,
         );
     if (batch.local_custody_owned) {
-        local_custody.release(&recipient.session_state, &batch.payload);
+        local_custody.release(&recipient.session_state, &batch.payload, batch.export_stamp);
         batch.local_custody_owned = false;
     }
     // The row owns its tree until an enqueue consumes it, and a refusal

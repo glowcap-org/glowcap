@@ -45,7 +45,7 @@ pub fn claimSettlingListener(
         const purpose = self.exports.purpose(listener_export) orelse return false;
         switch (purpose) {
             .application_answer => |linked| if (linked != application_answer) return false,
-            .none, .forwarding, .local_promise_answer, .node_settling, .retired, .shortening_pending, .shortening_complete => return false,
+            .none, .projected_actor, .forwarding, .local_promise_answer, .node_settling, .retired, .shortening_pending, .shortening_complete => return false,
         }
         answer_entry.settling_target = import_position;
         answer_entry.settling_index = 0;

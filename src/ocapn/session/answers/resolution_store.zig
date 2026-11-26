@@ -80,8 +80,11 @@ pub fn commitPreparedResolutionStore(
     prepared: PreparedResolutionStore,
     resolution: model.Resolution,
 ) void {
-    if (prepared.payload.resolution) |prior|
+    if (resolution == .fulfill) self.exports.holdActorsIn(&.{resolution.fulfill}, self.store_stamp_counter, true);
+    if (prepared.payload.resolution) |prior| {
+        if (prior.value == .fulfill) self.exports.holdActorsIn(&.{prior.value.fulfill}, prior.export_stamp, false);
         model.freeResolution(self.allocator, prior.value);
+    }
     // A batch already on the payload, a replaced resolution's hold or the
     // retains a forwarded reply introduced before its result stored, settles
     // like a released answer's: what it owes goes under the new hold.
@@ -92,6 +95,7 @@ pub fn commitPreparedResolutionStore(
     self.retained_sent_answer_bytes = self.retained_sent_answer_bytes - prepared.payload.resolution_charge + prepared.plan.charge;
     prepared.payload.resolution = .{
         .value = resolution,
+        .export_stamp = self.store_stamp_counter,
         .promise_target = prepared.plan.promise_target,
     };
     prepared.payload.resolution_charge = prepared.plan.charge;

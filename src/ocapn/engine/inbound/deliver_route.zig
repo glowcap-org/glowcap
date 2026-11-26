@@ -135,7 +135,7 @@ pub fn classify(
                     out.* = .{ .route = .{ .retired_resolver_callback = position } };
                 },
                 .application_answer => |answer| out.* = .{ .route = .{ .resolver_callback_resolve = answer } },
-                .none, .local_promise_answer => unreachable,
+                .none, .projected_actor, .local_promise_answer => unreachable,
             }
             return;
         };

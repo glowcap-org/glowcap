@@ -72,6 +72,15 @@ pub const ResolverPurpose = union(enum) {
     forwarding: answers.AnswerTarget,
     application_answer: model.AnswerPosition,
     local_promise_answer: LocalPromiseAnswer,
+    /// The local owners of a Port-projected object. The Port gives its root
+    /// back after both these owners and the partner's wire retains are gone.
+    projected_actor: struct {
+        stamp: u64,
+        local_owners: u64 = 0,
+        next: u32 = std.math.maxInt(u32),
+        /// Self when unqueued, or the previous ready slot.
+        previous: u32,
+    },
     node_settling: NodeSettlingResolver,
     retired: RetiredResolver,
     shortening_pending: PromiseIncarnation,
@@ -81,7 +90,7 @@ pub const ResolverPurpose = union(enum) {
     /// but an ordinary export and a local promise's projection export.
     pub fn isCallback(self: ResolverPurpose) bool {
         return switch (self) {
-            .none, .local_promise_answer => false,
+            .none, .projected_actor, .local_promise_answer => false,
             else => true,
         };
     }

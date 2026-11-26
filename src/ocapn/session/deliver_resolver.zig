@@ -28,7 +28,7 @@ pub const Prepared = union(enum) {
             .baseline => {},
             .next => |*value| if (value.payload) |payload| {
                 // No authority was retained during preparation.
-                _ = answers.releaseAnswerPayload(owner.allocator, payload);
+                _ = answers.releaseAnswerPayload(owner, payload);
                 value.payload = null;
             },
         }
@@ -73,7 +73,7 @@ pub fn prepare(owner: *Session, deliver: *const model.view.Deliver) !?Prepared {
     // both allocations. Commit attaches it to the fresh answer without failure.
     var cell = answers.AnswerCell.initPending(0);
     const payload = try answers.ensureAnswerPayload(owner.allocator, &cell);
-    errdefer _ = answers.releaseAnswerPayload(owner.allocator, payload);
+    errdefer _ = answers.releaseAnswerPayload(owner, payload);
     try payload.listeners.append(owner.allocator, .{
         .listener = .{ .import_position = imported },
         .mode = deliver.listen_mode,

@@ -242,3 +242,100 @@ test "Turn.breakWith breaks a served answer with the handler's own words and ref
     try std.testing.expect(captured.broke);
     try std.testing.expectEqualStrings("Attenuated", captured.buf[0..captured.len]);
 }
+
+test "retiring a projected actor preserves its explicit aliases and their root" {
+    const allocator = std.testing.allocator;
+    var pair = try glowcap.ocapn.engine.pairing.paired(allocator);
+    defer pair.deinit();
+    var vat = actors.Vat.init(allocator);
+    defer vat.deinit();
+    var port = actors.Port.init(allocator, &pair.p1);
+    defer port.deinit(&vat);
+    const actor = try vat.spawn(Counter, .{ .n = 0 });
+    defer vat.releaseActor(actor.local);
+    const position = (try port.projectActor(&vat, actor)).export_position;
+    try port.bindExport(&vat, actor, 12);
+    try port.bindExport(&vat, actor, 15);
+    try std.testing.expectEqual(position, (try port.projectActor(&vat, actor)).export_position);
+    const state = &pair.p1.session_state;
+    try state.retainSentExportRef(.{ .near = .object(position.int()) });
+    state.exports.decrementHeld(position, 1);
+    // Ignore unrelated setup events from the pair before the owned drain.
+    while (pair.p1.pollEvent()) |received| {
+        var event = received;
+        defer event.deinit();
+        _ = try port.serve(&vat, &event);
+    }
+    port.collectReleased(&vat);
+    try std.testing.expect(port.refForExport(position.int()) == null);
+    try std.testing.expectEqual(actor.local, port.refForExport(12).?.local);
+    try std.testing.expectEqual(actor.local, port.refForExport(15).?.local);
+    port.rollbackExport(&vat, actor, 12);
+    try std.testing.expectEqual(@as(u64, 15), (try port.projectActor(&vat, actor)).export_position.int());
+}
+
+test "a transferred delivery holds its projected target until the caller drops the event" {
+    const allocator = std.testing.allocator;
+    var pair = try glowcap.ocapn.engine.pairing.paired(allocator);
+    defer pair.deinit();
+    var host = actors.Vat.init(allocator);
+    defer host.deinit();
+    var host_port = actors.Port.init(allocator, &pair.p1);
+    defer host_port.deinit(&host);
+    var caller = actors.Vat.init(allocator);
+    defer caller.deinit();
+    var caller_port = actors.Port.init(allocator, &pair.p2);
+    defer caller_port.deinit(&caller);
+    const actor = try host.spawn(Counter, .{ .n = 0 });
+    defer host.releaseActor(actor.local);
+    const target = (try host_port.projectActor(&host, actor)).export_position;
+    try pair.p1.exportObject(target.int());
+    try pair.p2.importObject(target.int());
+    try caller_port.tell(&caller, .{ .far = model.FarRef.object(target.int()) }, .{ .verb = "get" });
+    try cross_peer.pumpAll(&pair.p2, &pair.p1);
+    var delivery = pair.p1.pollEvent() orelse return error.MissingDelivery;
+    {
+        defer delivery.deinit();
+        try std.testing.expectEqual(.deliver, delivery.kind());
+        pair.p1.session_state.exports.decrementHeld(target, 1);
+        const other = try host.spawn(Counter, .{ .n = 1 });
+        defer host.releaseActor(other.local);
+        const unrelated = (try host_port.projectActor(&host, other)).export_position;
+        try pair.p1.exportObject(unrelated.int());
+        pair.p1.session_state.exports.decrementHeld(unrelated, 1);
+        host_port.collectReleased(&host);
+        try std.testing.expect(host_port.refForExport(unrelated.int()) == null);
+        try std.testing.expectEqual(actor.local, host_port.refForExport(target.int()).?.local);
+        try std.testing.expect(try host_port.serve(&host, &delivery));
+    }
+    host_port.collectReleased(&host);
+    try std.testing.expect(host_port.refForExport(target.int()) == null);
+}
+
+test "a queued local delivery retains only the actor arguments it names" {
+    const allocator = std.testing.allocator;
+    var pair = try glowcap.ocapn.engine.pairing.paired(allocator);
+    defer pair.deinit();
+    var vat = actors.Vat.init(allocator);
+    defer vat.deinit();
+    var port = actors.Port.init(allocator, &pair.p1);
+    defer port.deinit(&vat);
+    const named = try vat.spawn(Counter, .{ .n = 1 });
+    defer vat.releaseActor(named.local);
+    const other = try vat.spawn(Counter, .{ .n = 2 });
+    defer vat.releaseActor(other.local);
+    const held = try port.projectActor(&vat, named);
+    const unrelated = try port.projectActor(&vat, other);
+    try pair.p1.exportObject(held.export_position.int());
+    try pair.p1.exportObject(unrelated.export_position.int());
+    try port.tell(&vat, other, .{ .verb = "get", .args = &.{.{ .reference = .{ .near = held } }} });
+    const table = &pair.p1.session_state.exports;
+    table.decrementHeld(held.export_position, 1);
+    table.decrementHeld(unrelated.export_position, 1);
+    port.collectReleased(&vat);
+    try std.testing.expect(port.refForExport(unrelated.export_position.int()) == null);
+    try std.testing.expect(port.refForExport(held.export_position.int()) != null);
+    _ = try vat.driveIngressBudgeted(port.ingress, 1);
+    port.collectReleased(&vat);
+    try std.testing.expect(port.refForExport(held.export_position.int()) == null);
+}

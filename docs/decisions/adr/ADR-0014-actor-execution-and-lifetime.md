@@ -22,7 +22,7 @@ Typed actors support near calls, eventual sends, vows and deferred behavior repl
 
 The Vat owns bounded, reclaimable batches attributed to an ingress. Admission checks both turn count and retained bytes atomically. Generic drives rotate fairly, and Host batch drives respect each Port's budget.
 
-A hosted actor remains alive through explicit roots owned by publications, Host capabilities, port exports and exact gifts. Queued turns do not root actors. Retirement happens at the outermost turn boundary, and a queued call to a retired target receives the ordinary typed refusal.
+A hosted actor remains alive through explicit roots owned by publications, Host capabilities, port exports and exact gifts. An explicitly bound export keeps its root until unbound. A projected export returns its root once its wire retains and local owners have released it. Stored answers, staged sends, admitted events and queued local arguments each hold the projections they name. A queued local turn does not root its target. Retirement happens at the outermost turn boundary, and a queued call to a retired target receives the ordinary typed refusal.
 
 A resolver vow lets an application defer its answer. Off-thread completion carries plain data through a bounded mailbox and wake mechanism. Capability transfer and Host mutation stay on the owning thread.
 

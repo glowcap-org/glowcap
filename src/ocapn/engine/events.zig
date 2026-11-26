@@ -220,6 +220,10 @@ pub const Parse = struct {
 /// event's life.
 pub const Event = struct {
     payload: Payload,
+    /// A transferred event can still use this Port's projected actor. The
+    /// borrow lasts through a retained, unserved or out-of-order event.
+    actor_custody: ?*ActorCustody = null,
+    export_stamp: u64 = 0,
 
     /// The codec that carried `frame`, the session's negotiated `model.CodecId`.
     codec: model.CodecId,
@@ -260,8 +264,84 @@ pub const Event = struct {
     /// the same borrowed resolution once per answer.
     resolve_aliases: std.ArrayList(session.OutboundAnswerTarget) = .empty,
 
-    /// Wire observations and private composition effects share one FIFO, so
-    /// retirement cannot overtake a delivery already accepted for an export.
+    /// One cold counter per Peer that projects actors. The Peer owns a
+    /// reference and each actor-bearing event or local message owns another.
+    /// A detached event can outlive its Peer and free the counter itself.
+    pub const ActorCustody = struct {
+        owners: usize = 1,
+        state: ?*session.Session,
+        allocator: std.mem.Allocator,
+
+        pub fn drop(self: *ActorCustody) void {
+            self.owners -= 1;
+            if (self.owners == 0) self.allocator.destroy(self);
+        }
+    };
+
+    /// Admission validated every view in this frame. Revisit the same
+    /// immutable descriptors on disposal, using the admission stamp to skip
+    /// projections minted since then at positions the frame never held.
+    pub fn holdProjectedActors(self: *Event, custody: ?*ActorCustody) void {
+        const link = custody orelse return;
+        const state = link.state.?;
+        if (state.exports.projected_count == 0) return;
+        self.export_stamp = state.store_stamp_counter;
+        if (self.visitProjectedActors(state, true)) {
+            link.owners += 1;
+            self.actor_custody = link;
+        }
+    }
+
+    fn visitProjectedActors(self: *const Event, state: *session.Session, comptime acquiring: bool) bool {
+        const Walk = struct {
+            state: *session.Session,
+            stamp: u64,
+            found: bool = false,
+
+            fn reference(walk: *@This(), ref: model.view.Reference) void {
+                if (ref.exportPosition()) |position| {
+                    if (walk.state.exports.holdActor(position, walk.stamp, acquiring)) walk.found = true;
+                }
+            }
+
+            fn arguments(walk: *@This(), args: model.view.Args) void {
+                var iter = args.iterator();
+                while (iter.next() catch unreachable) |arg| walk.argument(arg);
+            }
+
+            fn argument(walk: *@This(), arg: model.view.Argument) void {
+                switch (arg) {
+                    .reference => |ref| walk.reference(ref),
+                    .list, .set => |args| walk.arguments(args),
+                    .tagged => |tag| walk.arguments(tag.value),
+                    .@"struct" => |entries| {
+                        var iter = entries.iterator();
+                        while (iter.next() catch unreachable) |entry| walk.argument(entry.value);
+                    },
+                    else => {},
+                }
+            }
+        };
+        var walk: Walk = .{ .state = state, .stamp = self.export_stamp };
+        switch (self.view().*) {
+            .deliver => |call| {
+                walk.reference(call.target);
+                if (call.resolve_me_desc) |resolver| walk.reference(resolver);
+                if (self.reference_slots != 0) walk.arguments(call.args);
+            },
+            .resolve => |reply| if (reply.resolution == .fulfill) walk.argument(reply.resolution.fulfill),
+            .listen => |listen| {
+                walk.reference(listen.target);
+                walk.reference(listen.listener);
+            },
+            .get => |get| walk.reference(get.receiver),
+            .index => |index| walk.reference(index.receiver),
+            .untag => |untag| walk.reference(untag.receiver),
+            .start_session, .abort, .gc_answer, .gc_export => {},
+        }
+        return walk.found;
+    }
+
     pub const Retirement = struct { near: model.NearRef, target: u64 };
     pub const Wire = struct { frame: foundation.Frame, parse: Parse };
     pub const Answer = union(enum) {
@@ -368,6 +448,10 @@ pub const Event = struct {
     /// Inline, because a drain loop frees the row it just popped and the
     /// call site knows which optional members that row holds.
     pub inline fn deinit(self: *Event) void {
+        if (self.actor_custody) |custody| {
+            if (custody.state) |state| _ = self.visitProjectedActors(state, false);
+            custody.drop();
+        }
         self.resolve_aliases.deinit(self.allocator);
         if (self.introduced_far_imports) |imports| self.allocator.free(imports);
         switch (self.payload) {

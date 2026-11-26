@@ -185,7 +185,7 @@ pub fn answerForResolverExport(self: *const Session, resolver_export: model.Expo
     const purpose = self.exports.purpose(resolver_export) orelse return null;
     return switch (purpose) {
         .application_answer => |answer| answer,
-        .none, .forwarding, .local_promise_answer, .node_settling, .retired, .shortening_pending, .shortening_complete => null,
+        .none, .projected_actor, .forwarding, .local_promise_answer, .node_settling, .retired, .shortening_pending, .shortening_complete => null,
     };
 }
 

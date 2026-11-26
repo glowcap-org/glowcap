@@ -54,12 +54,9 @@ test "AnswerCell carries status independently of wire position" {
 
 test "InboundAnswerTable stores wire and virtual names independently" {
     const allocator = std.testing.allocator;
-    var table: answers.InboundAnswerTable = .keyed(glowcap.foundation.identity_hash.default_multiplier);
-    // The rows hold no payload, so teardown gives no charge back.
-    defer {
-        const released = table.deinit(allocator);
-        std.debug.assert(released.resolution == 0 and released.queued_calls == 0);
-    }
+    var owner = answers.Session.init(allocator);
+    defer owner.deinit();
+    const table = &owner.inbound_answers;
 
     const wire = model.AnswerName.fromWire(.from(11));
     const virtual = model.AnswerName.fromVirtual(.from(11));
@@ -184,4 +181,41 @@ test "Session retainSentExportRef mints an absent export's cell from the first w
     try s.retainSentExportRef(.{ .near = .{ .export_position = .from(8), .kind = .promise } });
     try std.testing.expectEqual(slot.Slot{ .local_unresolved = 8 }, s.exportSlot(.from(8)).?);
     try std.testing.expect(slot.toReference(s.exportSlot(.from(8)).?).?.near.kind == .promise);
+}
+
+test "a stored answer and staged value keep their projected actor until both return custody" {
+    const allocator = std.testing.allocator;
+    var state = answers.Session.init(allocator);
+    defer state.deinit();
+    const position = try state.allocateExport();
+    state.exports.markActorProjection(position, state.nextStoreStamp());
+    const reference: model.Reference = .{ .near = .object(position.int()) };
+    try state.retainSentExportRef(reference);
+    try state.installInboundAnswer(.from(1));
+    const mentions = try allocator.alloc(model.Argument, 2);
+    @memset(mentions, .{ .reference = reference });
+    try state.storeResolution(.from(1), .{ .fulfill = .{ .list = mentions } });
+    try answers.Session.LocalPromiseCustody.retain(&state, reference, state.store_stamp_counter);
+
+    state.exports.decrementHeld(position, 1);
+    try std.testing.expectEqual(@as(u64, 0), state.exports.wireHeld(position));
+    try std.testing.expect(state.exports.takeReleasedActor() == null);
+    try state.storeResolution(.from(1), .{ .fulfill = .{ .integer = 0 } });
+    try std.testing.expect(state.exports.takeReleasedActor() == null);
+    answers.Session.LocalPromiseCustody.release(&state, reference, state.store_stamp_counter);
+    try std.testing.expectEqual(position, state.exports.takeReleasedActor().?);
+    state.releaseUnsharedExport(position);
+    try std.testing.expect(!state.exports.contains(position));
+}
+
+test "an answer that never needed a wire mention returns its projected actor" {
+    var state = answers.Session.init(std.testing.allocator);
+    defer state.deinit();
+    const position = try state.allocateExport();
+    state.exports.markActorProjection(position, state.nextStoreStamp());
+    try state.installInboundAnswer(.from(1));
+    try state.storeResolution(.from(1), .{ .fulfill = .{ .reference = .{ .near = .object(position.int()) } } });
+    try state.storeResolution(.from(1), .{ .fulfill = .{ .void = {} } });
+    try std.testing.expectEqual(position, state.exports.takeReleasedActor().?);
+    state.releaseUnsharedExport(position);
 }

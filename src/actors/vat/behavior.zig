@@ -214,13 +214,27 @@ pub const OpaqueMessage = struct {
 /// codec, and only behaviors that explicitly support them receive them.
 pub const Queued = union(enum) {
     message: Message,
+    held: *Held,
     owned: OpaqueMessage,
+
+    /// One cold record in the existing queue chunk's arena for a local
+    /// delivery containing projected actor arguments. The stamp protects
+    /// the immutable message across slot reuse and the link survives Peer teardown.
+    pub const Held = struct {
+        message: Message,
+        custody: *@import("engine").Event.ActorCustody,
+        stamp: u64,
+    };
 
     pub fn retire(self: *Queued, reason: ?[]const u8) void {
         const retired = self.*;
         self.* = .{ .message = .{} };
         switch (retired) {
             .message => {},
+            .held => |held| {
+                if (held.custody.state) |state| state.exports.holdActorsIn(held.message.args, held.stamp, false);
+                held.custody.drop();
+            },
             .owned => |body| body.vtable.retire(body.ctx, reason),
         }
     }

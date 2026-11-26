@@ -204,6 +204,9 @@ pub const Peer = struct {
     /// at the negotiating seam.
     outbound_budget: usize = std.math.maxInt(usize),
     events: peer_queue.ReservableQueue(events.Event),
+    /// Cold custody shared with transferred application events only once
+    /// a Port has projected an actor on this Peer.
+    actor_event_custody: ?*events.Event.ActorCustody = null,
     /// This session's gift and handoff-count authority. A cross-session
     /// withdrawal reaches a sibling's deposits only through the live-session
     /// resolver. The Vat does not own protocol transcript state.

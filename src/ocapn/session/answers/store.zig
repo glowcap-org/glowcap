@@ -168,6 +168,7 @@ pub fn deinitProjection(allocator: std.mem.Allocator, projection: Projection) vo
 /// reusing their callback capability or wire position from aliasing replies. It
 /// shares the existing bounded queue allocation and dies with the queued call.
 pub const QueuedCall = struct {
+    export_stamp: u64 = 0,
     message: model.Message,
     answer: ?AnswerTarget = null,
     /// Original wire mentions survive shortening and transfer to a local event
@@ -262,6 +263,7 @@ pub const AnswerTarget = struct {
 /// Wire answers and paired local exports share this captured identity, so later
 /// consequence walks neither notify early nor follow a replacement row.
 pub const StoredResolution = struct {
+    export_stamp: u64 = 0,
     value: model.Resolution,
     promise_target: ?AnswerTarget,
 };
@@ -400,10 +402,11 @@ pub const InboundAnswerTable = struct {
 
     /// Free every row, returning the charges its payloads' final releases
     /// gave back for the session to subtract.
-    pub fn deinit(self: *InboundAnswerTable, allocator: std.mem.Allocator) ReleasedCharges {
+    pub fn deinit(self: *InboundAnswerTable, owner: *Session) ReleasedCharges {
+        const allocator = owner.allocator;
         var released: ReleasedCharges = .none;
         var it = self.rows.valueIterator();
-        while (it.next()) |cell| released.add(deinitAnswerCell(allocator, cell));
+        while (it.next()) |cell| released.add(deinitAnswerCell(owner, cell));
         self.rows.deinit(allocator);
         return released;
     }
@@ -518,7 +521,8 @@ pub const ReleasedCharges = struct {
 
 /// Release one owner of a stable answer payload. Returns the exact retained
 /// charges only when this was the final owner.
-pub fn releaseAnswerPayload(allocator: std.mem.Allocator, payload: *AnswerPayload) ReleasedCharges {
+pub fn releaseAnswerPayload(owner: *Session, payload: *AnswerPayload) ReleasedCharges {
+    const allocator = owner.allocator;
     std.debug.assert(payload.refs != 0);
     payload.refs -= 1;
     if (payload.refs != 0) return .none;
@@ -526,6 +530,7 @@ pub fn releaseAnswerPayload(allocator: std.mem.Allocator, payload: *AnswerPayloa
     var released: ReleasedCharges = .{ .resolution = payload.resolution_charge };
     if (payload.held_imports) |batch| batch.ready();
     for (payload.queue.items) |call| {
+        if (call.message == .deliver) owner.exports.holdActorsIn(call.message.deliver.args, call.export_stamp, false);
         released.queued_calls += call.charge;
         call.deinit(allocator);
     }
@@ -533,17 +538,20 @@ pub fn releaseAnswerPayload(allocator: std.mem.Allocator, payload: *AnswerPayloa
     payload.listeners.deinit(allocator);
     for (payload.projections.items) |projection| deinitProjection(allocator, projection);
     payload.projections.deinit(allocator);
-    if (payload.resolution) |resolution| model.freeResolution(allocator, resolution.value);
+    if (payload.resolution) |resolution| {
+        if (resolution.value == .fulfill) owner.exports.holdActorsIn(&.{resolution.value.fulfill}, resolution.export_stamp, false);
+        model.freeResolution(allocator, resolution.value);
+    }
     allocator.destroy(payload);
     return released;
 }
 
-fn freeAnswerPayload(allocator: std.mem.Allocator, payload_ptr: *?*AnswerPayload) ReleasedCharges {
+fn freeAnswerPayload(owner: *Session, payload_ptr: *?*AnswerPayload) ReleasedCharges {
     const payload = payload_ptr.* orelse return .none;
     payload_ptr.* = null;
-    return releaseAnswerPayload(allocator, payload);
+    return releaseAnswerPayload(owner, payload);
 }
 
-pub fn deinitAnswerCell(allocator: std.mem.Allocator, cell: *AnswerCell) ReleasedCharges {
-    return freeAnswerPayload(allocator, &cell.payload);
+pub fn deinitAnswerCell(owner: *Session, cell: *AnswerCell) ReleasedCharges {
+    return freeAnswerPayload(owner, &cell.payload);
 }

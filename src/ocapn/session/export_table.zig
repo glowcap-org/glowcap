@@ -62,6 +62,11 @@ comptime {
 /// sends, and the partner cannot add one.
 pub const ExportTable = struct {
     rows: PositionSlab(ExportRow) = .empty,
+    /// Actor projections whose final local or wire owner has released them.
+    /// The eligible rows hold the links, so an idle session allocates nothing.
+    ready_actor: u32 = no_actor,
+    projected_count: u32 = 0,
+
     /// The bootstrap position sits below `base` and outside wire-delta GC, so
     /// its row is the constant `bootstrap_row` and only its presence varies.
     bootstrap: bool = false,
@@ -69,6 +74,8 @@ pub const ExportTable = struct {
     /// Positions past `base` this session may mint or admit. The vector's
     /// index is 32 bits, so a wider span could never be minted anyway.
     span: u32 = std.math.maxInt(u32),
+
+    const no_actor = std.math.maxInt(u32);
 
     pub const bootstrap_row: ExportRow = .{ .count = 1, .binding = .value };
 
@@ -173,6 +180,98 @@ pub const ExportTable = struct {
         try self.rows.ensureUnusedCapacity(allocator, additional);
     }
 
+    pub fn markActorProjection(self: *ExportTable, position: Id, stamp: u64) void {
+        self.setPurpose(position, .{ .projected_actor = .{ .stamp = stamp, .previous = self.indexOf(position).? } });
+        self.projected_count += 1;
+    }
+
+    /// Whether an owned local message needs custody for any of its arguments.
+    pub fn namesActor(self: *const ExportTable, args: []const model.Argument) bool {
+        if (self.projected_count == 0) return false;
+        return model.anyReference(args, self, struct {
+            fn visit(table: *const ExportTable, reference: model.Reference) bool {
+                const position = reference.exportPosition() orelse return false;
+                const row = table.rowPtr(position) orelse return false;
+                return row.purpose == .projected_actor;
+            }
+        }.visit);
+    }
+
+    fn projectedRow(self: *ExportTable, position: Id) ?*ExportRow {
+        const row = self.mintedRowPtr(position) orelse return null;
+        return if (row.purpose == .projected_actor) row else null;
+    }
+
+    fn queueReleased(self: *ExportTable, position: Id, row: *ExportRow) void {
+        const actor = &row.purpose.projected_actor;
+        const index = self.indexOf(position).?;
+        if (actor.previous != index or actor.local_owners != 0 or row.count != 1) return;
+        actor.next = self.ready_actor;
+        actor.previous = no_actor;
+        if (self.ready_actor != no_actor)
+            self.rows.getPtr(self.ready_actor).?.purpose.projected_actor.previous = index;
+        self.ready_actor = index;
+    }
+
+    /// Return local custody of one occurrence, or take it. It cannot overflow:
+    /// every occurrence is backed by a distinct retained tree slot and the
+    /// retained tree budgets are byte counts that fit in the address space.
+    pub fn holdActor(self: *ExportTable, position: Id, through_stamp: u64, comptime acquiring: bool) bool {
+        const row = self.projectedRow(position) orelse return false;
+        const actor = &row.purpose.projected_actor;
+        if (actor.stamp > through_stamp) return false;
+        if (acquiring) {
+            actor.local_owners += 1;
+        } else {
+            std.debug.assert(actor.local_owners != 0);
+            actor.local_owners -= 1;
+            self.queueReleased(position, row);
+        }
+        return true;
+    }
+
+    pub fn holdActorsIn(self: *ExportTable, args: []const model.Argument, through_stamp: u64, comptime acquiring: bool) void {
+        if (self.projected_count == 0) return;
+        const Visit = struct {
+            table: *ExportTable,
+            stamp: u64,
+
+            fn apply(ctx: @This(), reference: model.Reference) bool {
+                if (reference == .near) _ = ctx.table.holdActor(reference.near.export_position, ctx.stamp, acquiring);
+                return false;
+            }
+        };
+        _ = model.anyReference(args, Visit{ .table = self, .stamp = through_stamp }, Visit.apply);
+    }
+
+    /// Remove a queued row, including an unshared projection withdrawn by
+    /// its enclosing transaction after returning staged mentions.
+    fn unqueueActor(self: *ExportTable, index: u32, row: *ExportRow) void {
+        const actor = &row.purpose.projected_actor;
+        if (actor.previous == index) return;
+        if (actor.previous == no_actor) self.ready_actor = actor.next else self.rows.getPtr(actor.previous).?.purpose.projected_actor.next = actor.next;
+        if (actor.next != no_actor)
+            self.rows.getPtr(actor.next).?.purpose.projected_actor.previous = actor.previous;
+        actor.previous = index;
+    }
+
+    pub fn hasReleasedActor(self: *const ExportTable) bool {
+        return self.ready_actor != no_actor;
+    }
+
+    /// Recheck local and wire owners at disposal: a queued candidate may
+    /// have been shared or stored again before its Port finished dispatch.
+    pub fn takeReleasedActor(self: *ExportTable) ?Id {
+        while (self.ready_actor != no_actor) {
+            const index = self.ready_actor;
+            const row = self.rows.getPtr(index).?;
+            const actor = &row.purpose.projected_actor;
+            self.unqueueActor(index, row);
+            if (row.count == 1 and actor.local_owners == 0) return .from(self.base + index);
+        }
+        return null;
+    }
+
     pub fn wireHeld(self: *const ExportTable, position: Id) u64 {
         const total = self.count(position);
         return if (total == 0) 0 else total - 1;
@@ -182,7 +281,7 @@ pub const ExportTable = struct {
     /// position that is not an export of ours or is an ordinary one.
     pub fn purpose(self: *const ExportTable, position: Id) ?ResolverPurpose {
         const row = self.rowPtr(position) orelse return null;
-        return if (row.purpose == .none) null else row.purpose;
+        return if (row.purpose == .none or row.purpose == .projected_actor) null else row.purpose;
     }
 
     /// The purpose on `position`'s row, for a transition in place. The
@@ -215,7 +314,7 @@ pub const ExportTable = struct {
     /// Take the purpose off `position`'s row, if the row holds one.
     pub fn clearPurpose(self: *ExportTable, position: Id) ?ResolverPurpose {
         const row = self.mintedRowPtr(position) orelse return null;
-        if (row.purpose == .none) return null;
+        if (row.purpose == .none or row.purpose == .projected_actor) return null;
         const old = row.purpose;
         row.purpose = .none;
         return old;
@@ -312,6 +411,14 @@ pub const ExportTable = struct {
         const row = self.rows.getPtr(index).?;
         std.debug.assert(delta <= row.count);
         row.count -= delta;
-        if (row.count == 0) self.rows.remove(index);
+        if (row.count == 0) {
+            if (row.purpose == .projected_actor) {
+                self.unqueueActor(index, row);
+                self.projected_count -= 1;
+            }
+            self.rows.remove(index);
+        } else if (row.count == 1 and row.purpose == .projected_actor) {
+            self.queueReleased(position, row);
+        }
     }
 };

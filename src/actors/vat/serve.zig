@@ -3,8 +3,8 @@
 //! `serve` dispatches one inbound peer event. A deliver to a bound export
 //! runs the actor's turn through the shared frame spine and resolves the
 //! answer, and a resolve fires the far vow's one-shot listener, projecting a
-//! handoff give typed, and a partner's export release ends the projected
-//! bindings it left unheld. `settleFar` is the byte-fed host's counterpart to the
+//! handoff give typed. The Port retires released projections after dispatch.
+//! `settleFar` is the byte-fed host's counterpart to the
 //! same settle, and `breakFarVows` is the disconnect break. `Port` binds the
 //! session public verbs onto them.
 
@@ -45,10 +45,6 @@ pub fn serve(self: *Vat, port: *Port, event: *engine.Event) !bool {
                 handled = (try serveResolve(self, port, resolve, alias)) or handled;
             }
             break :blk handled;
-        },
-        .gc_export => |released| blk: {
-            try port.reclaimReleased(self, released);
-            break :blk false;
         },
         else => false,
     };
