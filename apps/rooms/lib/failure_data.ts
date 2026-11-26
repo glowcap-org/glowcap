@@ -58,6 +58,7 @@ export const ADMISSION_OWNER_LABELS = {
 } as const;
 export const RATE_LIMITED = "rate-limited";
 export const ADMISSION_BUSY = "admission-busy";
+export const ROOM_JOINING = "room-joining";
 export const RECEIPTS_FULL = "receipts-full";
 export const NO_SERVER = "no-server";
 export const REQUEST_TOO_LARGE = "request-too-large";
@@ -130,6 +131,13 @@ export const ROOMS_FAILURES = {
 		reach: false,
 		summary: "This server is handling as much work as it can.",
 		action: "Try again in a moment.",
+	},
+	"room-joining": {
+		subject: "room",
+		retry: "after-state-change",
+		reach: false,
+		summary: "This session is still joining the room.",
+		action: "Try again once it has joined.",
 	},
 	"receipts-full": {
 		subject: "session",

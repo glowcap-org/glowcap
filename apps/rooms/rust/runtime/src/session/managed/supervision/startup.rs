@@ -189,6 +189,14 @@ impl<P: Tasks + Deadline + Clone + 'static> Worker<P> {
 				}
 			}
 		};
+		#[cfg(feature = "test-support")]
+		if matches!(target, Target::Room { .. }) {
+			tokio::select! {
+				biased;
+				_ = self.stopping.changed() => return Ok(()),
+				() = crate::session::fault::before_room_seat() => {}
+			}
+		}
 		if !matches!(target, Target::Direct) {
 			let mut conflicts = 0;
 			'acquire: loop {

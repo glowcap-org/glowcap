@@ -531,6 +531,7 @@ mod tests {
 		for reason in [
 			"rate-limited: retry-after-ms=1000; scope=message; owner=session",
 			"admission-busy: accounting table is full",
+			"room-joining: the session is acquiring this room's seat",
 			"request-too-large: scope=message-bytes",
 		] {
 			let error = Error::Observation(reason.into());

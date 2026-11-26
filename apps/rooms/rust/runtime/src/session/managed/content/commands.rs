@@ -14,11 +14,49 @@ use rooms_application::{
 		custody::{self, FieldKey, Held, Outcome},
 		effects, local, workspace,
 	},
+	failure::FailureCode,
 	fields::{List, Text},
-	session::command::Request,
+	session::command::{Effect, Request, Route},
 };
 use rooms_glowcap::client::{Deadline, Tasks};
 use std::{num::NonZeroU64, rc::Rc};
+
+/// A remote member can see a join before the worker has adopted its returned
+/// seat. Only the exact worker's held admission for the current room inbox
+/// can make an otherwise unselected post wait. An arbitrary held receipt,
+/// another conversation, or a failed membership cannot.
+pub(super) fn acquiring_post_seat<P: Tasks + Deadline + Clone + 'static, R: custody::References, C>(
+	owner: &State<P>,
+	request: &Request<'_, impl rooms_application::room::ArgumentView>,
+	record: &workspace::Record<R, C>,
+) -> bool {
+	if request.route() != Route::Effect(Effect::Say) {
+		return false;
+	}
+	let Some(room) = request.args().next().and_then(|id| record.intent.room(id)) else {
+		return false;
+	};
+	if room.seat.is_some() || !room.requests_membership() {
+		return false;
+	}
+	let (Some(inbox), Some(entrance)) = (room.inbox, room.entrance()) else {
+		return false;
+	};
+	record.effects.as_slice().iter().any(|receipt| {
+		let [target, custody::RetainedField::RoomInbox(callback)] = receipt.targets.as_slice() else {
+			return false;
+		};
+		target.borrowed().coordinate() == entrance
+			&& callback.key == inbox
+			&& receipt.disposition == custody::Disposition::Held
+			&& matches!(receipt.outcome, Outcome::Unresolved | Outcome::Committed { .. })
+			&& receipt
+				.operation
+				.text()
+				.as_str()
+				.is_some_and(|id| owner.memberships.acquiring(id))
+	})
+}
 
 pub(super) fn admit<P: Tasks + Deadline + Clone + 'static>(
 	owner: &Rc<State<P>>,
@@ -107,9 +145,13 @@ pub(super) fn admit<P: Tasks + Deadline + Clone + 'static>(
 	let argument_position = dispatch.argument_position();
 	let revocation = dispatch.revokes_selected();
 	let offer = dispatch.offers_selected();
-	let coordinates = dispatch
-		.targets(&record.intent)
-		.map_err(|_| refuse("effect target is not selected in this workspace"))?;
+	let coordinates = dispatch.targets(&record.intent).map_err(|_| {
+		if acquiring_post_seat(owner, &request, &record) {
+			crate::session::fault::room_post_waited();
+			return refuse(&FailureCode::RoomJoining.line("the session is acquiring this room's seat"));
+		}
+		refuse("effect target is not selected in this workspace")
+	})?;
 	let (_, mut mutation) = dispatch
 		.bind(&record.intent)
 		.map_err(|_| refuse("effect target is not selected in this workspace"))?;

@@ -125,9 +125,15 @@ impl<P: Tasks + Deadline + Clone + 'static> SessionContent<P> {
 					let dispatch = dispatch(input.args)?;
 					// Revocation and room sharing read the selected recipe's URI.
 					let recipe = dispatch.revokes_selected() || dispatch.offers_selected().is_some();
-					let targets = dispatch
-						.targets(&record.intent)
-						.map_err(|_| refuse("effect target is not selected in this workspace"))?;
+					let targets = match dispatch.targets(&record.intent) {
+						Ok(targets) => targets,
+						// No seat to restore yet. Invocation answers with a coded
+						// refusal before reserving an effect or dispatching it.
+						Err(_) if commands::acquiring_post_seat(&*self.owner(input.verb)?, &request, record) => {
+							return Ok(Vec::new());
+						}
+						Err(_) => return Err(refuse("effect target is not selected in this workspace")),
+					};
 					let outgoing = super::super::outgoing::references(record, targets[0])?;
 					let mut restored = targets
 						.into_iter()

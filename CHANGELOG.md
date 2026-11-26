@@ -51,6 +51,8 @@ Releases before 0.1.7 are in the
 
 ### Fixed
 
+- A Rooms bot keeps its queued reply when its nickname has reappeared in the room but its restarted session is still taking its seat. The session reports `room-joining` and the bot posts the reply once the seat is ready.
+
 - A Rooms bot now checks which action IDs it issued before settling receipts. A session restoring its room membership keeps its receipt and can finish joining. Use a fresh ID for each new request and issue separate access links to independent clients.
 
 - A Rooms access can open and drop successive readers without exhausting its continuation limit. A Host now releases an actor’s projected export once its partner and the session’s local work have finished with it.
