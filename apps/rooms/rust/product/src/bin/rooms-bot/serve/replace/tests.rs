@@ -36,6 +36,7 @@ async fn last_look_keeps_the_note(label: &str, turn_open: bool) -> bool {
 	std::fs::create_dir_all(&session).unwrap();
 	let rooms = Files::open(&session);
 	let store = Store::open(&scratch.join("bot")).unwrap();
+	crate::bot::identity::seed(&store).unwrap();
 	let mut ledger = Ledger::start(&store, Cursor::start()).unwrap();
 	let conversation = ConversationId::new("c1");
 	let turn = ledger
@@ -101,8 +102,20 @@ async fn settled_within(
 	std::fs::create_dir_all(&session).unwrap();
 	let rooms = Files::open(&session);
 	let store = Store::open(&scratch.join("bot")).unwrap();
+	crate::bot::identity::seed(&store).unwrap();
 	let ledger = Ledger::start(&store, Cursor::start()).unwrap();
 	prepare(&session, &store);
+	crate::bot::opens::action::note(
+		store.root(),
+		&format!("{:032x}", 7),
+		&crate::bot::opens::action::Action::new(
+			crate::bot::ledger::TurnId(1),
+			crate::bot::opens::action::What::Say {
+				to: crate::bot::opens::action::Place::Here,
+			},
+		),
+	)
+	.unwrap();
 	std::fs::write(session.join("held-actions"), format!("{:032x}\n", 7)).unwrap();
 	std::fs::write(session.join("held-answers"), format!("{list}\n")).unwrap();
 	std::fs::write(session.join("action-answers"), "pending\n").unwrap();

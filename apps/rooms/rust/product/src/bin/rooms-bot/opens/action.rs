@@ -37,10 +37,9 @@
 //! operation: the ledger's lines, an open's note, or a claim of a turn still
 //! open. Reading after the answer matters, because an owner records its
 //! operation before the request leaves and lets go only once it settled. The
-//! loop settles every other operation listed from the operation alone, as a
-//! look at a note did: one that committed has what it returned kept, one
-//! still running is asked about later, and one the session cannot settle has
-//! its receipt given back (`engine/deliver/receipt.rs`). One the session will
+//! loop settles the remaining actions this bot authenticated or claimed. It
+//! keeps a committed result, checks back on work still running, and gives the
+//! receipt back when it cannot settle (`engine/deliver/receipt.rs`). One the session will
 //! not take back is logged once, left alone until the next start, and counted
 //! in `status.unsettled_actions` while the list names it.
 use super::{
@@ -57,6 +56,8 @@ use crate::bot::{
 	words,
 };
 pub use claim::{Action, Label, Outcome, Place, What, says};
+use origin::Origin;
+pub(in crate::bot) use origin::remember_start;
 use rooms_application::content::session::custody::MAX_EFFECTS;
 use rooms_platform::storage::StorageError;
 use std::{
@@ -227,7 +228,7 @@ struct Owners {
 
 /// Read the owners. A claim whose turn stopped running, or that cannot be
 /// read, is removed and owns nothing, and a claim whose turn runs stays.
-fn owners(store: &Store, ledger: &RefCell<Ledger>) -> Result<Owners, Error> {
+fn owners(store: &Store, ledger: &RefCell<Ledger>, claims: Vec<Name>) -> Result<Owners, Error> {
 	let root = store.root();
 	let (mut owned, running): (BTreeSet<String>, BTreeSet<TurnId>) = {
 		let ledger = ledger.borrow();
@@ -238,7 +239,7 @@ fn owners(store: &Store, ledger: &RefCell<Ledger>) -> Result<Owners, Error> {
 	owned.extend(super::opened(root)?);
 	let mut cut = Vec::new();
 	let mut unjudged = None;
-	for name in ACTIONS.names(root)? {
+	for name in claims {
 		let claim = ACTIONS.read::<Action>(root, &name.operation, name.state);
 		match claim {
 			Ok(Some(action)) if name.state == State::Live && running.contains(&action.turn) => match holder(&action) {
@@ -386,7 +387,7 @@ async fn settle_one<R: Rooms>(rooms: &R, operation: &str, running: &mut Running)
 }
 
 /// Ask the session which of this access's receipts keep a place, and settle
-/// every one listed that no other owner settles. The list also decides the
+/// every bot action listed that no other owner settles. The list also decides the
 /// ledger's records of lines the session would not take back: a record from
 /// before the list whose receipt the list does not name holds no place any
 /// more, so it goes, and a record written while the list was asked waits for
@@ -397,6 +398,7 @@ pub async fn settle<R: Rooms>(
 	ledger: &RefCell<Ledger>,
 	strays: &mut Strays,
 ) -> Result<Listed, Error> {
+	let key = crate::bot::identity::action_key(store.root())?;
 	let recorded: BTreeSet<String> = ledger.borrow().left_lines().iter().cloned().collect();
 	let held = match rooms.held().await {
 		Ok(held) => held,
@@ -410,7 +412,9 @@ pub async fn settle<R: Rooms>(
 		.filter(|operation| !held.contains(operation))
 		.collect();
 	ledger.borrow_mut().forget_left(store, &cleared)?;
-	let Owners { owned, cut, unjudged } = owners(store, ledger)?;
+	let claims = ACTIONS.names(store.root())?;
+	let origin = Origin::read(store, key, &claims)?;
+	let Owners { owned, cut, unjudged } = owners(store, ledger, claims)?;
 	let root = store.root();
 	// A claim cut off at a start that the session does not list holds no
 	// place and never will: the session cannot say what it did.
@@ -429,7 +433,10 @@ pub async fn settle<R: Rooms>(
 			"an agent's action stays with its verb, which cannot be told to run or not: {why}"
 		));
 	}
-	for operation in held.iter().filter(|operation| !owned.contains(*operation)) {
+	for operation in held
+		.iter()
+		.filter(|operation| origin.owns(operation) && !owned.contains(*operation))
+	{
 		if strays.left.contains(operation) {
 			continue;
 		}
@@ -499,7 +506,7 @@ pub enum LastList {
 }
 
 /// The old access's last list before a replacement: settle what it can of
-/// every listed action outside the ledger's lines and the opens' notes, and
+/// every listed bot action outside the ledger's lines and the opens' notes, and
 /// answer the operations it could not. No verb runs then, so no claim owns
 /// anything. The list is part of the replacement's preparation, because no
 /// later serve lists through the old access: a list that fails refuses the
@@ -510,6 +517,7 @@ pub enum LastList {
 /// says nothing about the receipts it gave back, as `opens::look::failed`
 /// reads the same answer for an open's note.
 pub async fn last<R: Rooms>(rooms: &R, store: &Store, ledger: &Ledger) -> Result<LastList, Error> {
+	let key = crate::bot::identity::action_key(store.root())?;
 	let held = match rooms.held().await {
 		Ok(held) => held,
 		Err(error) if error.kind == RoomsErrorKind::Revoked => {
@@ -536,8 +544,12 @@ pub async fn last<R: Rooms>(rooms: &R, store: &Store, ledger: &Ledger) -> Result
 	owned.extend(ledger.left_lines().iter().cloned());
 	owned.extend(ledger.replaced().iter().map(|line| line.operation.clone()));
 	owned.extend(super::opened(store.root())?);
+	let origin = Origin::read(store, key, &ACTIONS.names(store.root())?)?;
 	let mut left = Vec::new();
-	for operation in held.into_iter().filter(|operation| !owned.contains(operation)) {
+	for operation in held
+		.into_iter()
+		.filter(|operation| origin.owns(operation) && !owned.contains(operation))
+	{
 		let Settled { verdict, outcome } = settle_one(rooms, &operation, &mut Running::default()).await;
 		// A running turn's claim keeps how its action ended, as the serving
 		// loop writes it, so the turn's next run is told.
@@ -553,5 +565,6 @@ pub async fn last<R: Rooms>(rooms: &R, store: &Store, ledger: &Ledger) -> Result
 }
 
 mod claim;
+mod origin;
 #[cfg(test)]
 mod tests;

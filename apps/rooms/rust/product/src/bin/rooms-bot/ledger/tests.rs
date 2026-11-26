@@ -391,21 +391,22 @@ fn widest_trigger(seq: u64) -> Trigger {
 
 #[test]
 fn the_ledger_at_every_bound_stays_under_the_size_it_reads_back() {
+	let operation = |index: usize| crate::bot::identity::sign(&[0; 16], &format!("{index:032x}"));
 	let mut ledger = Ledger {
 		cursor: Cursor::new(widest(Cursor::MAX_BYTES)).unwrap(),
 		cursor_seq: Seq(u64::MAX),
 		next_turn: TurnId(u64::MAX),
 		rows: BTreeMap::new(),
 		replaced: (0..MAX_REPLACED)
-			.map(|_| Replaced {
-				operation: "f".repeat(32),
+			.map(|index| Replaced {
+				operation: operation(index),
 				base: Base(u64::MAX),
 				conversation: ConversationId::new(widest(rooms_application::content::session::workspace::MAX_ID_UNITS)),
 				text: widest(MAX_LINE_BYTES),
 			})
 			.collect(),
-		left: (0..MAX_REPLACED).map(|index| format!("{index:032x}")).collect(),
-		replaced_actions: (0..MAX_REPLACED).map(|index| format!("{index:032x}")).collect(),
+		left: (0..MAX_REPLACED).map(operation).collect(),
+		replaced_actions: (0..MAX_REPLACED).map(operation).collect(),
 		unlisted: Some(Unlisted::Paused),
 		unsettled: false,
 	};
@@ -444,7 +445,7 @@ fn the_ledger_at_every_bound_stays_under_the_size_it_reads_back() {
 	assert!(running <= MAX_LEDGER_BYTES, "{running} bytes");
 	// A sending row holds its lines in place of its triggers. Check that shape too.
 	let parts = (0..crate::bot::reply::MAX_PARTS)
-		.map(|_| part(&"f".repeat(32), &widest(MAX_LINE_BYTES)))
+		.map(|index| part(&operation(index), &widest(MAX_LINE_BYTES)))
 		.collect::<Vec<_>>();
 	for phase in ledger.rows.values_mut().filter(|phase| phase.is_open()) {
 		*phase = Phase::Sending {

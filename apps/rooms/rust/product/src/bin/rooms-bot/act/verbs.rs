@@ -1,7 +1,6 @@
 //! One function per action verb, each returning the JSON line it prints.
 use super::{Step, Turn, direct, failure, with_view};
 use crate::bot::{
-	engine,
 	error::Error,
 	opens::action::{self, Label, Place, What},
 	request::Request,
@@ -259,7 +258,7 @@ async fn post<D>(
 		let (conversation, opened) = target(&live, turn, dm.as_ref(), conversation).await?;
 		let (live, conversation) = (&live, &conversation);
 		let result = until_applied(turn, || async move {
-			let operation = engine::operation()?;
+			let operation = crate::bot::identity::new_action(&turn.bot)?;
 			let posting = act(
 				turn,
 				live,
@@ -513,7 +512,7 @@ pub async fn command(request: &Request, turn: &Turn) -> Result<Value, Error> {
 				let what = What::Command { name: Label::of(name) };
 				let what = &what;
 				until_applied(turn, || async {
-					let operation = engine::operation()?;
+					let operation = crate::bot::identity::new_action(&turn.bot)?;
 					// A command may post to any conversation the access reaches, so
 					// it is refused unless its first line is written, as a post
 					// elsewhere is, and its outcome follows.

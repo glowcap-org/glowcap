@@ -90,13 +90,6 @@ pub async fn waited(delay: Duration, stop: &mut watch::Receiver<bool>) -> bool {
 	}
 }
 
-/// A new operation id for one line.
-pub fn operation() -> Result<String, Error> {
-	let mut bytes = [0; 16];
-	rooms_platform::entropy::fill(&mut bytes).map_err(|error| Error::Entropy(error.to_string()))?;
-	Ok(bytes.iter().map(|byte| format!("{byte:02x}")).collect())
-}
-
 /// The line posted in place of an answer, with its reason cut to a short line.
 pub fn failure_line(reason: &str) -> String {
 	format!(
@@ -113,9 +106,9 @@ pub fn report_failure<R: Rooms>(env: &Env<'_, R>, id: TurnId, during: Activity, 
 }
 
 /// A one-line failure reply with its own operation.
-pub fn failure_part(reason: &str) -> Result<Part, Error> {
+pub fn failure_part(store: &crate::bot::store::Store, reason: &str) -> Result<Part, Error> {
 	Ok(Part {
-		operation: operation()?,
+		operation: crate::bot::identity::new_action(store.root())?,
 		text: failure_line(reason),
 	})
 }

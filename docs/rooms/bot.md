@@ -169,7 +169,11 @@ When keeping fails for a reason that clears with time, such as a lost connection
 
 An action whose own answer was lost and that a look then found committed prints `"looked": true`, with `base` when the answer was uncertain. When the bot could not keep what the look found, it also prints `"kept": false` and the `receipt` state, as for a `command` result it did not keep.
 
-The session tells each access which of its own receipts still hold a place, and that list decides which actions the bot settles. The bot asks for it at each start, which judges each claim by its verb's process as above, as soon as a turn's agent stops, on its backoff while a listed action is still running, and otherwise every <!-- value ../../apps/rooms/rust/product/src/bin/rooms-bot/opens.rs SWEEP seconds -->60 seconds<!-- /value -->. It keeps what a listed action returned when it commits and gives the receipt back when the session cannot say, leaving alone a reply line or open the bot settles another way. A request that reaches the session after its verb died is found the same way.
+The session lists receipts held by the access. The bot recognizes the action IDs it minted using the identity saved in its directory. Every client must choose a fresh ID for each new request. If someone reuses one of the bot's IDs after the session forgets the original receipt, the ID alone cannot tell who sent the later request. Give each independent bot or person its own access with `session access issue`, as in [First run](#first-run).
+
+The bot checks its receipts at each start, when a turn's agent stops, and on its backoff while an action is still running. Otherwise it checks every <!-- value ../../apps/rooms/rust/product/src/bin/rooms-bot/opens.rs SWEEP seconds -->60 seconds<!-- /value -->. It keeps what an action returned when it commits and gives the receipt back when the session cannot say. A request that reaches the session after its verb dies is found the same way.
+
+Keep `peer.json` with the rest of the bot directory when moving or restoring it. On upgrade, the bot saves the older action IDs named in its local claims, direct-message open notes, and reply records in `legacy-action-ids.json`. An older receipt with no surviving ownership record stays with the access. Its holder can settle it, and an operator can revoke the access when it is no longer needed.
 
 ## Choosing the agent and its permission
 

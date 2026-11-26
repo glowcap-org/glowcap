@@ -49,7 +49,7 @@ mod pace;
 pub mod receipt;
 pub(super) use pace::within;
 mod replaced;
-use super::{Core, Step, failure_part, operation};
+use super::{Core, Step, failure_part};
 use crate::bot::words::{self, CANNOT_SAY_WHETHER, MOVED_ON, NO_RECEIPT, NOT_KEPT, SENDING_UNDER_NEW};
 use crate::bot::{
 	error::Error,
@@ -325,10 +325,11 @@ impl<R: Rooms> Delivery<'_, '_, R> {
 			// no operation sent and goes out under a new one at a fresh base,
 			// and a session restart during the wait changes nothing.
 			Err(error) if call == Call::FirstSend && error.refused_before_dispatch => {
-				self.env
-					.ledger
-					.borrow_mut()
-					.reissue(self.env.store, self.id, operation()?)?;
+				self.env.ledger.borrow_mut().reissue(
+					self.env.store,
+					self.id,
+					crate::bot::identity::new_action(self.env.store.root())?,
+				)?;
 				self.failed(&error, tries)
 			}
 			// A refused resend, whatever the code, says nothing of the earlier
@@ -543,10 +544,11 @@ impl<R: Rooms> Delivery<'_, '_, R> {
 			"the session committed nothing for operation {}. {SENDING_UNDER_NEW}",
 			self.line.operation
 		));
-		self.env
-			.ledger
-			.borrow_mut()
-			.reissue(self.env.store, self.id, operation()?)?;
+		self.env.ledger.borrow_mut().reissue(
+			self.env.store,
+			self.id,
+			crate::bot::identity::new_action(self.env.store.root())?,
+		)?;
 		Ok(Next::After(if tries.reissues <= MAX_REISSUES {
 			tries.standard.next()
 		} else {
@@ -587,7 +589,7 @@ impl<R: Rooms> Delivery<'_, '_, R> {
 		tries.ended();
 		match self.content {
 			Content::Answer => {
-				let part = failure_part(reason)?;
+				let part = failure_part(self.env.store, reason)?;
 				self.env.ledger.borrow_mut().fail_rest(self.env.store, self.id, part)?;
 				Ok(Next::Now)
 			}

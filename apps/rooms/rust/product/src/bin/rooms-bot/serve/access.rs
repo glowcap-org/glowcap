@@ -113,7 +113,9 @@ pub async fn ask<R: Rooms>(
 		wait: Backoff::standard(),
 	};
 	let mut found = Leftovers::default();
-	for note in opens::unplaced(store.root())? {
+	let notes = opens::unplaced(store.root())?;
+	opens::action::remember_start(store, ledger, &notes)?;
+	for note in notes {
 		let Some(holder) = asking.whose(note.operation()).await? else {
 			return Ok(None);
 		};

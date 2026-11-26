@@ -8,7 +8,6 @@
 //! drops it, and the next call dials again, so reattaching is driven by the
 //! engine's own backoff.
 mod dial;
-mod identity;
 mod map;
 mod names;
 
@@ -18,6 +17,7 @@ use super::{
 };
 use crate::bot::{
 	error::Error,
+	identity,
 	link::Link,
 	store::{Log, Store},
 };

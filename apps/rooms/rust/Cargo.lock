@@ -909,6 +909,7 @@ dependencies = [
  "bytes",
  "futures-util",
  "glowcap",
+ "hmac",
  "http-body-util",
  "hyper",
  "hyper-util",

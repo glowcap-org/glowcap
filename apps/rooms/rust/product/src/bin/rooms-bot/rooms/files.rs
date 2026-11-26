@@ -510,9 +510,13 @@ impl Rooms for Files {
 		std::fs::copy(&source, destination).map_err(|error| RoomsError::new(RoomsErrorKind::Refused, error))
 	}
 
-	/// The directory stand-in has one access, which sent everything in it.
+	/// By default the stand-in's one access sent everything in it.
 	async fn holder(&self, _operation: &str) -> Result<super::Holder, RoomsError> {
-		if let Some(error) = self.take("holder-answers")?.as_deref().and_then(failure) {
+		let answer = self.take("holder-answers")?;
+		if answer.as_deref() == Some("nobody") {
+			return Ok(super::Holder::Nobody);
+		}
+		if let Some(error) = answer.as_deref().and_then(failure) {
 			return Err(error);
 		}
 		Ok(super::Holder::Mine)

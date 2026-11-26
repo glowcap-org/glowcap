@@ -142,7 +142,7 @@ fn a_claim_is_written_before_its_request_leaves() {
 			.find(|line| line.contains("was left by a turn whose agent stopped"))?;
 		Some(line.split("operation ").nth(1)?.split(' ').next()?.to_owned())
 	});
-	assert_eq!(operation.len(), 32, "the claim named no operation: {operation}");
+	assert!(!operation.is_empty(), "the claim named no operation");
 	world.stopped(bot);
 	assert_eq!(
 		world.count("room", TEXT),

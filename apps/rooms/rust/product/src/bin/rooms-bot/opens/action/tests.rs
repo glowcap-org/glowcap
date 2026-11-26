@@ -13,7 +13,8 @@ use crate::bot::{
 use rooms_testing::scratch::Scratch;
 
 fn operation(index: usize) -> String {
-	format!("{index:032x}")
+	let nonce = format!("{index:032x}");
+	crate::bot::identity::sign(&[3; 16], &nonce)
 }
 
 fn turn(id: u64) -> Action {
@@ -220,6 +221,12 @@ fn rig(label: &str) -> (Scratch, Files, Store, RefCell<Ledger>) {
 	let session = scratch.join("session");
 	std::fs::create_dir_all(&session).unwrap();
 	let store = Store::open(&scratch.join("bot")).unwrap();
+	store
+		.write_bytes(
+			rooms_application::archive::identity::FILE,
+			&rooms_application::archive::identity::Identity::new([1; 32], [3; 16]).encode(),
+		)
+		.unwrap();
 	let ledger = Ledger::start(&store, Cursor::start()).unwrap();
 	(scratch, Files::open(&session), store, RefCell::new(ledger))
 }
@@ -453,4 +460,44 @@ async fn an_action_waiting_on_a_cause_is_named_and_one_still_running_is_not() {
 	);
 	let kept = settle(&rooms, &store, &ledger, &mut strays).await.unwrap();
 	assert_eq!(kept, Listed::default());
+}
+
+/// One access can serve a membership worker, another bot and us. Every
+/// receipt remains visible in the access inventory. Only our action reaches
+/// the settlement path, both in the sweep and in a replacement's last list.
+#[tokio::test]
+async fn only_actions_issued_by_this_bot_are_settled() {
+	for replacing in [false, true] {
+		let (scratch, rooms, store, ledger) = rig("bot-actions-shared-access");
+		let ours = operation(1);
+		let wrong_bot = crate::bot::identity::sign(&[9; 16], &format!("{:032x}", 2));
+		let foreign = [
+			format!("membership-{}:2", "e".repeat(32)),
+			format!("{:032x}", 3),
+			wrong_bot,
+			format!("a{}", &ours[1..]),
+		];
+		let remaining = foreign.join("\n") + "\n";
+		std::fs::write(scratch.join("session/held-actions"), format!("{ours}\n{remaining}")).unwrap();
+		std::fs::write(scratch.join("session/action-answers"), "kept\n").unwrap();
+		if replacing {
+			let snapshot = ledger.borrow().clone();
+			last(&rooms, &store, &snapshot).await.unwrap();
+		} else {
+			settle(&rooms, &store, &ledger, &mut Strays::default()).await.unwrap();
+		}
+		assert_eq!(held(&scratch), remaining);
+	}
+}
+
+#[tokio::test]
+async fn both_lists_refuse_to_discard_receipts_if_the_identity_was_lost() {
+	let (scratch, rooms, store, ledger) = rig("bot-lost-receipt-key");
+	let our_receipt = format!("{}\n", operation(1));
+	std::fs::write(scratch.join("session/held-actions"), &our_receipt).unwrap();
+	std::fs::remove_file(store.root().join(rooms_application::archive::identity::FILE)).unwrap();
+	assert!(settle(&rooms, &store, &ledger, &mut Strays::default()).await.is_err());
+	let snapshot = ledger.into_inner();
+	assert!(last(&rooms, &store, &snapshot).await.is_err());
+	assert_eq!(held(&scratch), our_receipt);
 }

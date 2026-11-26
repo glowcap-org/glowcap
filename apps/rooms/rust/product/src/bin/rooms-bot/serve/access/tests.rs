@@ -62,3 +62,66 @@ async fn a_replaced_line_the_old_access_holds_is_left_in_the_ledger_by_its_look(
 	assert_eq!(ledger.replaced(), [line], "the record waits for the serving link's ask");
 	assert_eq!(found.take_mine().len(), 1, "the access that holds it again keeps it");
 }
+
+/// The first start sees that nobody holds an open and drops the note. The
+/// request arrives after that start exits. Both the ordinary recovery and
+/// the last list through the old access must still find its receipt.
+#[tokio::test]
+async fn a_late_open_is_recognized_after_a_start_removed_its_note() {
+	use crate::bot::{ledger::TurnId, opens::action};
+
+	for replacing in [false, true] {
+		let scratch = Scratch::create("bot-late-open-note");
+		let session = scratch.join("session");
+		std::fs::create_dir_all(&session).unwrap();
+		let rooms = Files::open(&session);
+		let store = Store::open(&scratch.join("bot")).unwrap();
+		crate::bot::identity::seed(&store).unwrap();
+		let mut snapshot = Ledger::start(&store, Cursor::start()).unwrap();
+		let legacy = format!("{:032x}", 17);
+		let new = crate::bot::identity::new_action(store.root()).unwrap();
+		for (peer, id) in [("ann", &legacy), ("bob", &new)] {
+			let open = opens::Open {
+				base: Base(1),
+				introduction: rooms_services::session::attached::Introduction {
+					directory: "d".into(),
+					peer: peer.into(),
+					registration: peer.into(),
+				},
+				conversation: ConversationId::new("c"),
+				turn: TurnId(1),
+			};
+			opens::note(store.root(), id, &open).unwrap();
+		}
+		std::fs::write(session.join("holder-answers"), "nobody\nnobody\n").unwrap();
+		let (_stop, shutdown) = tokio::sync::watch::channel(false);
+		let placed = ask(&rooms, &store, &snapshot, LinkStage::Stored, Paused::Leave, &shutdown)
+			.await
+			.unwrap()
+			.unwrap();
+		placed.place(&store, &mut snapshot).unwrap();
+		assert!(opens::unplaced(store.root()).unwrap().is_empty());
+		drop(store);
+		let store = Store::open(&scratch.join("bot")).unwrap();
+		let ledger = Ledger::load(&store).unwrap().unwrap();
+		std::fs::write(session.join("held-actions"), format!("{legacy}\n{new}\n")).unwrap();
+		std::fs::write(session.join("action-answers"), "kept\nkept\n").unwrap();
+		if replacing {
+			action::last(&rooms, &store, &ledger).await.unwrap();
+		} else {
+			action::settle(
+				&rooms,
+				&store,
+				&std::cell::RefCell::new(ledger),
+				&mut action::Strays::default(),
+			)
+			.await
+			.unwrap();
+		}
+		assert!(
+			std::fs::read_to_string(session.join("held-actions"))
+				.unwrap()
+				.is_empty()
+		);
+	}
+}

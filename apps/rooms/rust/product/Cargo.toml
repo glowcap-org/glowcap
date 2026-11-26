@@ -46,6 +46,7 @@ http-body-util.workspace = true
 futures-util = { workspace = true, features = ["async-await", "std"] }
 nix = { workspace = true, features = ["process", "dir"] }
 sha2.workspace = true
+hmac.workspace = true
 
 [dev-dependencies]
 rooms-testing = { path = "../testing" }
