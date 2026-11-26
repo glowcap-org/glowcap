@@ -502,7 +502,7 @@ fn cloneForQueue(self: *Vat, chunk: *QueueChunk, msg: Queued, custody: ?*@import
             const held = try arena.create(Queued.Held);
             const owner = link.state.?;
             held.* = .{ .message = copy, .custody = link, .stamp = owner.store_stamp_counter };
-            owner.exports.holdActorsIn(copy.args, held.stamp, true);
+            owner.exports.updateActorCustodyIn(copy.args, held.stamp, .retain);
             link.owners += 1;
             break :owned .{ .held = held };
         },

@@ -530,7 +530,7 @@ pub fn releaseAnswerPayload(owner: *Session, payload: *AnswerPayload) ReleasedCh
     var released: ReleasedCharges = .{ .resolution = payload.resolution_charge };
     if (payload.held_imports) |batch| batch.ready();
     for (payload.queue.items) |call| {
-        if (call.message == .deliver) owner.exports.holdActorsIn(call.message.deliver.args, call.export_stamp, false);
+        if (call.message == .deliver) owner.exports.updateActorCustodyIn(call.message.deliver.args, call.export_stamp, .release);
         released.queued_calls += call.charge;
         call.deinit(allocator);
     }
@@ -539,7 +539,7 @@ pub fn releaseAnswerPayload(owner: *Session, payload: *AnswerPayload) ReleasedCh
     for (payload.projections.items) |projection| deinitProjection(allocator, projection);
     payload.projections.deinit(allocator);
     if (payload.resolution) |resolution| {
-        if (resolution.value == .fulfill) owner.exports.holdActorsIn(&.{resolution.value.fulfill}, resolution.export_stamp, false);
+        if (resolution.value == .fulfill) owner.exports.updateActorCustodyIn(&.{resolution.value.fulfill}, resolution.export_stamp, .release);
         model.freeResolution(allocator, resolution.value);
     }
     allocator.destroy(payload);

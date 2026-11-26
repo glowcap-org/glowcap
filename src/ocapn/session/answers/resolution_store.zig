@@ -80,9 +80,9 @@ pub fn commitPreparedResolutionStore(
     prepared: PreparedResolutionStore,
     resolution: model.Resolution,
 ) void {
-    if (resolution == .fulfill) self.exports.holdActorsIn(&.{resolution.fulfill}, self.store_stamp_counter, true);
+    if (resolution == .fulfill) self.exports.updateActorCustodyIn(&.{resolution.fulfill}, self.store_stamp_counter, .retain);
     if (prepared.payload.resolution) |prior| {
-        if (prior.value == .fulfill) self.exports.holdActorsIn(&.{prior.value.fulfill}, prior.export_stamp, false);
+        if (prior.value == .fulfill) self.exports.updateActorCustodyIn(&.{prior.value.fulfill}, prior.export_stamp, .release);
         model.freeResolution(self.allocator, prior.value);
     }
     // A batch already on the payload, a replaced resolution's hold or the

@@ -206,7 +206,7 @@ pub const Custody = struct {
     }
 
     pub fn retain(owner: *Session, reference: model.Reference, stamp: u64) error{QueueCapExceeded}!void {
-        if (reference != .near or owner.exports.holdActor(reference.near.export_position, stamp, true)) return;
+        if (reference != .near or owner.exports.updateActorCustody(reference.near.export_position, stamp, .retain)) return;
         const purpose = owner.exports.purposePtr(reference.near.export_position) orelse return;
         if (purpose.* != .local_promise_answer) return;
         const count = &purpose.local_promise_answer.staging_owners;
@@ -214,7 +214,7 @@ pub const Custody = struct {
     }
 
     pub fn release(owner: *Session, reference: model.Reference, stamp: u64) void {
-        if (reference != .near or owner.exports.holdActor(reference.near.export_position, stamp, false)) return;
+        if (reference != .near or owner.exports.updateActorCustody(reference.near.export_position, stamp, .release)) return;
         // A failed turn may revoke its fresh, unshared Host projection before
         // withdrawing the provisional Node payload. Turn abort is synchronous:
         // that payload cannot publish, and its later custody release is spent.

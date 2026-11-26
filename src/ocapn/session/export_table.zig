@@ -213,31 +213,34 @@ pub const ExportTable = struct {
         self.ready_actor = index;
     }
 
-    /// Return local custody of one occurrence, or take it. It cannot overflow:
+    pub const ActorCustodyChange = enum { retain, release };
+
+    /// Apply one ownership change to a projected occurrence. Its count cannot overflow:
     /// every occurrence is backed by a distinct retained tree slot and the
     /// retained tree budgets are byte counts that fit in the address space.
-    pub fn holdActor(self: *ExportTable, position: Id, through_stamp: u64, comptime acquiring: bool) bool {
+    pub fn updateActorCustody(self: *ExportTable, position: Id, through_stamp: u64, comptime change: ActorCustodyChange) bool {
         const row = self.projectedRow(position) orelse return false;
         const actor = &row.purpose.projected_actor;
         if (actor.stamp > through_stamp) return false;
-        if (acquiring) {
-            actor.local_owners += 1;
-        } else {
-            std.debug.assert(actor.local_owners != 0);
-            actor.local_owners -= 1;
-            self.queueReleased(position, row);
+        switch (change) {
+            .retain => actor.local_owners += 1,
+            .release => {
+                std.debug.assert(actor.local_owners != 0);
+                actor.local_owners -= 1;
+                self.queueReleased(position, row);
+            },
         }
         return true;
     }
 
-    pub fn holdActorsIn(self: *ExportTable, args: []const model.Argument, through_stamp: u64, comptime acquiring: bool) void {
+    pub fn updateActorCustodyIn(self: *ExportTable, args: []const model.Argument, through_stamp: u64, comptime change: ActorCustodyChange) void {
         if (self.projected_count == 0) return;
         const Visit = struct {
             table: *ExportTable,
             stamp: u64,
 
             fn apply(ctx: @This(), reference: model.Reference) bool {
-                if (reference == .near) _ = ctx.table.holdActor(reference.near.export_position, ctx.stamp, acquiring);
+                if (reference == .near) _ = ctx.table.updateActorCustody(reference.near.export_position, ctx.stamp, change);
                 return false;
             }
         };

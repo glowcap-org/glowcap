@@ -286,13 +286,13 @@ pub const Event = struct {
         const state = link.state.?;
         if (state.exports.projected_count == 0) return;
         self.export_stamp = state.store_stamp_counter;
-        if (self.visitProjectedActors(state, true)) {
+        if (self.visitProjectedActors(state, .retain)) {
             link.owners += 1;
             self.actor_custody = link;
         }
     }
 
-    fn visitProjectedActors(self: *const Event, state: *session.Session, comptime acquiring: bool) bool {
+    fn visitProjectedActors(self: *const Event, state: *session.Session, comptime change: session.ActorCustodyChange) bool {
         const Walk = struct {
             state: *session.Session,
             stamp: u64,
@@ -300,7 +300,7 @@ pub const Event = struct {
 
             fn reference(walk: *@This(), ref: model.view.Reference) void {
                 if (ref.exportPosition()) |position| {
-                    if (walk.state.exports.holdActor(position, walk.stamp, acquiring)) walk.found = true;
+                    if (walk.state.exports.updateActorCustody(position, walk.stamp, change)) walk.found = true;
                 }
             }
 
@@ -449,7 +449,7 @@ pub const Event = struct {
     /// call site knows which optional members that row holds.
     pub inline fn deinit(self: *Event) void {
         if (self.actor_custody) |custody| {
-            if (custody.state) |state| _ = self.visitProjectedActors(state, false);
+            if (custody.state) |state| _ = self.visitProjectedActors(state, .release);
             custody.drop();
         }
         self.resolve_aliases.deinit(self.allocator);

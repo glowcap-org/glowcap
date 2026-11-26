@@ -47,7 +47,7 @@ pub const PreparedCallQueue = struct {
         std.debug.assert(owner.queued_call_bytes + self.charge == self.next_queued_bytes);
         var held = call;
         held.export_stamp = owner.store_stamp_counter;
-        if (held.message == .deliver) owner.exports.holdActorsIn(held.message.deliver.args, held.export_stamp, true);
+        if (held.message == .deliver) owner.exports.updateActorCustodyIn(held.message.deliver.args, held.export_stamp, .retain);
         self.payload.payload.queue.appendAssumeCapacity(held);
         owner.queued_call_bytes = self.next_queued_bytes;
         self.payload.commit();
@@ -159,7 +159,7 @@ pub fn takePayloadCalls(self: *Session, payload: *session.AnswerPayload) ![]stor
     const calls = try payload.queue.toOwnedSlice(self.allocator);
     var released: usize = 0;
     for (calls) |call| {
-        if (call.message == .deliver) self.exports.holdActorsIn(call.message.deliver.args, call.export_stamp, false);
+        if (call.message == .deliver) self.exports.updateActorCustodyIn(call.message.deliver.args, call.export_stamp, .release);
         released += call.charge;
     }
     self.returnReleasedCharges(.{ .queued_calls = released });

@@ -232,7 +232,7 @@ pub const Queued = union(enum) {
         switch (retired) {
             .message => {},
             .held => |held| {
-                if (held.custody.state) |state| state.exports.holdActorsIn(held.message.args, held.stamp, false);
+                if (held.custody.state) |state| state.exports.updateActorCustodyIn(held.message.args, held.stamp, .release);
                 held.custody.drop();
             },
             .owned => |body| body.vtable.retire(body.ctx, reason),
