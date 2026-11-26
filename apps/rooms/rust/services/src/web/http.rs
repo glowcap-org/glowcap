@@ -220,9 +220,11 @@ async fn resource(request: Request<Incoming>, environment: &Environment) -> Repl
 	}
 
 	if path == "/ice" {
-		let reply = match environment.ice.servers().await {
+		let address = request.extensions().get::<std::net::IpAddr>().copied();
+		let reply = match environment.ice.servers(address).await {
 			Ok(body) => response(StatusCode::OK, "application/json", body),
-			Err(error) => {
+			Err(super::ice::Error::Admission(refusal)) => super::admission::reply(refusal),
+			Err(super::ice::Error::Unavailable(error)) => {
 				(environment.report)(super::Notice::IceUnavailable(error));
 				response(
 					StatusCode::SERVICE_UNAVAILABLE,

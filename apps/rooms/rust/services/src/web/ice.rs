@@ -4,8 +4,11 @@ use bytes::Bytes;
 use http_body_util::{BodyExt, Full, Limited};
 use hyper::{Request, header::HeaderValue};
 use hyper_util::rt::TokioIo;
-use rooms_application::ice::{Limits, Servers};
-use std::{sync::Arc, time::Duration};
+use rooms_application::{
+	admission::{Class, Refusal},
+	ice::{Limits, Servers},
+};
+use std::{net::IpAddr, rc::Rc, sync::Arc, time::Duration};
 use tokio::{net::TcpStream, sync::Semaphore};
 use tokio_rustls::{TlsConnector, rustls::pki_types::ServerName};
 
@@ -29,7 +32,12 @@ struct Issued<'a> {
 	#[serde(borrow, rename = "iceServers")]
 	servers: &'a serde_json::value::RawValue,
 }
+pub(super) enum Error {
+	Admission(Refusal),
+	Unavailable(String),
+}
 pub(super) struct Policy {
+	admission: Rc<super::admission::Admission>,
 	stun: Servers,
 	issuer: Option<(Issuer, TlsConnector)>,
 	capacity: Semaphore,
@@ -77,7 +85,7 @@ impl Config {
 	}
 }
 impl Policy {
-	pub async fn open(config: Config) -> Result<Self, String> {
+	pub async fn open(config: Config, admission: Rc<super::admission::Admission>) -> Result<Self, String> {
 		let issuer = match config.issuer {
 			Some(issuer) => Some((
 				issuer,
@@ -86,28 +94,35 @@ impl Policy {
 			None => None,
 		};
 		Ok(Self {
+			admission,
 			stun: config.stun,
 			issuer,
 			capacity: Semaphore::new(16),
 		})
 	}
-	pub async fn servers(&self) -> Result<Bytes, String> {
+	pub async fn servers(&self, address: Option<IpAddr>) -> Result<Bytes, Error> {
 		let servers = match &self.issuer {
 			Some((issuer, tls)) => {
 				let _slot = self
 					.capacity
 					.try_acquire()
-					.map_err(|_| "TURN issuer request capacity exceeded")?;
+					.map_err(|_| Error::Unavailable("TURN issuer request capacity exceeded".into()))?;
+				self.admission
+					.start(Class::HttpStart, address)
+					.map_err(Error::Admission)?;
 				let issued = tokio::time::timeout(Duration::from_secs(5), issuer.request(tls))
 					.await
-					.map_err(|_| "TURN credential request timed out")??;
-				self.stun.with_turn(issued, LIMITS)?
+					.map_err(|_| Error::Unavailable("TURN credential request timed out".into()))?
+					.map_err(Error::Unavailable)?;
+				self.stun
+					.with_turn(issued, LIMITS)
+					.map_err(|error| Error::Unavailable(error.into()))?
 			}
 			None => self.stun.clone(),
 		};
 		serde_json::to_vec(&servers)
 			.map(Bytes::from)
-			.map_err(|_| "serializing ICE configuration failed".into())
+			.map_err(|_| Error::Unavailable("serializing ICE configuration failed".into()))
 	}
 }
 impl Issuer {
@@ -164,5 +179,40 @@ impl Issuer {
 		};
 		let connection = async { connection.await.map_err(|_| "TURN issuer connection failed".to_owned()) };
 		tokio::try_join!(exchange, connection).map(|(servers, ())| servers)
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use rooms_application::admission::Settings;
+
+	#[tokio::test]
+	async fn shared_http_budget_limits_turn_issuance_and_leaves_static_ice_available() {
+		let settings =
+			Settings::parse(|key| (key == "admission-rates").then(|| "http-start=1/1".into()), 32, 1).unwrap();
+		let admission = super::super::admission::Admission::new(super::super::admission::Config {
+			settings,
+			per_address: true,
+			trusted_proxies: Default::default(),
+		});
+		let address = Some(IpAddr::V4(std::net::Ipv4Addr::LOCALHOST));
+		let static_ice = Policy::open(Config::read(|_| None).unwrap(), admission.clone())
+			.await
+			.unwrap();
+		let turn = Config::read(|name| match name {
+			"GLOWCAP_ROOMS_TURN_CREDENTIALS_URL" => Some("https://issuer.invalid/".into()),
+			"GLOWCAP_ROOMS_TURN_BEARER_TOKEN" => Some("test".into()),
+			_ => None,
+		})
+		.unwrap();
+		let turn = Policy::open(turn, admission.clone()).await.unwrap();
+		assert!(static_ice.servers(address).await.is_ok());
+		admission.start(Class::HttpStart, address).unwrap();
+		assert!(matches!(
+			turn.servers(address).await,
+			Err(Error::Admission(Refusal::Throttled { .. }))
+		));
+		assert!(static_ice.servers(address).await.is_ok());
 	}
 }

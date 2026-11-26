@@ -152,3 +152,51 @@ fn starting_a_workspace_under_another_nickname_is_refused() {
 	assert!(refused.contains("another --dir"), "{refused}");
 	fixture.finish();
 }
+
+#[test]
+fn private_startup_keeps_session_links_out_of_managed_child_diagnostics() {
+	let temp = Scratch::create("private-startup");
+	let state = temp.join("managed");
+	call(&state, "start", json!({"transport":["tcp"]}));
+	let links = ["use.sturdyref", "management.sturdyref"]
+		.map(|file| session_rig::LinkSecret::of(&std::fs::read_to_string(state.join(file)).unwrap()));
+	call(&state, "stop", json!({}));
+	let log = std::fs::read_to_string(state.join("control.log")).unwrap();
+	assert!(log.contains("rooms session: ready"));
+	for secret in links {
+		secret.assert_absent(&log, "control.log");
+	}
+}
+
+#[test]
+fn private_startup_announces_foreground_session_readiness_without_bearer_links() {
+	let temp = Scratch::create("private-foreground-session");
+	let state = temp.join("peer");
+	let path = temp.join("output");
+	let log = std::fs::File::create(&path).unwrap();
+	let mut cmd = super::command();
+	cmd.arg(format!("--state={}", state.display()))
+		.arg("--transport=tcp")
+		.env(rooms_services::announce::PRIVATE_STARTUP, "1")
+		.stdout(log.try_clone().unwrap())
+		.stderr(log);
+	let mut peer = Process::new(cmd.spawn().unwrap(), "private foreground session");
+	let deadline = Instant::now() + Duration::from_secs(8);
+	loop {
+		if std::fs::read_to_string(&path).unwrap().contains("rooms session: ready") {
+			break;
+		}
+		assert!(
+			peer.child.try_wait().unwrap().is_none() && Instant::now() < deadline,
+			"session readiness deadline"
+		);
+		std::thread::sleep(Duration::from_millis(10));
+	}
+	let links = ["use.sturdyref", "management.sturdyref"]
+		.map(|file| session_rig::LinkSecret::of(&std::fs::read_to_string(state.join(file)).unwrap()));
+	peer.signal("-TERM");
+	let log = std::fs::read_to_string(path).unwrap();
+	for secret in links {
+		secret.assert_absent(&log, "foreground startup");
+	}
+}

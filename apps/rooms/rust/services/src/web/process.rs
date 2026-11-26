@@ -11,8 +11,7 @@ use tokio::{
 pub(super) struct Process {
 	pub child: Child,
 	pub label: &'static str,
-	/// Copies what the child prints after its announcement onto this
-	/// process's stderr, for the child's lifetime.
+	/// Drains stdout after the child's readiness record, until the child exits.
 	forward: Option<tokio::task::JoinHandle<std::io::Result<u64>>>,
 	report: Option<Report>,
 }
@@ -41,10 +40,8 @@ impl Process {
 			report: None,
 		}
 	}
-	/// Read the child's one announcement line, then keep its output open:
-	/// the rest of what it prints is copied to this process's stderr, so a
-	/// stray line after readiness is seen here rather than failing the child
-	/// on a pipe nobody reads.
+	/// Read the child's announcement and keep draining so later writes succeed.
+	/// Foreground runs forward the remaining stream to stderr.
 	pub async fn announcement(&mut self, deadline: Duration) -> Result<Announcement, String> {
 		let stdout = self
 			.child
@@ -68,10 +65,21 @@ impl Process {
 			let line = std::str::from_utf8(&line).map_err(|_| "Rooms server announcement is not Unicode")?;
 			Announcement::parse(line)
 		};
-		let announcement = tokio::time::timeout(deadline, read)
+		let mut announcement = tokio::time::timeout(deadline, read)
 			.await
 			.map_err(|_| "Rooms server announcement timed out")??;
+		// This boundary handles every incarnation, including an older server
+		// that still sends its capability lines in the readiness record.
+		let show_links = crate::announce::startup_links_visible();
+		if !show_links {
+			announcement.capabilities.clear();
+		}
 		self.forward = Some(tokio::spawn(async move {
+			if !show_links {
+				// The child's diagnostics use stderr. Drain any extra stdout
+				// without copying its private announcement stream to the log.
+				return tokio::io::copy(&mut reader, &mut tokio::io::sink()).await;
+			}
 			let mut stderr = std::io::stderr();
 			let mut chunk = [0u8; 4096];
 			let mut copied = 0u64;

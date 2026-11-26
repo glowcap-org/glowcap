@@ -127,8 +127,8 @@ elsewhere:
          GLOWCAP_ROOMS_HTTP_PUBLIC: "https://rooms.example/"
    ```
 
-   For a public host, also list in `GLOWCAP_ROOMS_CAPABILITIES` only the capabilities you need. Every minted one prints
-   in the logs and in the output of `up` ([the capability table](../../operating.md#operator-capabilities)).
+   For a public host, list in `GLOWCAP_ROOMS_CAPABILITIES` only the capabilities you need.
+   Read the minted links with `deployment links` ([the capability table](../../operating.md#operator-capabilities)).
 4. Charge each client its own allowance. Add `GLOWCAP_ROOMS_HTTP_ADMISSION_PER_ADDRESS: "true"` and
    `GLOWCAP_ROOMS_HTTP_TRUSTED_PROXIES` under the same `environment:`, set to the address the container sees your proxy
    at. For a proxy on this host, that is the network gateway:
@@ -197,6 +197,14 @@ configuration directory printed by `deployment doctor`. For a local build or a r
 glowcap apps rooms deployment up --dir "$PWD" --image ghcr.io/glowcap-org/glowcap-rooms:vNEW
 glowcap apps rooms deployment status --dir "$PWD"
 ```
+
+Upgrade the host CLI as well as the image. The CLI writes the managed Compose file on each `up`. If your
+override defines a bot session, copy its health check from the updated override example before running `up`.
+Both checks should invoke `/runtime/libexec/rooms-session --check-ready=/run/rooms-session/use.sturdyref`.
+
+With the updated image these probes report readiness by exit status. An older template calls a command that prints
+the use link into Docker health history, even with the updated image. Older images can also retain bearer links
+in startup logs. Treat those records as credentials, including any retained after a rollback.
 
 After an image change, `image` holds the new ID and `previous-image` holds the old one. To roll back that change,
 use the backup you made immediately before the upgrade. The older version may need the matching state restored
@@ -333,7 +341,9 @@ serves. Left in, it drops every instructions file, including one a later `GLOWCA
 says nothing.
 
 The bot guide's [Choosing the agent and its permission](../../../../docs/rooms/bot.md#choosing-the-agent-and-its-permission)
-says what a `full` agent can reach, which here is everything its container can. The bot reaches its session over
+says what a `full` agent can reach, including the files and credentials available to its user.
+The example bot drops all Linux capabilities and prevents executables from gaining privileges. For an existing
+override, copy `cap_drop` and `security_opt` from the example into the `bot` service. The bot reaches its session over
 [iroh](https://www.iroh.computer/) and needs none of this deployment's networks. A model server that listens only on the host's loopback needs
 `network_mode: host`, as the override's comments say.
 

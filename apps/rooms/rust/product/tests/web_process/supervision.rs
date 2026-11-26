@@ -1,5 +1,7 @@
 //! Attachment borrows a running directory. Takeover acquires its kept state.
 use super::*;
+#[path = "../session_rig/link_secret.rs"]
+mod link_secret;
 use rooms_testing::scratch::Scratch;
 
 #[tokio::test(flavor = "current_thread")]
@@ -91,4 +93,82 @@ fn assert_same_endpoint(actual: &str, expected: &str) {
 	let expected = glowcap::parse_locator(expected).unwrap();
 	assert_eq!(actual.transport, expected.transport);
 	assert_eq!(actual.designator, expected.designator);
+}
+
+const RESTARTING_DIRECTORY: &str = r#"import json, os, pathlib, signal
+signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGTERM})
+started = pathlib.Path(os.environ['GLOWCAP_ROOMS_TEST_FIXTURE'], 'first')
+name = 'second' if started.exists() else 'first'
+locator = f'ocapn://{name}.id'
+line = f'ROOMS-OPERATOR {locator}/s/{name}-private-record'
+print('ROOMS-SERVER-READY ' + json.dumps({'schema':'rooms-server/1', 'location':locator, 'capabilities':[line]}), flush=True)
+print('private-trailing-output', flush=True)
+if name == 'first':
+    started.touch()
+else:
+    signal.sigwait({signal.SIGTERM})
+"#;
+
+/// A directory from before private startup can still send links to its
+/// supervisor. The first announcement, a restart, and extra child stdout
+/// all share the same retained log with the embedded session's banner.
+#[tokio::test]
+async fn private_startup_keeps_links_out_of_web_and_restarted_child_output() {
+	use super::startup::Fixture;
+	use std::fs;
+	tokio::time::timeout(Duration::from_secs(20), async {
+		let fixture = Fixture::new();
+		let session = fixture.0.join("session");
+		let script = fixture.script("directory", RESTARTING_DIRECTORY);
+		let mut options = Web::options(0);
+		options.insert("server", script.display().to_string());
+		let mut command = Web::endpoint_command_with(options);
+		fixture.env(&mut command);
+		let path = fixture.0.join("log");
+		let log = fs::File::create(&path).unwrap();
+		command
+			.env(rooms_services::announce::PRIVATE_STARTUP, "")
+			.arg("--no-browser-assets")
+			.arg("--session-transport=tcp")
+			.arg(format!("--session-state={}", session.display()))
+			.stdout(log.try_clone().unwrap())
+			.stderr(log);
+		let mut web = Web::spawn(command);
+		loop {
+			assert!(web.child.try_wait().unwrap().is_none(), "web stopped before readiness");
+			let log = fs::read_to_string(&path).unwrap();
+			if log.contains("rooms: ready") {
+				web.port = log
+					.lines()
+					.find_map(|line| line.strip_prefix("ROOMS-WEB-LISTENING "))
+					.unwrap()
+					.parse()
+					.unwrap();
+				break;
+			}
+			tokio::time::sleep(Duration::from_millis(20)).await;
+		}
+		while !web.get("/locator").await.contains("ocapn://second.id") {
+			tokio::time::sleep(Duration::from_millis(20)).await;
+		}
+		let links =
+			["use.sturdyref", "management.sturdyref"].map(|file| fs::read_to_string(session.join(file)).unwrap());
+		web.stop().await;
+		let log = fs::read_to_string(path).unwrap();
+		assert!(log.contains("open the page") && log.contains("restarting"));
+		for line in [
+			"first-private-record",
+			"second-private-record",
+			"private-trailing-output",
+			"#attach=",
+			"ROOMS-SESSION-",
+		] {
+			assert!(!log.contains(line), "a private announcement reached the retained log");
+		}
+		for link in links {
+			link_secret::LinkSecret::of(&link).assert_absent(&log, "web startup and restart output");
+		}
+	})
+	.await
+	.expect("private startup and directory restart deadline");
 }

@@ -54,7 +54,7 @@ pub const HELP: &str = concat!(
   --listen=<transport>[,<name>=<value>...]  also listen over another transport, as rooms-server; repeatable
       a relay listener registers at this server's own relay unless GLOWCAP_ROOMS_RELAY_URL or its relay option names another
   --state=<directory>  keep the directory identity and state across restarts
-  --session-state=<directory>  also serve a durable shared session and print its use and management links (or GLOWCAP_ROOMS_SESSION_STATE)
+  --session-state=<directory>  also serve a durable shared session (or GLOWCAP_ROOMS_SESSION_STATE)
   --session-transport=<transport>  the shared session's announced listener: tcp, keyed-tcp, noise-tcp, iroh (default), keyed-relay, noise-relay, or onion
       a relay transport registers at this server's own relay unless GLOWCAP_ROOMS_RELAY_URL or --session-relay names another, and --session-relay-public applies only with --session-relay
   --session-<option>=<value>  any other rooms-session option, such as --session-bind or --session-reachability (or GLOWCAP_ROOMS_SESSION_<OPTION>)
@@ -68,6 +68,7 @@ pub const HELP: &str = concat!(
   --http-trusted-proxies=<address|cidr,...>  proxies whose X-Forwarded-For client address selects the budget (default: none)
   --browser-admission-scale=<1..100> --browser-admission-rows=<1..65536>
   --browser-admission-rates=<class=burst/per-minute,...> --browser-admission-aggregate-scale=<1..100>
+Setting GLOWCAP_ROOMS_PRIVATE_STARTUP withholds bearer links from startup and restart output.
 Server options and GLOWCAP_ROOMS_* variables have the same meaning as rooms-server.
 rooms-web --check-ready[=http://host:port]  check directory and browser assets (5 second deadline)
 rooms-web --locator[=http://host:port]  print the running directory locator

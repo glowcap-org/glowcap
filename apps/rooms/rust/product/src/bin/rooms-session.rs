@@ -1,11 +1,10 @@
 //! The host durable Rooms session peer. Options come from the command line
-//! or `GLOWCAP_ROOMS_SESSION_*`. Stdout announces separate workspace and
-//! management sturdyrefs, and diagnostics go to stderr.
+//! or `GLOWCAP_ROOMS_SESSION_*`. Foreground startup announces the use and
+//! management links unless private startup is set. Diagnostics go to stderr.
 //!
-//! `--check-ready=<path>` is the deployment's healthcheck: it reads the
-//! readiness mirror a running peer wrote, prints the sturdyref when the file
-//! holds exactly one, and exits nonzero otherwise, so the container needs no
-//! second runtime to ask whether the peer is up.
+//! `--check-ready=<path>` validates the running peer's readiness file.
+//! Deployment images report health through the exit status. The public
+//! command requests the link explicitly when an operator reads it.
 #[path = "../announce.rs"]
 mod announce;
 use rooms_application::failure::FailureCode;
@@ -26,11 +25,14 @@ const STATE_UNREADABLE: i32 = 65;
 /// Why the process stopped, and the status it exits with.
 struct Stop {
 	status: i32,
-	text: String,
+	text: Option<String>,
 }
 impl From<String> for Stop {
 	fn from(text: String) -> Self {
-		Self { status: 1, text }
+		Self {
+			status: 1,
+			text: Some(text),
+		}
 	}
 }
 impl From<&str> for Stop {
@@ -50,10 +52,10 @@ fn stopped(error: session::Error) -> Stop {
 			FailureCode::SessionStateUnreadable => STATE_UNREADABLE,
 			_ => 1,
 		},
-		text: match definition.action {
+		text: Some(match definition.action {
 			Some(action) => format!("{} {action} ({error})", definition.summary),
 			None => format!("{} ({error})", definition.summary),
-		},
+		}),
 	}
 }
 
@@ -61,7 +63,9 @@ fn stopped(error: session::Error) -> Stop {
 async fn main() {
 	let result = tokio::task::LocalSet::new().run_until(start()).await;
 	if let Err(stop) = result {
-		eprintln!("rooms session: {}", stop.text);
+		if let Some(text) = stop.text {
+			eprintln!("rooms session: {text}");
+		}
 		std::process::exit(stop.status);
 	}
 }
@@ -80,10 +84,19 @@ async fn start() -> Result<(), Stop> {
 		};
 		return Ok(commands::run(body).await?);
 	}
-	if let [only] = args.as_slice()
-		&& let Some(path) = only.strip_prefix("--check-ready=")
+	if let [check, flags @ ..] = args.as_slice()
+		&& let Some(path) = check.strip_prefix("--check-ready=")
 	{
-		return Ok(check_ready(path)?);
+		let quiet = match flags {
+			[] => !rooms_services::announce::startup_links_visible(),
+			[flag] if flag == "--quiet" => true,
+			[flag] if flag == "--show-link" => false,
+			_ => return Err("use --check-ready=<path> [--quiet|--show-link]".into()),
+		};
+		return check_ready(path, quiet).map_err(|text| Stop {
+			status: 1,
+			text: (!quiet).then_some(text),
+		});
 	}
 	let control = args.iter().filter(|arg| *arg == "--local-control").count();
 	if control > 1 {
@@ -118,11 +131,7 @@ async fn start() -> Result<(), Stop> {
 					return Err(error.to_string().into());
 				}
 			};
-		announce::announce(&format!(
-			"ROOMS-SESSION-LISTENING {}\nROOMS-SESSION-MANAGEMENT {}",
-			peer.link(),
-			peer.management_link()
-		));
+		announce_session(peer.link(), peer.management_link());
 		let served = peer.serve(control.serve(stop)).await;
 		// A transport can end serving before the halt future resolves. Both
 		// exits drain local commands while the peer still owns a running Host.
@@ -151,9 +160,7 @@ async fn start() -> Result<(), Stop> {
 		config,
 		stop,
 		|link, management| {
-			announce::announce(&format!(
-				"ROOMS-SESSION-LISTENING {link}\nROOMS-SESSION-MANAGEMENT {management}"
-			));
+			announce_session(link, management);
 			eprintln!("rooms session: host peer ready over {transport}");
 		},
 		report,
@@ -162,7 +169,17 @@ async fn start() -> Result<(), Stop> {
 	.map_err(stopped)
 }
 
-fn check_ready(path: &str) -> Result<(), String> {
+fn announce_session(link: &str, management: &str) {
+	if rooms_services::announce::startup_links_visible() {
+		announce::announce(&format!(
+			"ROOMS-SESSION-LISTENING {link}\nROOMS-SESSION-MANAGEMENT {management}"
+		));
+	} else {
+		announce::announce("rooms session: ready");
+	}
+}
+
+fn check_ready(path: &str, quiet: bool) -> Result<(), String> {
 	use std::io::Read;
 	let not_ready = |reason: String| format!("not ready: {reason}");
 	let file = std::fs::File::open(path).map_err(|e| not_ready(e.to_string()))?;
@@ -173,12 +190,15 @@ fn check_ready(path: &str) -> Result<(), String> {
 	if document.len() as u64 > MAX_READINESS_BYTES {
 		return Err(not_ready("the readiness file is larger than one sturdyref".into()));
 	}
-	let link = document.trim_end_matches('\n');
+	let link = document.strip_suffix('\n').unwrap_or(&document);
 	if link.is_empty() || link.contains('\n') || link.trim() != link {
 		return Err(not_ready("the readiness file is not one sturdyref".into()));
 	}
-	glowcap::parse_sturdyref(link, glowcap::CaptpVersion::V1_0).map_err(|e| not_ready(e.to_string()))?;
-	println!("{link}");
+	glowcap::parse_sturdyref(link, glowcap::CaptpVersion::V1_0)
+		.map_err(|_| not_ready("the readiness file is not one sturdyref".into()))?;
+	if !quiet {
+		println!("{link}");
+	}
 	Ok(())
 }
 
@@ -197,8 +217,9 @@ mod tests {
 		});
 		assert_eq!(stop.status, STATE_UNREADABLE);
 		let definition = code.definition();
-		assert!(stop.text.starts_with(definition.summary), "{}", stop.text);
-		assert!(stop.text.contains(definition.action.unwrap()), "{}", stop.text);
+		let text = stop.text.unwrap();
+		assert!(text.starts_with(definition.summary), "{text}");
+		assert!(text.contains(definition.action.unwrap()), "{text}");
 		assert_eq!(stopped(session::Error::closed("gone")).status, 1);
 	}
 }

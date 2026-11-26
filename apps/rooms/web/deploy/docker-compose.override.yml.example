@@ -79,7 +79,7 @@ services:
   #   tmpfs:
   #     - /run/rooms-session:mode=0700
   #   healthcheck:
-  #     test: ["CMD", "/runtime/bin/glowcap", "apps", "rooms", "session", "ready", "--file=/run/rooms-session/use.sturdyref"]
+  #     test: ["CMD", "/runtime/libexec/rooms-session", "--check-ready=/run/rooms-session/use.sturdyref"]
   #     interval: 30s
   #     timeout: 10s
   #     retries: 3
@@ -106,6 +106,8 @@ services:
   #   image: glowcap-rooms-bot
   #   pull_policy: build
   #   container_name: glowcap-rooms-bot
+  #   cap_drop: ["ALL"]
+  #   security_opt: ["no-new-privileges:true"]
   #   entrypoint: ["/runtime/bin/glowcap", "apps", "rooms", "bot", "serve"]
   #   command:
   #     - --dir=/bot-state

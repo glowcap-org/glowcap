@@ -169,3 +169,51 @@ fn session_peer_executable_custody_restart_and_signals() {
 		}
 	}
 }
+
+#[test]
+fn quiet_readiness_reports_only_an_exit_status() {
+	let temp = Scratch::create("quiet-readiness");
+	let file = temp.join("use.sturdyref");
+	let option = format!("--check-ready={}", file.display());
+	let link = "ocapn://127.0.0.1%3A9300.tcp/s/eA";
+	let run = |private, flag: Option<&str>| {
+		let mut cmd = command();
+		cmd.env_remove(rooms_services::announce::PRIVATE_STARTUP);
+		if private {
+			cmd.env(rooms_services::announce::PRIVATE_STARTUP, "1");
+		}
+		cmd.arg(&option).args(flag).output().unwrap()
+	};
+	let probe = |ready| {
+		for (private, flag) in [(true, None), (false, Some("--quiet")), (true, Some("--quiet"))] {
+			let result = run(private, flag);
+			assert_eq!(result.status.success(), ready);
+			assert!(
+				result.stdout.is_empty() && result.stderr.is_empty(),
+				"the quiet probe emitted output"
+			);
+		}
+	};
+	probe(false);
+	std::fs::write(&file, format!("{link}\n")).unwrap();
+	probe(true);
+	for (private, flag) in [(false, None), (false, Some("--show-link")), (true, Some("--show-link"))] {
+		let read = run(private, flag);
+		assert!(read.status.success() && read.stderr.is_empty());
+		assert_same_secret(
+			read.stdout,
+			format!("{link}\n"),
+			"the ready command did not print the link",
+		);
+	}
+	for invalid in [
+		String::new(),
+		format!("{link}\n{link}"),
+		format!("{link}\n\n"),
+		format!("{link}!"),
+		link.repeat(100),
+	] {
+		std::fs::write(&file, invalid).unwrap();
+		probe(false);
+	}
+}
