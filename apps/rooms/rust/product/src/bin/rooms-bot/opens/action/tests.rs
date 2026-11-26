@@ -470,12 +470,13 @@ async fn only_actions_issued_by_this_bot_are_settled() {
 	for replacing in [false, true] {
 		let (scratch, rooms, store, ledger) = rig("bot-actions-shared-access");
 		let ours = operation(1);
+		let (_, our_tag) = ours.split_once('-').expect("signed operation has a tag");
 		let wrong_bot = crate::bot::identity::sign(&[9; 16], &format!("{:032x}", 2));
 		let foreign = [
 			format!("membership-{}:2", "e".repeat(32)),
 			format!("{:032x}", 3),
 			wrong_bot,
-			format!("a{}", &ours[1..]),
+			format!("{:032x}-{our_tag}", 4),
 		];
 		let remaining = foreign.join("\n") + "\n";
 		std::fs::write(scratch.join("session/held-actions"), format!("{ours}\n{remaining}")).unwrap();
