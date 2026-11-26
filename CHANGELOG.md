@@ -51,6 +51,8 @@ Releases before 0.1.7 are in the
 
 ### Fixed
 
+- Rooms trace and rendezvous process tests wait for a closed relay connection to free its slot. A slow close could make release validation fail with HTTP 503.
+
 - A Rooms bot keeps its queued reply when its nickname has reappeared in the room but its restarted session is still taking its seat. The session reports `room-joining` and the bot posts the reply once the seat is ready.
 
 - A Rooms bot now checks which action IDs it issued before settling receipts. A session restoring its room membership keeps its receipt and can finish joining. Use a fresh ID for each new request and issue separate access links to independent clients.
