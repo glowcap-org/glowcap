@@ -1,7 +1,9 @@
 //! What a session's receipts decide about a line sent again, and who frees a
 //! receipt nobody kept, against real session processes.
 use super::receipts_late::{post_when_paced, second_client, wait_for_room_seat};
-use super::session_rig::{Fixture, attach, call, call_when_paced, free_places, free_port, host, run_within};
+use super::session_rig::{
+	Fixture, attach, call, call_when_paced, free_places, free_port, host, run_within, wait_for_return_route,
+};
 use super::*;
 use glowcap::PendingWork;
 use rooms_application::content::session::{Preset, Terms, custody::MAX_EFFECTS};
@@ -284,23 +286,21 @@ fn a_line_whose_conversation_is_gone_is_unkept_with_its_receipt_given_back() {
 			panic!("the peer was already reached")
 		};
 		let base = view.revision().await.unwrap();
-		let conversation = match view.introduce("unkeepable-open", Some(base), &introduction).await {
+		let opening = "unkeepable-open";
+		let conversation = match view.introduce(opening, Some(base), &introduction).await {
 			Ok(Opened::Opened { conversation, .. }) => conversation,
 			other => panic!("the open did not open: {other:?}"),
 		};
 		// A second client of the same access posts without keeping.
 		let sender = host().await;
-		let workspace = second_client(&sender, &fixture.peers[0].link).await;
+		let sending = attach(&sender, &fixture.peers[0].link).await;
 		let operation = "unkeepable-line";
-		let base = view.revision().await.unwrap();
-		let command = workspace
-			.prepare_command(operation, base, "say", &[conversation.clone(), "never kept".to_owned()])
+		wait_for_return_route(&fixture.peers[1].state, opening);
+		let base = sending.revision().await.unwrap();
+		let status = sending
+			.say_at(operation, base, &conversation, "never kept")
 			.await
 			.unwrap();
-		let mut status = command.submit().await.unwrap();
-		while status == EffectStatus::Pending {
-			status = command.receive().await.unwrap();
-		}
 		assert_eq!(status, EffectStatus::Committed);
 		assert!(view.held().await.unwrap().contains(&operation.to_owned()));
 		let base = view.revision().await.unwrap();
@@ -331,7 +331,7 @@ fn a_line_whose_conversation_is_gone_is_unkept_with_its_receipt_given_back() {
 			!view.held().await.unwrap().contains(&operation.to_owned()),
 			"a result that can never be kept holds no place"
 		);
-		drop((view, command, workspace));
+		drop((view, sending));
 		sender.close(PendingWork::Cancel).await.unwrap();
 		runtime.close(PendingWork::Cancel).await.unwrap();
 	});

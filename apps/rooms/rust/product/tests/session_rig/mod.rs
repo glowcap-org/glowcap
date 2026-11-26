@@ -126,6 +126,30 @@ pub fn try_call(state: &Path, verb: &str, named: Value) -> Result<Value, String>
 	Ok(serde_json::from_str(&output).unwrap())
 }
 
+/// Opening keeps the sender's route. Its worker then installs its inbox and
+/// announces that inbox to the peer with a separate command. Once the peer
+/// holds the return route for this opening, both setup writes have run.
+pub fn wait_for_return_route(peer: &Path, opening: &str) {
+	let deadline = Instant::now() + READY;
+	loop {
+		let status = call(peer, "status", json!({}));
+		let conversations = status["workspace"]["conversations"].as_array().unwrap();
+		if conversations.iter().any(|row| {
+			row["kind"] == "direct"
+				&& row["closed"] == false
+				&& row["introduction"]["opening"] == opening
+				&& row["access"].is_string()
+		}) {
+			return;
+		}
+		assert!(
+			Instant::now() < deadline,
+			"the peer never adopted the return route for {opening}"
+		);
+		std::thread::sleep(Duration::from_millis(20));
+	}
+}
+
 /// The id of the direct conversation a line with `text` arrived in.
 pub fn direct_message(state: &Path, text: &str) -> String {
 	let deadline = Instant::now() + Duration::from_secs(8);

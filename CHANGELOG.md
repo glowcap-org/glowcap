@@ -51,6 +51,8 @@ Releases before 0.1.7 are in the
 
 ### Fixed
 
+- Rooms receipt tests wait for both peers to establish a direct conversation before posting. The session finishing setup during a post could make release validation fail with a workspace revision conflict.
+
 - Rooms trace and rendezvous process tests wait for a closed relay connection to free its slot. A slow close could make release validation fail with HTTP 503.
 
 - A Rooms bot keeps its queued reply when its nickname has reappeared in the room but its restarted session is still taking its seat. The session reports `room-joining` and the bot posts the reply once the seat is ready.

@@ -2,7 +2,7 @@
 //! receipt settled, and a later admission or a release retires it. Against real
 //! session processes.
 use super::receipts::ROOM;
-use super::session_rig::{Fixture, attach, free_port, host, run_within};
+use super::session_rig::{Fixture, attach, free_port, host, run_within, wait_for_return_route};
 use super::*;
 use glowcap::PendingWork;
 use rooms_application::content::session::custody::MAX_EFFECTS;
@@ -157,14 +157,14 @@ fn late_settled_direct_line(name: &str, retiring: Retiring) {
 		// a new operation introduces again.
 		let deadline = Instant::now() + Duration::from_secs(10);
 		let mut tries = 0;
-		let conversation = loop {
+		let (conversation, opening) = loop {
 			tries += 1;
 			match view.reach_direct(&directory, "receipts-two").await {
 				Ok(Reach::Introduce(introduction)) => {
 					let base = view.revision().await.unwrap();
 					let operation = format!("late-direct-open-{tries}");
 					match view.introduce(&operation, Some(base), &introduction).await {
-						Ok(Opened::Opened { conversation, .. }) => break conversation,
+						Ok(Opened::Opened { conversation, .. }) => break (conversation, operation),
 						Err(Error::Unopened {
 							receipt: GiveBack::Released,
 							..
@@ -184,6 +184,7 @@ fn late_settled_direct_line(name: &str, retiring: Retiring) {
 			}
 			tokio::time::sleep(Duration::from_millis(200)).await;
 		};
+		wait_for_return_route(&fixture.peers[1].state, &opening);
 		let base = view.revision().await.unwrap();
 		// A view adopts its line and an adopted receipt's release retires
 		// nothing, so the release case sends through the access's own client.
