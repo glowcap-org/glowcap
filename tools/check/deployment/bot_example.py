@@ -133,6 +133,7 @@ def bot_example(path, dockerfile_path):
     # state volume to start the bot fresh keeps what its agent saved.
     mounts = dict(reversed(mount.split(":")[:2]) for mount in bot["volumes"])
     assert mounts.get("/bot-state") == "bot-state" and mounts.get("/bot-state/home") == "bot-home", mounts
+    assert bot["build"]["context"] == "./bot-image", "keep runtime files outside the bot image build context"
     assert bot["build"]["args"]["GLOWCAP_ROOMS_IMAGE"] == "glowcap-rooms:selected"
     dockerfile(dockerfile_path, bot["build"]["args"])
     # The example with nothing uncommented still holds its active services only.

@@ -213,8 +213,8 @@ rebuild a control.
 
 Edits and new grants check the revision they expect. Issuing a grant advances
 the source's revision, so the next issuance rereads the source first.
-Replaying the exact same request returns its original receipt before an old
-revision is treated as a new request. A new grant can carry every management
+While its receipt is retained, replaying the exact same request returns the original
+result even if the source revision has advanced. A new grant can carry every management
 power the source can pass on, and what it may edit is capped by both the
 source's edit and issue limits. Sharing management creates a separate,
 narrower control with the chosen powers.
@@ -240,6 +240,16 @@ administrator rights and prints its link once. `list`, `pause`, `resume`,
 `revoke`, and `forget` act on an access by the id `list` shows. The running
 session holds each access's control, and a browser attached to the session
 holds only the controls it was given.
+
+If issuance stops before its control is saved, `list` shows the id as unfinished.
+Retry `issue --id` with the original label and rights, or use `forget` to drop
+the reservation. Resolve it before issuing a new access from the terminal.
+
+Another holder of the session's management link can issue independently. If it
+has used the reserved position for a different request or the original receipt
+has expired, forget the unfinished id and issue again. Forgetting drops the
+terminal row. A new access starts paused, and the terminal prints its use link
+only after it has saved the control and activated the access.
 
 `share-management` prints the link to
 one access's control, which carries the lifecycle powers the access was issued

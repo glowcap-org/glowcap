@@ -244,6 +244,16 @@ fn an_issue_the_session_stopped_in_the_middle_of_is_finished_by_issuing_again() 
 	let made = row(&state, "the bot");
 	assert_eq!((&made["state"], &made["saved"]), (&json!("paused"), &json!(false)));
 
+	let (ok, conflict, _) = request(
+		&state,
+		"issue",
+		json!({"id":["another-bot"], "label":["another"], "rights":["observer"]}),
+	);
+	assert!(
+		!ok && conflict.contains("kept-bot"),
+		"a new issue must preserve the unfinished issue's receipt"
+	);
+
 	let issued = access(&state, "issue", named());
 	let link = issued["link"].as_str().unwrap().to_owned();
 	assert_eq!(issued["id"], "kept-bot");
@@ -296,13 +306,147 @@ fn an_issue_the_session_stopped_in_the_middle_of_is_finished_by_issuing_again() 
 	assert!(!fixture.peers[0].process.wait().success());
 	fixture.peers[0].relaunch(None);
 	let forgotten = access(&state, "forget", json!({"id": ["lost-bot"]}));
-	assert!(forgotten["note"].as_str().unwrap().contains("paused"), "{forgotten}");
+	assert!(
+		forgotten["note"].as_str().unwrap().contains("session access list"),
+		"{forgotten}"
+	);
 	let left = row(&state, "the lost bot");
 	assert_eq!(
 		(&left["id"], &left["state"]),
 		(&Value::Null, &json!("paused")),
 		"{left}"
 	);
+	fixture.finish();
+}
+
+#[test]
+fn a_failed_save_leaves_a_replayed_grant_usable_and_recoverable() {
+	use rooms_glowcap::client::{Client, access::Control};
+	use rooms_services::session::attached::{change, describe, issue_under};
+
+	let mut fixture = Fixture::start_on("access-save", &["save-one", "save-two"], "save-room", &[free_port(), 0]);
+	let state = fixture.peers[0].state.clone();
+	let named = || json!({"id": ["bot"], "label": ["the bot"], "rights": ["observer"]});
+	fixture.peers[0].restart_at(Some("after-issue-reservation"));
+	assert!(!request(&state, "issue", named()).0);
+	assert!(!fixture.peers[0].process.wait().success());
+	fixture.peers[0].relaunch(Some("fail-access-save"));
+	let management = std::fs::read_to_string(state.join("management.sturdyref")).unwrap();
+	run_within(Duration::from_secs(30), async {
+		let holder = host().await;
+		let parsed = glowcap::parse_sturdyref(management.trim(), glowcap::CaptpVersion::V1_0).unwrap();
+		let connection = holder.connect(&parsed.locator, Default::default()).await.unwrap();
+		let reference = connection
+			.fetch(std::str::from_utf8(&parsed.swissnum).unwrap())
+			.await
+			.unwrap();
+		let client = Client::new(connection, HostPlatform);
+		let root = Control::new(client.clone(), reference);
+		let rights = Terms::new(Preset::Observer.values()).unwrap();
+		let issued = issue_under(&root, "the bot", &rights, true).await.unwrap();
+		let control = Control::new(client, issued.control);
+		change(&control, Lifecycle::Resume).await.unwrap();
+		let (ok, refused, _) = request(&state, "issue", named());
+		assert!(!ok && refused.contains("could not confirm"), "{refused}");
+		assert_eq!(describe(&control).await.unwrap().unwrap().effective, State::Active);
+		holder.close(PendingWork::Cancel).await.unwrap();
+	});
+	let before = row(&state, "the bot");
+	assert_eq!(before["saved"], false);
+	fixture.peers[0].restart_at(None);
+	access(&state, "issue", named());
+	let after = row(&state, "the bot");
+	assert_eq!(after["id"], "bot");
+	assert_eq!(
+		(&after["slot"], &after["generation"]),
+		(&before["slot"], &before["generation"])
+	);
+	fixture.finish();
+}
+
+#[test]
+fn an_external_issuer_can_use_or_age_out_the_place_a_terminal_reserved() {
+	let mut fixture = Fixture::start_on(
+		"access-moved",
+		&["moved-one", "moved-two"],
+		"moved-room",
+		&[free_port(), 0],
+	);
+	let state = fixture.peers[0].state.clone();
+	let named = || json!({"id": ["terminal-bot"], "label": ["terminal"], "rights": ["observer"]});
+	fixture.peers[0].restart_at(Some("after-issue-reservation"));
+	assert!(!request(&state, "issue", named()).0);
+	assert!(!fixture.peers[0].process.wait().success());
+	fixture.peers[0].relaunch(None);
+	let management = std::fs::read_to_string(state.join("management.sturdyref")).unwrap();
+	run_within(Duration::from_secs(30), async {
+		let holder = host().await;
+		let grants = Grants::attach(&holder, HostPlatform, management.trim()).await.unwrap();
+		let rights = Terms::new(Preset::Observer.values()).unwrap();
+		let external = grants.issue("another issuer", &rights).await.unwrap();
+		let (ok, conflict, _) = request(&state, "issue", named());
+		assert!(
+			!ok && conflict.contains("different request") && conflict.contains("forget"),
+			"{conflict}"
+		);
+		for i in 0..8 {
+			grants.issue(&format!("new grant {i}"), &rights).await.unwrap();
+		}
+		let (ok, expired, _) = request(&state, "issue", named());
+		assert!(
+			!ok && expired.contains("expired") && expired.contains("forget"),
+			"{expired}"
+		);
+		access(&state, "forget", json!({"id":["terminal-bot"]}));
+		access(&state, "issue", named());
+		assert_eq!(grants.grant(&external.name).await.unwrap().effective, State::Active);
+		holder.close(PendingWork::Cancel).await.unwrap();
+	});
+	fixture.finish();
+}
+
+#[test]
+fn an_unfinished_reservation_belongs_to_one_access_id_across_restart() {
+	let mut fixture = Fixture::start_on(
+		"access-reserved",
+		&["reserved-one", "reserved-two"],
+		"reserved-room",
+		&[free_port(), 0],
+	);
+	let state = fixture.peers[0].state.clone();
+	let issue = |id: &str| json!({"id": [id], "label": ["the bot"], "rights": ["observer"]});
+	fixture.peers[0].restart_at(Some("after-issue-reservation"));
+	assert!(!request(&state, "issue", issue("first")).0);
+	assert!(!fixture.peers[0].process.wait().success());
+	fixture.peers[0].relaunch(None);
+	let (ok, failure, _) = request(&state, "issue", issue("second"));
+	assert!(
+		!ok && failure.contains("first"),
+		"the second issue should name the unfinished reservation"
+	);
+	let first = access(&state, "issue", issue("first"));
+	let second = access(&state, "issue", issue("second"));
+	assert!(
+		first["link"] != second["link"],
+		"distinct ids must issue distinct accesses"
+	);
+	access(&state, "revoke", json!({"id": ["first"]}));
+	let list = access(&state, "list", json!({}));
+	let rows = list["accesses"].as_array().unwrap();
+	for (id, expected) in [("first", "revoked"), ("second", "active")] {
+		assert!(
+			rows.iter().any(|row| row["id"] == id && row["effective"] == expected),
+			"{list}"
+		);
+	}
+	std::thread::scope(|scope| {
+		let third = scope.spawn(|| access(&state, "issue", issue("third")));
+		let fourth = access(&state, "issue", issue("fourth"));
+		assert!(
+			third.join().unwrap()["link"] != fourth["link"],
+			"concurrent issues must have independent access"
+		);
+	});
 	fixture.finish();
 }
 

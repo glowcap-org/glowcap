@@ -1,5 +1,5 @@
 # The bot image: the Rooms runtime plus a coding agent. Copy this file to
-# `bot/Dockerfile` in the configuration directory beside the override. The
+# `bot-image/Dockerfile` in the configuration directory beside the override. The
 # override builds it with the two arguments below, so change the agent there.
 ARG GLOWCAP_ROOMS_IMAGE=glowcap-rooms:selected
 FROM ${GLOWCAP_ROOMS_IMAGE} AS rooms

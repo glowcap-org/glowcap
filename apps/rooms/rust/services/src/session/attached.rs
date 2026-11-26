@@ -38,11 +38,11 @@ use fault::ViewFault;
 #[cfg(feature = "test-support")]
 pub use fault::{forfeit_reached, meet_before_keeping_direct};
 pub use files::Outgoing;
-pub(crate) use grant::failed;
 pub use grant::{
 	Grant, GrantId, Grants, Issued, Lifecycle, MAX_LABEL_BYTES, State, change, describe, inventory, issue_at,
 	issue_under, place,
 };
+pub(crate) use grant::{failed, validate_label};
 use keep::Effect;
 pub(crate) use keep::released_within;
 pub use recovered::Recovered;

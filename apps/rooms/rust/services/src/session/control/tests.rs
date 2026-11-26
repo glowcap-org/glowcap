@@ -1,6 +1,46 @@
 //! Control custody and wakeups are independent of a model consumer.
 use super::*;
 
+#[tokio::test]
+async fn an_issue_in_progress_holds_access_commands_and_leaves_the_feed_available() {
+	use futures_util::FutureExt;
+
+	let access = RwLock::new(());
+	let issue = RequestBody::AccessIssue {
+		id: "bot".into(),
+		label: "reader".into(),
+		rights: "observer".into(),
+	};
+	let issuing = issue.access_turn(&access).await.unwrap();
+	for body in [
+		r#"{"verb":"access-list"}"#,
+		r#"{"verb":"access-change","id":"bot","change":"pause"}"#,
+		r#"{"verb":"access-forget","id":"bot"}"#,
+		r#"{"verb":"access-share","id":"bot"}"#,
+	] {
+		let request: RequestBody = serde_json::from_str(body).unwrap();
+		assert!(request.access_turn(&access).now_or_never().is_none(), "{body}");
+	}
+	assert!(
+		RequestBody::Status {}
+			.access_turn(&access)
+			.now_or_never()
+			.unwrap()
+			.is_none()
+	);
+	drop(issuing);
+	let share = RequestBody::AccessShare { id: "bot".into() };
+	let sharing = share.access_turn(&access).now_or_never().unwrap().unwrap();
+	let listing = RequestBody::AccessList {}
+		.access_turn(&access)
+		.now_or_never()
+		.unwrap()
+		.unwrap();
+	assert!(issue.access_turn(&access).now_or_never().is_none());
+	drop((sharing, listing));
+	assert!(issue.access_turn(&access).now_or_never().unwrap().is_some());
+}
+
 #[test]
 fn acquisition_socket_preserves_document_text_and_rejects_unknown_fields() {
 	let intent = serde_json::to_string(&rooms_application::content::session::workspace::Intent::empty())

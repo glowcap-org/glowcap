@@ -1,10 +1,8 @@
 //! `session access`: hand out and manage access to a running session from a
 //! terminal. The running session does the work over its control socket: it
-//! issues with its own management control and keeps each access's control in
-//! the same workspace rows the page keeps its controls in, so the terminal
-//! and the page list and change one set. An access is named by the id `list`
-//! shows. The link of a new access and the management link of a kept one are
-//! each printed once, in the result, and appear nowhere else.
+//! issues with its own management control and keeps each access's control
+//! under the id `list` shows. An attached page manages the controls it holds.
+//! The issue and share-management commands return their links in the result.
 use super::{Failure, Options, operation, request};
 use rooms_services::session::{attached::Lifecycle, control::rights};
 use serde_json::{Value, json};

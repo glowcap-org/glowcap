@@ -233,14 +233,21 @@ repository or the managed file.
 
 The release image holds no shell and no agent, so the bot runs from an image you build from
 [`bot.Dockerfile.example`](bot.Dockerfile.example). An installation keeps it in `share/glowcap/deployment/`, beside the
-skills directory that `glowcap apps rooms skills` prints. Copy it to `bot/Dockerfile` in the configuration directory:
+skills directory that `glowcap apps rooms skills` prints. For a new bot image, copy the example into the configuration directory:
 
 ```sh
-mkdir -p bot
-cp "$(glowcap apps rooms skills)/../deployment/bot.Dockerfile.example" bot/Dockerfile
+mkdir -p bot-image
+cp "$(glowcap apps rooms skills)/../deployment/bot.Dockerfile.example" bot-image/Dockerfile
 ```
 
-It starts from the same Debian release as the image and copies `/runtime` out of it. The override passes it
+Keep only image build inputs in `bot-image/`. Runtime files under `bot/` and `secrets/` stay outside the Docker build context.
+
+`up` preserves an existing `docker-compose.override.yml`. If yours predates the bot, merge the bot session, bot,
+volumes, and secret sections from `docker-compose.override.yml.example` beside the installed Dockerfile example.
+If your override already builds from `./bot`, move its Dockerfile to `bot-image/Dockerfile` and set the bot's
+`build.context` to `./bot-image` before the next build. Leave its credentials and home under `bot/`.
+
+The Dockerfile starts from the same Debian release as the image and copies `/runtime` out of it. The override passes it
 the agent's npm package and configuration directory as `AGENT_PACKAGE` and `AGENT_DIR`, so changing agents changes
 those two lines of the override and not the file.
 
@@ -276,16 +283,22 @@ user 1000.
 
    ```sh
    install -d -m 700 secrets
-   (umask 077; docker exec glowcap-rooms-bot-session /runtime/bin/glowcap apps rooms session access issue \
-     --dir /session-state --label bot --rights collaborator > secrets/bot-link)
+   (
+     umask 077
+     set -C
+     exec 3>secrets/bot-link || exit 1
+     docker exec glowcap-rooms-bot-session /runtime/bin/glowcap apps rooms session access issue \
+       --dir /session-state --label bot --rights collaborator >&3 || { rm -f secrets/bot-link; exit 1; }
+   )
    ```
 
 4. Uncomment the pieces headed `bot` and `bot secret`, and fill in the agent, its permission, its model, and the files
    it reads its sign-in from, as the comments there say. Mount only what the agent needs, from copies kept in the
    configuration directory. Run `up` again.
 
-   Agents rewrite their sign-in file each time they refresh a token. Copy the agent's sign-in file from the table into
-   a directory under `bot/` (`bot/claude/` for Claude Code), give that directory to user 1000, and mount it writable at
+   Agents rewrite their sign-in file each time they refresh a token. Create a private directory under `bot/` (for Claude
+   Code, `install -d -m 700 bot/claude`). Copy the sign-in file there, give user 1000 ownership of the copy and its
+   directory, and mount the directory writable at
    `/home/node/<AGENT_DIR>`. A read-only mount works until the first token expires, and then every reply is a sign-in
    failure. The agent can rewrite that copy, so keep nothing else in it.
 
@@ -326,7 +339,7 @@ docker exec glowcap-rooms-bot /runtime/bin/glowcap apps rooms bot status --dir /
 A bot that keeps restarting runs no turn, so skip this wait for it.
 
 Then run `docker rm -f glowcap-rooms-bot` and `docker volume rm glowcap-rooms-bot-state`, revoke the old access, and
-remove `secrets/bot-link`, which step 3 will not overwrite in a shell that refuses to replace files. Repeat steps 3
+remove `secrets/bot-link`, which step 3 refuses to overwrite. Repeat steps 3
 and 4. A bot that starts fresh answers only lines sent after it starts.
 
 To keep the bot's place in its session instead, keep its volume. Remove `secrets/bot-link`, repeat step 3, add
@@ -379,7 +392,7 @@ The bot session's volume holds the bot's identity and its session's management l
 membership for good.
 
 To upgrade, run `up --image` as [Upgrade](#upgrade) says. `up` also names the selected image `glowcap-rooms:selected`
-and rebuilds the bot image from it, so the bot follows the image without a separate step. A change to `bot/Dockerfile`
+and rebuilds the bot image from it, so the bot follows the image without a separate step. A change to `bot-image/Dockerfile`
 rebuilds on the next `up` the same way. Everything else about the bot, such as the agent, its limits, and its
 failures, is in [Running a Rooms bot](../../../../docs/rooms/bot.md).
 

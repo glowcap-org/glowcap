@@ -31,9 +31,13 @@ macro_rules! points {
 }
 
 points! {
+	/// The session process ends after saving the issue's place, before issuing.
+	AfterIssueReservation = "after-issue-reservation",
 	/// The session process ends between issuing an access and saving its
 	/// control.
 	AfterIssue = "after-issue",
+	/// The workspace for saving an issued control cannot be read.
+	FailAccessSave = "fail-access-save",
 	/// The first observation of a posted line expires at once, as the
 	/// observation deadline does, so its executor pauses.
 	ExpireFirstLineObservation = "expire-first-line-observation",

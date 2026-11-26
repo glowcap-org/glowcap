@@ -89,14 +89,14 @@ services:
   #     - glowcap-rooms-net
   # == bot ==
   # bot:
-  #   # The operator's own image, built from bot/Dockerfile in this directory,
+  #   # The operator's own image, built from bot-image/Dockerfile in this directory,
   #   # a copy of bot.Dockerfile.example from the installation's
   #   # share/glowcap/deployment directory.
   #   # It copies /runtime from the selected Rooms image, which `up` also names
   #   # glowcap-rooms:selected because a build cannot take an image ID. So
   #   # `pull_policy: build` rebuilds it on every `up` and it follows an upgrade.
   #   build:
-  #     context: ./bot
+  #     context: ./bot-image
   #     args:
   #       GLOWCAP_ROOMS_IMAGE: glowcap-rooms:selected
   #       # The agent's npm package and the directory it keeps its

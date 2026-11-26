@@ -134,9 +134,7 @@ pub async fn issue_at<D: Deadline + Clone>(
 	rights: &Terms,
 	paused: bool,
 ) -> Result<IssuedAccess, Error> {
-	if label.len() > MAX_LABEL_BYTES {
-		return Err(Error::Input(format!("a label holds at most {MAX_LABEL_BYTES} bytes")));
-	}
+	validate_label(label)?;
 	let keys: Vec<u64> = rights.permissions().iter().map(|right| right.key()).collect();
 	let terms = rooms_glowcap::policy::descriptor()
 		.and_then(|policy| policy.value_for_kind(KIND, &keys, &[]))
@@ -151,7 +149,19 @@ pub async fn issue_at<D: Deadline + Clone>(
 		label,
 		paused,
 	);
-	management.issue(&issuance).await.map_err(failed)
+	management.issue(&issuance).await.map_err(|error| match error {
+		// A different request took this sequence. Reading a newer revision
+		// cannot turn that request into the one the caller wants to recover.
+		ClientError::ControlConflict(glowcap::loam::ControlConflict::Operation) => Error::Peer(error),
+		other => failed(other),
+	})
+}
+
+pub(crate) fn validate_label(label: &str) -> Result<(), Error> {
+	if label.len() > MAX_LABEL_BYTES {
+		return Err(Error::Input(format!("a label holds at most {MAX_LABEL_BYTES} bytes")));
+	}
+	Ok(())
 }
 
 /// Every access issued under `management`, with its label, rights, and state,
