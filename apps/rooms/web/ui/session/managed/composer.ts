@@ -8,6 +8,7 @@ import { withdrawLine } from "./withdraw.ts";
 import * as store from "../../store.ts";
 import type { RoomsPageContext } from "../../page.ts";
 import type { ManagedRoomsSession } from "./session.ts";
+import type { Committed } from "./committed.ts";
 import type { CommandPowers } from "../../commands.ts";
 import { CommandRefused } from "../../commands/types.ts";
 import type { RoomsConversationController } from "../../controller/session.ts";
@@ -21,6 +22,7 @@ import { LocalRefusal, refusalText } from "../../../../lib/text/failure.ts";
 import type { RoomsBrowserSource } from "../../../../../../zig-out/wasm/rooms/rooms_browser.js";
 import { type ManagedOperation, ResultAcquisitionError, ResultExpired, TerminalObservationError } from "./operation.ts";
 import { CompletedLine, isLineResult } from "./completed_line.ts";
+import { TYPING_SOURCE } from "./typing.ts";
 
 type Draft = ReturnType<typeof store.draftFor>;
 interface Send {
@@ -48,7 +50,7 @@ function degradedCompletion(error: ResultAcquisitionError): CompletedLine {
 
 type Composer = Pick<
 	RoomsConversationController,
-	"setDraft" | "send" | "mention" | "recallLastSent" | "retry" | "withdraw"
+	"setDraft" | "useSessionDraft" | "send" | "mention" | "recallLastSent" | "retry" | "withdraw"
 >;
 export function managedComposer(page: RoomsPageContext, session: ManagedRoomsSession, powers: CommandPowers): Composer {
 	const projection = page.projection;
@@ -65,7 +67,7 @@ export function managedComposer(page: RoomsPageContext, session: ManagedRoomsSes
 	async function gesture(
 		draft: Draft,
 		prepare: (id: string) => Promise<ManagedOperation>,
-		complete: (command: ManagedOperation) => Promise<void>,
+		complete: (command: ManagedOperation, after: Committed) => Promise<void>,
 		retain?: (id: string) => void,
 	): Promise<void> {
 		const previous = retained.get(draft);
@@ -77,8 +79,8 @@ export function managedComposer(page: RoomsPageContext, session: ManagedRoomsSes
 		retained.set(draft, id);
 		try {
 			retain?.(id);
-			await session.execute(id, () => prepare(id), async (command) => {
-				await complete(command);
+			await session.execute(id, () => prepare(id), async (command, after) => {
+				await complete(command, after);
 				retained.delete(draft);
 			});
 		} catch (error) {
@@ -97,7 +99,9 @@ export function managedComposer(page: RoomsPageContext, session: ManagedRoomsSes
 	}
 	function submit(): Promise<void> {
 		const row = store.activeConv(projection);
-		if (row == null) return Promise.resolve();
+		if (row == null || (isSessionConv(row) && session.drafts.failure(row.persistId)?.conflict)) {
+			return Promise.resolve();
+		}
 		const draft = store.draftFor(projection, row.key);
 		const previous = sending.get(row.key);
 		if (previous?.draft === draft) return previous.task;
@@ -156,7 +160,7 @@ export function managedComposer(page: RoomsPageContext, session: ManagedRoomsSes
 			? session.typing.lineSettled(row.persistId, landed)
 			: session.typing.lineLanded(row.persistId);
 		void told.catch((error: unknown) => {
-			store.noteTrouble(projection, "typing", refusalText(error));
+			store.noteTrouble(projection, TYPING_SOURCE, refusalText(error));
 		});
 	}
 	function start(row: Conv, draft: Draft, plan?: ComposerPlan, cleared?: Draft): Promise<void> {
@@ -199,11 +203,17 @@ export function managedComposer(page: RoomsPageContext, session: ManagedRoomsSes
 			}
 			const refusal = composerLineRefusal(row, draft.text);
 			if (refusal != null) throw new LocalRefusal("message-too-long", { cause: refusal });
-			const completeDraft = async () => {
-				if (store.draftFor(projection, row.key) !== draft) return;
-				store.cancelChange(projection, row.key);
-				session.drafts.stage(row.persistId, "");
-				await session.drafts.flush(row.persistId);
+			// The edit went through, so the draft's clear is a second change the
+			// press finishes over the next link. Run again, it clears once and
+			// writes once more.
+			let cleared = false;
+			const completeDraft = async (after: Committed) => {
+				if (!cleared && store.draftFor(projection, row.key) === draft) {
+					store.cancelChange(projection, row.key);
+					session.drafts.stage(row.persistId, "");
+					cleared = true;
+				}
+				if (cleared) await after.change(() => session.drafts.flush(row.persistId));
 			};
 			if (draft.keeping == null) {
 				await editLine(page, session, row.key, item.id, draft.text, completeDraft);
@@ -223,9 +233,9 @@ export function managedComposer(page: RoomsPageContext, session: ManagedRoomsSes
 								draft.keeping?.some((kept) => kept.id === file.id) ? [i] : []
 							),
 						),
-					async (command) => {
-						await session.actions.acquireLine(row.persistId, command);
-						await completeDraft();
+					async (command, after) => {
+						await session.actions.acquireLine(row.persistId, command, after);
+						await completeDraft(after);
 					},
 				);
 			}
@@ -297,9 +307,15 @@ export function managedComposer(page: RoomsPageContext, session: ManagedRoomsSes
 				);
 				store.rememberLastSent(projection, row.key, prepared.original);
 			};
-			const settleLineAcquisition = async (command: ManagedOperation): Promise<LineSettlement> => {
+			const settleLineAcquisition = async (
+				command: ManagedOperation,
+				after: Committed,
+			): Promise<LineSettlement> => {
 				try {
-					return { kind: "acquired", completed: await session.actions.acquireLine(row.persistId, command) };
+					return {
+						kind: "acquired",
+						completed: await session.actions.acquireLine(row.persistId, command, after),
+					};
 				} catch (error) {
 					if (error instanceof ResultAcquisitionError) {
 						return { kind: "degraded", completed: degradedCompletion(error), failure: error };
@@ -312,7 +328,9 @@ export function managedComposer(page: RoomsPageContext, session: ManagedRoomsSes
 			/** A send that did not confirm still settles its presentation
 			 * exactly: delivery evidence degrades to a receipt, an uncertain
 			 * observation retains its recovery, and a terminal refusal
-			 * restores the cleared draft. */
+			 * restores the cleared draft. A line the session holds no trace
+			 * of after the link dropped restores the draft too, and shows as
+			 * unconfirmed, because it may have arrived. */
 			const settleSendFailure = (error: unknown) => {
 				if (confirmed) return;
 				if (error instanceof ResultAcquisitionError) {
@@ -323,9 +341,10 @@ export function managedComposer(page: RoomsPageContext, session: ManagedRoomsSes
 				// keeps its original source and cannot authorize a fresh blind
 				// send.
 				const outcomeRetained = error instanceof TerminalObservationError || retained.has(draft);
+				const traceLost = LocalRefusal.is(error, "receipt-lost");
 				if (cleared != null && !outcomeRetained) restoreSubmission(row, cleared, draft);
 				store.updateItem(projection, row.key, item.id, {
-					state: outcomeRetained ? "unconfirmed" : "failed",
+					state: outcomeRetained || traceLost ? "unconfirmed" : "failed",
 					retryable: retained.has(draft),
 					operation: retained.get(draft),
 				});
@@ -342,8 +361,8 @@ export function managedComposer(page: RoomsPageContext, session: ManagedRoomsSes
 								prepared.text,
 								JSON.stringify(prepared.previewUrls),
 							], operation),
-					async (command) => {
-						const settlement = await settleLineAcquisition(command);
+					async (command, after) => {
+						const settlement = await settleLineAcquisition(command, after);
 						confirm(settlement.kind === "expired" ? undefined : settlement.completed);
 						// Delivery stays confirmed while the original operation
 						// retains recovery of its result. A new send is never a
@@ -376,51 +395,61 @@ export function managedComposer(page: RoomsPageContext, session: ManagedRoomsSes
 			id,
 			...(line == null ? [] : [String(line)]),
 		]);
-		const wrappers: RoomsBrowserSource[] = [];
-		try {
-			for (const file of files) {
-				const source = await pickedSource(file);
-				wrappers.push(
-					new (applicationModule().RoomsBrowserSource)(
-						source.name,
-						source.mime,
-						source.size ?? file.size,
-						source.width ?? 0,
-						source.height ?? 0,
-						source.read,
-					),
-				);
-			}
-			return await session.perform(
-				operation,
-				async () => {
-					const snapshot = await session.refresh();
-					const current = conversationById(snapshot, id);
-					if (
-						current == null || conversationIdentity(current) !== identity ||
-						(line != null && current.lines?.find((row) => row.id === line)?.handle !== originalLine)
-					) {
-						throw new LocalRefusal("message-selection-changed");
+		return await session.perform(
+			operation,
+			async (workspace) => {
+				const snapshot = await session.readNow();
+				const current = conversationById(snapshot, id);
+				if (
+					current == null || conversationIdentity(current) !== identity ||
+					(line != null && current.lines?.find((row) => row.id === line)?.handle !== originalLine)
+				) {
+					throw new LocalRefusal("message-selection-changed");
+				}
+				// Each preparation reads the picked files again, because wasm
+				// consumes a source wrapper during argument conversion.
+				const wrappers: RoomsBrowserSource[] = [];
+				try {
+					for (const file of files) {
+						const source = await pickedSource(file);
+						wrappers.push(
+							new (applicationModule().RoomsBrowserSource)(
+								source.name,
+								source.mime,
+								source.size ?? file.size,
+								source.width ?? 0,
+								source.height ?? 0,
+								source.read,
+							),
+						);
 					}
-					return session.workspace.prepareUpload(
+					return workspace().prepareUpload(
 						operation,
 						snapshot.revision,
 						id,
 						text,
 						JSON.stringify(previews),
-						// Wasm consumes each source wrapper during argument conversion.
 						wrappers.splice(0),
 						line == null ? undefined : String(line),
 						new Uint32Array(keep),
 					);
-				},
-			);
-		} finally {
-			for (const wrapper of wrappers) wrapper.free();
-		}
+				} finally {
+					for (const wrapper of wrappers) wrapper.free();
+				}
+			},
+		);
 	}
 	return {
 		setDraft,
+		useSessionDraft: (key) => {
+			const row = store.getConv(projection, key);
+			if (row == null || !isSessionConv(row)) return;
+			const text = session.drafts.useSessionDraft(row.persistId);
+			if (text != null) {
+				store.replaceDraft(projection, key, store.draftFor(projection, key), store.NO_DRAFT);
+				store.setDraft(projection, text, key);
+			}
+		},
 		mention: (who) => setDraft(draftWithMention(store.activeDraft(projection).text, who)),
 		recallLastSent: () => {
 			const row = store.activeConv(projection);

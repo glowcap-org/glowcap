@@ -51,14 +51,14 @@
    an empty track at the end of the row. It carries a mark instead, in the
    colour the page gives to a state somebody else set, so it reads as a
    condition rather than as an error this reader caused. */
-.session-paused-notice {
+.session-effect-notice.session-paused-notice {
 	grid-template-columns: minmax(0, 1fr);
 	gap: 0;
 }
 /* A session out of reach is a condition too, so it wears the same mark. It
-   keeps the second column, because reloading is an act for the reader. */
-.session-paused-notice,
-.session-away-notice {
+   keeps the second column, because trying again is an act for the reader. */
+.session-effect-notice.session-paused-notice,
+.session-link-notice {
 	padding-left: calc(var(--notice-inset) - var(--notice-mark));
 	/* The mark carries the emphasis so the band does not have to: the page's full
 	   warning ink, over a fill left at a ninth of it. Mixed with `transparent`
@@ -69,8 +69,8 @@
 	border-bottom-color: color-mix(in srgb, var(--warn) 30%, var(--rule));
 	background: color-mix(in srgb, var(--warn) 9%, var(--paper-raised));
 }
-.session-paused-notice p,
-.session-away-notice p {
+.session-effect-notice.session-paused-notice p,
+.session-link-notice p {
 	font-weight: 600;
 }
 /* Rows: each session it found is a name with the act that takes it at the end

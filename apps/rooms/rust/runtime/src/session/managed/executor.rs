@@ -7,7 +7,7 @@ use glowcap::{
 	Argument, Host, Ref, Result,
 	loam::{self, Continuation, ControlPowers, EffectExecution, EffectResult, PendingContinuation, PolicyValue, Scope},
 };
-use rooms_application::session::effect::Reply;
+use rooms_application::{content::session::effects::OBSERVATION_MS, session::effect::Reply};
 use rooms_glowcap::client::{Deadline, Tasks};
 use std::{
 	cell::{Cell, RefCell},
@@ -18,9 +18,15 @@ use std::{
 use tokio::sync::Mutex;
 type ExecutionReporter = dyn Fn(&str, &crate::Error);
 
+mod ended;
+mod ending;
 mod seat;
+mod unrecorded;
 mod writer;
+pub(super) use ended::retire_ended;
+pub(super) use ending::Ending;
 pub(super) use seat::Seat;
+pub(super) use unrecorded::release_unrecorded;
 pub(super) use writer::Writer;
 
 /// One bounded job retains its actual observation across interruption or drive
@@ -31,8 +37,29 @@ pub(super) struct Job<P: Tasks> {
 	/// The installed observation while it waits on commit, so a retry under
 	/// the same id can see a confirmed absence the worker has not yet woken to.
 	confirming: Weak<PendingContinuation>,
+	/// The source whose request this job runs, once its observation is
+	/// installed. A release of an operation with no receipt answers from the
+	/// job only for this source, so it never learns of another's job.
+	source: Option<Ref>,
 	pub failure: Option<glowcap::Error>,
 	pub batch_released: Option<Rc<Cell<bool>>>,
+}
+impl<P: Tasks> Job<P> {
+	/// Whether this job is paused: its observation failed or its worker was
+	/// interrupted, no worker runs, and only a resume by its source or its
+	/// retirement ends it. A seat reserved but not yet started is not paused.
+	pub(super) fn is_paused(&self) -> bool {
+		self.failure.is_some()
+	}
+	/// Whether this job's commit is confirmed absent, which is final: the
+	/// installed observation still waits on it and Loam answers that nothing
+	/// was written. A pending or installed commit answers false. It reads only
+	/// the observer, so a content callback may ask.
+	pub(super) fn confirms_absent(&self) -> bool {
+		self.confirming
+			.upgrade()
+			.is_some_and(|pending| matches!(pending.absent(), Ok(true)))
+	}
 }
 struct Intent {
 	source: Ref,
@@ -47,7 +74,7 @@ struct Work<P: Tasks> {
 	retirement: Option<Rc<super::supervision::retirement::Owner>>,
 }
 type Observation<T> = Pin<Box<dyn Future<Output = Result<T>>>>;
-const OBSERVATION_MS: u64 = 20_000;
+
 enum Phase {
 	Confirming {
 		pending: Rc<PendingContinuation>,
@@ -77,6 +104,13 @@ enum Phase {
 		// writer lock and vow receiver, across cancellation of its polling task.
 		pending: Option<Observation<Argument>>,
 	},
+}
+impl Phase {
+	/// Whether the request may have reached its target. Before execution the
+	/// confirmed continuation has dispatched nothing.
+	fn dispatched(&self) -> bool {
+		!matches!(self, Self::Confirming { .. } | Self::Preparing { .. })
+	}
 }
 enum Action {
 	// Bridge declarations are much larger than ordinary call inputs. Only an
@@ -117,7 +151,18 @@ impl<P: Tasks + Deadline + Clone + 'static> Work<P> {
 			let next =
 				match &mut work.phase {
 					Phase::Confirming { pending, action } => {
-						let continuation = match pending.confirmed().await {
+						// A commit already confirmed needs no timer. One still
+						// pending is waited on within the observation deadline, so
+						// a stalled commit pauses the job like any observation.
+						let confirmed = match pending.try_take() {
+							Ok(Some(continuation)) => Ok(continuation),
+							Ok(None) => platform
+								.within(OBSERVATION_MS, pending.confirmed())
+								.await
+								.ok_or_else(|| paused("dispatch confirmation deadline expired"))?,
+							Err(error) => Err(error),
+						};
+						let continuation = match confirmed {
 							Ok(continuation) => continuation,
 							Err(error) if error.code() == loam::UNCHANGED => {
 								// A retry that superseded this attempt has begun the
@@ -204,60 +249,47 @@ impl<P: Tasks + Deadline + Clone + 'static> Work<P> {
 						let outcome = platform
 							.within(OBSERVATION_MS, pending.advance())
 							.await
-							.ok_or_else(|| {
-								loam::refusal(
-									"archive sharing observation deadline expired; exact pipeline remains retained",
-								)
-							})??;
-						let Some(outcome) = outcome else {
+							.ok_or_else(|| paused("archive sharing observation deadline expired"))??;
+						let Some(outcome) = outcome.and_then(|ending| ending.settlement(id, writer)) else {
 							*held = None;
 							return Ok(());
 						};
-						match outcome {
-							super::archive_sharing::Completion::Settled(outcome) => {
-								Phase::Settling { outcome, pending: None }
-							}
-							super::archive_sharing::Completion::Unknown(error) => {
-								writer.report(id, &error);
-								Phase::Settling {
-									outcome: Settlement::unknown(&error),
-									pending: None,
-								}
-							}
-						}
+						Phase::Settling { outcome, pending: None }
 					}
 					Phase::Bridging(pending) => {
 						let outcome = platform
 							.within(OBSERVATION_MS, pending.advance())
 							.await
-							.ok_or_else(|| {
-								loam::refusal("bridge observation deadline expired; exact pipeline remains retained")
-							})??;
-						let Some(outcome) = outcome else {
+							.ok_or_else(|| paused("bridge observation deadline expired"))??;
+						let Some(outcome) = outcome.and_then(|ending| ending.settlement(id, writer)) else {
 							*held = None;
 							return Ok(());
 						};
 						Phase::Settling { outcome, pending: None }
 					}
 					Phase::Uploading(pending) => {
-						let outcome = platform
-							.within(OBSERVATION_MS, pending.advance())
-							.await
-							.ok_or_else(|| {
-								loam::refusal("upload observation deadline expired; exact pipeline remains retained")
-							})??;
-						let Some(outcome) = outcome else {
+						// The pipeline bounds each of its steps itself: the fill after
+						// an acknowledged post must not pause on the observation.
+						let outcome = pending.advance(platform).await?;
+						let Some(mut outcome) = outcome.and_then(|ending| ending.settlement(id, writer)) else {
 							*held = None;
 							return Ok(());
 						};
-						let mut outcome = outcome;
 						if let Some(capture) = &mut work.outgoing {
-							work.provenance = capture.complete(
-								&owner
-									.upgrade()
-									.ok_or_else(|| loam::refusal("outgoing session has closed"))?,
-								&mut outcome,
-							)?;
+							let provenance = owner
+								.upgrade()
+								.ok_or_else(|| loam::refusal("outgoing session has closed"))
+								.and_then(|owner| capture.complete(&owner, &mut outcome));
+							match provenance {
+								Ok(value) => work.provenance = value,
+								Err(cause) => {
+									// The upload finished. No resumed observation can recover
+									// its consumed settlement.
+									writer.report(id, &cause);
+									*held = None;
+									return Ok(());
+								}
+							}
 						}
 						Phase::Settling { outcome, pending: None }
 					}
@@ -265,9 +297,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Work<P> {
 						let step = platform
 							.within(OBSERVATION_MS, pending.advance())
 							.await
-							.ok_or_else(|| {
-								loam::refusal("identity observation deadline expired; exact read remains retained")
-							})??;
+							.ok_or_else(|| paused("identity observation deadline expired"))??;
 						match step {
 							super::manager_recovery::Step::Identified(continuation, identity) => {
 								// One operator dispatch, with the observed identity as its
@@ -295,12 +325,12 @@ impl<P: Tasks + Deadline + Clone + 'static> Work<P> {
 						}
 					}
 					Phase::Executing { execution, identity } => {
-						let observed = platform
-							.within(OBSERVATION_MS, execution.completed())
-							.await
-							.ok_or_else(|| {
-								loam::refusal("effect observation deadline expired; exact execution remains retained")
-							})??;
+						let waited = if crate::session::fault::expires_observation(work.reply) {
+							None
+						} else {
+							platform.within(OBSERVATION_MS, execution.completed()).await
+						};
+						let observed = waited.ok_or_else(|| paused("effect observation deadline expired"))??;
 						match observed {
 							EffectResult::Ready(value) => {
 								match Prepared::read(work.reply, &value, &work.intent.canonical, identity.as_deref()) {
@@ -383,9 +413,10 @@ impl<P: Tasks + Deadline + Clone + 'static> Work<P> {
 						let acquiring = pending
 							.as_mut()
 							.ok_or_else(|| loam::refusal("result acquisition is not started"))?;
-						let result = platform.within(OBSERVATION_MS, acquiring).await.ok_or_else(|| {
-							loam::refusal("result acquisition deadline expired; exact lookup remains retained")
-						})?;
+						let result = platform
+							.within(OBSERVATION_MS, acquiring)
+							.await
+							.ok_or_else(|| paused("result acquisition deadline expired"))?;
 						*pending = None;
 						match result? {
 							super::results::Acquired::Settled(outcome) => Phase::Settling { outcome, pending: None },
@@ -413,13 +444,17 @@ impl<P: Tasks + Deadline + Clone + 'static> Work<P> {
 						let settling = pending
 							.as_mut()
 							.ok_or_else(|| loam::refusal("settlement observation is not started"))?;
-						let result = platform.within(OBSERVATION_MS, settling).await.ok_or_else(|| {
-							loam::refusal("settlement deadline expired; exact observation remains retained")
-						})?;
+						let result = platform
+							.within(OBSERVATION_MS, settling)
+							.await
+							.ok_or_else(|| paused("settlement deadline expired"))?;
 						// Only a terminal observation retires its receiver. A failed
 						// attempt retains the exact outcome for strict receipt retry.
 						*pending = None;
 						result?;
+						if crate::session::fault::settles_late(work.reply) {
+							return Err(paused("settlement deadline expired"));
+						}
 						if let Some(capture) = &mut work.outgoing {
 							capture.publish();
 						}
@@ -429,11 +464,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Work<P> {
 							platform
 								.within(OBSERVATION_MS, retirement.close())
 								.await
-								.ok_or_else(|| {
-									loam::refusal(
-										"membership retirement deadline expired; exact observation remains retained",
-									)
-								})??;
+								.ok_or_else(|| paused("membership retirement deadline expired"))??;
 						}
 						*held = None;
 						return Ok(());
@@ -442,6 +473,12 @@ impl<P: Tasks + Deadline + Clone + 'static> Work<P> {
 			work.phase = next;
 		}
 	}
+}
+/// The failure a job pauses on when `what` happened to it: an observation
+/// missed its deadline or its worker was interrupted. Its work stays held
+/// until its sender resumes it, or gives its receipt back and so retires it.
+pub(in crate::session::managed) fn paused(what: &str) -> glowcap::Error {
+	loam::refusal(what)
 }
 /// Interruption before the first poll and during an await preserves Work in
 /// its separate owner. Recovery resumes that same observation, never dispatch.
@@ -457,9 +494,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Drop for Retirement<P> {
 				&& Weak::ptr_eq(&Rc::downgrade(&job.work), &self.work)
 				&& job.failure.is_none()
 			{
-				job.failure = Some(loam::refusal(
-					"effect worker interrupted; exact observation remains retained",
-				));
+				job.failure = Some(paused("effect worker interrupted"));
 			}
 			owner.changes.execution_changed();
 			owner.changed.notify_waiters();
@@ -472,7 +507,7 @@ pub(super) fn resume<P: Tasks + Deadline + Clone + 'static>(owner: &Rc<State<P>>
 		let job = jobs
 			.get_mut(id)
 			.ok_or_else(|| loam::refusal("effect has no live observation"))?;
-		if job.task.is_some() && job.failure.is_none() {
+		if job.task.is_some() && !job.is_paused() {
 			return Ok(());
 		}
 		job.failure = None;
@@ -519,4 +554,61 @@ pub(super) fn resume<P: Tasks + Deadline + Clone + 'static>(owner: &Rc<State<P>>
 		.ok_or_else(|| loam::refusal("effect has no live observation"))?
 		.task = Some(task);
 	Ok(())
+}
+/// Retire the paused job `id`, as a session restart does: the job leaves the
+/// table and its worker's state is dropped, so nothing observes, settles, or
+/// dispatches it again. The receipt stays as the caller leaves it. A running
+/// job, a seat not yet started, and an id with no job stay, and the answer is
+/// whether a paused job was retired. With `settled`, the receipt's settlement
+/// committed, so the line activity the job captured is published first, as the
+/// worker publishes it once its settlement answers, and a retirement whose
+/// receipt did not commit publishes nothing. A membership whose admission the job
+/// owned learns the job's end the way the worker reports it: absent before
+/// dispatch and unknown after, unless the worker already reported more. A
+/// paused upload's staged files are not discarded here: the room's file store
+/// expires each one `UPLOAD_IDLE_MS` (the Rooms application's `files.rs`)
+/// after its last write, and a paused job writes nothing.
+pub(super) fn retire<P: Tasks + Deadline + Clone + 'static>(owner: &State<P>, id: &str, settled: bool) -> bool {
+	let (retired, work) = {
+		let mut jobs = owner.jobs.borrow_mut();
+		let Some(job) = jobs.get(id).filter(|job| job.is_paused()) else {
+			return false;
+		};
+		// A paused job has no worker, so nothing holds its work's lock. A job
+		// whose lock is held has a worker after all, so it stays as a running
+		// job does, and that worker reports its own end.
+		let Ok(mut held) = job.work.try_lock() else {
+			return false;
+		};
+		let work = held.take();
+		drop(held);
+		(jobs.remove(id), work)
+	};
+	if let Some(job) = retired {
+		if let Some(mut work) = work {
+			if settled && let Some(capture) = &mut work.outgoing {
+				capture.publish();
+			}
+			if let Some(retirement) = &work.retirement {
+				retirement.forfeit(work.phase.dispatched().then(|| job.failure.clone()).flatten());
+			}
+		}
+		drop(job);
+		owner.changes.execution_changed();
+		owner.changed.notify_waiters();
+	}
+	true
+}
+/// Retire every paused job, as [`retire`] does for one.
+pub(super) fn retire_paused<P: Tasks + Deadline + Clone + 'static>(owner: &State<P>) {
+	let paused: Vec<_> = owner
+		.jobs
+		.borrow()
+		.iter()
+		.filter(|(_, job)| job.is_paused())
+		.map(|(id, _)| id.clone())
+		.collect();
+	for id in paused {
+		retire(owner, &id, false);
+	}
 }

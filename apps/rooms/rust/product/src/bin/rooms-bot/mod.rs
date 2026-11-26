@@ -14,6 +14,7 @@ mod fault;
 mod gate;
 mod group;
 mod harness;
+mod harness_sessions;
 mod home;
 mod inbox;
 mod ledger;
@@ -25,10 +26,10 @@ mod request;
 mod rooms;
 mod runner;
 mod serve;
-mod sessions;
 mod stamp;
 mod status;
 mod store;
+mod words;
 
 pub use error::Error;
 use request::Request;
@@ -45,6 +46,7 @@ pub fn failure_line(error: &Error) -> Value {
 	let class = match error {
 		Error::Usage(_) => "invalid",
 		Error::Config(_) => "config",
+		Error::Access { .. } | Error::Asked(_) => "access",
 		Error::NotReady(_) => "not-ready",
 		Error::Lease(_) => "in-use",
 		Error::Storage(_)
@@ -53,12 +55,12 @@ pub fn failure_line(error: &Error) -> Value {
 		| Error::Unreadable { .. }
 		| Error::TooLarge { .. } => "storage",
 		Error::Io { .. } => "io",
-		Error::Rooms(_) => "rooms",
+		Error::Rooms(_) | Error::Unlisted(_) => "rooms",
 		Error::Action { .. } => "action",
 		Error::Entropy(_) => "entropy",
 	};
 	let retry = match error {
-		Error::Usage(_) | Error::Config(_) => Retry::AfterRequestChange,
+		Error::Usage(_) | Error::Config(_) | Error::Access { .. } => Retry::AfterRequestChange,
 		_ if error.is_transient() => Retry::Soon,
 		_ => Retry::AfterStateChange,
 	};
@@ -67,12 +69,19 @@ pub fn failure_line(error: &Error) -> Value {
 
 /// Run `rooms-bot control <json>`.
 pub async fn run(args: Vec<String>) -> Result<(), Error> {
-	let [verb, body] = args.as_slice() else {
-		return Err(Error::Usage("use glowcap apps rooms bot for Rooms bot commands".into()));
+	let body = match args.as_slice() {
+		[verb, body] if verb == "control" => body,
+		// A process test fills the stand-in's receipt window as another access
+		// would, through the window's own reservation.
+		#[cfg(feature = "test-support")]
+		[verb, directory, count] if verb == "crowd" => {
+			let count = count.parse().map_err(|_| Error::Usage("crowd takes a count".into()))?;
+			return rooms::files::Files::open(std::path::Path::new(directory))
+				.crowd(count)
+				.map_err(Error::Rooms);
+		}
+		_ => return Err(Error::Usage("use glowcap apps rooms bot for Rooms bot commands".into())),
 	};
-	if verb != "control" {
-		return Err(Error::Usage("use glowcap apps rooms bot for Rooms bot commands".into()));
-	}
 	let request = Request::parse(body)?;
 	match request.verb.as_str() {
 		"serve" => serve::run(&request).await,

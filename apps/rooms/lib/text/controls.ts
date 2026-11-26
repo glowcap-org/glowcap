@@ -70,6 +70,10 @@ export const commandKeyApple = "⌘";
 export const commandKeyControl = "Ctrl";
 
 export const composerUnsynced = "Draft is kept in this tab. Sync has stopped.";
+export const composerDraftConflict =
+	"This conversation or its session draft changed. Copy any text you want to keep before replacing this tab’s draft.";
+export const composerDraftConflictFiles = "Replacing the draft also removes its selected files.";
+export const composerUseSessionDraft = "Use session draft";
 export const composerRetrySync = "Retry sync";
 
 export const messageWithdrawing = "Withdrawing message…";

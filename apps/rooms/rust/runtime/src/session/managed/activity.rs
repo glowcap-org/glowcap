@@ -20,6 +20,12 @@ use std::{
 };
 use tokio::sync::Notify;
 
+/// The refusal for a cursor or token from an earlier run of this journal. The
+/// page reads it as `activity-cursor-stale` and opens the session again.
+fn stale_cursor(detail: &str) -> glowcap::Error {
+	loam::refusal(rooms_application::failure::FailureCode::ActivityCursorStale.line(detail))
+}
+
 /// The most events activity keeps. A reader further behind meets a gap.
 pub const MAX_EVENTS: usize = 4096;
 const MAX_BYTES: usize = 16 * 1024 * 1024;
@@ -302,7 +308,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Activity<P> {
 			.split_once(':')
 			.ok_or_else(|| loam::refusal("invalid activity token"))?;
 		if incarnation != self.incarnation_hex()? {
-			return Err(loam::refusal("activity token belongs to another incarnation"));
+			return Err(stale_cursor("activity token belongs to another incarnation"));
 		}
 		let id = counter
 			.parse::<u64>()

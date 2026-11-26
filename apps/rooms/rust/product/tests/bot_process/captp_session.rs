@@ -1,22 +1,16 @@
 //! The bot against a real session whose access or process changes under it:
-//! access paused, resumed, and revoked, and the session stopped and started.
+//! access paused and resumed or revoked, and the session stopped and started.
 use super::captp::{DWELL, World};
 use super::rig::eventually;
-use super::session_rig::{host, run_within};
-use rooms_application::content::session::{Preset, Terms};
-use rooms_platform::HostPlatform;
-use rooms_services::session::attached::Grants;
+use super::session_rig::run_within;
 use serde_json::json;
 use std::time::Duration;
 
 #[test]
-fn paused_access_keeps_the_message_until_it_resumes_and_revoked_access_leaves_the_bot_up() {
+fn paused_access_keeps_the_message_until_it_resumes() {
 	let world = World::new("bot-live-access");
-	let management = std::fs::read_to_string(world.fixture.peers[0].state.join("management.sturdyref")).unwrap();
 	run_within(Duration::from_secs(60), async {
-		let issuer = host().await;
-		let grants = Grants::attach(&issuer, HostPlatform, &management).await.unwrap();
-		let terms = Terms::new(Preset::Collaborator.values()).unwrap();
+		let (issuer, grants, terms) = world.issuer().await;
 		let issued = grants.issue("the bot", &terms).await.unwrap();
 		let bot = world.rig.serve_linked(&issued.link, json!({}));
 		world.dm("reply:first");
@@ -34,20 +28,8 @@ fn paused_access_keeps_the_message_until_it_resumes_and_revoked_access_leaves_th
 		world.await_line("direct", "after resume");
 		assert_eq!(world.count("direct", "held while paused"), 1);
 
-		grants.revoke(&issued.name).await.unwrap();
-		eventually("status to show revoked", || (world.access() == "revoked").then_some(()));
-		assert_eq!(world.rig.status()["running"], true, "revoked access stopped the bot");
-		// A send can find the access revoked first. Reading finds it too.
-		eventually("reading to find the access revoked", || {
-			world
-				.rig
-				.log()
-				.lines()
-				.any(|line| line.contains("receiving:") && line.contains("this access was revoked"))
-				.then_some(())
-		});
+		assert!(bot.stop().success(), "the bot exited with a failure");
 		issuer.close(glowcap::PendingWork::Cancel).await.unwrap();
-		world.stopped(bot);
 		assert_eq!(
 			world.count("direct", "held while paused"),
 			1,
@@ -55,7 +37,7 @@ fn paused_access_keeps_the_message_until_it_resumes_and_revoked_access_leaves_th
 		);
 		assert_eq!(world.count("direct", "after resume"), 1);
 	});
-	world.fixture.finish();
+	world.finish();
 }
 
 #[test]
@@ -81,5 +63,24 @@ fn a_session_that_stops_and_starts_again_is_reattached_and_answers_the_next_mess
 		"the message was answered more than once"
 	);
 	assert_eq!(world.count("direct", "before the restart"), 1);
-	world.fixture.finish();
+	world.finish();
+}
+
+#[test]
+fn a_revoked_access_ends_the_bot_with_a_failure_and_answers_nothing_again() {
+	let world = World::new("bot-live-revoked");
+	run_within(Duration::from_secs(60), async {
+		let (issuer, grants, terms) = world.issuer().await;
+		let issued = grants.issue("the bot", &terms).await.unwrap();
+		let mut bot = world.rig.serve_linked(&issued.link, json!({}));
+		world.dm("reply:before the revoke");
+		world.await_line("direct", "before the revoke");
+		grants.revoke(&issued.name).await.unwrap();
+		// The operator text and the revoked status are the stand-in test's
+		// subject. This one proves the exit and that nothing is answered again.
+		assert!(!bot.process.wait().success(), "revoked access left the bot serving");
+		issuer.close(glowcap::PendingWork::Cancel).await.unwrap();
+		assert_eq!(world.count("direct", "before the revoke"), 1);
+	});
+	world.finish();
 }

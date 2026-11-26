@@ -69,16 +69,20 @@ fn rooms_server_executable_prints_the_capabilities_it_minted() {
 	// Standalone, the block names what is serving and ends on the ready line.
 	let mut process = Process::new(started().spawn().unwrap(), "directory");
 	let block = stderr_until(&mut process, "rooms: ready");
+	// The block carries the sturdyrefs, so no message prints it.
 	assert!(
 		block.lines().any(|line| line == "rooms: directory listening"),
-		"{block}"
+		"the directory never reported listening"
 	);
-	assert!(block.contains("  transport   "), "{block}");
+	assert!(
+		block.contains("  transport   "),
+		"the readiness block names no transport"
+	);
 	let recipe_of = |token: &str, block: &str| -> String {
 		block
 			.lines()
 			.find_map(|line| line.strip_prefix(&format!("{token} ")))
-			.unwrap_or_else(|| panic!("{token} in {block}"))
+			.unwrap_or_else(|| panic!("{token} is missing from the readiness block"))
 			.to_owned()
 	};
 	let locator = block
@@ -103,13 +107,16 @@ fn rooms_server_executable_prints_the_capabilities_it_minted() {
 	] {
 		let parsed = glowcap::parse_sturdyref(recipe, glowcap::CaptpVersion::V1_0).unwrap();
 		assert_eq!(parsed.locator, glowcap::parse_locator(locator).unwrap());
-		assert_eq!(
-			std::fs::read_to_string(state.join(file)).unwrap().trim(),
-			swiss_of(recipe)
+		assert!(
+			std::fs::read_to_string(state.join(file)).unwrap().trim() == swiss_of(recipe),
+			"the saved {file} swissnum is not the printed one"
 		);
 		assert_eq!(parsed.swissnum.len(), 64);
 	}
-	assert!(!block.contains("ROOMS-OPERATOR"), "{block}");
+	assert!(
+		!block.contains("ROOMS-OPERATOR"),
+		"the directory printed an operator link"
+	);
 	process.signal("-TERM");
 	// Supervised, the complete recipes ride in the readiness record for the
 	// supervisor to print, and nothing prints here. A new listening address
@@ -140,20 +147,23 @@ fn rooms_server_executable_prints_the_capabilities_it_minted() {
 		.map(|line| line.as_str().unwrap().to_owned())
 		.collect();
 	let lines = lines.join("\n");
-	assert_eq!(
-		swiss_of(&recipe_of("ROOMS-ADMIN-LISTENERS", &lines)),
-		swiss_of(&listeners)
-	);
-	assert_eq!(
-		swiss_of(&recipe_of("ROOMS-DIAGNOSTICS", &lines)),
-		swiss_of(&diagnostics)
-	);
-	assert_eq!(swiss_of(&recipe_of("ROOMS-IRC", &lines)), swiss_of(&irc));
+	for (name, printed) in [
+		("ROOMS-ADMIN-LISTENERS", &listeners),
+		("ROOMS-DIAGNOSTICS", &diagnostics),
+		("ROOMS-IRC", &irc),
+	] {
+		assert!(
+			swiss_of(&recipe_of(name, &lines)) == swiss_of(printed),
+			"the supervised {name} swissnum is not the saved one"
+		);
+	}
 	again.signal("-TERM");
 	let quiet = stderr_until(&mut again, "\0");
+	// The lines hold sturdyrefs, so a failure names their size and no text.
 	assert!(
 		!quiet.contains("ROOMS-"),
-		"a supervised server printed its own lines: {quiet}"
+		"a supervised server printed its own lines ({} bytes on stderr)",
+		quiet.len()
 	);
 }
 
@@ -219,7 +229,7 @@ fn rooms_server_executable_custody_restart_and_signals() {
 			}
 			let bytes = std::fs::read(state.join("rooms.json")).unwrap();
 			if let Some(previous) = &document {
-				assert_eq!(&bytes, previous);
+				assert!(&bytes == previous, "a restart rewrote rooms.json");
 			}
 			document = Some(bytes);
 			let mut contender = Process::new(

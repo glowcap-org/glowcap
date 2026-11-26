@@ -9,7 +9,10 @@
 // on the way. The advanced disclosure under the card holds the two acts that
 // take saved state away, each behind the ordinary confirm. A refusal lands
 // beside what asked for it: a capability the session would not take stays
-// under its own field, and anything else stands under the card.
+// under its own field, and anything else stands under the card. Saved data
+// this version can't read refuses every act that opens it (`opensSaved`), so
+// each of those is shut and described by a notice under the card, which says
+// so and asks for the same deletion the advanced disclosure confirms.
 
 import { useRef, useState } from "react";
 import { reloadNow } from "../boot.ts";
@@ -48,6 +51,7 @@ import {
 	sessionSignInHint,
 	sessionSignInState,
 	sessionSignInTitle,
+	sessionUnreadableSay,
 } from "../../../lib/text/session.ts";
 import { sturdyrefPlaceholder } from "../../../lib/text/controls.ts";
 import { useRoomsState } from "../hooks.ts";
@@ -63,13 +67,20 @@ export function SessionSetup(
 ) {
 	const browser = useRoomsBrowser();
 	const errorDetail = useRoomsState((state) => state.errorDetail);
+	const unreadable = useRoomsState((state) => state.savedSessionUnreadable);
 	const [capability, setCapability] = useState(initialCapability);
-	const [busy, setBusy] = useState<"local" | "attach" | "reset" | "delete" | null>(null);
+	const [busy, setBusy] = useState<SetupAct | null>(null);
 	// Two homes for a refusal: the attach field's own, and the card's.
 	const [attachError, setAttachError] = useState(initialError);
 	const [error, setError] = useState("");
-	const [confirmAction, setConfirmAction] = useState<"reset" | "delete" | null>(null);
-	const running = useRef<"local" | "attach" | "reset" | "delete" | null>(null);
+	const [confirmAction, setConfirmAction] = useState<SavedDataAct | null>(null);
+	const [advancedOpen, setAdvancedOpen] = useState(false);
+	// Every ask opens the disclosure that holds its confirmation.
+	const ask = (act: SavedDataAct) => {
+		setAdvancedOpen(true);
+		setConfirmAction(act);
+	};
+	const running = useRef<SetupAct | null>(null);
 	// The server the opening session takes: the kept choice at load, and the
 	// one saved here after.
 	const [server, setServer] = useState(() => browser.server());
@@ -195,7 +206,8 @@ export function SessionSetup(
 							// Attach the next step.
 							variant={capability.trim() === "" ? "primary" : "quiet"}
 							busy={busy === "local"}
-							disabled={busy != null}
+							disabled={busy != null || shut(unreadable, "local")}
+							aria-describedby={shutBy(unreadable, "local")}
 							onClick={useLocal}
 						>
 							{sessionLocalCommit}
@@ -245,7 +257,8 @@ export function SessionSetup(
 								type="submit"
 								size="large"
 								busy={busy === "attach"}
-								disabled={busy != null || capability.trim() === ""}
+								disabled={busy != null || shut(unreadable, "attach") || capability.trim() === ""}
+								aria-describedby={shutBy(unreadable, "attach")}
 							>
 								{sessionSharedCommit}
 							</Button>
@@ -283,47 +296,119 @@ export function SessionSetup(
 					onSaved={serverSaved}
 				/>
 				{error !== "" && <Said kind="failure">{error}</Said>}
-				<details className="disclosure session-setup-advanced" data-align="center">
-					<summary>{sessionAdvanced}</summary>
-					{confirmAction != null
-						? (
-							<Confirm
-								label={sessionChangeLabel}
-								say={confirmAction === "reset" ? sessionResetSay : sessionDeleteSay}
-								keep={sessionConfirmKeep}
-								commit={confirmAction === "reset" ? sessionResetCommit : sessionDeleteCommit}
-								busy={busy === confirmAction}
-								onKeep={() => setConfirmAction(null)}
-								onCommit={() =>
-									void (confirmAction === "reset" ? forgetWorkspace() : deleteBrowserData())}
-							/>
-						)
-						: (
-							<div className="actions">
-								<Button
-									id="sessionResetAsk"
-									variant="quiet"
-									disabled={busy != null}
-									onClick={() => setConfirmAction("reset")}
-								>
-									{sessionResetAsk}
-								</Button>
-								<Button
-									id="sessionDeleteAsk"
-									variant="quiet"
-									disabled={busy != null}
-									onClick={() => setConfirmAction("delete")}
-								>
-									{sessionDeleteAsk}
-								</Button>
-							</div>
-						)}
-				</details>
+				{unreadable && <SessionUnreadable busy={busy != null} onAsk={ask} />}
+				<SetupAdvanced
+					open={advancedOpen}
+					asking={confirmAction}
+					busy={busy}
+					unreadable={unreadable}
+					onToggle={setAdvancedOpen}
+					onAsk={ask}
+					onKeep={() => setConfirmAction(null)}
+					onCommit={(act) => void (act === "reset" ? forgetWorkspace() : deleteBrowserData())}
+				/>
 			</div>
 			<ErrorDetail
 				title={errorDetail?.title ?? null}
 				text={errorDetail?.text ?? null}
 			/>
 		</main>
+	);
+}
+
+/** The acts setup offers. */
+type SetupAct = "local" | "attach" | "reset" | "delete";
+/** The two acts that take saved state away. */
+export type SavedDataAct = "reset" | "delete";
+/** Whether each act opens this browser's saved session: both doors select a
+ * session in it, and forgetting rooms and settings clears it. Deleting this
+ * browser's data reloads without opening it. */
+const opensSaved: Record<SetupAct, boolean> = { local: true, attach: true, reset: true, delete: false };
+/** Whether `act` is shut because saved data is `unreadable`: every act that
+ * opens it would meet the same refusal. */
+const shut = (unreadable: boolean, act: SetupAct): boolean => unreadable && opensSaved[act];
+/** What describes `act`: the notice that says why it is shut, when it is. */
+const shutBy = (unreadable: boolean, act: SetupAct): string | undefined =>
+	shut(unreadable, act) ? "sessionUnreadableSay" : undefined;
+
+/** What setup says while this browser's saved session can't be read, over the
+ * act that asks to delete this browser's data. */
+export function SessionUnreadable({ busy, onAsk }: { busy: boolean; onAsk: (act: SavedDataAct) => void }) {
+	return (
+		<div className="session-setup-unreadable">
+			<p id="sessionUnreadableSay">{sessionUnreadableSay}</p>
+			<div className="actions">
+				<Button
+					id="sessionUnreadableDelete"
+					variant="quiet"
+					disabled={busy}
+					aria-describedby="sessionUnreadableSay"
+					onClick={() => onAsk("delete")}
+				>
+					{sessionDeleteAsk}
+				</Button>
+			</div>
+		</div>
+	);
+}
+
+/** The disclosure under the card: each act that takes saved state away, and
+ * the ordinary confirm for the one `asking`, unless saved data `unreadable`
+ * shuts it. */
+export function SetupAdvanced(
+	{ open, asking, busy, unreadable, onToggle, onAsk, onKeep, onCommit }: {
+		open: boolean;
+		asking: SavedDataAct | null;
+		busy: string | null;
+		unreadable: boolean;
+		onToggle: (open: boolean) => void;
+		onAsk: (act: SavedDataAct) => void;
+		onKeep: () => void;
+		onCommit: (act: SavedDataAct) => void;
+	},
+) {
+	return (
+		<details
+			className="disclosure session-setup-advanced"
+			data-align="center"
+			open={open}
+			onToggle={(event) => onToggle(event.currentTarget.open)}
+		>
+			<summary>{sessionAdvanced}</summary>
+			{asking != null && !shut(unreadable, asking)
+				? (
+					<Confirm
+						label={sessionChangeLabel}
+						say={asking === "reset" ? sessionResetSay : sessionDeleteSay}
+						keep={sessionConfirmKeep}
+						commit={asking === "reset" ? sessionResetCommit : sessionDeleteCommit}
+						busy={busy === asking}
+						onKeep={onKeep}
+						onCommit={() => onCommit(asking)}
+					/>
+				)
+				: (
+					<div className="actions">
+						<Button
+							id="sessionResetAsk"
+							variant="quiet"
+							disabled={busy != null || shut(unreadable, "reset")}
+							aria-describedby={shutBy(unreadable, "reset")}
+							onClick={() => onAsk("reset")}
+						>
+							{sessionResetAsk}
+						</Button>
+						<Button
+							id="sessionDeleteAsk"
+							variant="quiet"
+							disabled={busy != null || shut(unreadable, "delete")}
+							aria-describedby={shutBy(unreadable, "delete")}
+							onClick={() => onAsk("delete")}
+						>
+							{sessionDeleteAsk}
+						</Button>
+					</div>
+				)}
+		</details>
 	);
 }

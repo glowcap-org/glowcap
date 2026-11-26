@@ -171,6 +171,9 @@ impl<'a> Request<'a> {
 		if !matches!(receipt.outcome, Outcome::Committed { .. }) {
 			return Err(refuse("result is not committed"));
 		}
+		if receipt.disposition == custody::Disposition::Released {
+			return Err(refuse("result was released"));
+		}
 		Ok(receipt)
 	}
 	fn prepare_workspace(
@@ -182,7 +185,7 @@ impl<'a> Request<'a> {
 		let Some(replacement) = &self.replacement else {
 			return Ok(Ok(None));
 		};
-		if receipt.adopted {
+		if receipt.disposition == custody::Disposition::Adopted {
 			return Ok(Ok(None));
 		}
 		if self.created {
@@ -345,7 +348,9 @@ pub(super) fn references(input: Invocation<'_>, record: &MetadataRecord) -> Resu
 	let request = Request::parse(input.verb, input.args)?;
 	let receipt = request.receipt(record)?;
 	let preparation = request.prepare_workspace(input, record, receipt)?;
-	if matches!(preparation, Err(WorkspaceConflict)) || (request.replacement.is_some() && receipt.adopted) {
+	if matches!(preparation, Err(WorkspaceConflict))
+		|| (request.replacement.is_some() && receipt.disposition == custody::Disposition::Adopted)
+	{
 		return Ok(vec![restore_source(receipt)?]);
 	}
 	let origin = match &preparation {
@@ -423,7 +428,7 @@ pub(super) fn invoke(call: &mut Call<'_>, input: Invocation<'_>) -> Result<Argum
 	authenticate(call, input, &metadata, &request.operation, &source)?;
 	// One receipt scan names the effect for the whole admission.
 	let receipt = request.receipt(&metadata)?;
-	if request.replacement.is_some() && receipt.adopted {
+	if request.replacement.is_some() && receipt.disposition == custody::Disposition::Adopted {
 		return Ok(Argument::Void);
 	}
 	if request.created {
@@ -498,7 +503,7 @@ pub(super) fn invoke(call: &mut Call<'_>, input: Invocation<'_>) -> Result<Argum
 			.iter_mut()
 			.find(|receipt| receipt.operation == request.operation)
 			.ok_or_else(|| refuse("original effect disappeared"))?;
-		receipt.adopted = true;
+		receipt.disposition = custody::Disposition::Adopted;
 		changed = true;
 	}
 	if changed {

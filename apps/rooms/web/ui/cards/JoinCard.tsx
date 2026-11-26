@@ -16,7 +16,7 @@ import { MAKE_HOME_FIELD, MakeHomeChoice } from "./MakeHomeChoice.tsx";
 import { identifierField } from "../field.ts";
 import { useRoomsBrowser } from "../controller/browser.ts";
 import { useRoomsSession } from "../controller/session.ts";
-import { useRoomsState, useSessionPaused } from "../hooks.ts";
+import { useRoomsState } from "../hooks.ts";
 import { useSuggest } from "../Suggest.tsx";
 import { Avatar } from "../Avatar.tsx";
 import { Button } from "../Button.tsx";
@@ -60,7 +60,6 @@ import {
 	joinInstead,
 	joinJoining,
 	joinJoinRoom,
-	joinLeadPaused,
 	joinLeadReadOnly,
 	joinLinkLabel,
 	joinNeedsAddress,
@@ -72,7 +71,6 @@ import {
 	joinNotAnAddress,
 	joinNotARoomLink,
 	joinReadOnlySession,
-	joinSessionPaused,
 	joinStopConnecting,
 	joinStopCreating,
 	joinStopJoining,
@@ -122,10 +120,6 @@ export const JoinCard = memo(function JoinCard(
 ) {
 	const browser = useRoomsBrowser();
 	const session = useRoomsSession();
-	/** A link held at nothing, which is not the same as one held to reading.
-	 * Asked separately from `canInteract`, because that answers what the reader
-	 * may do and this answers what there is to do it to. */
-	const paused = useSessionPaused();
 	const server = useRoomsState((state) => state.server);
 	const homeDirectory = directoryContext.home;
 	const room = answers.room.value;
@@ -380,17 +374,7 @@ export const JoinCard = memo(function JoinCard(
 		<div className="join-wrap" id="joinScreen">
 			<form id="joinForm" className="join" data-dir={aimed.mark} action={join}>
 				<h2>{making ? joinTitleCreate : joinTitleJoin}</h2>
-				<p className="lead">
-					{paused
-						// Not the read-only sentence, which promises browsing. A paused
-						// link is answered with no session at all, so there is nothing
-						// here to browse either, and this is the card a reader lands on
-						// when there is nothing else to show them.
-						? joinLeadPaused
-						: canInteract
-						? joinLead(answers, aimed.name)
-						: joinLeadReadOnly}
-				</p>
+				<p className="lead">{canInteract ? joinLead(answers, aimed.name) : joinLeadReadOnly}</p>
 				<div className="join-fields" inert={joining || !canInteract || undefined}>
 					<Field
 						id="joinAddressField"
@@ -552,9 +536,7 @@ export const JoinCard = memo(function JoinCard(
 					stopLabel={reaching ? joinStopConnecting : making ? joinStopCreating : joinStopJoining}
 					onStop={() => halt.current?.abort()}
 				>
-					{paused
-						? joinSessionPaused
-						: !canInteract
+					{!canInteract
 						? joinReadOnlySession
 						: nickAvailability.kind === "taken"
 						? joinChooseAnotherName
@@ -564,21 +546,9 @@ export const JoinCard = memo(function JoinCard(
 						? joinCreateRoom
 						: joinJoinRoom}
 				</WorkingAction>
-				{
-					/* The phone's way to the rooms screen before anything is open. A
-				    paused link has no rooms to go to and the screen it opens says so,
-				    which makes this an offer with nothing behind it. The rail is still
-				    a tap away on the header. */
-				}
-				{!paused && (
-					<Button
-						id="browseRoomsBtn"
-						variant="quiet"
-						onClick={() => browser.showRail(true)}
-					>
-						{joinBrowseLiveRooms}
-					</Button>
-				)}
+				<Button id="browseRoomsBtn" variant="quiet" onClick={() => browser.showRail(true)}>
+					{joinBrowseLiveRooms}
+				</Button>
 			</form>
 		</div>
 	);

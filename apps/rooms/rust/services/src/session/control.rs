@@ -10,15 +10,16 @@ mod inbox;
 mod request;
 mod worker;
 pub use accesses::rights;
-pub use failure::Failure;
+pub use failure::{CONFLICT, Failure};
 use feed::{Application, Feed};
+use futures_util::future::Either;
 use rooms_application::failure::Retry;
 use serde_json::{Value, json};
 use std::{cell::RefCell, path::PathBuf, rc::Rc, time::Duration};
 use tokio::{
 	io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
 	net::{UnixListener, UnixStream},
-	sync::{Notify, watch},
+	sync::{Notify, RwLock, RwLockReadGuard, RwLockWriteGuard, watch},
 };
 
 /// The longest a `tick` may wait for new events.
@@ -35,6 +36,9 @@ pub struct Control {
 	stop: Notify,
 	commands: commands::Commands,
 	acquisitions: acquisitions::Acquisitions,
+	/// Terminal access commands observe an issue only after its control is
+	/// saved and its access is active, or the issue has returned a failure.
+	access: RwLock<()>,
 }
 // Only acquisition requests allocate a candidate box. Keeping the workspace
 // candidate out of the enum avoids retaining its size in every socket request;
@@ -58,6 +62,21 @@ request::request! {
 		AccessList => "access-list" {},
 		AccessChange => "access-change" { id: String, change: crate::session::attached::Lifecycle },
 		AccessForget => "access-forget" { id: String },
+		AccessShare => "access-share" { id: String },
+	}
+}
+
+type AccessTurn<'a> = Either<RwLockWriteGuard<'a, ()>, RwLockReadGuard<'a, ()>>;
+
+impl RequestBody {
+	async fn access_turn<'a>(&self, access: &'a RwLock<()>) -> Option<AccessTurn<'a>> {
+		match self {
+			Self::AccessIssue { .. } => Some(Either::Left(access.write().await)),
+			Self::AccessList {} | Self::AccessChange { .. } | Self::AccessForget { .. } | Self::AccessShare { .. } => {
+				Some(Either::Right(access.read().await))
+			}
+			_ => None,
+		}
 	}
 }
 
@@ -173,6 +192,7 @@ impl Control {
 			stop: Notify::new(),
 			commands: commands::Commands::default(),
 			acquisitions: acquisitions::Acquisitions::default(),
+			access: RwLock::new(()),
 		})
 	}
 	async fn pending(&self, after_id: u64) -> Result<Value, Failure> {
@@ -187,6 +207,7 @@ impl Control {
 		Ok(result)
 	}
 	async fn execute(&self, request: RequestBody) -> Result<Value, Failure> {
+		let _access_turn = request.access_turn(&self.access).await;
 		let app = &self.feed.app;
 		match request {
 			RequestBody::Acquire { id, request } => {
@@ -296,6 +317,7 @@ impl Control {
 			RequestBody::AccessList {} => accesses::list(app).await,
 			RequestBody::AccessChange { id, change } => accesses::change(app, &id, change).await,
 			RequestBody::AccessForget { id } => accesses::forget(app, &id).await,
+			RequestBody::AccessShare { id } => accesses::share(app, &id).await,
 			RequestBody::Command { id, base, name, args } => {
 				let status = self.commands.submit(&app.workspace, &id, base, &name, &args).await?;
 				Ok(json!({"ok": true, "operation": id, "status":format!("{status:?}").to_lowercase()}))

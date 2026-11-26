@@ -85,7 +85,22 @@ impl<D: Deadline> Control<D> {
 	}
 	pub fn local(host: glowcap::Host, platform: D, reference: Ref) -> Self {
 		Self {
-			caller: Caller::Local { host, platform },
+			caller: Caller::hosted(host, platform),
+			reference,
+		}
+	}
+	/// A control another process serves, reached through this Host. A call
+	/// through it whose connection closes or breaks is `Error::Unreached`, as one
+	/// through an attached workspace is. A call that misses its deadline asks
+	/// the control's `derivation-sequence`, which the control answers from its
+	/// own endpoint.
+	pub fn attached(host: glowcap::Host, platform: D, reference: Ref) -> Self {
+		let attached = Attached {
+			session: reference.clone(),
+			probe: "derivation-sequence",
+		};
+		Self {
+			caller: Caller::attached(host, platform, attached),
 			reference,
 		}
 	}

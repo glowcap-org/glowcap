@@ -8,26 +8,23 @@ use super::{
 	request::Request,
 	store::{self, Store},
 };
-use rooms_application::room::inbox::{nick_refusal, same_nick};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::path::{Path, PathBuf};
 
 const FILE: &str = "config.json";
+/// The `serve` flag that drops the stored instructions file.
+pub const NO_INSTRUCTIONS: &str = "no-instructions";
 pub const DEFAULT_DEADLINE_SECS: u64 = 600;
 const MAX_DEADLINE_SECS: u64 = 24 * 60 * 60;
-/// Messages one sender may have answered in an hour, unless set.
-pub const DEFAULT_SENDER_LIMIT: u32 = 30;
-/// Messages one conversation may have answered in an hour, unless set.
+/// Messages in one conversation the bot answers in an hour, unless set.
 pub const DEFAULT_CONVERSATION_LIMIT: u32 = 60;
-/// Replies in a row to one sender in a conversation nobody else speaks in,
-/// unless set.
-pub const DEFAULT_STREAK_LIMIT: u32 = 10;
+/// The most messages an hour `--conversation-limit` can allow in one conversation.
 const MAX_LIMIT: u32 = 100_000;
 /// The most bytes the operator's instructions file may hold.
 pub const MAX_INSTRUCTIONS_BYTES: usize = 16_384;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct Config {
 	pub harness: String,
 	pub model: Option<String>,
@@ -35,44 +32,38 @@ pub struct Config {
 	pub deadline_secs: u64,
 	/// The absolute path of the `glowcap` executable the harness is told to use.
 	pub glowcap: PathBuf,
-	/// The nicknames whose messages start work. Empty means everyone.
-	#[serde(default)]
-	pub allow: Vec<String>,
-	#[serde(default = "sender_limit")]
-	pub sender_limit: u32,
-	#[serde(default = "conversation_limit")]
 	pub conversation_limit: u32,
-	#[serde(default = "streak_limit")]
-	pub streak_limit: u32,
 	/// The absolute path of a file whose text each turn adds to the agent's
 	/// instructions.
-	#[serde(default)]
 	pub instructions: Option<PathBuf>,
 }
 
-fn sender_limit() -> u32 {
-	DEFAULT_SENDER_LIMIT
-}
-fn conversation_limit() -> u32 {
-	DEFAULT_CONVERSATION_LIMIT
-}
-fn streak_limit() -> u32 {
-	DEFAULT_STREAK_LIMIT
+/// A stored document: the settings, and every field beside them, which this
+/// bot does not read. Serde's own refusal names only the first such field.
+#[derive(Deserialize)]
+struct Stored {
+	#[serde(flatten)]
+	config: Config,
+	#[serde(flatten)]
+	unread: std::collections::BTreeMap<String, Value>,
 }
 
 /// The flags `serve` reads that belong to the configuration.
-pub const FLAGS: [&str; 10] = [
+pub const FLAGS: [&str; 7] = [
 	"harness",
 	"model",
 	"permission",
 	"deadline",
 	"glowcap",
-	"allow",
-	"sender-limit",
 	"conversation-limit",
-	"streak-limit",
 	"instructions",
 ];
+
+/// Every setting `serve` reads as a flag or as a variable: [`FLAGS`] and the
+/// session link.
+pub fn variable_flags() -> Vec<&'static str> {
+	FLAGS.iter().copied().chain([super::link::FLAG]).collect()
+}
 
 /// The operator's instructions at `path`, bounded by [`MAX_INSTRUCTIONS_BYTES`].
 pub fn instructions(path: &Path) -> Result<String, Error> {
@@ -81,41 +72,6 @@ pub fn instructions(path: &Path) -> Result<String, Error> {
 		.map_err(|error| unreadable(format!("cannot be read: {error}")))?
 		.ok_or_else(|| unreadable("does not exist".into()))?;
 	String::from_utf8(bytes).map_err(|_| unreadable("is not UTF-8 text".into()))
-}
-
-/// A turn limit flag, from 1 to [`MAX_LIMIT`].
-fn limit(request: &Request, flag: &str, stored: Option<u32>, default: u32) -> Result<u32, Error> {
-	match request.single(flag)? {
-		Some(text) => text
-			.parse::<u32>()
-			.ok()
-			.filter(|count| (1..=MAX_LIMIT).contains(count))
-			.ok_or_else(|| Error::Config(format!("--{flag} must be 1 to {MAX_LIMIT}"))),
-		None => Ok(stored.unwrap_or(default)),
-	}
-}
-
-/// The nicknames `--allow` names. Each value may hold several, separated by
-/// commas, as `GLOWCAP_ROOMS_BOT_ALLOW` does. A flag given with no name clears
-/// the list.
-fn allow_list(request: &Request, stored: Option<&Config>) -> Result<Vec<String>, Error> {
-	let Some(values) = request.named.get("allow") else {
-		return Ok(stored.map(|stored| stored.allow.clone()).unwrap_or_default());
-	};
-	let mut names: Vec<String> = Vec::new();
-	for name in values.iter().flat_map(|value| value.split(',')) {
-		let name = name.trim().trim_start_matches('@');
-		if name.is_empty() {
-			continue;
-		}
-		if let Some(why) = nick_refusal(name) {
-			return Err(Error::Config(format!("--allow {name:?} is not a nickname: {why}")));
-		}
-		if !names.iter().any(|kept| same_nick(kept, name)) {
-			names.push(name.to_owned());
-		}
-	}
-	Ok(names)
 }
 
 /// `<prefix>/bin/glowcap`, found from this executable in `<prefix>/libexec`.
@@ -141,19 +97,33 @@ fn executable(path: &Path) -> Result<(), Error> {
 	)))
 }
 
+/// A whole number from 1 to `max`, or none.
+fn ranged<N>(text: &str, max: N) -> Option<N>
+where
+	N: std::str::FromStr + PartialOrd + From<u8>,
+{
+	text.parse::<N>().ok().filter(|n| *n >= N::from(1) && *n <= max)
+}
+
 impl Config {
-	/// What the gate applies.
-	pub fn policy(&self) -> super::gate::Policy<'_> {
-		super::gate::Policy {
-			allow: &self.allow,
-			sender_limit: self.sender_limit,
-			conversation_limit: self.conversation_limit,
-			streak_limit: self.streak_limit,
-		}
+	pub fn load(store: &Store) -> Result<Option<Self>, Error> {
+		store.read::<Value>(FILE)?.map(Self::decode).transpose()
 	}
 
-	pub fn load(store: &Store) -> Result<Option<Self>, Error> {
-		store.read(FILE)
+	/// The settings a stored document holds. A field this bot does not read
+	/// is refused with every such field named, so one edit settles it.
+	fn decode(document: Value) -> Result<Self, Error> {
+		let Stored { config, unread } =
+			serde_json::from_value(document).map_err(|error| Error::unreadable(FILE, error))?;
+		if unread.is_empty() {
+			return Ok(config);
+		}
+		let names: Vec<&str> = unread.keys().map(String::as_str).collect();
+		Err(Error::Config(format!(
+			"{FILE} in the bot directory holds {}, which this bot does not read. Delete {} from {FILE} and run serve again",
+			names.join(", "),
+			if names.len() == 1 { "that field" } else { "those fields" },
+		)))
 	}
 
 	pub fn save(&self, store: &Store) -> Result<(), Error> {
@@ -170,7 +140,9 @@ impl Config {
 		if Link::load(&dir)?.is_none() {
 			return Ok(None);
 		}
-		super::store::read_unleased(&dir, FILE)
+		super::store::read_unleased::<Value>(&dir, FILE)?
+			.map(Self::decode)
+			.transpose()
 	}
 
 	/// Lay the request's flags over the stored configuration.
@@ -180,48 +152,15 @@ impl Config {
 			(None, Some(stored)) => stored.harness.clone(),
 			(None, None) => return Err(Error::Config("--harness is required the first time".into())),
 		};
-		let permission = match request.single("permission")? {
-			Some(name) => {
-				Permission::parse(name).ok_or_else(|| Error::Config("--permission must be safe or full".into()))?
-			}
-			None => stored
-				.as_ref()
-				.map_or_else(Permission::default, |stored| stored.permission),
-		};
-		let raised = stored
-			.as_ref()
-			.is_some_and(|stored| stored.permission == Permission::Safe && permission == Permission::Full);
-		if raised && request.came_from_environment("permission") {
-			return Err(Error::Config(
-				"GLOWCAP_ROOMS_BOT_PERMISSION=full does not raise a bot stored as safe. To let this bot do anything you can, run serve once with --permission full"
-					.into(),
-			));
-		}
+		let permission = Self::permission(stored.as_ref(), request)?;
 		let deadline_secs = match request.single("deadline")? {
-			Some(text) => text
-				.parse::<u64>()
-				.ok()
-				.filter(|secs| (1..=MAX_DEADLINE_SECS).contains(secs))
+			Some(text) => ranged(text, MAX_DEADLINE_SECS)
 				.ok_or_else(|| Error::Config(format!("--deadline must be 1 to {MAX_DEADLINE_SECS} seconds")))?,
 			None => stored
 				.as_ref()
 				.map_or(DEFAULT_DEADLINE_SECS, |stored| stored.deadline_secs),
 		};
-		let glowcap = match request.single("glowcap")? {
-			Some(path) => absolute(Path::new(path))?,
-			None => match stored
-				.as_ref()
-				.map(|stored| stored.glowcap.clone())
-				.or_else(installed_glowcap)
-			{
-				Some(path) => path,
-				None => {
-					return Err(Error::Config(
-						"pass --glowcap with the path of the glowcap executable".into(),
-					));
-				}
-			},
-		};
+		let glowcap = Self::glowcap(stored.as_ref(), request)?;
 		executable(&glowcap)?;
 		harness::lookup(&harness, &glowcap)
 			.map_err(|error| Error::Config(error.to_string()))?
@@ -232,11 +171,7 @@ impl Config {
 					permission.as_str()
 				))
 			})?;
-		let instructions_path = match request.single("instructions")? {
-			Some("") => None,
-			Some(path) => Some(absolute(Path::new(path))?),
-			None => stored.as_ref().and_then(|stored| stored.instructions.clone()),
-		};
+		let instructions_path = Self::instructions_path(stored.as_ref(), request)?;
 		if let Some(path) = &instructions_path {
 			instructions(path)?;
 		}
@@ -249,27 +184,63 @@ impl Config {
 			permission,
 			deadline_secs,
 			glowcap,
-			allow: allow_list(request, stored.as_ref())?,
-			sender_limit: limit(
-				request,
-				"sender-limit",
-				stored.as_ref().map(|stored| stored.sender_limit),
-				DEFAULT_SENDER_LIMIT,
-			)?,
-			conversation_limit: limit(
-				request,
-				"conversation-limit",
-				stored.as_ref().map(|stored| stored.conversation_limit),
-				DEFAULT_CONVERSATION_LIMIT,
-			)?,
-			streak_limit: limit(
-				request,
-				"streak-limit",
-				stored.as_ref().map(|stored| stored.streak_limit),
-				DEFAULT_STREAK_LIMIT,
-			)?,
+			conversation_limit: match request.single("conversation-limit")? {
+				Some(text) => ranged(text, MAX_LIMIT)
+					.ok_or_else(|| Error::Config(format!("--conversation-limit must be 1 to {MAX_LIMIT}")))?,
+				None => stored
+					.as_ref()
+					.map_or(DEFAULT_CONVERSATION_LIMIT, |stored| stored.conversation_limit),
+			},
 			instructions: instructions_path,
 		})
+	}
+
+	/// The permission the request names, else the stored one. Only the flag
+	/// raises a stored `safe` to `full`, never the environment.
+	fn permission(stored: Option<&Self>, request: &Request) -> Result<Permission, Error> {
+		let permission = match request.single("permission")? {
+			Some(name) => {
+				Permission::parse(name).ok_or_else(|| Error::Config("--permission must be safe or full".into()))?
+			}
+			None => stored.map_or_else(Permission::default, |stored| stored.permission),
+		};
+		let raised =
+			stored.is_some_and(|stored| stored.permission == Permission::Safe && permission == Permission::Full);
+		if raised && request.came_from_environment("permission") {
+			return Err(Error::Config(
+				"GLOWCAP_ROOMS_BOT_PERMISSION=full does not raise a bot stored as safe. To let this bot do anything you can, run serve once with --permission full"
+					.into(),
+			));
+		}
+		Ok(permission)
+	}
+
+	/// The glowcap executable the request names, else the stored one, else the
+	/// installed one.
+	fn glowcap(stored: Option<&Self>, request: &Request) -> Result<PathBuf, Error> {
+		match request.single("glowcap")? {
+			Some(path) => absolute(Path::new(path)),
+			None => stored
+				.map(|stored| stored.glowcap.clone())
+				.or_else(installed_glowcap)
+				.ok_or_else(|| Error::Config("pass --glowcap with the path of the glowcap executable".into())),
+		}
+	}
+
+	/// The instructions file the request names, else the stored one, unless the
+	/// request drops it.
+	fn instructions_path(stored: Option<&Self>, request: &Request) -> Result<Option<PathBuf>, Error> {
+		match (
+			request.single("instructions")?,
+			request.named.contains_key(NO_INSTRUCTIONS),
+		) {
+			(Some(_), true) if !request.came_from_environment("instructions") => Err(Error::Usage(format!(
+				"--instructions and --{NO_INSTRUCTIONS} cannot be given together"
+			))),
+			(_, true) => Ok(None),
+			(Some(path), false) => absolute(Path::new(path)).map(Some),
+			(None, false) => Ok(stored.and_then(|stored| stored.instructions.clone())),
+		}
 	}
 }
 
@@ -278,6 +249,37 @@ mod tests {
 	use super::*;
 	use rooms_testing::scratch::Scratch;
 	use std::os::unix::fs::PermissionsExt;
+
+	#[test]
+	fn a_bounded_number_is_whole_and_in_range() {
+		assert_eq!(ranged("1", MAX_LIMIT), Some(1));
+		assert_eq!(ranged("0", MAX_LIMIT), None);
+		assert_eq!(ranged("100001", MAX_LIMIT), None);
+		assert_eq!(ranged("-1", MAX_DEADLINE_SECS), None);
+		assert_eq!(ranged("1.5", MAX_DEADLINE_SECS), None);
+		assert_eq!(ranged("86400", MAX_DEADLINE_SECS), Some(86_400));
+		assert_eq!(ranged("86401", MAX_DEADLINE_SECS), None);
+	}
+
+	#[test]
+	fn the_help_states_the_defaults_and_bounds() {
+		let help = include_str!("../../../../../../../cli/app/rooms/bot_commands.zig");
+		for said in [
+			format!("({DEFAULT_DEADLINE_SECS} unless set)"),
+			format!("({DEFAULT_CONVERSATION_LIMIT} unless set)"),
+			format!(
+				"up to {},{:03} bytes",
+				MAX_INSTRUCTIONS_BYTES / 1000,
+				MAX_INSTRUCTIONS_BYTES % 1000
+			),
+		] {
+			assert!(help.contains(&said), "the CLI help does not say `{said}`");
+		}
+		assert!(
+			help.contains("from 1 up to a day"),
+			"the CLI help does not say the deadline's bound"
+		);
+	}
 
 	/// A directory holding an executable `glowcap` stand-in, and its path.
 	fn glowcap() -> (Scratch, String) {
@@ -303,10 +305,7 @@ mod tests {
 			permission: Permission::Full,
 			deadline_secs: 30,
 			glowcap: glowcap.into(),
-			allow: Vec::new(),
-			sender_limit: DEFAULT_SENDER_LIMIT,
 			conversation_limit: DEFAULT_CONVERSATION_LIMIT,
-			streak_limit: DEFAULT_STREAK_LIMIT,
 			instructions: None,
 		}
 	}
@@ -411,31 +410,37 @@ mod tests {
 		}
 	}
 
-	/// The deployment check keeps its own list, because the installed tree it
-	/// reads holds no Rust source. This holds the two lists together.
+	/// The deployment example is the one other place that names the settings'
+	/// variables, and the installed tree its check (`bot_example.py`) reads
+	/// holds no Rust source, so the example is held to `FLAGS` here, and a
+	/// default it quotes is held to the constant.
 	#[test]
-	fn the_deployment_check_knows_every_setting_variable() {
-		let check = include_str!("../../../../../../../tools/check/deployment/bot_example.py");
-		let listed = check
-			.split("BOT_VARIABLES = {")
-			.nth(1)
-			.unwrap()
-			.split('}')
-			.next()
-			.unwrap();
-		let mut names: Vec<String> = listed
-			.split(',')
-			.map(|name| name.trim().trim_matches('"').to_owned())
-			.filter(|name| !name.is_empty())
-			.collect();
-		names.sort();
-		let mut flags: Vec<String> = FLAGS
+	fn the_deployment_example_names_only_variables_serve_reads() {
+		let example = include_str!("../../../../../web/deploy/docker-compose.override.yml.example");
+		let read: Vec<String> = variable_flags()
 			.iter()
-			.chain(&[super::super::link::FLAG])
-			.map(|flag| flag.to_uppercase().replace('-', "_"))
+			.map(|flag| format!("GLOWCAP_ROOMS_BOT_{}", flag.to_uppercase().replace('-', "_")))
 			.collect();
-		flags.sort();
-		assert_eq!(names, flags);
+		let mut named = 0;
+		for word in example.split(|c: char| !(c.is_ascii_alphanumeric() || c == '_')) {
+			if word.starts_with("GLOWCAP_ROOMS_BOT_") {
+				named += 1;
+				assert!(
+					read.iter().any(|name| name == word),
+					"{word} is not a setting serve reads"
+				);
+			}
+		}
+		assert!(named > 0, "the example names no setting");
+		let quoted = example
+			.lines()
+			.find_map(|line| line.split_once("GLOWCAP_ROOMS_BOT_CONVERSATION_LIMIT: "))
+			.map(|(_, value)| value.trim_matches('"'));
+		assert_eq!(
+			quoted,
+			Some(DEFAULT_CONVERSATION_LIMIT.to_string().as_str()),
+			"the example quotes a conversation limit other than the default"
+		);
 	}
 
 	#[test]
@@ -462,27 +467,46 @@ mod tests {
 	}
 
 	#[test]
-	fn the_allow_list_and_limits_are_stored_and_a_bare_allow_clears_the_list() {
+	fn the_flag_that_drops_instructions_wins_over_the_variable_that_names_them() {
 		let (_dir, path) = glowcap();
-		let set = Config::resolve(
-			Some(stored(&path)),
-			&request(r#"{"allow":["ann,@Bob","ann"],"sender-limit":["5"],"streak-limit":["2"]}"#),
-		)
-		.unwrap();
-		assert_eq!(set.allow, ["ann", "Bob"]);
+		let env = |name: &str| (name == "GLOWCAP_ROOMS_BOT_INSTRUCTIONS").then(|| "/not/read".to_owned());
+		let dropped = request(r#"{"no-instructions":["true"]}"#).with_environment(&FLAGS, env);
 		assert_eq!(
-			(set.sender_limit, set.conversation_limit, set.streak_limit),
-			(5, DEFAULT_CONVERSATION_LIMIT, 2)
+			Config::resolve(Some(stored(&path)), &dropped).unwrap().instructions,
+			None
 		);
-		let kept = Config::resolve(Some(set.clone()), &request("{}")).unwrap();
-		assert_eq!(kept, set);
-		let cleared = Config::resolve(Some(set), &request(r#"{"allow":[""]}"#)).unwrap();
-		assert!(cleared.allow.is_empty());
-		for flags in [
-			r#"{"sender-limit":["0"]}"#,
-			r#"{"conversation-limit":["many"]}"#,
-			r#"{"allow":["room"]}"#,
-		] {
+		let named = request(r#"{"no-instructions":["true"],"instructions":["/not/read"]}"#);
+		assert!(matches!(
+			Config::resolve(Some(stored(&path)), &named),
+			Err(Error::Usage(_))
+		));
+	}
+
+	#[test]
+	fn a_stored_document_with_fields_this_bot_does_not_read_names_every_one() {
+		let (_dir, path) = glowcap();
+		let document = serde_json::to_value(stored(&path)).unwrap();
+		assert_eq!(Config::decode(document.clone()).unwrap(), stored(&path));
+		let mut extra = document;
+		extra["unread_b"] = serde_json::json!(["a"]);
+		extra["unread_a"] = serde_json::json!(3);
+		let Err(Error::Config(reason)) = Config::decode(extra) else {
+			panic!("fields this bot does not read were accepted");
+		};
+		assert_eq!(
+			reason,
+			"config.json in the bot directory holds unread_a, unread_b, which this bot does not read. Delete those \
+			 fields from config.json and run serve again"
+		);
+	}
+
+	#[test]
+	fn the_conversation_limit_is_stored_and_a_value_out_of_range_is_refused() {
+		let (_dir, path) = glowcap();
+		let set = Config::resolve(Some(stored(&path)), &request(r#"{"conversation-limit":["5"]}"#)).unwrap();
+		assert_eq!(set.conversation_limit, 5);
+		assert_eq!(Config::resolve(Some(set.clone()), &request("{}")).unwrap(), set);
+		for flags in [r#"{"conversation-limit":["0"]}"#, r#"{"conversation-limit":["many"]}"#] {
 			assert!(
 				matches!(
 					Config::resolve(Some(stored(&path)), &request(flags)),
@@ -511,7 +535,14 @@ mod tests {
 		let set = Config::resolve(Some(stored(&path)), &with(&file)).unwrap();
 		assert_eq!(set.instructions.as_deref(), Some(file.as_path()));
 		assert_eq!(instructions(&file).unwrap(), "Answer in French.");
-		let cleared = Config::resolve(Some(set), &request(r#"{"instructions":[""]}"#)).unwrap();
+		let kept = Config::resolve(Some(set.clone()), &request("{}")).unwrap();
+		assert_eq!(kept.instructions.as_deref(), Some(file.as_path()));
+		let cleared = Config::resolve(Some(set.clone()), &request(r#"{"no-instructions":["true"]}"#)).unwrap();
 		assert_eq!(cleared.instructions, None);
+		let both = format!(
+			r#"{{"no-instructions":["true"],"instructions":["{}"]}}"#,
+			file.display()
+		);
+		assert!(Config::resolve(Some(set), &request(&both)).is_err());
 	}
 }

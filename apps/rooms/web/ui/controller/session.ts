@@ -78,6 +78,7 @@ export interface RoomsConversationController {
 	withdraw(key: string, id: number): void;
 	mention(who: string): void;
 	setDraft(text: string): void;
+	useSessionDraft(key: string): void;
 	recallLastSent(): string | null;
 	send(): void;
 	openFile(key: string, id: number): void;

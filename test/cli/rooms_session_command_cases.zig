@@ -142,14 +142,26 @@ test "Rooms bot and access commands hand their flags and arguments to the privat
         try std.testing.expectEqualStrings("true", named.get("replace-link").?.array.items[0].string);
     }
     {
-        const parsed = try handed(gpa, &bot_root, &ctx, &.{ "serve", "--dir", "/b", "--allow", "ann", "--allow=bob", "--streak-limit", "4", "--instructions", "/i.md" });
+        const parsed = try handed(gpa, &bot_root, &ctx, &.{ "serve", "--dir", "/b", "--conversation-limit", "4", "--instructions", "/i.md" });
         defer parsed.deinit();
         defer gpa.free(last.?);
         const named = parsed.value.object.get("named").?.object;
-        try std.testing.expectEqual(@as(usize, 2), named.get("allow").?.array.items.len);
-        try std.testing.expectEqualStrings("bob", named.get("allow").?.array.items[1].string);
-        try std.testing.expectEqualStrings("4", named.get("streak-limit").?.array.items[0].string);
+        try std.testing.expectEqualStrings("4", named.get("conversation-limit").?.array.items[0].string);
         try std.testing.expectEqualStrings("/i.md", named.get("instructions").?.array.items[0].string);
+    }
+    {
+        // Clearing the instructions is its own flag: an empty value is refused.
+        const parsed = try handed(gpa, &bot_root, &ctx, &.{ "serve", "--dir", "/b", "--no-instructions" });
+        defer parsed.deinit();
+        defer gpa.free(last.?);
+        try std.testing.expectEqualStrings("true", parsed.value.object.get("named").?.object.get("no-instructions").?.array.items[0].string);
+    }
+    {
+        // A conversation names where send posts, as say does.
+        const parsed = try handed(gpa, &bot_root, &ctx, &.{ "send", "--conversation", "c1", "--file", "a.png" });
+        defer parsed.deinit();
+        defer gpa.free(last.?);
+        try std.testing.expectEqualStrings("c1", parsed.value.object.get("named").?.object.get("conversation").?.array.items[0].string);
     }
     {
         // A turn's command names no bot directory: the turn does.
@@ -209,7 +221,9 @@ test "Rooms bot and access commands refuse what they do not take before handoff"
         .{ .root = &bot_root, .args = &.{ "status", "--dir", "/b", "--dir", "/c" } },
         .{ .root = &bot_root, .args = &.{ "ready", "--dir", "/b", "--harness", "claude" } },
         .{ .root = &bot_root, .args = &.{ "say", "--dir", "/b", "--text", "hi" } },
-        .{ .root = &bot_root, .args = &.{ "send", "--conversation", "c", "--file", "a" } },
+        .{ .root = &bot_root, .args = &.{ "send", "--dir", "/b", "--file", "a" } },
+        .{ .root = &bot_root, .args = &.{ "serve", "--dir", "/b", "--instructions", "" } },
+        .{ .root = &bot_root, .args = &.{ "serve", "--dir", "/b", "--frobnicate", "ann" } },
         .{ .root = &bot_root, .args = &.{ "workspace", "--dir", "/b" } },
         .{ .root = &bot_root, .args = &.{ "ready", "--dir", "/b", "--link", "ocapn://x" } },
         .{ .root = &access_root, .args = &.{ "pause", "--dir", "/s", "--label", "x" } },
@@ -232,13 +246,14 @@ test "Rooms bot rows offer exactly the flags rooms-bot reads" {
     // The Rust side reads these per verb: `config::FLAGS` plus the link flags
     // for serve, and `act::flags` for the harness verbs. Change both together.
     const expected = [_]struct { verb: []const u8, flags: []const []const u8, positionals: usize }{
-        .{ .verb = "serve", .flags = &.{ "dir", "link", "replace-link", "harness", "model", "permission", "deadline", "glowcap", "allow", "sender-limit", "conversation-limit", "streak-limit", "instructions" }, .positionals = 0 },
+        .{ .verb = "serve", .flags = &.{ "dir", "link", "replace-link", "harness", "model", "permission", "deadline", "glowcap", "conversation-limit", "instructions", "no-instructions" }, .positionals = 0 },
         .{ .verb = "status", .flags = &.{"dir"}, .positionals = 0 },
         .{ .verb = "ready", .flags = &.{"dir"}, .positionals = 0 },
         .{ .verb = "say", .flags = &.{ "text", "conversation", "dm", "operation", "base" }, .positionals = 0 },
-        .{ .verb = "send", .flags = &.{ "text", "file", "dm", "operation", "base" }, .positionals = 0 },
+        .{ .verb = "send", .flags = &.{ "text", "file", "conversation", "dm", "operation", "base" }, .positionals = 0 },
         .{ .verb = "command", .flags = &.{ "operation", "base" }, .positionals = 1 },
         .{ .verb = "workspace", .flags = &.{}, .positionals = 0 },
+        .{ .verb = "actions", .flags = &.{}, .positionals = 0 },
     };
     try std.testing.expectEqual(expected.len, cli.rooms_bot.commands.len);
     for (expected) |want| {

@@ -10,7 +10,9 @@
 # `glowcap apps rooms serve --help` lists the directory's settings, and
 # `glowcap apps rooms session serve --help` the session's. Each goes in the
 # override as its variable, by the rule the deployment guide's "Settings as
-# variables" section states (README.md beside this file).
+# variables" section states. An installation does not ship that guide: it is
+# apps/rooms/web/deploy/README.md in the glowcap source,
+# https://github.com/glowcap-org/glowcap/blob/main/apps/rooms/web/deploy/README.md.
 # Unset, `GLOWCAP_RELAY_ALLOW_ORIGINS` admits the published page
 # https://glowcap.org/rooms/app/, and the first page it lists is the one `up`
 # prints a link for.

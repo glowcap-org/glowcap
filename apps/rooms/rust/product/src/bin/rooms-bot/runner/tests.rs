@@ -92,6 +92,18 @@ fn read_pid(path: &Path) -> i32 {
 	std::fs::read_to_string(path).unwrap().trim().parse().unwrap()
 }
 
+/// Wait until a harness script has written its child's pid to `path`.
+async fn pid_written(path: &Path) {
+	let until = StdInstant::now() + Duration::from_secs(20);
+	while StdInstant::now() < until {
+		if std::fs::read_to_string(path).is_ok_and(|text| text.trim().parse::<i32>().is_ok()) {
+			return;
+		}
+		tokio::time::sleep(Duration::from_millis(20)).await;
+	}
+	panic!("the script never wrote {}", path.display());
+}
+
 fn gone(pid: i32) -> bool {
 	let until = StdInstant::now() + Duration::from_secs(5);
 	while StdInstant::now() < until {
@@ -127,7 +139,8 @@ async fn a_clean_exit_with_only_text_answers_with_the_text() {
 #[tokio::test]
 async fn the_deadline_ends_the_whole_group() {
 	let script = "sleep 300 & echo $! > child.pid; echo S:x; wait";
-	let (ran, dirs) = run_script(script, Duration::from_millis(600)).await;
+	// The deadline is long enough for a loaded host's shell to write its pid.
+	let (ran, dirs) = run_script(script, Duration::from_secs(5)).await;
 	assert_eq!(ran.finish, Finish::TimedOut);
 	assert!(
 		gone(read_pid(&dirs.work.join("child.pid"))),
@@ -153,9 +166,28 @@ async fn an_answer_is_taken_when_a_process_it_left_behind_holds_the_output_open(
 	);
 }
 
+/// A harness that exits without an answer while a process it left behind
+/// holds its output open finishes as the crash it is, with its exit code's
+/// stderr tail, and not at the deadline.
+#[tokio::test]
+async fn an_exit_without_an_answer_is_a_crash_while_a_process_it_left_behind_holds_the_output_open() {
+	let script = "echo boom >&2; sleep 300 & echo $! > child.pid; exit 4";
+	let started = StdInstant::now();
+	let (ran, dirs) = run_script(script, Duration::from_secs(60)).await;
+	assert_eq!(ran.finish, Finish::Failed(FailureKind::Crash, "boom".into()));
+	assert!(
+		started.elapsed() < Duration::from_secs(30),
+		"the run waited for the deadline instead of the leader's exit"
+	);
+	assert!(
+		gone(read_pid(&dirs.work.join("child.pid"))),
+		"the process holding the output outlived the run"
+	);
+}
+
 #[tokio::test]
 async fn a_deadline_reached_with_an_answer_held_returns_the_answer() {
-	let (ran, _dirs) = run_script("echo F:done; sleep 300", Duration::from_millis(600)).await;
+	let (ran, _dirs) = run_script("echo F:done; sleep 300", Duration::from_secs(5)).await;
 	assert_eq!(ran.finish, Finish::Answered("done".into()));
 }
 
@@ -199,8 +231,15 @@ async fn a_dropped_run_ends_its_group() {
 	let (_keep, mut shutdown) = watch::channel(false);
 	let place = dirs.place();
 	let running = run(&harness, invocation, &place, Duration::from_secs(60), &mut shutdown);
-	let abandoned = tokio::time::timeout(Duration::from_secs(1), running).await;
-	assert!(abandoned.is_err(), "the run ended on its own");
+	// Abandon the run once its child is running, not after a guessed delay.
+	let started = async {
+		pid_written(&dirs.work.join("child.pid")).await;
+	};
+	let abandoned = tokio::select! {
+		_ = running => false,
+		() = started => true,
+	};
+	assert!(abandoned, "the run ended on its own");
 	assert!(
 		gone(read_pid(&dirs.work.join("child.pid"))),
 		"a dropped run left its group running"
@@ -214,8 +253,9 @@ async fn shutdown_cancels_and_ends_the_group() {
 	let (stop, mut shutdown) = watch::channel(false);
 	let harness = Script("sleep 300 & echo $! > child.pid; wait");
 	let invocation = harness.invocation(&dummy_turn(&dirs.work));
+	let child = dirs.work.join("child.pid");
 	let ending = tokio::spawn(async move {
-		tokio::time::sleep(Duration::from_millis(500)).await;
+		pid_written(&child).await;
 		stop.send_replace(true);
 		stop
 	});
@@ -288,7 +328,7 @@ async fn answer_text_and_session_ids_are_bounded_by_the_runner() {
 	assert!(text.len() <= MAX_ANSWER_BYTES && text.len() > MAX_ANSWER_BYTES - 4);
 	assert_eq!(ran.session, None, "an implausible session id was kept");
 	assert!(plausible_session("019a4b2c-77d0-7c52-a0d3-3f1bb0e1c9a7"));
-	assert!(!plausible_session(&"a".repeat(MAX_SESSION_BYTES + 1)));
+	assert!(!plausible_session(&"a".repeat(MAX_SESSION_ID_BYTES + 1)));
 	assert!(!plausible_session("a b") && !plausible_session("") && !plausible_session("--flag"));
 }
 
@@ -323,7 +363,7 @@ async fn a_program_that_cannot_start_is_a_crash_not_an_error() {
 	let invocation = Missing.invocation(&dummy_turn(&dirs.work));
 	let ran = run_with(&Missing, invocation, &dirs, Duration::from_secs(5)).await;
 	assert_eq!(ran.heard, Heard::NeverRan);
-	assert!(matches!(ran.finish, Finish::Failed(FailureKind::Crash, detail) if detail.contains("could not start")));
+	assert!(matches!(ran.finish, Finish::Failed(FailureKind::Crash, detail) if detail.contains(COULD_NOT_START)));
 }
 
 async fn run_resuming(script: &'static str, asked: &str) -> Ran {
@@ -347,15 +387,15 @@ async fn a_harness_that_continues_another_session_fails_the_turn() {
 
 #[tokio::test]
 async fn a_failed_resume_is_told_from_a_run_the_agent_began() {
-	let heard = |ran: &Ran| (ran.heard, ran.cause.clone());
+	let heard = |ran: &Ran| ran.heard;
 	let unconfirmed = run_resuming("echo E:no conversation; exit 1", "old").await;
 	assert!(matches!(unconfirmed.finish, Finish::Failed(FailureKind::Crash, _)));
-	assert_eq!(heard(&unconfirmed), (Heard::Silent, Some("no conversation".into())));
+	assert_eq!(heard(&unconfirmed), Heard::Silent);
 	let killed = run_resuming("echo S:old; kill -9 $$", "old").await;
 	assert!(matches!(killed.finish, Finish::Failed(FailureKind::Crash, _)));
-	assert_eq!(heard(&killed), (Heard::Engaged, None));
+	assert_eq!(heard(&killed), Heard::Engaged);
 	let worked = run_resuming("echo T:partial; exit 3", "old").await;
-	assert_eq!(heard(&worked), (Heard::Engaged, None));
+	assert_eq!(heard(&worked), Heard::Engaged);
 }
 
 #[test]

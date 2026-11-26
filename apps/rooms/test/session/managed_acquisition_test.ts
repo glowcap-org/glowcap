@@ -1,13 +1,19 @@
 // A proved conflict releases the candidate. Uncertainty retains exact replay.
+import { managedSessionText } from "../../lib/text/managed_session.ts";
+import { failedOutcome, fakeHandle, operationOf } from "../support/managed_link.ts";
 import { LOCAL_REFUSALS } from "../../lib/text/local_refusals.ts";
 import { assert, assertEquals } from "../assert.ts";
 import { deferred, snapshot, viewer } from "../support/managed_viewer.ts";
 import { AcquisitionConflict } from "../../web/ui/session/managed/acquisition.ts";
 import { ManagedOperation } from "../../web/ui/session/managed/operation.ts";
-import type { RoomsManagedCommand } from "../../../../zig-out/wasm/rooms/rooms_browser.js";
 import { ConversationOpening } from "../../web/ui/session/managed/openings.ts";
 import { OPEN_ROOM_POLICY } from "../../lib/room/policy.ts";
 import { LocalRefusal } from "../../lib/text/failure.ts";
+import { refusalCode } from "../support/browser_failure.ts";
+
+/** A submit whose reply never came, as Rust resolves it: `uncertain`, with the
+ * observation's failure beside its words. */
+const lostReply = (reason: string) => failedOutcome("uncertain", { status: null, reason, code: null });
 
 Deno.test("a cancelled uncertain room admission recovers and leaves its exact membership before a fresh join", async () => {
 	const current = snapshot();
@@ -21,7 +27,6 @@ Deno.test("a cancelled uncertain room admission recovers and leaves its exact me
 	});
 	let prepared = 0, submitted = 0;
 	const departed: string[] = [];
-	const refusal = new Error("admission reply lost");
 	const session = viewer({
 		snapshot: () => Promise.resolve(current),
 		preparePublicRoom: (_revision: string, raw: string) => {
@@ -29,7 +34,7 @@ Deno.test("a cancelled uncertain room admission recovers and leaves its exact me
 			const room = JSON.parse(raw);
 			return Promise.resolve({
 				submit: () => {
-					if (++submitted === 1) return Promise.reject(refusal);
+					if (++submitted === 1) return Promise.resolve(lostReply("admission reply lost"));
 					current.intent.conversations.push({
 						kind: "room",
 						...room,
@@ -49,7 +54,7 @@ Deno.test("a cancelled uncertain room admission recovers and leaves its exact me
 	session.command = (_name, args = []) => {
 		departed.push(args[0]);
 		current.intent.conversations = current.intent.conversations.filter((row) => row.id !== args[0]);
-		return Promise.resolve({} as ManagedOperation);
+		return Promise.resolve(fakeHandle<ManagedOperation>({}));
 	};
 	session.completeResult = () => Promise.resolve();
 	try {
@@ -60,9 +65,11 @@ Deno.test("a cancelled uncertain room admission recovers and leaves its exact me
 				cancel.signal,
 			),
 		]);
-		assert(
-			outcome.status === "rejected" && outcome.reason === refusal,
-			"the original refusal belongs to this attempt",
+		// A reply that never came leaves the join uncertain, and its attempt
+		// hears that it may have gone through.
+		assertEquals(
+			outcome.status === "rejected" ? refusalCode(outcome.reason) : outcome.status,
+			"local-acquisition-unknown",
 		);
 		cancel.abort();
 		const fresh = await session.actions.publicRoom("dir", "garden", "publication");
@@ -283,7 +290,7 @@ for (const refusal of ["conflict", "uncertain", "replaced"]) {
 				return Promise.resolve({
 					submit: () => {
 						if (submissions++ > 0) return Promise.resolve({ status: "pending" });
-						if (refusal === "uncertain") return Promise.reject(new Error("lost admission"));
+						if (refusal === "uncertain") return Promise.resolve(lostReply("lost admission"));
 						current.revision = "2";
 						if (refusal === "replaced") current.intent.directories[0].access = "replacement";
 						return Promise.resolve({ status: "conflict" });
@@ -353,7 +360,7 @@ for (const initial of ["conflict", "uncertain"]) {
 		const candidate = (id: string) => ({
 			submit: () => {
 				if (id === "replacement") return Promise.resolve({ status: "committed" });
-				if (initial === "uncertain" && submitted++ === 0) return Promise.reject(new Error("lost reply"));
+				if (initial === "uncertain" && submitted++ === 0) return Promise.resolve(lostReply("lost reply"));
 				return Promise.resolve({ status: "conflict" });
 			},
 			reprepare: () => {
@@ -397,7 +404,7 @@ for (const first of ["conflict", "uncertain"]) {
 		let attempts = 0;
 		let candidatesFreed = 0;
 		let receiptsFreed = 0;
-		const operation = new ManagedOperation("original", {
+		const operation = operationOf("original", {
 			prepareResultAcquisition: () => {
 				preparations++;
 				return Promise.resolve({
@@ -405,7 +412,7 @@ for (const first of ["conflict", "uncertain"]) {
 						if (attempts++ === 0) {
 							return first === "conflict"
 								? Promise.resolve({ status: "conflict" })
-								: Promise.reject(new Error("lost acknowledgement"));
+								: Promise.resolve(lostReply("lost acknowledgement"));
 						}
 						return Promise.resolve({ status: "committed" });
 					},
@@ -413,7 +420,7 @@ for (const first of ["conflict", "uncertain"]) {
 				});
 			},
 			free: () => receiptsFreed++,
-		} as unknown as RoomsManagedCommand);
+		});
 		try {
 			const result = await Promise.allSettled([operation.acquire(snapshot(), [])]);
 			assertEquals(result[0].status, "rejected");
@@ -460,7 +467,7 @@ Deno.test("lost public-room acquisition reply retries the exact request and conv
 			return Promise.resolve({
 				submit: () =>
 					++submitted === 1
-						? Promise.reject(new Error("reply lost"))
+						? Promise.resolve(lostReply("reply lost"))
 						: Promise.resolve({ status: "committed" }),
 				free() {},
 			});
@@ -484,8 +491,9 @@ Deno.test("failed acquisition preparation has no retained decision even during n
 	await session.close();
 });
 
-Deno.test("committed acquisition with a failed refresh retries only the refresh", async () => {
+Deno.test("committed acquisition with a failed refresh is finished, with a notice and no retry", async () => {
 	let reads = 0, prepared = 0, submitted = 0, freed = 0;
+	const notices: string[] = [];
 	const session = viewer({
 		snapshot: () => ++reads === 1 ? Promise.reject(new Error("refresh disconnected")) : Promise.resolve(snapshot()),
 		prepareDirectory: () => {
@@ -498,15 +506,14 @@ Deno.test("committed acquisition with a failed refresh retries only the refresh"
 				free: () => freed++,
 			});
 		},
-	});
+	}, (source) => notices.push(source));
 	const [result] = await Promise.allSettled([
 		session.actions.directory("dir", "route", { kind: "exact", name: "ada" }, false),
 	]);
-	assertEquals(result.status, "rejected");
-	assertEquals(session.actions.recoverable, ["directory:dir"]);
-	assertEquals(session.actions.diagnostics[0].outcome, "committed");
-	await session.actions.directory("dir", "route", { kind: "exact", name: "ada" }, false);
-	assertEquals([prepared, submitted, freed, reads], [1, 1, 1, 2]);
+	assertEquals(result.status, "fulfilled");
+	assertEquals(notices, [managedSessionText.changeUnread]);
+	assertEquals(session.actions.recoverable, []);
+	assertEquals([prepared, submitted, freed, reads], [1, 1, 1, 1]);
 	assertEquals(session.actions.pending, []);
 	await session.close();
 	assertEquals(session.resources, {
@@ -514,6 +521,7 @@ Deno.test("committed acquisition with a failed refresh retries only the refresh"
 		acquisitions: { acquisitions: 0, workers: 0, gestures: 0 },
 		workers: 0,
 		reads: 0,
+		typing: 0,
 		listeners: 0,
 		waiters: 0,
 		observation: false,

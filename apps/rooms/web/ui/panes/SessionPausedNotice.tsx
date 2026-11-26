@@ -1,35 +1,40 @@
-import { managedSessionText as managedText } from "../../../lib/text/managed_session.ts";
-// What a browser is told while its access to a shared session is paused.
-//
-// A pause is a standing fact about the link, not an event that happened once. A
-// toast is the wrong instrument for it twice over: a reader who looked away
-// misses it, and a reader who arrives afterwards (a reload, a new tab, a
-// browser opened tomorrow) is never told at all, because there was no event to
-// deliver. What they get instead is a workspace with nothing in it and no
-// account of why, which is the shape of a broken application rather than a
-// paused one.
-//
-// So this says it for as long as it is true, and it is the only surface that
-// says why. The lists, the roster, and the card the page falls back to each say
-// which emptiness theirs is and leave the reason here, so a page in this state
-// explains itself once.
+// A blocked session keeps its reason visible until access changes. With no
+// conversation open, its recovery step takes the place of the join form.
+import { managedSessionText } from "../../../lib/text/managed_session.ts";
+import { openSessionSettings, sessionAccessNext, sessionPausedSaid } from "../../../lib/text/page.ts";
+import { Button } from "../Button.tsx";
+import { useRoomsBrowser } from "../controller/browser.ts";
+import { useRoomsState } from "../hooks.ts";
 
-import { useRoomsState, useSessionPaused } from "../hooks.ts";
-import { sessionPausedSaid } from "../../../lib/text/page.ts";
-
-export function SessionPausedNotice() {
-	const paused = useSessionPaused();
+export function SessionPausedNotice({ card = false }: { card?: boolean }) {
 	const status = useRoomsState((state) => state.managedAccess.status);
-	if (!paused) return null;
+	const browser = useRoomsBrowser();
+	if (status === "active") return null;
+	const reason = status === "paused" ? sessionPausedSaid : managedSessionText[status];
+	if (card) {
+		return (
+			<div className="join-wrap">
+				<section className="join session-paused-notice" aria-labelledby="sessionAccessReason">
+					<div role="status">
+						<h2 id="sessionAccessReason">{reason}</h2>
+						<p className="lead">{sessionAccessNext[status]}</p>
+					</div>
+					<Button
+						variant="quiet"
+						onClick={() => {
+							browser.setSettingsTab("session");
+							browser.openSettings();
+						}}
+					>
+						{openSessionSettings}
+					</Button>
+				</section>
+			</div>
+		);
+	}
 	return (
-		<div className="session-effect-notice session-paused-notice" role="status" aria-live="polite">
-			<p>
-				{status === "paused"
-					? sessionPausedSaid
-					: status === "revoked"
-					? managedText.revoked
-					: managedText.outOfScope}
-			</p>
+		<div className="session-effect-notice session-paused-notice" role="status">
+			<p>{reason} {sessionAccessNext[status]}</p>
 		</div>
 	);
 }

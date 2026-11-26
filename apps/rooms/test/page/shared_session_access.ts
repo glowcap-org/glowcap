@@ -2,7 +2,8 @@
 // changes reach a view already holding the exact issued endpoint.
 import type { Browser, Page } from "playwright";
 import { Buffer } from "node:buffer";
-import { managedAccessText as text, statusTag } from "../../lib/text/managed_access.ts";
+import { managedAccessText as text } from "../../lib/text/managed_access.ts";
+import { openSessionSettings, sessionAccessNext } from "../../lib/text/page.ts";
 import { managedSessionText } from "../../lib/text/managed_session.ts";
 import { fail } from "../support/fail.ts";
 import { openLineMenu, say, waitForPostedLine } from "./harness.ts";
@@ -198,6 +199,11 @@ export async function proveManagedAccessEditor(browser: Browser, owner: Page, ht
 				).innerText()}`,
 			)
 		);
+		await observer.getByText(sessionAccessNext.paused, { exact: true }).waitFor();
+		if (await observer.locator("#joinForm").count()) fail("paused access still offers a form to join a room");
+		await observer.getByRole("button", { name: openSessionSettings }).click();
+		await observer.locator("#sessionTab[aria-selected=true]").waitFor();
+		await observer.click("#settingsClose");
 		await observer.reload();
 		await observer.locator(".session-paused-notice").waitFor().catch(async () =>
 			fail(`paused reload did not settle: ${await observer.locator("body").innerText()}`)
@@ -208,8 +214,9 @@ export async function proveManagedAccessEditor(browser: Browser, owner: Page, ht
 		await editor.getByRole("button", { name: text.revokeAsk, exact: true }).click();
 		await editor.getByRole("button", { name: text.revoke, exact: true }).click();
 		await observer.getByText(managedSessionText.revoked, { exact: true }).waitFor();
-		// Revoking takes the row off the list; the record stays under the
-		// access it was created from, and the removal survives a reload.
+		await observer.getByText(sessionAccessNext.revoked, { exact: true }).waitFor();
+		// Revoking takes the row off the list, the access it was created from
+		// stops showing it, and the removal survives a reload.
 		await editor.waitFor({ state: "hidden" }).catch(async () =>
 			fail(`revoking did not take the access off the list: ${await editor.innerText()}`)
 		);
@@ -226,10 +233,15 @@ export async function proveManagedAccessEditor(browser: Browser, owner: Page, ht
 		await issuer.waitFor();
 		if (await revoked.count() !== 0) fail("a removed control came back after reload");
 		await issuer.getByRole("button", { name: text.manage, exact: true }).click();
-		const record = editor.locator("li.entry").filter({ hasText: "Preserved first draft" });
-		await record.getByText(statusTag.revoked, { exact: true }).waitFor().catch(async () =>
-			fail(`the revoked access left no record under its issuer: ${await editor.innerText()}`)
+		// The section shows while its list is read and goes once the read finds
+		// nothing usable, so its leaving says the list was read.
+		await editor.waitFor();
+		await editor.getByText(text.descendantsTitle, { exact: true }).waitFor({ state: "detached" }).catch(
+			async () => fail(`the issuer still lists accesses created from it: ${await editor.innerText()}`),
 		);
+		if (await editor.locator("li.entry").filter({ hasText: "Preserved first draft" }).count() !== 0) {
+			fail(`the issuer still shows the revoked access: ${await editor.innerText()}`);
+		}
 	} finally {
 		await context.close();
 	}
@@ -272,7 +284,7 @@ async function proveNamedJoining(owner: Page, visitor: Page): Promise<void> {
 }
 
 /** Open the hold card from Session access, hold `control` there, and wait for it to close. */
-async function holdControl(tab: Page, control: string) {
+export async function holdControl(tab: Page, control: string) {
 	await tab.click("#sessionHoldOpen");
 	const card = tab.locator(".session-hold-modal");
 	await tab.fill("#sessionControlUri", control);

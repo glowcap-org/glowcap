@@ -26,7 +26,8 @@ import { IconButton } from "../IconButton.tsx";
 import { CopyButton } from "../Copy.tsx";
 import type { Subject } from "../../../lib/room/subject.ts";
 import { Icon } from "../icons.tsx";
-import { useRoomsState } from "../hooks.ts";
+import { useRoomsState, useSessionPaused } from "../hooks.ts";
+import { SessionPausedNotice } from "./SessionPausedNotice.tsx";
 import { ScrollMemory } from "../scroll_memory.ts";
 import { PRESENTATION, useProgress } from "../presentation.ts";
 import { type LogStanding, LogStood, NEAR_END, overhang, travel } from "./log_travel.tsx";
@@ -74,6 +75,7 @@ export function Stream(
 	},
 ) {
 	const browser = useRoomsBrowser();
+	const accessBlocked = useSessionPaused();
 	const session = useRoomsSession();
 	// Only the line being changed is read here. The rest of the draft changes on every keystroke and is
 	// the composer's to read.
@@ -309,7 +311,8 @@ export function Stream(
 			<ErrorBoundary part="message log">
 				<Log ref={log} {...drawn} hidden={conv === null} />
 			</ErrorBoundary>
-			{conv === null && (
+			{conv === null && accessBlocked && <SessionPausedNotice card />}
+			{conv === null && !accessBlocked && (
 				<JoinCard
 					canInteract={canInteract}
 					answers={join}

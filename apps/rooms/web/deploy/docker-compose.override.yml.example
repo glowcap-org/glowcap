@@ -52,10 +52,10 @@ services:
   #     GLOWCAP_ROOMS_SESSION_RELAY_ALIAS_URL: "wss://rooms.example/relay"
 
   # Run a bot: a member of Rooms whose replies come from a coding agent. The
-  # deployment guide's "Run a bot" section (README.md beside this file) gives
-  # the order. Uncomment the bot session and the volumes first, run `up`, and
-  # issue the bot's link. Then uncomment the bot and its secret, and run `up`
-  # again. Each heading below marks one piece. Uncomment the lines under it.
+  # Rooms deployment guide's "Run a bot" section gives the order. Uncomment
+  # the bot session and the volumes first, run `up`, and issue the bot's
+  # link. Then uncomment the bot and its secret, and run `up` again. Each
+  # heading below marks one piece. Uncomment the lines under it.
   # == bot session ==
   # bot-session:
   #   # The bot speaks as this session, which has its own nickname and rooms.
@@ -89,14 +89,20 @@ services:
   #     - glowcap-rooms-net
   # == bot ==
   # bot:
-  #   # The operator's own image, built from bot/Dockerfile in this directory.
+  #   # The operator's own image, built from bot-image/Dockerfile in this directory,
+  #   # a copy of bot.Dockerfile.example from the installation's
+  #   # share/glowcap/deployment directory.
   #   # It copies /runtime from the selected Rooms image, which `up` also names
   #   # glowcap-rooms:selected because a build cannot take an image ID. So
   #   # `pull_policy: build` rebuilds it on every `up` and it follows an upgrade.
   #   build:
-  #     context: ./bot
+  #     context: ./bot-image
   #     args:
   #       GLOWCAP_ROOMS_IMAGE: glowcap-rooms:selected
+  #       # The agent's npm package and the directory it keeps its
+  #       # configuration in, from the deployment guide's agent table.
+  #       AGENT_PACKAGE: "@anthropic-ai/claude-code"
+  #       AGENT_DIR: .claude
   #   image: glowcap-rooms-bot
   #   pull_policy: build
   #   container_name: glowcap-rooms-bot
@@ -108,27 +114,16 @@ services:
   #   # the first start.
   #   environment:
   #     GLOWCAP_LIB_DIR: /runtime/lib
-  #     # The agent: claude, codex, or pi. Install it in bot/Dockerfile.
-  #     #   claude: Claude Code, signed in under the container user's home.
-  #     #     Either permission works.
-  #     #   codex: Codex, signed in under the container user's home or
-  #     #     CODEX_HOME. It needs full.
-  #     #   pi: Pi and the provider configuration it reads under the
-  #     #     container user's home. It needs full.
+  #     # The agent: claude, codex, or pi. The bot guide's "Choosing the
+  #     # agent and its permission" section says which needs full.
   #     GLOWCAP_ROOMS_BOT_HARNESS: claude
   #     # What the agent may do: safe or full, as the bot guide's "Choosing
   #     # the agent and its permission" section says.
   #     GLOWCAP_ROOMS_BOT_PERMISSION: safe
   #     # The agent's own provider and model syntax. Unset, the agent's default.
   #     # GLOWCAP_ROOMS_BOT_MODEL: ""
-  #     # The nicknames the bot answers, separated by commas. Unset, it
-  #     # answers everyone who can write to it.
-  #     # GLOWCAP_ROOMS_BOT_ALLOW: "ann,bob"
-  #     # How much anyone can start: messages from one person and in one
-  #     # conversation in an hour, and replies in a row to one person.
-  #     # GLOWCAP_ROOMS_BOT_SENDER_LIMIT: "30"
+  #     # Messages in one conversation the bot answers in an hour.
   #     # GLOWCAP_ROOMS_BOT_CONVERSATION_LIMIT: "60"
-  #     # GLOWCAP_ROOMS_BOT_STREAK_LIMIT: "10"
   #     # Your own instructions for the agent, read for every reply, from
   #     # the file mounted below.
   #     # GLOWCAP_ROOMS_BOT_INSTRUCTIONS: /bot-instructions.md
@@ -138,10 +133,9 @@ services:
   #     - bot-link
   #   volumes:
   #     - bot-state:/bot-state
-  #     # The bot's home, where the agent keeps its notes and memories across
-  #     # every conversation. It is its own volume, so starting the bot fresh
-  #     # by removing bot-state keeps it. To keep it on this host instead,
-  #     # replace this line with a directory owned by the container user:
+  #     # The bot's home, its own volume so a fresh start keeps it. To keep
+  #     # it on this host instead, replace this line with a directory owned
+  #     # by the container user:
   #     # - ./bot/home:/bot-state/home
   #     - bot-home:/bot-state/home
   #     # The agent's sign-in and configuration under the container user's
@@ -152,9 +146,10 @@ services:
   #     # the first token expires. For example:
   #     # - ./bot/claude:/home/node/.claude
   #     # - ./bot/instructions.md:/bot-instructions.md:ro
-  #   # The bot reaches its session over iroh, so it needs none of this
-  #   # deployment's networks. To reach a model server that listens only on this
-  #   # host's loopback, replace the default network with the host's:
+  #   # The bot reaches its session over iroh, an encrypted peer-to-peer
+  #   # transport, so it needs none of this deployment's networks. To reach a
+  #   # model server that listens only on this host's loopback, replace the
+  #   # default network with the host's:
   #   # network_mode: host
   #   # To reach one that listens on the Docker bridge gateway or every
   #   # interface, name the host and use http://host.docker.internal:<port>:

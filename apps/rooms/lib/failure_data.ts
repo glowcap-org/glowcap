@@ -58,6 +58,7 @@ export const ADMISSION_OWNER_LABELS = {
 } as const;
 export const RATE_LIMITED = "rate-limited";
 export const ADMISSION_BUSY = "admission-busy";
+export const RECEIPTS_FULL = "receipts-full";
 export const NO_SERVER = "no-server";
 export const REQUEST_TOO_LARGE = "request-too-large";
 export const NICK_TAKEN = "nick-taken";
@@ -95,10 +96,14 @@ export const LISTENER_TRANSPORT_HELD = "listener-transport-held";
 export const NO_SUCH_LISTENER = "no-such-listener";
 export const NO_ROOM_MANAGERS = "no-room-managers";
 export const SESSION_UNREACHABLE = "session-unreachable";
+export const SESSION_REQUEST_TIMED_OUT = "session-request-timed-out";
+export const SESSION_NOT_REACHED_YET = "session-not-reached-yet";
 export const SESSION_CAPABILITY_GONE = "session-capability-gone";
 export const SESSION_RESTORATION_FAILED = "session-restoration-failed";
 export const SAVED_TRANSPORT_UNAVAILABLE = "saved-transport-unavailable";
 export const SESSION_PEER_UNVERIFIED = "session-peer-unverified";
+export const SESSION_STATE_UNREADABLE = "session-state-unreadable";
+export const ACTIVITY_CURSOR_STALE = "activity-cursor-stale";
 export const LINK_PREVIEW_INVALID_URL = "link-preview-invalid-url";
 export const LINK_PREVIEW_ADDRESS_BLOCKED = "link-preview-address-blocked";
 export const LINK_PREVIEW_DNS_FAILED = "link-preview-dns-failed";
@@ -115,334 +120,427 @@ export const ROOMS_FAILURES = {
 	"rate-limited": {
 		subject: "operation",
 		retry: "soon",
+		reach: false,
 		summary: "This action is temporarily rate limited.",
 		action: "Wait for the retry time before trying again.",
 	},
 	"admission-busy": {
 		subject: "server",
 		retry: "soon",
+		reach: false,
 		summary: "This server is handling as much work as it can.",
 		action: "Try again in a moment.",
+	},
+	"receipts-full": {
+		subject: "session",
+		retry: "after-state-change",
+		reach: false,
+		summary: "This session is holding as many unfinished requests as it can.",
+		action: "Try again once one of them finishes or is given up.",
 	},
 	"no-server": {
 		subject: "server",
 		retry: "after-state-change",
+		reach: false,
 		summary: "This page has no Rooms server to reach through.",
 		action: "Choose one in Settings, under Connection.",
 	},
 	"request-too-large": {
 		subject: "operation",
 		retry: "after-request-change",
+		reach: false,
 		summary: "This request exceeds its work allowance.",
 		action: "Reduce the request before trying again.",
 	},
 	"nick-taken": {
 		subject: "nickname",
 		retry: "after-request-change",
+		reach: false,
 		summary: "That name is taken in this room.",
 		action: "Pick another.",
 	},
 	"no-such-room": {
 		subject: "room",
 		retry: "after-state-change",
+		reach: false,
 		summary: "That room isn't open.",
 		action: "If you followed a link, ask whoever sent it for a current one.",
 	},
 	"room-exists": {
 		subject: "room",
 		retry: "after-request-change",
+		reach: false,
 		summary: "A room here already has that name.",
 		action: "Go to that one, or pick a different name.",
 	},
 	"room-too-long": {
 		subject: "room",
 		retry: "after-request-change",
+		reach: false,
 		summary: "That room name is too long.",
 		action: null,
 	},
 	"too-many-directs": {
 		subject: "session",
 		retry: "after-state-change",
+		reach: false,
 		summary: "You have as many direct messages open as this connection allows.",
 		action: "Close one first.",
 	},
 	"too-many-rooms": {
 		subject: "session",
 		retry: "after-state-change",
+		reach: false,
 		summary: "You're in as many rooms as this connection allows.",
 		action: "Leave one first.",
 	},
 	"room-full": {
 		subject: "room",
 		retry: "after-state-change",
+		reach: false,
 		summary: "That room is full.",
 		action: "Try again when somebody leaves.",
 	},
 	"too-many-peered-rooms": {
 		subject: "directory",
 		retry: "after-state-change",
+		reach: false,
 		summary: "This server is listing as many rooms from elsewhere as it can.",
 		action: "Release one first.",
 	},
 	"room-links-full": {
 		subject: "directory",
 		retry: "after-state-change",
+		reach: false,
 		summary: "This server can't make any more room links.",
 		action: "Rooms that already have one still work.",
 	},
 	"not-steward": {
 		subject: "room-authority",
 		retry: "after-state-change",
+		reach: false,
 		summary: "You don't manage this room.",
 		action: "Whoever opened it does, and once that authority is revoked it doesn't come back.",
 	},
 	"peer-offline": {
 		subject: "member",
 		retry: "after-state-change",
+		reach: false,
 		summary: "Nobody is here under that name right now.",
 		action: null,
 	},
 	"member-unreachable": {
 		subject: "member",
 		retry: "after-state-change",
+		reach: true,
 		summary: "Rooms couldn't reach that member.",
 		action: "Try again once they're online.",
 	},
 	"peer-unreachable": {
 		subject: "peer",
 		retry: "after-state-change",
+		reach: true,
 		summary: "Rooms couldn't reach the other side.",
 		action: "Try again once it's back online.",
 	},
 	"transport-not-dialed": {
 		subject: "address",
 		retry: "after-state-change",
+		reach: false,
 		summary: "That address uses a transport this session doesn't dial.",
 		action: "Start this session with that transport, or ask for an address on one it has.",
 	},
 	"introduction-refused": {
 		subject: "member",
 		retry: "after-state-change",
+		reach: false,
 		summary: "That member's side turned the conversation down.",
 		action: null,
 	},
 	"introduction-timed-out": {
 		subject: "member",
 		retry: "after-state-change",
+		reach: false,
 		summary: "That member didn't answer in time.",
 		action: "Try again once they are ready to receive messages.",
 	},
 	"direct-not-accepted": {
 		subject: "direct-conversation",
 		retry: "after-request-change",
+		reach: false,
 		summary: "This conversation is closed on their side.",
 		action: "Start a new one to reach them.",
 	},
 	"delivery-uncertain": {
 		subject: "message",
 		retry: "after-state-change",
+		reach: false,
 		summary: "Nobody can say yet whether this reached them.",
 		action: "Wait for the conversation to catch up before sending it again.",
 	},
 	"not-registered": {
 		subject: "directory-registration",
 		retry: "after-request-change",
+		reach: false,
 		summary: "You haven't picked a name here yet.",
 		action: null,
 	},
 	"not-room-member": {
 		subject: "membership",
 		retry: "after-request-change",
+		reach: false,
 		summary: "You're no longer in that room.",
 		action: "Join it again to keep talking.",
 	},
 	"read-only-membership": {
 		subject: "membership",
 		retry: "after-state-change",
+		reach: false,
 		summary: "You can read this room but not post in it.",
 		action: null,
 	},
 	"workspace-revision-changed": {
 		subject: "workspace",
 		retry: "after-state-change",
+		reach: false,
 		summary: "This session changed while you were saving.",
 		action: "Nothing was applied. Reload this session, then try again.",
 	},
 	"room-retired": {
 		subject: "room",
 		retry: "never",
+		reach: false,
 		summary: "That room is gone.",
 		action: "A room with the same name now is a different room.",
 	},
 	"nick-too-long": {
 		subject: "nickname",
 		retry: "after-request-change",
+		reach: false,
 		summary: "That name is too long.",
 		action: null,
 	},
 	"not-your-locator": {
 		subject: "directory-registration",
 		retry: "after-request-change",
+		reach: false,
 		summary: "That address isn't yours.",
 		action: "Rooms only accepts an address that belongs to this connection.",
 	},
 	"bad-attachment": {
 		subject: "message",
 		retry: "after-request-change",
+		reach: false,
 		summary: "That message wasn't posted.",
 		action: "Remove the unsupported attachment data and try again.",
 	},
 	"attachment-refused": {
 		subject: "attachment",
 		retry: "after-request-change",
+		reach: false,
 		summary: "That file wasn't accepted.",
 		action: "Use a smaller file, or try again after pending uploads finish.",
 	},
 	"upload-incomplete": {
 		subject: "attachment",
 		retry: "after-request-change",
+		reach: false,
 		summary: "That upload didn't finish, or exceeded its declared size.",
 		action: "Upload it again.",
 	},
 	"blob-expired": {
 		subject: "attachment",
 		retry: "never",
+		reach: false,
 		summary: "That file is gone.",
 		action: "Ask the sender to share it again.",
 	},
 	"listener-unsupported": {
 		subject: "listener",
 		retry: "after-state-change",
+		reach: false,
 		summary: "This server can't listen on that transport.",
 		action: "Install and configure that transport before trying again.",
 	},
 	"listener-serving": {
 		subject: "listener",
 		retry: "never",
+		reach: false,
 		summary: "This page arrived on that listener.",
 		action: "Use another administration path before taking it down.",
 	},
 	"listener-transport-held": {
 		subject: "listener",
 		retry: "after-state-change",
+		reach: false,
 		summary: "This server already has a listener on that transport.",
 		action: "Take that listener down first.",
 	},
 	"no-such-listener": {
 		subject: "listener",
 		retry: "after-request-change",
+		reach: false,
 		summary: "There's no listener by that name.",
 		action: null,
 	},
 	"no-room-managers": {
 		subject: "room-authority",
 		retry: "after-request-change",
+		reach: false,
 		summary: "This server doesn't hand out room management.",
 		action: "Open the room without requesting management.",
 	},
 	"session-unreachable": {
 		subject: "session-peer",
 		retry: "after-state-change",
+		reach: true,
 		summary: "Rooms couldn't reach the session this link opens.",
 		action: "Check that the device or server keeping it is still running, then try again.",
+	},
+	"session-request-timed-out": {
+		subject: "session-peer",
+		retry: "soon",
+		reach: false,
+		summary: "The session didn't answer that request in time.",
+		action: "Try again in a moment.",
+	},
+	"session-not-reached-yet": {
+		subject: "session-peer",
+		retry: "soon",
+		reach: false,
+		summary: "Rooms ran out of time before it could reach the session.",
+		action: "Try again in a moment.",
 	},
 	"session-capability-gone": {
 		subject: "session-capability",
 		retry: "after-request-change",
+		reach: false,
 		summary: "This session link no longer works.",
 		action: "Ask for a current one.",
 	},
 	"session-restoration-failed": {
 		subject: "session-capability",
 		retry: "after-state-change",
+		reach: false,
 		summary: "Rooms couldn't restore the saved session link.",
 		action: "Check that the session is running. If it was reset, attach its new session link.",
 	},
 	"saved-transport-unavailable": {
 		subject: "saved-address",
 		retry: "after-state-change",
+		reach: false,
 		summary: "The saved address uses a transport this session can't reach.",
 		action: "Enter its current address again, or start the session with a transport that reaches it.",
 	},
 	"session-peer-unverified": {
 		subject: "session-peer",
 		retry: "after-request-change",
+		reach: false,
 		summary: "The session answered, but this browser couldn't confirm it is the one the link names.",
 		action: "Try again with a link the session shows now.",
+	},
+	"session-state-unreadable": {
+		subject: "session-state",
+		retry: "never",
+		reach: false,
+		summary: "This session's saved data is in a form this version of Rooms can't read.",
+		action: "Start a new session in its place.",
+	},
+	"activity-cursor-stale": {
+		subject: "session-activity",
+		retry: "after-request-or-state-change",
+		reach: false,
+		summary: "The session restarted since Rooms last read its activity.",
+		action: "Open the session again to read what it holds now.",
 	},
 	"link-preview-invalid-url": {
 		subject: "link-preview",
 		retry: "after-request-change",
+		reach: false,
 		summary: "That address can't be previewed.",
 		action: "Use a public HTTP or HTTPS address without embedded credentials.",
 	},
 	"link-preview-address-blocked": {
 		subject: "link-preview",
 		retry: "after-request-change",
+		reach: false,
 		summary: "Rooms won't connect to that address for a preview.",
 		action: "Link previews can reach only public internet addresses, never this server or its private network.",
 	},
 	"link-preview-dns-failed": {
 		subject: "link-preview",
 		retry: "soon",
+		reach: false,
 		summary: "The preview service couldn't find that site.",
 		action: "Retry if its address is temporarily unavailable.",
 	},
 	"link-preview-unreachable": {
 		subject: "link-preview",
 		retry: "soon",
+		reach: false,
 		summary: "The preview service couldn't reach that site.",
 		action: "Retry when the site is available.",
 	},
 	"link-preview-timed-out": {
 		subject: "link-preview",
 		retry: "soon",
+		reach: false,
 		summary: "That site took too long to answer the preview request.",
 		action: "Retry when it is responding again.",
 	},
 	"link-preview-redirect-refused": {
 		subject: "link-preview",
 		retry: "after-request-or-state-change",
+		reach: false,
 		summary: "That site's redirect couldn't be followed safely.",
 		action: "Open the link directly, or retry after the site fixes its redirect.",
 	},
 	"link-preview-http-refused": {
 		subject: "link-preview",
 		retry: "after-state-change",
+		reach: false,
 		summary: "That site refused the preview request.",
 		action: "The link still works as written; retry if the site changes.",
 	},
 	"link-preview-content-unsupported": {
 		subject: "link-preview",
 		retry: "after-state-change",
+		reach: false,
 		summary: "That address isn't an HTML page or supported preview image.",
 		action: null,
 	},
 	"link-preview-too-large": {
 		subject: "link-preview",
 		retry: "after-state-change",
+		reach: false,
 		summary: "That page or image is too large to preview safely.",
 		action: null,
 	},
 	"link-preview-metadata-missing": {
 		subject: "link-preview",
 		retry: "after-state-change",
+		reach: false,
 		summary: "That page doesn't publish useful preview details.",
 		action: null,
 	},
 	"link-preview-busy": {
 		subject: "link-preview",
 		retry: "soon",
+		reach: false,
 		summary: "The preview service is handling as many requests as it can.",
 		action: "Try again in a moment. The link itself is still available.",
 	},
 	"link-preview-failed": {
 		subject: "link-preview",
 		retry: "soon",
+		reach: false,
 		summary: "Rooms couldn't build that link preview.",
 		action: "Retry once. The link itself is still available.",
 	},
 } as const;
 export type RoomsErrorCode = keyof typeof ROOMS_FAILURES;
 export type RoomsFailureRetry = (typeof ROOMS_FAILURES)[RoomsErrorCode]["retry"];
-export const ROOMS_ERROR_CODES: readonly RoomsErrorCode[] = Object.keys(ROOMS_FAILURES) as RoomsErrorCode[];
+function isRoomsErrorCode(code: string): code is RoomsErrorCode {
+	return Object.hasOwn(ROOMS_FAILURES, code);
+}
+export const ROOMS_ERROR_CODES: readonly RoomsErrorCode[] = Object.keys(ROOMS_FAILURES).filter(isRoomsErrorCode);

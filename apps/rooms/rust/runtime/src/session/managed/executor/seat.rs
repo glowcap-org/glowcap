@@ -6,7 +6,10 @@ use glowcap::{
 	Argument, Ref, Result,
 	loam::{self, PendingContinuation},
 };
-use rooms_application::session::effect::Reply;
+use rooms_application::{
+	content::session::custody::{EffectReceipt, References},
+	session::effect::Reply,
+};
 use rooms_glowcap::client::{Deadline, Tasks};
 use std::{
 	cell::Cell,
@@ -22,25 +25,46 @@ pub(in super::super) struct Seat<P: Tasks + Deadline + Clone + 'static> {
 	retirement: Option<Rc<super::super::supervision::retirement::Owner>>,
 }
 impl<P: Tasks + Deadline + Clone + 'static> Seat<P> {
-	pub fn reserve(owner: &Rc<State<P>>, id: &str) -> Result<Self> {
+	/// Reserve the seat for `id`. `effects` is the committed record's
+	/// receipts, which first frees the seat of every paused job whose
+	/// receipt is already settled or whose commit is confirmed absent
+	/// (`retire_ended`).
+	pub fn reserve<R: References>(owner: &Rc<State<P>>, id: &str, effects: &[EffectReceipt<R>]) -> Result<Self> {
 		if owner.closing.get() {
 			return Err(loam::refusal("session is closing"));
 		}
+		super::retire_ended(owner, effects);
 		let mut jobs = owner.jobs.borrow_mut();
 		// A refused attempt's commit is confirmed absent before its worker
 		// wakes to retire it. That seat holds nothing, so a retry takes it.
 		// An observer that cannot answer keeps its seat, and the retry is
 		// refused as busy below.
-		let superseded = match jobs.get(id).and_then(|job| job.confirming.upgrade()) {
-			Some(pending) if matches!(pending.absent(), Ok(true)) => jobs.remove(id),
-			_ => None,
+		let superseded = if jobs.get(id).is_some_and(Job::confirms_absent) {
+			jobs.remove(id)
+		} else {
+			None
 		};
 		// Removing a seat leaves room under the cap and no entry for `id`, so
-		// only a retry that superseded nothing is refused here.
-		if jobs.len() >= MAX_JOBS || jobs.contains_key(id) {
+		// only a retry that superseded nothing is refused here. The cap is the
+		// receipt window's size and each job pins its own receipt against
+		// eviction, so a full table leaves the window no receipt to evict. A
+		// paused job keeps its seat until it resumes and ends or is retired,
+		// and one whose receipt is settled or whose commit is absent was
+		// retired above.
+		let refusal = if jobs.len() >= MAX_JOBS {
+			Some(loam::refusal(
+				rooms_application::failure::FailureCode::ReceiptsFull
+					.line("every receipt place holds a running or paused request"),
+			))
+		} else if jobs.contains_key(id) {
+			Some(loam::refusal("this operation's effect worker is busy"))
+		} else {
+			None
+		};
+		if let Some(refusal) = refusal {
 			drop(jobs);
 			drop(superseded);
-			return Err(loam::refusal("session effect workers are full"));
+			return Err(refusal);
 		}
 		jobs.insert(
 			id.into(),
@@ -48,6 +72,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Seat<P> {
 				task: None,
 				work: Rc::new(Mutex::new(None)),
 				confirming: Weak::new(),
+				source: None,
 				failure: None,
 				batch_released: None,
 			},
@@ -172,6 +197,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Seat<P> {
 				.get_mut(&self.id)
 				.ok_or_else(|| loam::refusal("effect has no live observation"))?;
 			job.confirming = Rc::downgrade(&pending);
+			job.source = Some(source.clone());
 			Rc::clone(&job.work)
 		};
 		*work

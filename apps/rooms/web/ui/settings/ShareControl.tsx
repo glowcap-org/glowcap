@@ -1,10 +1,13 @@
 // Sharing management of one access: a control of the recipient's own, limited
 // to the powers picked here. The held control itself is never handed over,
 // because it carries every power this reader has.
-import { managedAccessText as text } from "../../../lib/text/managed_access.ts";
-import { type ReactNode, useState } from "react";
+import { managedAccessText as text, narrowerPending } from "../../../lib/text/managed_access.ts";
+import { type ReactNode, useState, useSyncExternalStore } from "react";
 import { useManagedSession } from "../session/managed/context.tsx";
-import { type HeldControl, publishesHere } from "../session/managed/access.ts";
+import type { ManagementPowers } from "../session/managed/access_powers.ts";
+import { type DescribedControl, publishesHere } from "../session/managed/held_control.ts";
+import { pressRefused } from "../session/managed/access_card.ts";
+import type { PressRefusal } from "../session/managed/press_answer.ts";
 import { useAsyncAction } from "../async_action.ts";
 import { useServerGate } from "../hooks.ts";
 import { serverNeedLink } from "../../../lib/text/session.ts";
@@ -16,11 +19,24 @@ import { Said } from "../Said.tsx";
 const FLAGS = ["inspect", "pause", "resume", "revoke"] as const;
 const NAMES = { inspect: text.inspect, pause: text.pausePower, resume: text.resumePower, revoke: text.revokePower };
 
-export function ShareControl({ control }: { control: HeldControl }) {
+/** The picks a narrower control's `powers` were chosen from. */
+function picksOf(powers: ManagementPowers) {
+	return {
+		inspect: powers.inspect,
+		pause: powers.pause,
+		resume: powers.resume,
+		revoke: powers.revoke,
+		delegateControl: powers.delegateControl,
+		edit: powers.editCeiling != null,
+	};
+}
+
+export function ShareControl({ control }: { control: DescribedControl }) {
 	const { management } = useManagedSession();
+	useSyncExternalStore(management.subscribe, management.getVersion, management.getVersion);
 	const serverGate = useServerGate();
-	const own = control.powers;
-	const [picks, setPicks] = useState({
+	const own = control.state.powers;
+	const [chosen, setPicks] = useState({
 		inspect: own.inspect === true,
 		pause: false,
 		resume: false,
@@ -29,19 +45,39 @@ export function ShareControl({ control }: { control: HeldControl }) {
 		edit: false,
 	});
 	const [link, setLink] = useState("");
+	// The last refused press, which shows by the rule `pressRefused` keeps.
+	const [refusal, setRefusal] = useState<PressRefusal | null>(null);
+	// A narrower control whose answer was lost is asked for again with the
+	// choices it was made with, until it is answered or given up.
+	const pending = management.narrowerPending(control);
+	const picks = pending == null ? chosen : picksOf(pending);
+	// A fault the owner reported ends the run, which leaves the press usable.
 	const share = useAsyncAction(async (signal) => {
-		const published = await management.share(control, {
-			inspect: picks.inspect,
-			pause: picks.pause,
-			resume: picks.resume,
-			revoke: picks.revoke,
-			delegateControl: picks.delegateControl,
-			editCeiling: picks.edit ? own.editCeiling?.permissions ?? null : null,
-			issueCeiling: null,
+		setRefusal(null);
+		const refused = await management.answer(control, async () => {
+			const published = await management.share(
+				control,
+				pending ?? {
+					inspect: picks.inspect,
+					pause: picks.pause,
+					resume: picks.resume,
+					revoke: picks.revoke,
+					delegateControl: picks.delegateControl,
+					editCeiling: picks.edit ? own.editCeiling?.permissions ?? null : null,
+					issueCeiling: null,
+				},
+			);
+			if (!signal.aborted) setLink(published);
 		});
-		if (!signal.aborted) setLink(published);
+		if (!signal.aborted) setRefusal(refused);
 	});
-	const locked = share.busy || link !== "";
+	const said = pressRefused(refusal, management, control);
+	const giveUp = useAsyncAction(async (signal) => {
+		setRefusal(null);
+		const refused = await management.answer(control, () => management.giveUpNarrower(control));
+		if (!signal.aborted) setRefusal(refused);
+	});
+	const locked = share.busy || giveUp.busy || link !== "" || pending != null;
 	const check = (key: keyof typeof picks, allowed: boolean, children: ReactNode) => (
 		<label className="check-row" key={key}>
 			<Checkbox
@@ -55,7 +91,7 @@ export function ShareControl({ control }: { control: HeldControl }) {
 	);
 	return (
 		<>
-			<p className="hint">{text.shareControlSaid}</p>
+			<p className="hint">{pending == null ? text.shareControlSaid : narrowerPending}</p>
 			<div className="question">
 				<p className="group-label">{text.powersShare}</p>
 				<div className="permission-picks">
@@ -83,7 +119,7 @@ export function ShareControl({ control }: { control: HeldControl }) {
 					<Button
 						variant="quiet"
 						busy={share.busy}
-						disabled={share.busy}
+						disabled={share.busy || giveUp.busy}
 						// A control link that leads here works through this browser's
 						// Rooms server, so the server comes first.
 						onClick={() => {
@@ -92,9 +128,19 @@ export function ShareControl({ control }: { control: HeldControl }) {
 					>
 						{text.prepareControl}
 					</Button>
+					{pending != null && (
+						<Button
+							variant="quiet"
+							busy={giveUp.busy}
+							disabled={share.busy || giveUp.busy}
+							onClick={() => void giveUp.run()}
+						>
+							{text.giveUpControl}
+						</Button>
+					)}
 				</div>
 			)}
-			{share.why !== "" && <Said kind="failure">{share.why}</Said>}
+			{said != null && <Said kind="failure">{said}</Said>}
 		</>
 	);
 }

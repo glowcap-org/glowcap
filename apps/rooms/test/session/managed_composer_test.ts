@@ -1,21 +1,22 @@
 // Composer gestures keep the originating draft through delayed admission and completion.
 /// <reference lib="dom" />
 import { snapshot as managedSnapshot } from "../support/managed_viewer.ts";
-import { assertEquals } from "../assert.ts";
-import type { ManagedRoomsSession } from "../../web/ui/session/managed/session.ts";
+import { assert, assertEquals } from "../assert.ts";
+import type { RoomsManagedWorkspace } from "../../../../zig-out/wasm/rooms/rooms_browser.js";
 import { type ManagedOperation, TerminalObservationError } from "../../web/ui/session/managed/operation.ts";
 import { fixture, store, tick } from "./managed_composer/fixture.ts";
 import "./managed_composer/recovery.ts";
+import { fakeHandle } from "../support/managed_link.ts";
 
 for (const outcome of ["committed", "refused", "unknown", "terminal"] as const) {
 	Deno.test(`managed send remains visible across pending admission and ${outcome} completion`, async () => {
 		const f = fixture();
 		try {
 			if (outcome === "unknown") {
-				f.session.execute = async (id, prepare, complete) => {
+				f.executing(async (id, prepare, complete) => {
 					(f.session.pending as string[]).push(id);
-					await complete(await prepare());
-				};
+					await complete(await prepare(), f.after);
+				});
 			}
 			f.actions.setDraft("pending line");
 			f.actions.send();
@@ -298,7 +299,7 @@ Deno.test("managed composer preserves committed archive identity without claimin
 	const history = { source: "direct-archive", generation: "first", id: "7" };
 	f.session.command = () =>
 		Promise.resolve(
-			{ result: () => Promise.resolve({ id: 7, line: null, history }) } as unknown as ManagedOperation,
+			fakeHandle<ManagedOperation>({ result: () => Promise.resolve({ id: 7, line: null, history }) }),
 		);
 	try {
 		f.actions.setDraft("direct message");
@@ -339,19 +340,21 @@ for (const refused of [false, true]) {
 		Object.defineProperty(f.session, "effects", {
 			value: { reserve: (...args: unknown[]) => reserved.push(args.slice(1)) },
 		});
-		f.session.refresh = () => Promise.resolve(current);
-		f.session.perform = async (_id, prepare) => await prepare() as unknown as ManagedOperation;
-		const workspace: Pick<ManagedRoomsSession["workspace"], "prepareUpload"> = {
+		f.session.readNow = () => Promise.resolve(current);
+		const workspace: Pick<RoomsManagedWorkspace, "prepareUpload"> = {
 			prepareUpload: (_id, _revision, conversation, caption, _previews, sources) => {
 				upload = { conversation, caption, sources: sources.length };
 				// The real Wasm conversion consumes these wrappers. The fixture owns
 				// that conversion boundary and releases the sources it observes.
 				for (const source of sources) source.free();
 				if (refused) return Promise.reject(new Error("the room refused the upload"));
-				return Promise.resolve({ result: () => Promise.resolve() } as never);
+				return Promise.resolve({ result: () => Promise.resolve() });
 			},
 		};
-		Object.defineProperty(f.session, "workspace", { value: workspace });
+		f.session.perform = async (_id, prepare) => {
+			const prepared = await prepare(() => fakeHandle<RoomsManagedWorkspace>(workspace));
+			return fakeHandle<ManagedOperation>({ result: () => prepared.result() });
+		};
 		try {
 			const room = store.getConv(f.page.projection, f.first.key);
 			if (room?.type !== "room") throw new Error("room fixture");
@@ -391,7 +394,8 @@ Deno.test("a delayed send receipt cannot name a replacement membership's line be
 		f.actions.setDraft("original post");
 		f.actions.send();
 		await tick();
-		const original = store.historyOf(f.page.projection, f.first.key).find((row) => row.kind === "chat")!;
+		const original = store.historyOf(f.page.projection, f.first.key).find((row) => row.kind === "chat");
+		assert(original != null, "the post is shown");
 		store.setRoomMembership(f.page.projection, f.first.key, "unavailable", "ended");
 		store.setRoomMembership(f.page.projection, f.first.key, "joined", "");
 		const newer = store.chatItem(f.page.projection, "ada", "new membership's post", true);
@@ -423,7 +427,11 @@ for (const outcome of ["commit", "refuse", "newerAccepted"] as const) {
 		const original = store.chatItem(f.page.projection, "ada", "before", true);
 		store.deliver(f.page.projection, f.first.key, { ...original, lineId: 7, held: true });
 		const task = editLine(f.page, f.session, f.first.key, original.id, "submitted");
-		const line = () => store.historyOf(f.page.projection, f.first.key).find((row) => row.id === original.id)!;
+		const line = () => {
+			const shown = store.historyOf(f.page.projection, f.first.key).find((row) => row.id === original.id);
+			assert(shown != null, "the line is shown");
+			return shown;
+		};
 		try {
 			const pending = line();
 			assertEquals(pending.kind === "chat" && [pending.text, pending.pendingEdit?.text], ["before", "submitted"]);

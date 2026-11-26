@@ -81,6 +81,9 @@ mod publisher_tests;
 #[cfg(test)]
 mod archive_tests;
 
+#[cfg(test)]
+mod attached_tests;
+
 impl rooms_runtime::wall_clock::WallClock for HostPlatform {
 	fn unix_millis(&self) -> Result<u64, rooms_runtime::wall_clock::Error> {
 		use rooms_runtime::wall_clock::Error;

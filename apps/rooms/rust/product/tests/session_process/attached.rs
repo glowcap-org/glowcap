@@ -13,9 +13,13 @@ use rooms_glowcap::client::{
 };
 use rooms_platform::HostPlatform;
 use rooms_services::session::attached::{
-	Change, ClientError, EffectStatus, Error, Event, Grants, Kind, Notice, Outgoing, State, View,
+	Change, ClientError, EffectStatus, Error, Event, Files, Grants, Holder, Kind, Notice, Opened, Outgoing, Reach,
+	State, View,
 };
 use serde_json::json;
+/// How long a post with files waits for the room to hold them.
+const WAIT_MS: u64 = 60_000;
+use std::path::Path;
 
 const ROOM: &str = "attached-room";
 
@@ -26,7 +30,7 @@ fn run<F: std::future::Future>(scenario: F) -> F::Output {
 	run_within(Duration::from_secs(60), scenario)
 }
 /// Read from `cursor` until an event satisfies `wanted`, within ten seconds.
-async fn until(view: &View<HostPlatform>, cursor: &mut String, wanted: impl Fn(&Event) -> bool) -> Event {
+pub(super) async fn until(view: &View<HostPlatform>, cursor: &mut String, wanted: impl Fn(&Event) -> bool) -> Event {
 	let deadline = Instant::now() + Duration::from_secs(10);
 	loop {
 		let batch = view.events(cursor, true).await.unwrap();
@@ -38,7 +42,7 @@ async fn until(view: &View<HostPlatform>, cursor: &mut String, wanted: impl Fn(&
 		assert!(Instant::now() < deadline, "the awaited event never arrived");
 	}
 }
-fn said(text: &'static str) -> impl Fn(&Event) -> bool {
+pub(super) fn said(text: &'static str) -> impl Fn(&Event) -> bool {
 	move |event| matches!(&event.notice, Notice::Line(line) if line.text == text)
 }
 fn with_file(text: &'static str) -> impl Fn(&Event) -> bool {
@@ -124,10 +128,17 @@ fn files_move_both_ways_by_exact_bytes_and_fetch_never_overwrites() {
 		std::fs::write(&small, bytes(1, 700)).unwrap();
 		std::fs::write(&large, bytes(2, 150_000)).unwrap();
 		let sent = one
-			.send_files("attached-files-1", &room, "from one", &[open(&small), open(&large)])
+			.send_files(
+				"attached-files-1",
+				&room,
+				"from one",
+				&[open(&small), open(&large)],
+				WAIT_MS,
+			)
 			.await
 			.unwrap();
-		assert_eq!(sent.status, EffectStatus::Committed);
+		assert_eq!(sent.sent.status, EffectStatus::Committed);
+		assert_eq!(sent.files, Files::Complete);
 		let event = until(&two, &mut two_cursor, with_file("from one")).await;
 		assert_eq!(event.attachments.len(), 2);
 		let received = scratch.join("received");
@@ -152,16 +163,25 @@ fn files_move_both_ways_by_exact_bytes_and_fetch_never_overwrites() {
 		let back = scratch.join("back.bin");
 		std::fs::write(&back, bytes(3, 90_000)).unwrap();
 		let sent = two
-			.send_files("attached-files-2", &fixture.room_id(1), "from two", &[open(&back)])
+			.send_files(
+				"attached-files-2",
+				&fixture.room_id(1),
+				"from two",
+				&[open(&back)],
+				WAIT_MS,
+			)
 			.await
 			.unwrap();
-		assert_eq!(sent.status, EffectStatus::Committed);
+		assert_eq!(sent.sent.status, EffectStatus::Committed);
+		assert_eq!(sent.files, Files::Complete);
 		let event = until(&one, &mut one_cursor, with_file("from two")).await;
 		let destination = received.join("back-received.bin");
 		one.fetch(&event.attachments[0], &destination).await.unwrap();
 		assert_eq!(std::fs::read(&destination).unwrap(), std::fs::read(&back).unwrap());
 		// A directory is no source, and nothing was posted for it.
-		let refused = one.send_files("attached-files-3", &room, "x", &[open(&received)]).await;
+		let refused = one
+			.send_files("attached-files-3", &room, "x", &[open(&received)], WAIT_MS)
+			.await;
 		assert!(matches!(refused, Err(Error::Input(_))), "{refused:?}");
 		runtime.close(PendingWork::Cancel).await.unwrap();
 	});
@@ -227,13 +247,21 @@ fn paused_and_revoked_access_are_typed_and_an_unreachable_peer_is_not() {
 		assert!(view.events("", false).await.is_ok());
 		child.pause(revision(&child).await).await.unwrap();
 		assert!(matches!(view.events("", false).await, Err(Error::Paused)));
+		// The ask of whose receipt an operation is reads the access the same way,
+		// so a start that asks through it waits or ends as for any read.
+		assert!(matches!(view.holder("attached-access-asked").await, Err(Error::Paused)));
 		child.resume(revision(&child).await).await.unwrap();
 		assert!(view.events("", false).await.is_ok());
+		assert!(matches!(view.holder("attached-access-asked").await, Ok(Holder::Nobody)));
 		// Read-only access cannot write: a refusal, not an unknown outcome.
 		let written = view.say("attached-access-write", "any", "no").await;
 		assert!(matches!(written, Err(Error::Peer(_))), "{written:?}");
 		child.revoke(revision(&child).await).await.unwrap();
 		assert!(matches!(view.events("", false).await, Err(Error::Revoked)));
+		assert!(matches!(
+			view.holder("attached-access-asked").await,
+			Err(Error::Revoked)
+		));
 		let again = issue("revoked later", false).await;
 		let revoked = Control::new(client.clone(), again.control);
 		revoked.revoke(revision(&revoked).await).await.unwrap();
@@ -253,6 +281,30 @@ fn paused_and_revoked_access_are_typed_and_an_unreachable_peer_is_not() {
 			"{:?}",
 			attached.err()
 		);
+		runtime.close(PendingWork::Cancel).await.unwrap();
+	});
+	fixture.finish();
+}
+
+/// A link whose publication the session does not hold is the peer's answer
+/// that it is gone, read from the fetch's typed cause, and the only fetch
+/// answer that is `Refused`.
+#[test]
+fn a_link_the_session_does_not_hold_is_refused() {
+	let fixture = start("attached-unknown-link");
+	// Change one character of the swissnum, which ends where the hints begin.
+	let link = fixture.peers[0].link.clone();
+	let end = link.find('?').expect("a link carries hints after its swissnum");
+	let alphabet = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+	let at = end - 2;
+	let value = alphabet.iter().position(|&c| c == link.as_bytes()[at]).unwrap();
+	let mut bytes = link.into_bytes();
+	bytes[at] = alphabet[(value + 1) % 64];
+	let link = String::from_utf8(bytes).unwrap();
+	run(async {
+		let runtime = host().await;
+		let attached = View::attach(&runtime, HostPlatform, &link).await;
+		assert!(matches!(attached, Err(Error::Refused)), "{:?}", attached.err());
 		runtime.close(PendingWork::Cancel).await.unwrap();
 	});
 	fixture.finish();
@@ -422,6 +474,114 @@ fn issued_access_attaches_from_another_host_and_follows_pause_resume_and_revoke(
 		second.close(PendingWork::Cancel).await.unwrap();
 		holder.close(PendingWork::Cancel).await.unwrap();
 		issuer.close(PendingWork::Cancel).await.unwrap();
+	});
+	fixture.finish();
+}
+
+/// The first directory the session holds.
+pub(super) async fn first_directory(view: &View<HostPlatform>) -> String {
+	let snapshot = view.snapshot().await.unwrap();
+	snapshot
+		.intent
+		.directories
+		.as_slice()
+		.iter()
+		.find_map(|row| row.id.text().as_str().map(str::to_owned))
+		.expect("the session has a directory")
+}
+
+/// Two callers of `operation` held both past their first look at whether it
+/// was adopted before either adopts. Both must report the open as their own,
+/// name one conversation, and leave its route carrying a line.
+async fn open_twice(view: &View<HostPlatform>, directory: &str, operation: &str, peer: &Path) -> String {
+	let Reach::Introduce(introduction) = view.reach_direct(directory, "attached-two").await.unwrap() else {
+		panic!("the peer was already reached")
+	};
+	let base = view.revision().await.unwrap();
+	let assert_met = rooms_services::session::attached::meet_before_keeping_direct(operation, 2);
+	let (first, second) = tokio::join!(
+		view.introduce(operation, Some(base), &introduction),
+		view.introduce(operation, Some(base), &introduction)
+	);
+	assert_met();
+	let conversation = |opened: Result<Opened, Error>| match opened {
+		Ok(Opened::Opened { conversation, .. }) => conversation,
+		other => panic!("a caller did not report the open as its own: {other:?}"),
+	};
+	let (first, second) = (conversation(first), conversation(second));
+	assert_eq!(first, second);
+	let reached = view.reach_direct(directory, "attached-two").await.unwrap();
+	assert_eq!(
+		reached,
+		Reach::Open(first.clone()),
+		"the open conversation lost its route"
+	);
+	let text = format!("through the route of {operation}");
+	let said = view.say(&format!("{operation}-say"), &first, &text).await.unwrap();
+	assert_eq!(said.status, EffectStatus::Committed);
+	text_arrived(peer, &text);
+	first
+}
+
+/// Two callers of one operation, such as a turn and a look at its note, open
+/// a direct conversation that was never open: the row takes the operation as
+/// its id.
+#[test]
+fn two_callers_of_one_first_open_both_report_it_and_the_route_stays_held() {
+	let fixture = start("attached-two-first");
+	let (one, two) = (&fixture.peers[0], &fixture.peers[1]);
+	run(async {
+		let holder = host().await;
+		let view = attach(&holder, &one.link).await;
+		let directory = first_directory(&view).await;
+		let opened = open_twice(&view, &directory, "two-callers-first", &two.state).await;
+		assert_eq!(
+			opened, "two-callers-first",
+			"a first open takes its operation as its id"
+		);
+		drop(view);
+		holder.close(PendingWork::Cancel).await.unwrap();
+	});
+	fixture.finish();
+}
+
+/// The same, for a closed conversation reopened: its row keeps its old id, so
+/// the id cannot say which operation made it.
+#[test]
+fn two_callers_of_one_reopen_both_report_it_and_the_route_stays_held() {
+	let fixture = start("attached-two-reopen");
+	let (one, two) = (&fixture.peers[0], &fixture.peers[1]);
+	run(async {
+		let holder = host().await;
+		let view = attach(&holder, &one.link).await;
+		let directory = first_directory(&view).await;
+		let Reach::Introduce(introduction) = view.reach_direct(&directory, "attached-two").await.unwrap() else {
+			panic!("the peer was already reached")
+		};
+		let base = view.revision().await.unwrap();
+		let first = match view.introduce("two-callers-before", Some(base), &introduction).await {
+			Ok(Opened::Opened { conversation, .. }) => conversation,
+			other => panic!("the first open did not open: {other:?}"),
+		};
+		let base = view.revision().await.unwrap();
+		let closed = view
+			.command("two-callers-close", base, "closeDirect", std::slice::from_ref(&first))
+			.await
+			.unwrap();
+		assert_eq!(closed, EffectStatus::Committed);
+		let deadline = Instant::now() + Duration::from_secs(10);
+		// A read the session is too busy to answer is asked again.
+		while !matches!(
+			view.reach_direct(&directory, "attached-two").await,
+			Ok(Reach::Introduce(_))
+		) {
+			assert!(Instant::now() < deadline, "the closed conversation stayed open");
+			tokio::time::sleep(Duration::from_millis(250)).await;
+		}
+		let reopened = open_twice(&view, &directory, "two-callers-again", &two.state).await;
+		assert_eq!(reopened, first, "a reopened conversation keeps its id");
+		drop(view);
+		holder.close(PendingWork::Cancel).await.unwrap();
 	});
 	fixture.finish();
 }

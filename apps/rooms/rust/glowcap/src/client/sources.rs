@@ -82,31 +82,14 @@ impl<D: Deadline + Tasks + Clone + 'static> Sources<D> {
 	/// Lend from the application's existing Host, including transport-free
 	/// managed uploads. The same pool and lease own asynchronous source reads.
 	pub fn lend_local(&self, host: &glowcap::Host, sources: Vec<Source>) -> Result<LentSources<D>, Error> {
-		self.lend_through(
-			Caller::Local {
-				host: host.clone(),
-				platform: self.platform.clone(),
-			},
-			sources,
-			false,
-		)
+		self.lend_through(Caller::hosted(host.clone(), self.platform.clone()), sources, false)
 	}
 	/// Keep managed upload backing readable through independent archive reads
 	/// and subsequent line changes. Existing hosted leases own retention. No
-	/// second source table or full-file materialization is introduced.
-	pub(crate) fn lend_repeatable_local(
-		&self,
-		host: &glowcap::Host,
-		sources: Vec<Source>,
-	) -> Result<LentSources<D>, Error> {
-		self.lend_through(
-			Caller::Local {
-				host: host.clone(),
-				platform: self.platform.clone(),
-			},
-			sources,
-			true,
-		)
+	/// second source table or full-file materialization is introduced. The
+	/// lease holds `caller`, the route of the capability the sources go to.
+	pub(crate) fn lend_repeatable(&self, caller: Caller<D>, sources: Vec<Source>) -> Result<LentSources<D>, Error> {
+		self.lend_through(caller, sources, true)
 	}
 	fn lend_through(&self, caller: Caller<D>, sources: Vec<Source>, repeatable: bool) -> Result<LentSources<D>, Error> {
 		let sources = sources
@@ -124,10 +107,7 @@ impl<D: Deadline + Tasks + Clone + 'static> Sources<D> {
 			delivered: Cell::new(false),
 			_caller: caller,
 		};
-		let host = match &prepared._caller {
-			Caller::Remote(client) => client.session().host(),
-			Caller::Local { host, .. } => host.clone(),
-		};
+		let host = prepared._caller.host();
 		for blob in &prepared.blobs {
 			prepared
 				.roots
@@ -187,8 +167,20 @@ impl<D: Deadline + Tasks + Clone + 'static> Sources<D> {
 		leading: Vec<Argument>,
 		sources: Vec<Source>,
 	) -> Result<Argument, Error> {
+		self.send_scoped_through(Caller::Remote(client.clone()), target, verb, leading, sources)
+			.await
+	}
+	/// `send_scoped` over `caller`, the route of the capability `target` names.
+	pub(crate) async fn send_scoped_through(
+		&self,
+		caller: Caller<D>,
+		target: &Ref,
+		verb: &'static str,
+		leading: Vec<Argument>,
+		sources: Vec<Source>,
+	) -> Result<Argument, Error> {
 		self.send_with_policy(
-			Caller::Remote(client.clone()),
+			caller,
 			target,
 			verb,
 			leading,
@@ -222,30 +214,6 @@ impl<D: Deadline + Tasks + Clone + 'static> Sources<D> {
 		let reply = pending.await?;
 		prepared.delivered.set(policy.retain);
 		Ok(reply)
-	}
-	pub async fn send_scoped_local(
-		&self,
-		host: &glowcap::Host,
-		target: &Ref,
-		verb: &'static str,
-		leading: Vec<Argument>,
-		sources: Vec<Source>,
-	) -> Result<Argument, Error> {
-		self.send_with_policy(
-			Caller::Local {
-				host: host.clone(),
-				platform: self.platform.clone(),
-			},
-			target,
-			verb,
-			leading,
-			sources,
-			SendPolicy {
-				suffix: Vec::new(),
-				retain: false,
-			},
-		)
-		.await
 	}
 }
 /// One bounded source population and its existing connection. It owns no file

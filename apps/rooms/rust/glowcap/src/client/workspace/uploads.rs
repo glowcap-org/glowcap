@@ -24,11 +24,7 @@ impl<D: Deadline + Tasks + Clone + 'static> Workspace<D> {
 		{
 			return Err(loam::refusal("upload sources differ from the original descriptions").into());
 		}
-		let host = match &self.caller {
-			Caller::Remote(client) => client.session().host(),
-			Caller::Local { host, .. } => host.clone(),
-		};
-		let sources = pool.lend_repeatable_local(&host, sources)?;
+		let sources = pool.lend_repeatable(self.caller.clone(), sources)?;
 		let method = match intent.upload {
 			Kind::Post => "sendFiles",
 			Kind::Refile(_) => "refileLine",

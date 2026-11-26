@@ -2,6 +2,7 @@
 //! every other, and a restart, `/reset`, and letting a conversation go leave
 //! it as the agent left it.
 use super::rig::Rig;
+use super::words;
 use serde_json::json;
 
 /// `MAX_LISTED` and `MAX_SUMMARY_BYTES` in the bot's `home.rs`.
@@ -31,7 +32,7 @@ fn a_memory_saved_in_one_conversation_is_listed_in_others_and_outlives_reset_res
 	assert_eq!(status["home"], json!({"path": rig.dir.join("home"), "memories": 1}));
 
 	rig.direct(3, "c1", "/reset");
-	assert!(last_text(&rig, 3).starts_with("Started a new conversation"));
+	assert!(last_text(&rig, 3).starts_with(words::RESET_CONFIRMED));
 	assert!(memory.exists(), "/reset removed a memory");
 	assert!(bot.stop().success(), "the bot exited with a failure");
 

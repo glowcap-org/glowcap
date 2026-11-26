@@ -19,7 +19,7 @@ thing in a terminal, on a server, and in a tab.
 | `rooms-product` | Private executable entry points, workspace and roster supervision, and process proofs | `rooms-services` and its lower layers |
 | `rooms-browser` | The browser side of the adapters and the exports the page calls: session controllers, IndexedDB storage, WebRTC signaling, transports | `rooms-application`, `rooms-glowcap`, `rooms-runtime`, the Rust browser binding |
 | `rooms-contract-proofs` | The application contracts replayed from recorded fixtures, on the host and as browser Wasm | `rooms-application` and the Rust binding on both targets |
-| `rooms-testing` | Test support the crates share: the scratch directory guard, the child process guard, and the local-set runner. A host dev-dependency of `rooms-platform`, `rooms-services`, `rooms-product`, and `rooms-contract-proofs`. No executable and no Wasm build links it, and it sits outside the default members | Tokio |
+| `rooms-testing` | Test support the crates share: the scratch directory guard, the child process guard, the local-set runner, the write gate, and a scripted clock. A host dev-dependency of `rooms-runtime`, `rooms-platform`, `rooms-services`, `rooms-product`, and `rooms-contract-proofs`, whose browser proof host also links it for the write gate. No Rooms executable links it, and it sits outside the default members | `rooms-glowcap`, Tokio |
 
 `rooms-application` decides. The other crates carry its decisions to a host.
 A behavior that can be decided without a runtime belongs in the application

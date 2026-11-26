@@ -4,6 +4,23 @@ use super::*;
 use serde_json::json;
 
 use super::session_rig::{call, direct_message, ready};
+
+#[test]
+fn status_names_the_session_directory_to_start_when_no_peer_listens() {
+	let temp = Scratch::create("session-not-running");
+	let state = temp.join("peer");
+	let status = || {
+		let failure = session_rig::try_call(&state, "status", json!({})).unwrap_err();
+		assert!(failure.contains("not-running"), "{failure}");
+		assert!(failure.contains(state.to_str().unwrap()), "{failure}");
+		assert!(failure.contains("session start"), "{failure}");
+	};
+	status();
+	std::fs::create_dir(&state).unwrap();
+	drop(std::os::unix::net::UnixListener::bind(state.join("control.sock")).unwrap());
+	status();
+}
+
 #[test]
 fn managed_local_control_joins_and_replies_through_actual_custody() {
 	let temp = Scratch::create("managed-journey");

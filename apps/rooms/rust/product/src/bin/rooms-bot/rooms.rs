@@ -22,9 +22,15 @@
 //!   operation at that base again, so a send still on its way cannot post
 //!   once a resend at its base was refused.
 //! - Receipts are durable across session restarts. A session keeps a bounded
-//!   set of them, and it never lets go of a send still running or of a
-//!   committed receipt nobody kept, until the access that sent it is revoked.
-//!   It may let go of any other, including an unknown one whose line posted. A receipt it no longer holds is
+//!   set of them, and it never lets go of a send still running, of a
+//!   committed receipt nobody kept, or of an unresolved one, until its
+//!   sender releases it or the access that sent it is revoked. An unresolved
+//!   receipt reads unknown, as a paused send's does, and stays that way until
+//!   its sender releases it.
+//!   Once that access is revoked it gives back every receipt whose send no
+//!   longer runs. A send still running stays until it settles or stops.
+//!   It may let go of any other, including a settled unknown one whose line
+//!   posted. A receipt it no longer holds is
 //!   [`Outcome::Absent`], which proves nothing, so the bot asks
 //!   [`Rooms::echoed`] whether the line reached activity before it decides
 //!   anything.
@@ -132,10 +138,9 @@ pub enum Sender {
 	System,
 	/// A member a room line names by nickname.
 	Member(String),
-	/// The other person in a direct conversation, with their nickname in the
-	/// conversation's directory when the workspace names it. A direct line
-	/// does not name its sender.
-	Peer(Option<String>),
+	/// The other person in a direct conversation. A direct line does not
+	/// name its sender.
+	Peer,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -146,7 +151,7 @@ pub enum Change {
 }
 
 pub use rooms_application::room::mentions::Mentions;
-pub use rooms_services::session::attached::Attachment;
+pub use rooms_services::session::attached::{Attachment, Holder};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Line {
@@ -227,7 +232,7 @@ pub enum Outcome {
 
 /// How a direct-message open settled when it was looked at again.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Settled {
+pub enum OpenSettled {
 	/// Its route is kept in this conversation.
 	Opened(String),
 	/// Another open already reached the member, so its route was given back.
@@ -242,6 +247,54 @@ pub enum Settled {
 	/// The session cannot say whether it committed, because the work that
 	/// would settle it ended. Looking again never settles it.
 	Unknown,
+}
+
+/// How the files of a post stand once it committed. A line or command that
+/// carries none is [`Standing::Whole`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Standing {
+	/// The line stands with every file it carries.
+	Whole,
+	/// The line stands and some of its files did not arrive.
+	Partial,
+	/// The line stands, and nothing says whether its files arrived.
+	Unknown,
+}
+
+/// How an agent's action settled when the session was asked about its
+/// receipt by its operation alone.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ActionSettled {
+	/// The session holds no receipt of it this access can still settle: it was
+	/// kept or given back, or it left the session's window of receipts.
+	Gone,
+	/// It committed, and what it returned is kept. A post's files stand as
+	/// said.
+	Kept(Standing),
+	/// It committed nothing.
+	Unapplied,
+	/// It committed, but what it returned could not be kept, and the session
+	/// took its receipt back.
+	Released,
+	/// It is still running in the session, and may still commit.
+	Pending,
+	/// The session cannot say whether it committed, because the work that
+	/// would settle it ended. Looking again never settles it.
+	Unknown,
+}
+
+/// What the session answered when the bot gave a receipt back.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Handback {
+	/// The receipt holds no place with the session: it was released now or
+	/// before, the session held none, or its result was adopted.
+	Taken,
+	/// The session is running the receipt's request, so it changed nothing and
+	/// the receipt still holds its place. The bot releases again later: the
+	/// session does not take it back by itself, and a running upload's fill
+	/// is not bounded by the observation deadline.
+	Running,
 }
 
 /// Whether a line reached activity, read from the activity after a cursor.
@@ -263,7 +316,12 @@ pub enum Echo {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RoomsErrorKind {
 	/// The session refused this request. Repeating it unchanged will not help.
+	/// This is a verdict on the request, never on the bot's access.
 	Refused,
+	/// The session does not admit the bot's access: the link is unknown or out
+	/// of scope. This is a verdict on the access, never on one request, and it
+	/// ends serving as a revoked access does.
+	Denied,
 	/// The bot's access is paused. It resumes when its grantor resumes it.
 	Paused,
 	/// The bot's access is revoked. Only a new grant restores it.
@@ -285,6 +343,10 @@ pub struct RoomsError {
 	/// How long the session asked the bot to wait before it tries the same
 	/// request again, when it refused it for pacing.
 	pub retry_after: Option<Duration>,
+	/// Whether the session refused the request before it dispatched anything
+	/// or held a receipt for it, as an admission refusal proves. Such a
+	/// request is known not sent.
+	pub refused_before_dispatch: bool,
 }
 impl RoomsError {
 	pub fn new(kind: RoomsErrorKind, message: impl ToString) -> Self {
@@ -292,6 +354,7 @@ impl RoomsError {
 			kind,
 			message: message.to_string(),
 			retry_after: None,
+			refused_before_dispatch: false,
 		}
 	}
 }
@@ -302,29 +365,62 @@ impl fmt::Display for RoomsError {
 }
 impl std::error::Error for RoomsError {}
 
+/// Whether a read of activity waits for news.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Wait {
+	/// The session may hold the read until an event arrives, and an empty
+	/// batch means it timed out.
+	Hold,
+	/// The session answers at once, and an empty batch means the cursor is
+	/// the head of activity.
+	Poll,
+}
+
+/// Whether the bot shows as typing in a conversation.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Typing {
+	Show,
+	Stop,
+}
+
 /// A session as the bot uses it. Methods take `&self` so a long read and a
 /// send can be in flight together on one task.
 pub trait Rooms {
-	/// The events after `after`. With `wait`, the session may hold the read
-	/// until an event arrives, and an empty batch means it timed out. Without
-	/// it, an empty batch means `after` is the head of activity.
-	fn events(&self, after: &Cursor, wait: bool) -> impl Future<Output = Result<Batch, RoomsError>>;
+	/// The events after `after`, held for news or answered at once as `wait`
+	/// says.
+	fn events(&self, after: &Cursor, wait: Wait) -> impl Future<Output = Result<Batch, RoomsError>>;
 	/// The session's revision now, the base of a new send.
 	fn base(&self) -> impl Future<Output = Result<Base, RoomsError>>;
 	/// Post one line under its operation at `base`, without keeping it.
 	fn send(&self, line: &Outgoing<'_>, base: Base) -> impl Future<Output = Result<Outcome, RoomsError>>;
 	/// Look again at a send of the same line, operation, and base without
-	/// sending it again.
+	/// sending it again. A receipt the session no longer holds is
+	/// [`Outcome::Absent`], and a released one still answers its outcome until
+	/// newer receipts push it out.
 	fn observe(&self, line: &Outgoing<'_>, base: Base) -> impl Future<Output = Result<Outcome, RoomsError>>;
-	/// Take the authority of a committed line, so the session releases its
-	/// receipt. A line already kept, or whose receipt is gone, succeeds.
+	/// Take the authority of a committed line, so its receipt no longer holds
+	/// a place. A line already kept succeeds. A receipt the session no longer
+	/// holds, one it settled without committing, and one already released are
+	/// refused as [`RoomsErrorKind::Refused`].
 	fn keep(&self, line: &Outgoing<'_>, base: Base) -> impl Future<Output = Result<(), RoomsError>>;
 	/// Give up the receipt of a send the bot will not keep, without sending
-	/// anything. A receipt already gone succeeds.
-	fn release(&self, line: &Outgoing<'_>, base: Base) -> impl Future<Output = Result<(), RoomsError>>;
+	/// anything, so it no longer holds a place. The session keeps a released
+	/// receipt until newer receipts push it out. A receipt already released or
+	/// already gone is [`Handback::Taken`], and one whose executor still runs
+	/// is [`Handback::Running`].
+	fn release(&self, line: &Outgoing<'_>, base: Base) -> impl Future<Output = Result<Handback, RoomsError>>;
+	/// Whose receipt `operation` is, read without sending anything, and
+	/// answered to any attached access. Only the session's own answer that
+	/// another access sent it is [`Holder::Another`]: every other failure is an
+	/// error.
+	fn holder(&self, operation: &str) -> impl Future<Output = Result<Holder, RoomsError>>;
+	/// The operations of this access's own receipts that still keep a place in
+	/// the session: unresolved ones, and committed ones whose result is not
+	/// kept yet. A read that names no status and changes nothing.
+	fn held(&self) -> impl Future<Output = Result<Vec<String>, RoomsError>>;
 	/// Show the bot as typing in `conversation`, or stop. Readers clear a
 	/// notice that is not said again within a few seconds.
-	fn typing(&self, conversation: &ConversationId, on: bool) -> impl Future<Output = Result<(), RoomsError>>;
+	fn typing(&self, conversation: &ConversationId, typing: Typing) -> impl Future<Output = Result<(), RoomsError>>;
 	/// Whether activity after `after` shows the line posted.
 	fn echoed(&self, line: &Outgoing<'_>, after: &Cursor) -> impl Future<Output = Result<Echo, RoomsError>>;
 	/// Save `attachment` as the new file `destination`, whose parent exists.
@@ -338,5 +434,20 @@ pub trait Rooms {
 		operation: &str,
 		base: Base,
 		introduction: &Introduction,
-	) -> impl Future<Output = Result<Settled, RoomsError>>;
+	) -> impl Future<Output = Result<OpenSettled, RoomsError>>;
+	/// Give back the session's receipt of the open `introduction` under
+	/// `operation` and `base`, which the bot gives up on.
+	fn release_open(
+		&self,
+		operation: &str,
+		base: Base,
+		introduction: &Introduction,
+	) -> impl Future<Output = Result<Handback, RoomsError>>;
+	/// Ask the session about the agent's action under `operation`, by its
+	/// operation alone, and keep what it committed. This sends and resends
+	/// nothing: the session tells this access what it sent.
+	fn settle_action(&self, operation: &str) -> impl Future<Output = Result<ActionSettled, RoomsError>>;
+	/// Give back the receipt of the agent's action under `operation`, which
+	/// the bot gives up on, as `release` gives a line's back.
+	fn release_action(&self, operation: &str) -> impl Future<Output = Result<Handback, RoomsError>>;
 }

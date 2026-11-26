@@ -189,13 +189,54 @@ until the deployment is healthy. The CLI does not discover or copy configuration
 
 ## Upgrade
 
-Read the release notes and [back up the stopped stack](#data-and-reset) before upgrading.
-An older image may not read state written by a newer one.
+Read the release notes and [back up the stopped stack](#data-and-reset) before upgrading. Run these commands in the
+configuration directory printed by `deployment doctor`. For a local build or a rollback on another Docker host,
+[save the selected image](#keep-a-copy-of-the-selected-image) with the backup. Select the new version and check its health:
 
-1. Run `glowcap apps rooms deployment up --image ghcr.io/glowcap-org/glowcap-rooms:vNEW`.
-2. Run `glowcap apps rooms deployment status` and check that every service is healthy.
-3. To restore the previous image, run `up --image` with the image ID the upgrade printed.
-   If its storage format is incompatible, restore the matching state backup too.
+```sh
+glowcap apps rooms deployment up --dir "$PWD" --image ghcr.io/glowcap-org/glowcap-rooms:vNEW
+glowcap apps rooms deployment status --dir "$PWD"
+```
+
+After an image change, `image` holds the new ID and `previous-image` holds the old one. To roll back that change,
+use the backup you made immediately before the upgrade. The older version may need the matching state restored
+**before** it starts. If Docker no longer has that image, [load the archived image](#keep-a-copy-of-the-selected-image) first.
+Once its data is ready, this checks the previous image against the saved selection:
+
+```sh
+rollback_image=$(cat previous-image) &&
+  saved_image=$(tar xOzf "$backup/config.tgz" ./image) &&
+  test -n "$rollback_image" && test "$rollback_image" = "$saved_image" &&
+  glowcap apps rooms deployment up --dir "$PWD" --image "$rollback_image"
+```
+
+If the IDs differ, check `image` before proceeding. It still holds the original ID if the upgrade stopped before saving a new selection.
+When restoring the pre-upgrade configuration, its own `image` already selects the matching version.
+
+### A session the new version cannot read
+
+When the release notes say saved sessions no longer open, the session container stops at each start and Compose
+starts it again. `glowcap apps rooms deployment logs --dir "$PWD" session` shows `This session's saved data is in a form this version
+of Rooms can't read`. A bot's session stops the same way. Start new sessions in their place:
+
+1. [Back up the stopped stack](#data-and-reset), including the bot's volumes and host files if you run one.
+   Check the archives before removing any state. Keep the stack stopped.
+2. If you run a bot, comment out the override's `bot` and `bot secret` pieces. Keep its home mount and give
+   `bot-session-state` and `bot-state` two new, unused Docker names. Compose creates the empty volumes and leaves the
+   old ones under the names you backed up.
+
+   Create the replacement yourself for an external volume, or point a bind mount at a new empty directory.
+   Move the old bot link to the private backup directory so the next issue can create its file.
+3. Run `glowcap apps rooms deployment reset session --dir "$PWD" --image ghcr.io/glowcap-org/glowcap-rooms:vNEW`.
+   It confirms removal of this configuration's shared session volume, starts the stack, and prints the new use and management links.
+
+   For an external volume or bind mount, reset refuses removal. Point the shared session's `/session-state` mount
+   at a new empty volume or directory you provisioned. Start it with
+   `glowcap apps rooms deployment up --dir "$PWD" --image ghcr.io/glowcap-org/glowcap-rooms:vNEW`.
+   The previous mount remains available for rollback.
+4. Send members the new use link. Each attaches again as [Read your links again](#read-your-links-again) shows. Every
+   access link the old session issued stops working, so issue new ones with the new management link.
+5. If you run a bot, follow steps 2 to 4 of [Run a bot](#run-a-bot). It answers only lines sent after it starts.
 
 ## Build and run your own version
 
@@ -209,26 +250,33 @@ running beside the deployment. This adds a second session for the bot to speak a
 The agent and its configuration are this host's choice, so they live in your override and your own files, never in the
 repository or the managed file.
 
-The release image holds no shell and no agent, so the bot runs from an image you build. Keep this
-`bot/Dockerfile` in the configuration directory beside the override. It starts from the same Debian release as the image
-and copies `/runtime` out of it. Change the agent's install line, and name the directory the agent keeps its
-configuration in. Claude Code installs as `@anthropic-ai/claude-code` and keeps `.claude`, Codex as `@openai/codex` and
-`.codex`, and Pi as `@earendil-works/pi-coding-agent` and `.pi/agent`.
+The release image holds no shell and no agent, so the bot runs from an image you build from
+[`bot.Dockerfile.example`](bot.Dockerfile.example). An installation keeps it in `share/glowcap/deployment/`, beside the
+skills directory that `glowcap apps rooms skills` prints. For a new bot image, copy the example into the configuration directory:
 
-```dockerfile
-ARG GLOWCAP_ROOMS_IMAGE=glowcap-rooms:selected
-FROM ${GLOWCAP_ROOMS_IMAGE} AS rooms
-FROM node:24-trixie-slim
-RUN apt-get update \
- && apt-get install --yes --no-install-recommends ca-certificates \
- && rm -rf /var/lib/apt/lists/*
-COPY --from=rooms /runtime /runtime
-RUN npm install --global @anthropic-ai/claude-code \
- && mkdir -p /bot-state/home /home/node/.claude \
- && chown -R node:node /bot-state /home/node
-USER node
-WORKDIR /home/node
+```sh
+mkdir -p bot-image
+cp "$(glowcap apps rooms skills)/../deployment/bot.Dockerfile.example" bot-image/Dockerfile
 ```
+
+Keep only image build inputs in `bot-image/`. Runtime files under `bot/` and `secrets/` stay outside the Docker build context.
+
+`up` preserves an existing `docker-compose.override.yml`. If yours predates the bot, merge the bot session, bot,
+volumes, and secret sections from `docker-compose.override.yml.example` beside the installed Dockerfile example.
+If your override already builds from `./bot`, move its Dockerfile to `bot-image/Dockerfile` and set the bot's
+`build.context` to `./bot-image` before the next build. Leave its credentials and home under `bot/`.
+
+The Dockerfile starts from the same Debian release as the image and copies `/runtime` out of it. The override passes it
+the agent's npm package and configuration directory as `AGENT_PACKAGE` and `AGENT_DIR`, so changing agents changes
+those two lines of the override and not the file.
+
+| Agent | `AGENT_PACKAGE` | `AGENT_DIR` | Sign-in file to copy |
+| --- | --- | --- | --- |
+| Claude Code | `@anthropic-ai/claude-code` | `.claude` | `.credentials.json` |
+| Codex | `@openai/codex` | `.codex` | `auth.json` |
+| Pi | `@earendil-works/pi-coding-agent` | `.pi/agent` | `auth.json` |
+
+Codex reads `auth.json` from `CODEX_HOME`, else `~/.codex`.
 
 The container user is `node`, user 1000. The bot's access link is a file Compose mounts with its owner and mode on this
 host, so that user must be the file's owner. Change the user, or the file's owner, if your account is not 1000. The
@@ -241,7 +289,7 @@ up directly, replace the `bot-home` mount with the bind mount the override's com
 user 1000.
 
 1. Open `docker-compose.override.yml` and uncomment the bot session and the volumes, the pieces headed `bot session` and
-   `bot volumes`. Run `glowcap apps rooms deployment up`.
+   `bot volumes`. Run `glowcap apps rooms deployment up --dir "$PWD"`.
 2. Give the bot's session its nickname and rooms. It keeps them across restarts, so this runs once:
 
    ```sh
@@ -254,30 +302,39 @@ user 1000.
 
    ```sh
    install -d -m 700 secrets
-   (umask 077; docker exec glowcap-rooms-bot-session /runtime/bin/glowcap apps rooms session access issue \
-     --dir /session-state --label bot --rights collaborator > secrets/bot-link)
+   (
+     umask 077
+     set -C
+     exec 3>secrets/bot-link || exit 1
+     docker exec glowcap-rooms-bot-session /runtime/bin/glowcap apps rooms session access issue \
+       --dir /session-state --label bot --rights collaborator >&3 || { rm -f secrets/bot-link; exit 1; }
+   )
    ```
 
 4. Uncomment the pieces headed `bot` and `bot secret`, and fill in the agent, its permission, its model, and the files
    it reads its sign-in from, as the comments there say. Mount only what the agent needs, from copies kept in the
-   configuration directory. Run `up` again.
+   configuration directory. Run `glowcap apps rooms deployment up --dir "$PWD"` again.
 
-   Claude Code replaces its sign-in file each time it refreshes its token, so copy only `~/.claude/.credentials.json`
-   into `bot/claude/`, give that directory to user 1000, and mount it writable at `/home/node/.claude`. A read-only
-   mount works until the first token expires, and then every reply is a sign-in failure. The agent can rewrite that
-   copy, so keep nothing else in it.
+   Agents rewrite their sign-in file each time they refresh a token. Create a private directory under `bot/` (for Claude
+   Code, `install -d -m 700 bot/claude`). Copy the sign-in file there, give user 1000 ownership of the copy and its
+   directory, and mount the directory writable at
+   `/home/node/<AGENT_DIR>`. A read-only mount works until the first token expires, and then every reply is a sign-in
+   failure. The agent can rewrite that copy, so keep nothing else in it.
 
-The bot is healthy once it is attached to its session and its access is active. `status` shows it, and `logs bot`
-follows it. Send the bot a direct message to see a reply, or mention it in a room. A bot whose agent is missing from the
-image refuses to start and names the program it looked for.
+The bot is healthy when `bot ready` passes, which the bot guide's
+[Looking after it](../../../../docs/rooms/bot.md#looking-after-it) defines. `status` shows it, and `logs bot` follows it. Send the bot a
+direct message to see a reply, or mention it in a room. A bot whose agent is missing from the image refuses to start and
+names the program it looked for.
 
-The bot answers everyone who can write to it until `GLOWCAP_ROOMS_BOT_ALLOW` names the nicknames it answers. The
-override's comments show it with the limits and your own instructions file, and the bot guide's
-[Who it answers](../../../../docs/rooms/bot.md#who-it-answers) says what a nickname proves.
+The bot guide's [What the bot may do](../../../../docs/rooms/bot.md#what-the-bot-may-do) says how to limit what it
+does and who can reach it. The override's comments show the hourly limit and your own instructions file. To drop
+instructions the bot already stored, add `--no-instructions` to its `command`, run `up`, and remove the flag once the bot
+serves. Left in, it drops every instructions file, including one a later `GLOWCAP_ROOMS_BOT_INSTRUCTIONS` names, and
+says nothing.
 
 The bot guide's [Choosing the agent and its permission](../../../../docs/rooms/bot.md#choosing-the-agent-and-its-permission)
 says what a `full` agent can reach, which here is everything its container can. The bot reaches its session over
-iroh and needs none of this deployment's networks. A model server that listens only on the host's loopback needs
+[iroh](https://www.iroh.computer/) and needs none of this deployment's networks. A model server that listens only on the host's loopback needs
 `network_mode: host`, as the override's comments say.
 
 To pause, resume, or revoke the bot, manage its access from its session:
@@ -287,21 +344,58 @@ docker exec glowcap-rooms-bot-session /runtime/bin/glowcap apps rooms session ac
 docker exec glowcap-rooms-bot-session /runtime/bin/glowcap apps rooms session access pause --dir /session-state --id ID
 ```
 
-`resume` and `revoke` take the same arguments. To give the bot a new link, wait until it has no turn open, because
-a turn still working sends its reply next and only the old access can settle a reply going out. This prints
-`status.open_turns`, which must be 0:
+`resume` and `revoke` take the same arguments.
+
+### Give the bot a new link
+
+Wait until the bot has no turn open, because a turn still working sends its reply next and only the old access can
+settle a reply going out. This prints `status.open_turns`, which must be 0:
 
 ```sh
 docker exec glowcap-rooms-bot /runtime/bin/glowcap apps rooms bot status --dir /bot-state
 ```
 
+A bot that keeps restarting runs no turn, so skip this wait for it.
+
 Then run `docker rm -f glowcap-rooms-bot` and `docker volume rm glowcap-rooms-bot-state`, revoke the old access, and
-remove `secrets/bot-link`, which step 3 will not overwrite in a shell that refuses to replace files. Repeat steps 3
+remove `secrets/bot-link`, which step 3 refuses to overwrite. Repeat steps 3
 and 4. A bot that starts fresh answers only lines sent after it starts.
 
 To keep the bot's place in its session instead, keep its volume. Remove `secrets/bot-link`, repeat step 3, add
-`--replace-link` to the bot's `command`, run `up`, and revoke the old access once the bot serves. The bot guide's
-[Looking after it](../../../../docs/rooms/bot.md#looking-after-it) says what becomes of replies going out at the time.
+`--replace-link` to the bot's `command`, run `up`, and revoke the old access once the bot serves. Then remove the
+flag from `command`: left in, the next fresh start has no stored link to replace, so the bot refuses to start, naming
+the flag. The bot guide's
+[Replacing the link](../../../../docs/rooms/bot.md#replacing-the-link) says what becomes of replies going out at the time.
+
+### A bot that keeps restarting
+
+A bot that cannot start stops with an error, and Compose starts it again and again. `docker exec` into it fails while
+it is down, so read the error with `glowcap apps rooms deployment logs bot`:
+
+- A bot directory its build cannot read names the unreadable file. Start the bot fresh as
+  [Give the bot a new link](#give-the-bot-a-new-link) describes, which drops its settings and its place in the session.
+- A `config.json` that holds a field the bot does not read names each field. Stop the bot, delete those fields through
+  a container of the bot's own image, and start it again with its place kept. Replace `FIELD` with each named field:
+
+  ```sh
+  docker stop glowcap-rooms-bot
+  docker run --rm --user 1000 -v glowcap-rooms-bot-state:/bot-state --entrypoint node glowcap-rooms-bot -e '
+    const fs = require("fs"), file = "/bot-state/config.json";
+    const config = JSON.parse(fs.readFileSync(file, "utf8"));
+    for (const field of process.argv.slice(1)) delete config[field];
+    fs.writeFileSync(file, JSON.stringify(config, null, 2));
+  ' FIELD
+  docker start glowcap-rooms-bot
+  ```
+
+- A bot that names `--replace-link` and says it needs a stored link to replace is starting fresh with the flag left in
+  `command` from an earlier replacement. Remove the flag and run `up`.
+- A revoked access names `--replace-link`, because a bot does not wait for a new access. Replace the link with its
+  volume kept, as [Give the bot a new link](#give-the-bot-a-new-link) describes. The bot keeps its old link until its
+  session has answered the new one. A new link the session refuses makes the bot exit with an error that says so, and
+  it restarts with the same refused link until you correct it, so check the new access before you run `up`.
+
+### Remove the bot
 
 To remove the bot for good, revoke its access, comment its pieces out, and remove both of its containers, its three
 volumes, and its link file. Removing `glowcap-rooms-bot-home` deletes everything its agent saved, so copy it first if
@@ -317,14 +411,9 @@ The bot session's volume holds the bot's identity and its session's management l
 membership for good.
 
 To upgrade, run `up --image` as [Upgrade](#upgrade) says. `up` also names the selected image `glowcap-rooms:selected`
-and rebuilds the bot image from it, so the bot follows the image without a separate step. A change to `bot/Dockerfile`
+and rebuilds the bot image from it, so the bot follows the image without a separate step. A change to `bot-image/Dockerfile`
 rebuilds on the next `up` the same way. Everything else about the bot, such as the agent, its limits, and its
 failures, is in [Running a Rooms bot](../../../../docs/rooms/bot.md).
-
-A bot directory written by another build of the bot may be one the new build cannot read. The bot then stops with an
-error that names the unreadable file, and Compose starts it again each time. To start the bot fresh with the same link,
-keep a copy of its volume as [Data and reset](#data-and-reset) shows, then run `docker rm -f glowcap-rooms-bot` and
-`docker volume rm glowcap-rooms-bot-state`, and run `up`. It answers only lines sent after it starts.
 
 ## Inspect and stop
 
@@ -402,34 +491,108 @@ The directory lives in `glowcap-rooms-directory-state` and the shared session in
 directory retains no private rooms or direct messages. The session's readiness file is recreated on each start, and
 its authority stays in durable session state.
 
-To back up a stopped stack:
+### Back up a stopped stack
 
-1. Run `glowcap apps rooms deployment down`.
-2. Copy each state volume as one unit. Docker copies a volume through any image that has `tar`:
+Run this in the configuration directory printed by `deployment doctor`. Choose a backup directory outside that
+configuration. The example creates one under your home.
 
-   ```sh
-   docker run --rm -v glowcap-rooms-directory-state:/volume -v "$PWD":/backup debian \
-     tar czf /backup/directory-state.tgz -C /volume .
-   docker run --rm -v glowcap-rooms-session-state:/volume -v "$PWD":/backup debian \
-     tar czf /backup/session-state.tgz -C /volume .
-   ```
+Set the volume names to match your override. For the example bot, include `glowcap-rooms-bot-session-state` (session identity and grants),
+`glowcap-rooms-bot-state` (settings, saved link and position), and `glowcap-rooms-bot-home` (agent files).
+If the home is a bind mount, back up its host directory. The mounted home is separate from the bot state archive.
 
-3. Run `glowcap apps rooms deployment up`.
+```sh
+backup=$(mktemp -d "$HOME/rooms-backup.XXXXXXXX")
+(
+  set -eu
+  umask 077
+  test -d "$backup"
+  glowcap apps rooms deployment down --dir "$PWD"
+  set -- glowcap-rooms-directory-state glowcap-rooms-session-state
+  # For the example bot, uncomment this line:
+  # set -- "$@" glowcap-rooms-bot-session-state glowcap-rooms-bot-state glowcap-rooms-bot-home
+  for volume in "$@"; do
+    docker volume inspect "$volume" >/dev/null
+    docker run --rm -v "$volume:/volume:ro" debian tar czf - -C /volume . > "$backup/$volume.tgz.partial"
+    tar tzf "$backup/$volume.tgz.partial" >/dev/null
+    mv "$backup/$volume.tgz.partial" "$backup/$volume.tgz"
+  done
+  tar czf "$backup/config.tgz.partial" -C "$PWD" .
+  tar tzf "$backup/config.tgz.partial" >/dev/null
+  mv "$backup/config.tgz.partial" "$backup/config.tgz"
+)
+```
 
-To restore the directory volume:
+Keep the backup private. The configuration archive includes the
+override, image selection, Dockerfile, and files under `bot/` and `secrets/`, including sign-in files and bearer links.
+Back up host paths mounted from elsewhere separately, preserving owners and permissions. Use a backup account that
+can read those files. Once every archive succeeds, run the intended upgrade or restart with `deployment up --dir "$PWD"`.
 
-1. Run `glowcap apps rooms deployment down`.
-2. Remove the volume and extract the backup into a new one:
+### Keep a copy of the selected image
 
-   ```sh
-   docker volume rm glowcap-rooms-directory-state
-   docker run --rm -v glowcap-rooms-directory-state:/volume -v "$PWD":/backup debian tar xzf /backup/directory-state.tgz -C /volume
-   ```
+The configuration backup records the image ID. To recover a local-only build or recover after Docker discards its
+cached image, save the image itself once. This optional archive can be large. Use the image selected in the stopped
+stack's backup:
 
-3. Run `glowcap apps rooms deployment up`.
+```sh
+(
+  set -eu
+  umask 077
+  saved_image=$(tar xOzf "$backup/config.tgz" ./image)
+  docker image save "$saved_image" > "$backup/rooms-image.tar.partial"
+  mv "$backup/rooms-image.tar.partial" "$backup/rooms-image.tar"
+)
+```
 
-Restore the session volume the same way. Prerelease application stores accept
-only their current schema. Incompatible state requires an explicit reset.
+On the recovery host, load that archive before starting the stack. Check that Docker can resolve the saved ID:
+
+```sh
+saved_image=$(tar xOzf "$backup/config.tgz" ./image) &&
+  docker image load --input "$backup/rooms-image.tar" &&
+  docker image inspect "$saved_image" >/dev/null
+```
+
+An image must support the recovery host's architecture. The optional bot service rebuilds its own image from the
+Dockerfile and package settings in your override.
+
+### Restore a backup
+
+Stop the stack before restoring it. Keep the current volumes and configuration until the restored services are healthy.
+For each volume archive, restore into a fresh volume. This example prints the Docker volume name for the directory:
+
+```sh
+(
+  set -eu
+  archive="$backup/glowcap-rooms-directory-state.tgz"
+  tar tzf "$archive" >/dev/null
+  restored=$(docker volume create)
+  docker run --rm -i -v "$restored:/volume" debian tar --numeric-owner -xzpf - -C /volume < "$archive"
+  printf '%s\n' "$restored"
+)
+```
+
+Extract the matching configuration into a new private directory. When the backup includes files owned by the
+container user, extract as an account that can restore that owner.
+
+```sh
+restored_root=$(mktemp -d "$HOME/rooms-restored.XXXXXXXX") &&
+  restored_config="$restored_root/config" && mkdir -m 700 "$restored_config" &&
+  tar --numeric-owner -xzpf "$backup/config.tgz" -C "$restored_config"
+```
+
+The private parent protects the restored files even if the original configuration directory was shared.
+Recover external bind mounts separately. In the restored `docker-compose.override.yml`, update their paths and
+point each logical volume at its recovered Docker name. For example:
+
+```yaml
+volumes:
+  directory-state:
+    name: <Docker volume name printed above>
+    external: true
+```
+
+Do the same for `session-state` and each configured bot volume. A home restored to a bind mount uses its host path
+instead. Run `glowcap apps rooms deployment up --dir "$restored_config"` to use its saved image ID,
+then check `deployment status --dir "$restored_config"`. The CLI refuses to reset volumes marked external.
 
 `glowcap apps rooms deployment reset <unit>` describes what will be lost and confirms before destroying the chosen
 volume and restarting. Reset ends by running `up` and printing new links, and every link the unit issued before

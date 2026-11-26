@@ -55,8 +55,12 @@ An open page reloads itself onto a new build after its server restarts.
 It asks `/ui-version` which build the
 server serves: when its last connection goes, on a beat while it has none, and
 when one comes back. It reloads when the answer differs from the build it was
-served as (`web/ui/build_link.ts`, proved by `test/build_link_test.ts`). In
-development the build is named by the Wasm application file, so component
+served as, once the reload would lose nothing a person made, such as text the
+session holds no saved write of, picked files, or a change still being
+prepared. A change the session holds a receipt of is picked up again by the
+reloaded page (`web/ui/build_reload.ts` and `web/ui/served_build.ts`, proved
+by `test/build_reload_test.ts` and `test/session/managed_reload_loss_test.ts`).
+In development the build is named by the Wasm application file, so component
 edits keep using Fast Refresh.
 
 The browser proofs run concurrently, so name every proof you need in one
@@ -74,6 +78,72 @@ each attempt, and hands off to
 conversation changes. `test/session/managed_navigation_test.ts`,
 `test/session/managed_cancellation_test.ts`, and the browser departure scene
 (`test/page/departure.ts`) prove how a cancelled join settles.
+
+### Reconnecting an attached page
+
+While the connection to the session drops and comes back, the page says it is
+reconnecting and asks nothing of the person. A device that is offline, or a
+session the page keeps failing to reach, gets **Try now**. A session that says
+when to ask again is not dialed sooner, even when the page comes back into
+view, unless a person presses **Try now**. A session that refuses the
+connection stops the dialing, and the page shows the refusal with its own next
+step. Settings shows the session's link once the page reaches the session,
+or why reading the link failed, with **Try now** to read it again.
+`test/proofs/shared_session_proof.ts` shows how it settles.
+
+A page attached to a session another process runs keeps one connection to it,
+the page's [link to the session](web/ui/session/managed/link.ts). When the
+connection drops, the link dials again with a growing wait, never while the
+page is hidden or the device is offline. It then moves the page's handles onto
+the new connection, keeping drafts, the activity position, and pending
+operations. A visible page whose session stays quiet asks it every
+<!-- value web/ui/session/managed/link.ts QUIET_PROBE_MS milliseconds -->30 seconds<!-- /value -->
+whether the connection still answers.
+
+A command the session already took is read back by its operation id, so its
+caller hears how it ended. One the session holds no trace of ends with
+`local-receipt-lost`, and one that was only prepared is prepared again or ends
+with `local-not-sent`. An access the new connection cannot reach ends a change
+prepared through it and never sent. The rules for each kind of request live with
+[held changes](web/ui/session/managed/held_acquisitions.ts),
+[edits](web/ui/session/managed/access_edit.ts),
+[shares](web/ui/session/managed/access_share.ts), and
+[narrower controls](web/ui/session/managed/access_narrower.ts), and
+[`lib/text/local_refusals.ts`](lib/text/local_refusals.ts) owns the refusal
+codes.
+
+Held access changes one event at a time, in the order the page asked for them,
+so no event acts on what another is changing. A read or call made outside that
+order only brings back what it found, and the page keeps it in an event of its
+own. [`ManagedAccess`](web/ui/session/managed/access.ts) states the rule and
+lists the events. The access list and an access's Manage card keep no answer
+of their own: what they say, and the revision the card's next change starts
+from, come from that owner's state.
+
+A refused press on the list or a card (**Save**, **Remove**, **Try now**, a
+change, a step on the **New access** card, **Let someone else manage it**, or
+reading **Created from this access**) is answered on the row or card pressed
+until what that row or card shows changes, whoever changed it. Each row keeps
+its own answer, so a press on another row leaves it. A step on the
+**New access** card answers for the access it creates from, so its answer
+clears once the new access moves on. A read that finds nothing new
+leaves the answer standing, and a row whose own failure line already says that
+refusal does not say it twice. The **Add a management link** card answers no
+row, so its answer stands until the link in it is edited. A failure that is
+not a refusal is reported once, and the card stays usable.
+
+A first page of **Created from this access** that is refused, or meets a
+failure that is not a refusal, offers **Try now** to ask for it again. Closing
+the **New access** card lets go of a share with nothing left to do, or one
+whose request was never sent. A refused close keeps the card open and says why.
+
+Rust reports `session-unreachable` for a lost connection, and the page treats
+only that code from this side as one. A call that misses its deadline while
+the session still answers is `session-request-timed-out` and leaves the link
+standing. A saved control whose dial runs out of time before its turn to use
+this browser's storage is `session-not-reached-yet`, because its session was
+never asked. A receipt that names its session unreachable speaks of another peer's
+link, so Rust reads it as `peer-unreachable`.
 
 ### Browser compiler boundary
 
@@ -556,7 +626,7 @@ The server therefore enforces limits:
 | `rust/browser/` | The Wasm application: session controllers, storage, signaling, transport |
 | `rust/proofs/` | The application contracts replayed from fixtures, in a process and in Wasm |
 | `rust/product/` | Private executable entry points, workspace and roster supervision, and process proofs |
-| `rust/testing/` | Test support the crates share: scratch directory, child process, and local-set guards |
+| `rust/testing/` | Test support the crates share, listed in the [crate map](rust/README.md) |
 | `web/ui/` | The browser page: React components, the store, the session projection |
 | `web/compiler.json` | The production compiler invocation and additional source-identity inputs |
 | `deno.json` | TypeScript dependencies and checks for the application |

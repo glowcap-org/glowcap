@@ -7,13 +7,14 @@ use std::{
 	rc::Rc,
 };
 mod caller;
-pub(crate) use caller::Caller;
+pub(crate) use caller::{Attached, Caller};
+pub use caller::{dial_session, dial_turn};
 pub mod access;
 pub mod archive;
 pub mod direct;
 pub mod directory;
 mod error;
-pub use error::{Error, binding_admission_refusal, binding_failure, binding_retry, clears_with_time, reach_code};
+pub use error::{Error, SubmissionStatus, binding_admission_refusal, binding_failure, binding_retry, clears_with_time};
 pub mod files;
 pub mod invitation;
 pub mod manager;

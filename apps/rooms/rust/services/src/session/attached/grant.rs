@@ -134,9 +134,7 @@ pub async fn issue_at<D: Deadline + Clone>(
 	rights: &Terms,
 	paused: bool,
 ) -> Result<IssuedAccess, Error> {
-	if label.len() > MAX_LABEL_BYTES {
-		return Err(Error::Input(format!("a label holds at most {MAX_LABEL_BYTES} bytes")));
-	}
+	validate_label(label)?;
 	let keys: Vec<u64> = rights.permissions().iter().map(|right| right.key()).collect();
 	let terms = rooms_glowcap::policy::descriptor()
 		.and_then(|policy| policy.value_for_kind(KIND, &keys, &[]))
@@ -151,7 +149,19 @@ pub async fn issue_at<D: Deadline + Clone>(
 		label,
 		paused,
 	);
-	management.issue(&issuance).await.map_err(failed)
+	management.issue(&issuance).await.map_err(|error| match error {
+		// A different request took this sequence. Reading a newer revision
+		// cannot turn that request into the one the caller wants to recover.
+		ClientError::ControlConflict(glowcap::loam::ControlConflict::Operation) => Error::Peer(error),
+		other => failed(other),
+	})
+}
+
+pub(crate) fn validate_label(label: &str) -> Result<(), Error> {
+	if label.len() > MAX_LABEL_BYTES {
+		return Err(Error::Input(format!("a label holds at most {MAX_LABEL_BYTES} bytes")));
+	}
+	Ok(())
 }
 
 /// Every access issued under `management`, with its label, rights, and state,
@@ -301,6 +311,15 @@ impl<D: Deadline + Clone> Grants<D> {
 	pub async fn revoke(&self, name: &str) -> Result<(), Error> {
 		change(&self.held(name).await?, Lifecycle::Revoke).await
 	}
+	/// The access this link's own control manages, or `None` once that access
+	/// is revoked.
+	pub async fn own(&self) -> Result<Option<Grant>, Error> {
+		describe(&self.control).await
+	}
+	/// Pause, resume, or revoke the access this link's own control manages.
+	pub async fn change_own(&self, lifecycle: Lifecycle) -> Result<(), Error> {
+		change(&self.control, lifecycle).await
+	}
 	/// The control a management name publishes, fetched from this session.
 	async fn held(&self, name: &str) -> Result<Control<D>, Error> {
 		if name.is_empty() || name.len() > 64 {
@@ -311,8 +330,8 @@ impl<D: Deadline + Clone> Grants<D> {
 			.platform()
 			.within(REQUEST_TIMEOUT_MS, self.client.session().fetch(name))
 			.await
-			.ok_or(Error::Unreachable(ClientError::Timeout("the session did not answer")))?
-			.map_err(|error| link::refusal(error.into()))?;
+			.ok_or(Error::Unreachable(ClientError::Timeout(link::NO_ANSWER)))?
+			.map_err(|error| link::refused_or_failed(error.into()))?;
 		Ok(Control::new(self.client.clone(), reference))
 	}
 }

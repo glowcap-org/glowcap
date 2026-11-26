@@ -2,10 +2,13 @@
 // readers. Writes run through the original command and its exact receipt.
 import { projectedError } from "../../../../lib/error_codes.ts";
 import { conversationById } from "./conversation_lookup.ts";
+import { invariant } from "../../../../lib/invariant.ts";
 import { managedSessionText as managedText } from "../../../../lib/text/managed_session.ts";
 import * as store from "../../store.ts";
 import type { RoomsPageContext } from "../../page.ts";
+import type { Committed } from "./committed.ts";
 import type { ManagedRoomsSession } from "./session.ts";
+import type { ManagedActions } from "./actions.ts";
 import type { RoomsOperationsController } from "../../controller/session.ts";
 import type { OperationsCapability } from "../../application_data.ts";
 import type { OperatorReferenceKind, OperatorSnapshot } from "../../../../lib/operator.ts";
@@ -19,7 +22,7 @@ import type { RoomsManagedOperationsReader } from "../../../../../../zig-out/was
 import { operationCommand, operationHolding, operationKind, operationSelection } from "./operations_selection.ts";
 import { OperationsAcquisitionRefused } from "./acquisition.ts";
 import { OPS_CATALOG } from "../../ops/catalog.ts";
-import { privateReadKey, revisionReadKey } from "./reads.ts";
+import { type ManagedReads, privateReadKey, revisionReadKey } from "./reads.ts";
 import { inspectCapability } from "../../application.ts";
 import { type DirId, dirId } from "../../directory.ts";
 
@@ -32,7 +35,49 @@ const READER_SNAPSHOT_SETTERS = {
 	irc: store.setIrcGateway,
 };
 
-export function managedOperations(page: RoomsPageContext, session: ManagedRoomsSession): RoomsOperationsController {
+/** What the operations panes read of the session: the workspace and its
+ * reads, the actions an operation runs, and when the link is replaced. */
+export type OperationsSession =
+	& Pick<
+		ManagedRoomsSession,
+		| "current"
+		| "candidateBeforeSending"
+		| "committed"
+		| "press"
+		| "completeOperation"
+		| "linkTells"
+		| "onRelink"
+		| "readBeforeSending"
+		| "request"
+		| "requestNow"
+		| "subscribe"
+	>
+	& {
+		readonly reads: Pick<ManagedReads, "run">;
+		readonly actions: Pick<ManagedActions, "operations" | "replace" | "run">;
+	};
+
+/** How a pane read reaches the workspace: `request` waits for the link as a
+ * first send does, and `requestNow` never waits, for a press that has sent. */
+type Reach = ManagedRoomsSession["request"];
+
+/** A connection's selection ends with the act on it. The retire is the act's
+ * own finish, so a loss runs it again over the next link, which reads the
+ * selection first: one already gone sends nothing, and a retire that went
+ * through on the lost link loses to the session's revision fence if it was
+ * sent twice. A selection the session could not be read for stays, and the
+ * next act on that connection finds and uses it. */
+async function retireConnection(after: Committed, handle: Coordinate): Promise<void> {
+	const retired = await after.readOr<WorkspaceSnapshot | null>(null, (reads) => reads.candidateNow());
+	if (retired == null) return;
+	const held = retired.intent.operations ?? [];
+	const remaining = held.filter((entry) => entry.handle.key !== handle.key || entry.handle.role !== handle.role);
+	if (remaining.length === held.length) return;
+	retired.intent.operations = remaining;
+	await after.replace(retired);
+}
+
+export function managedOperations(page: RoomsPageContext, session: OperationsSession): RoomsOperationsController {
 	const projection = page.projection;
 	const refreshes = new Map<OperationsCapability, number>();
 	function holding(cap: OperationsCapability): { coordinate: Coordinate; kind?: string } | null {
@@ -62,11 +107,11 @@ export function managedOperations(page: RoomsPageContext, session: ManagedRoomsS
 		cap: OperationsCapability,
 		work: (reader: RoomsManagedOperationsReader) => Promise<T>,
 		row = selected(cap),
+		reach: Reach = (call) => session.request(call),
 	): Promise<T> {
 		return await session.reads.run(privateReadKey(cap), async () => {
-			const reader: RoomsManagedOperationsReader = await session.workspace.operationsReader(
-				JSON.stringify(row.coordinate),
-				row.kind,
+			const reader: RoomsManagedOperationsReader = await reach((workspace) =>
+				workspace.operationsReader(JSON.stringify(row.coordinate), row.kind)
 			);
 			try {
 				return await work(reader);
@@ -86,10 +131,11 @@ export function managedOperations(page: RoomsPageContext, session: ManagedRoomsS
 		cap: OperationsCapability,
 		row: { coordinate: Coordinate },
 		selection: string | null,
+		reach: Reach,
 	): Promise<DirId | null> {
 		const key = `${cap}:${selection}`;
 		if (governing.has(key)) return governing.get(key) ?? null;
-		const uri: string | null = await session.workspace.custodyRecipe(JSON.stringify(row.coordinate));
+		const uri: string | null = await reach((workspace) => workspace.custodyRecipe(JSON.stringify(row.coordinate)));
 		const authority = uri == null ? null : inspectCapability(uri)?.authority;
 		const dir = authority == null ? null : dirId(authority);
 		governing.set(key, dir);
@@ -99,6 +145,7 @@ export function managedOperations(page: RoomsPageContext, session: ManagedRoomsS
 		cap: OperationsCapability,
 		query = "",
 		kind: OperatorReferenceKind | null = null,
+		reach: Reach = (call) => session.request(call),
 	): Promise<void> {
 		const row = selected(cap);
 		const selection = operationSelection(session.current?.intent, cap);
@@ -106,13 +153,13 @@ export function managedOperations(page: RoomsPageContext, session: ManagedRoomsS
 		refreshes.set(cap, request);
 		const current = () => refreshApplies(cap, request, selection);
 		if (GOVERNS_A_DIRECTORY.has(cap)) {
-			const governs = await governed(cap, row, selection);
+			const governs = await governed(cap, row, selection, reach);
 			if (current()) store.setOpsDirectory(projection, cap, governs);
 		}
 		if (cap === "trace") {
 			const snapshot = await session.reads.run(
 				revisionReadKey("trace", row.coordinate, session.current?.revision),
-				() => session.workspace.traceSnapshot(JSON.stringify(row.coordinate)),
+				() => reach((workspace) => workspace.traceSnapshot(JSON.stringify(row.coordinate))),
 			);
 			if (current()) store.setTracePublish(projection, snapshot);
 			return;
@@ -120,21 +167,50 @@ export function managedOperations(page: RoomsPageContext, session: ManagedRoomsS
 		if (cap === "peering") {
 			const publications = await session.reads.run(
 				revisionReadKey("peering", row.coordinate, session.current?.revision),
-				() => session.workspace.peeringSnapshot(),
+				() => reach((workspace) => workspace.peeringSnapshot()),
 			);
 			if (current()) store.setPeering(projection, { publications });
 			return;
 		}
 		if (cap === "operator") {
 			const snapshot: OperatorSnapshot = parseOperatorSnapshotJson(
-				JSON.stringify(await read(cap, (reader) => reader.operatorSnapshot(query, kind), row)),
+				JSON.stringify(await read(cap, (reader) => reader.operatorSnapshot(query, kind), row, reach)),
 			);
 			if (current()) store.setRoomsOperator(projection, operatorStateOf(snapshot, query, kind));
 			return;
 		}
-		const snapshot = await read(cap, (reader) => reader.snapshot(), row);
+		const snapshot = await read(cap, (reader) => reader.snapshot(), row, reach);
 		if (!current()) return;
 		READER_SNAPSHOT_SETTERS[cap](projection, snapshot);
+	}
+	// A new link reads again each pane this page has read, so one that failed
+	// while the link was gone shows its content without a press. The operator
+	// pane keeps the search it showed.
+	session.onRelink(() => {
+		for (const cap of refreshes.keys()) {
+			if (holding(cap) == null) continue;
+			const operator = cap === "operator" ? projection.get().operator : null;
+			refresh(cap, operator?.search, operator?.referenceKind).catch((error: unknown) => {
+				if (!session.linkTells(error)) {
+					store.noteTrouble(projection, OPS_CATALOG[cap].label, refusalText(error));
+				}
+			});
+		}
+	});
+	/** The pane's reread after a press that has sent its change. The press
+	 * answers with the change, so a lost link leaves the pane as it was: the
+	 * link's own notice says why, and its next link reads every pane again. Any
+	 * other failure of the read is a notice, never a failed press: the change
+	 * went through and the pane keeps what it showed. */
+	async function refreshAfter(cap: OperationsCapability): Promise<void> {
+		try {
+			await session.committed.readOr<void>(
+				undefined,
+				(reads) => refresh(cap, "", null, (call) => reads.requestNow(call)),
+			);
+		} catch (error) {
+			if (!session.linkTells(error)) throw error;
+		}
 	}
 	async function operation(cap: OperationsCapability, action: string, args: string[] = []): Promise<unknown> {
 		const row = selected(cap);
@@ -145,7 +221,7 @@ export function managedOperations(page: RoomsPageContext, session: ManagedRoomsS
 			action,
 			...args,
 		]);
-		await refresh(cap);
+		await refreshAfter(cap);
 		return result;
 	}
 	const operator = (action: string, args: string[] = []) => outcome(() => operation("operator", action, args));
@@ -154,37 +230,43 @@ export function managedOperations(page: RoomsPageContext, session: ManagedRoomsS
 		// Acquire this exact connection for the gesture and retire its selection
 		// after completion. An uncertain command retains its source for recovery.
 		const gateway = selected("irc");
-		await session.refresh();
+		await session.readBeforeSending();
 		let row = session.current?.intent.operations?.find((row) =>
 			row.kind === "ircConnection" && row.connection?.id === id &&
 			row.connection.gateway.role === gateway.coordinate.role &&
 			row.connection.gateway.key === gateway.coordinate.key
 		);
 		if (row == null) {
-			const command = await session.command("operations", [
-				JSON.stringify(gateway.coordinate),
-				"ircGateway",
-				"connection",
-				id,
-			]);
-			await session.completeResult(command);
-			row = session.current?.intent.operations?.find((row) => row.connection?.operation === command.id);
+			const first = crypto.randomUUID();
+			await session.press(
+				first,
+				({ command }) =>
+					command("operations", [JSON.stringify(gateway.coordinate), "ircGateway", "connection", id], first),
+				(command, after) => after.complete(command),
+			);
+			row = session.current?.intent.operations?.find((row) => row.connection?.operation === first);
 		}
 		if (row == null) throw new LocalRefusal("connection-gone");
-		await session.actions.run("operations", [JSON.stringify(row.handle), "ircConnection", action, ...args]);
-		const retired = await session.candidate();
-		retired.intent.operations = retired.intent.operations?.filter((entry) =>
-			entry.handle.key !== row.handle.key || entry.handle.role !== row.handle.role
+		const handle = row.handle;
+		const act = crypto.randomUUID();
+		await session.press(
+			act,
+			({ command }) => command("operations", [JSON.stringify(handle), "ircConnection", action, ...args], act),
+			async (command, after) => {
+				await after.complete(command);
+				await retireConnection(after, handle);
+			},
 		);
-		await session.actions.replace(retired);
-		await refresh("irc");
+		await refreshAfter("irc");
 	}
 	async function readBundle(intent = session.current?.intent): Promise<string> {
 		const entries = new Map<OperationsCapability, string>();
 		for (const cap of ["operator", "listeners", "diagnostics", "irc", "trace", "peering"] as const) {
 			const row = operationHolding(intent, cap);
 			if (row != null) {
-				const uri: string | null = await session.workspace.custodyRecipe(JSON.stringify(row.coordinate));
+				const uri: string | null = await session.request((workspace) =>
+					workspace.custodyRecipe(JSON.stringify(row.coordinate))
+				);
 				if (uri == null) throw new LocalRefusal("capability-unsavable", { cause: cap });
 				entries.set(cap, uri);
 			}
@@ -206,7 +288,7 @@ export function managedOperations(page: RoomsPageContext, session: ManagedRoomsS
 		},
 		readOpsBundle: readBundle,
 		replaceOpsBundle: async (raw) => {
-			const snapshot = await session.candidate();
+			const snapshot = await session.candidateBeforeSending();
 			const previous = await readBundle(snapshot.intent);
 			try {
 				const entries = parseOpsBundleDraft(raw);
@@ -214,10 +296,8 @@ export function managedOperations(page: RoomsPageContext, session: ManagedRoomsS
 					operators: snapshot.intent.operators,
 					operations: (snapshot.intent.operations ?? []).filter((row) => row.connection == null),
 				};
-				const replacement: Pick<WorkspaceIntent, "operators" | "operations"> = {
-					operators: [],
-					operations: [],
-				};
+				const operations: NonNullable<WorkspaceIntent["operations"]> = [];
+				const replacement: Pick<WorkspaceIntent, "operators" | "operations"> = { operators: [], operations };
 				const previousEntries = parseOpsBundleDraft(previous);
 				const imports: { coordinate: Coordinate; uri: string }[] = [];
 				for (const [cap, uri] of entries) {
@@ -227,7 +307,7 @@ export function managedOperations(page: RoomsPageContext, session: ManagedRoomsS
 						key: fieldKey(),
 					};
 					if (cap === "operator") replacement.operators.push(coordinate.key);
-					else replacement.operations!.push({ kind: operationKind(cap), handle: coordinate });
+					else operations.push({ kind: operationKind(cap), handle: coordinate });
 					if (unchanged == null) imports.push({ coordinate, uri });
 				}
 				await session.actions.operations(original, replacement, imports);
@@ -327,16 +407,18 @@ export function managedOperations(page: RoomsPageContext, session: ManagedRoomsS
 						publication: held.publication,
 					});
 				};
-				const prepared = witness(session.current!);
-				const command = await session.command(
+				// The projection forgets every room in the turn the snapshot clears,
+				// so the room read above means a snapshot is held.
+				const current = session.current;
+				invariant(current != null, "a projected room has a session snapshot");
+				const prepared = witness(current);
+				await session.actions.run(
 					"recoverRoomManager",
 					[JSON.stringify(operator.coordinate.key), prepared],
-					crypto.randomUUID(),
 					(snapshot) => {
 						if (witness(snapshot) !== prepared) throw new LocalRefusal("selected-access-changed");
 					},
 				);
-				await session.completeResult(command);
 			}),
 		resumeSessionEffect: (id) => outcome(() => session.completeOperation(id)),
 		publishPeeredRoom: (key, name) =>
@@ -349,21 +431,20 @@ export function managedOperations(page: RoomsPageContext, session: ManagedRoomsS
 				}
 				const publisher = holding("peering");
 				if (publisher == null) throw new LocalRefusal("operations-access-missing");
-				const command = await session.command("publishPeeredRoom", [
+				await session.actions.run("publishPeeredRoom", [
 					room.dir,
 					name,
 					JSON.stringify(selected.access),
 					JSON.stringify(publisher.coordinate),
 				]);
-				await session.completeResult(command);
-				await refresh("peering");
+				await refreshAfter("peering");
 			}),
 		revokePeeredPublication: (id) =>
 			outcome(async () => {
 				const row = session.current?.intent.peering.find((row) => row.id === String(id));
 				if (row == null) throw new LocalRefusal("publication-gone");
 				await session.actions.run("revokePeeredRoom", [row.id, JSON.stringify(row.lease)]);
-				await refresh("peering");
+				await refreshAfter("peering");
 			}),
 	};
 }

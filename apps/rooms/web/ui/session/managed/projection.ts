@@ -101,11 +101,11 @@ export class ManagedProjection {
 		this.#stop = [
 			this.#session.subscribe(() => this.apply()),
 			this.#session.onActivity(async (delivery) => {
-				const replayed = delivery.replayed;
+				const { replayed, link } = delivery;
 				const page = delivery.take();
 				if (page.gap) this.#resynchronizeHistory();
 				try {
-					await this.#session.actions.receive(page);
+					await this.#session.actions.receive(page, link);
 					this.activity(page, replayed);
 				} finally {
 					releaseActivity(page);

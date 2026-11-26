@@ -28,12 +28,6 @@ impl<P: Platform> Owner<P> {
 			worker.retry();
 		}
 	}
-	pub fn is_running(&self) -> bool {
-		match self.worker.try_lock() {
-			Ok(worker) => worker.is_active() && worker.status().is_none_or(|result| result.is_ok()),
-			Err(_) => true,
-		}
-	}
 	pub fn start(session: &Session<P>, archive: Rc<SessionArchive<P>>, source: DocumentText) -> Result<Self> {
 		let changes = session.changes()?;
 		let writer = session.state.writer.clone();

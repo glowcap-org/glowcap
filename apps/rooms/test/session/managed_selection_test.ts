@@ -25,7 +25,7 @@ for (const front of ["command", "action"] as const) {
 				throw new Error("must not prepare");
 			},
 		});
-		await session.refresh();
+		await session.readNow();
 		const result = Promise.allSettled([
 			front === "command"
 				? session.command("setDirectoryStanding", ["dir", "away"])
@@ -79,7 +79,7 @@ for (const keep of [false, true]) {
 				},
 			});
 			try {
-				await session.refresh();
+				await session.readNow();
 				const work = Promise.allSettled([session.command("chooseHistoryRetention", [String(keep)])]);
 				current = structuredClone(current);
 				current.revision = "2";
@@ -128,7 +128,7 @@ for (const level of ["global", "directory", "room"] as const) {
 			draft: "",
 		});
 		const session = viewer({ snapshot: () => Promise.resolve(current) });
-		await session.refresh();
+		await session.readNow();
 		const name = level === "global"
 			? "setStanding"
 			: level === "directory"

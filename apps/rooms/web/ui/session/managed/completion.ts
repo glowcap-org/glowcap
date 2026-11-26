@@ -3,13 +3,19 @@
 import { invariant } from "../../../../lib/invariant.ts";
 import { LocalRefusal } from "../../../../lib/text/failure.ts";
 import type { ManagedRoomsSession } from "./session.ts";
-import { type AcquisitionStage, type ManagedOperation, ResultAcquisitionError } from "./operation.ts";
+import {
+	type AcquisitionStage,
+	type ManagedOperation,
+	ResultAcquisitionError,
+	standsAfterCommit,
+} from "./operation.ts";
 import { conversationIdentity, type Coordinate, type DirectIntent, isCoordinate, type RoomIntent } from "./model.ts";
 import { isRetainedCommandIntent } from "./admission.ts";
 import { AcquisitionConflict, MAX_CONFLICT_REPREPARATIONS } from "./acquisition.ts";
 import type { ResultRecipe } from "./result_recipe.ts";
 import { CompletedLine, isLineResult, type LineAdoption, type LineResult } from "./completed_line.ts";
 import { readDirectReceipt } from "./direct_receipt.ts";
+import { releaseReceipt } from "./release.ts";
 import { directReach } from "../../application.ts";
 
 /** Persisted receipts can outlive the build that wrote them. */
@@ -97,7 +103,7 @@ export function completeResult(session: ManagedRoomsSession, operation: ManagedO
 				const canRetry = error instanceof AcquisitionConflict &&
 					attempt + 1 < MAX_CONFLICT_REPREPARATIONS;
 				if (!canRetry) {
-					throw error instanceof ResultAcquisitionError ? error : new ResultAcquisitionError(
+					throw standsAfterCommit(error) ? error : new ResultAcquisitionError(
 						result,
 						error,
 						error instanceof AcquisitionConflict ? acquireStage(completion.name) : null,
@@ -119,9 +125,16 @@ async function during<T>(stage: AcquisitionStage, result: unknown, call: Promise
 	try {
 		return await call;
 	} catch (error) {
-		if (error instanceof AcquisitionConflict || error instanceof ResultAcquisitionError) throw error;
+		if (error instanceof AcquisitionConflict || standsAfterCommit(error)) throw error;
 		throw new ResultAcquisitionError(result, error, stage);
 	}
+}
+
+/** Redraw from the session once the result is in place. The result stands
+ * without the read, so a read that fails for another reason than the link is a
+ * notice and the next update redraws. */
+async function refreshed(session: ManagedRoomsSession): Promise<void> {
+	await session.committed.readOr<unknown>(null, (reads) => reads.readNow());
 }
 
 async function completeOnce(
@@ -136,11 +149,11 @@ async function completeOnce(
 			? new CompletedLine(completion.result, operation.acquired ? recipe.line : undefined)
 			: result;
 	if (operation.acquired || await during("effect-adopted", result, operation.request.adopted())) {
-		await during("addressed-snapshot", result, session.refresh());
+		await refreshed(session);
 		return completed();
 	}
 	let lineAdoption: LineAdoption | undefined;
-	const snapshot = await during("addressed-snapshot", result, session.candidate());
+	const snapshot = await during("addressed-snapshot", result, session.candidateNow());
 	const mappings: { result: Coordinate; destination: Coordinate }[] = [];
 	const releases: Coordinate[] = [];
 	let source: string | undefined;
@@ -198,8 +211,18 @@ async function completeOnce(
 			// conversation. Otherwise the route reopens the last closed row.
 			const reach = directReach(snapshot.intent, args[0], args[2]);
 			if (reach.open != null) {
-				await during("release-effect", result, operation.request.release());
-				await during("addressed-snapshot", result, session.refresh());
+				await during(
+					"release-effect",
+					result,
+					releaseReceipt(
+						operation.request,
+						operation.stamp,
+						session.effects.environment,
+						"result-still-running",
+						operation.releaseBound ?? undefined,
+					),
+				);
+				await refreshed(session);
 				return result;
 			}
 			source = recipe.source();
@@ -384,6 +407,6 @@ async function completeOnce(
 		result,
 		operation.acquire(snapshot, mappings, releases, source, name === "openManagedRoom"),
 	);
-	await during("addressed-snapshot", result, session.refresh());
+	await refreshed(session);
 	return completed();
 }

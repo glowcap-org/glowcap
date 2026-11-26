@@ -2,12 +2,11 @@
 //! line is split on paragraph breaks, then line breaks, then characters, and
 //! posted as several lines. Past [`MAX_PARTS`] lines the answer is cut, and
 //! its last line says so.
+use super::words::CUT_NOTICE;
 use rooms_application::room::line::MAX_LINE_BYTES;
 
 /// The most lines one answer is posted as.
 pub const MAX_PARTS: usize = 8;
-/// The end of the last line of an answer that was cut.
-pub const CUT_NOTICE: &str = "\n\n[The answer was cut here because it ran past eight lines.]";
 
 /// The longest front of `text` that is at most `limit` bytes and ends on a
 /// character boundary.

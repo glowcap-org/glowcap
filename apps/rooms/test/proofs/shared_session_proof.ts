@@ -1,5 +1,6 @@
 import { spawnWeb, webPort } from "../support/web_front.ts";
 import * as tcp from "@glowcap/tcp";
+import type { Argument } from "@glowcap/runtime";
 /// <reference lib="dom" />
 // Two production pages consume one managed process workspace. Setup selects a
 // strong use field; reload and process restart must recover that exact owner.
@@ -8,7 +9,7 @@ import { fail } from "../support/fail.ts";
 import { ROOT, SESSION } from "../support/paths.ts";
 import { nonEphemeralPort } from "../../../../bindings/ts/test/ports.ts";
 import { roomPortOf } from "../support/rooms_server.ts";
-import { say } from "../page/harness.ts";
+import { keptItself, markKept, say } from "../page/harness.ts";
 import { reapOwned, stopOwned } from "../support/children.ts";
 import { startSessionPeer } from "../support/session_peer.ts";
 import { readAnnounced } from "../support/announce.ts";
@@ -21,10 +22,19 @@ import { proveSharedSessionMoveLayout } from "../page/shared_session_moves.ts";
 import { proveReloadMidUpload, proveSharedImage } from "../page/shared_session_files.ts";
 import { png } from "../page/png.ts";
 import { managedAccessText } from "../../lib/text/managed_access.ts";
+import { sessionReconnecting } from "../../lib/text/page.ts";
+import { rosterWaiting } from "../../lib/text/conversation.ts";
 import { Directory } from "../../lib/room/client.ts";
 import { dial } from "../../lib/locator.ts";
 import { openRoomsRuntime } from "../../lib/runtime.ts";
 import { ask } from "../../lib/ask.ts";
+import {
+	proveHeldAccessOffline,
+	proveSharedDraftConflict,
+	proveSharedSessionHalfOpen,
+	proveSharedSessionOffline,
+	RelayWire,
+} from "../page/shared_session_offline.ts";
 import { proveSharedRoomLink } from "../page/shared_room_link.ts";
 import { proveSharedDirectoryRecovery } from "../page/shared_directory_recovery.ts";
 import { proveAttachedSessionHolding, provePrivateRoomHolding } from "../page/holdings.ts";
@@ -91,10 +101,22 @@ async function attach(page: Page, link: string) {
 		}`);
 	});
 }
-async function bubble(page: Page, text: string) {
+/** How many lines the session records as sent, over every conversation of a
+ * snapshot answer: a revision and the workspace's intent. */
+function postedLines(answer: Argument): number {
+	if (!Array.isArray(answer) || typeof answer[1] !== "string") {
+		fail("a session snapshot was not a revision and an intent");
+	}
+	const intent: { conversations?: { lines?: unknown[] }[] } = JSON.parse(answer[1]);
+	return (intent.conversations ?? []).reduce((sum, row) => sum + (row.lines?.length ?? 0), 0);
+}
+/** Wait for a line in a view. `context` adds what only the caller can read
+ * when the wait runs out. */
+async function bubble(page: Page, text: string, context?: () => Promise<string>) {
 	await page.locator(".bubble").filter({ hasText: text }).first().waitFor({ timeout: 15_000 }).catch(async () =>
 		fail(
-			`shared line did not project: ${text}; view=${await page.locator("body").innerText()}; ` +
+			`shared line did not project: ${text}; ${context == null ? "" : `${await context()}; `}` +
+				`view=${await page.locator("body").innerText()}; ` +
 				`draft=${await page.inputValue("#line")}; process=${JSON.stringify(await control("status", {}))}`,
 		)
 	);
@@ -116,6 +138,8 @@ try {
 		page.on("console", (message) => console.error("SHARED-CONSOLE", message.text()));
 	}
 	await attach(first, link);
+	const secondWire = new RelayWire();
+	await secondWire.install(second);
 	await attach(second, link);
 	for (const page of [first, second]) {
 		await namedRoomRow(page, "mirror-one").waitFor();
@@ -127,14 +151,18 @@ try {
 	}
 	await namedRoomRow(first, "mirror-one").click();
 	await first.fill("#line", "shared unfinished draft");
-	await second.waitForFunction(() =>
-		(document.querySelector("#line") as HTMLTextAreaElement)?.value === "shared unfinished draft"
-	).catch(async () => {
+	await second.waitForFunction(() => {
+		const line = document.querySelector("#line");
+		return line instanceof HTMLTextAreaElement && line.value === "shared unfinished draft";
+	}).catch(async () => {
 		const views = await Promise.all([first, second].map((page) =>
-			page.evaluate(() => ({
-				text: document.body.innerText.slice(0, 6000),
-				draft: (document.querySelector("#line") as HTMLTextAreaElement)?.value,
-			}))
+			page.evaluate(() => {
+				const line = document.querySelector("#line");
+				return {
+					text: document.body.innerText.slice(0, 6000),
+					draft: line instanceof HTMLTextAreaElement ? line.value : null,
+				};
+			})
 		));
 		fail(`shared draft did not project: ${JSON.stringify({ views, errors, status: await control("status", {}) })}`);
 	});
@@ -196,21 +224,31 @@ try {
 	await second.waitForFunction(
 		() => {
 			const selected = document.querySelector("#roomList li.here .rname");
-			return selected?.textContent?.trim() === "mirror-one" &&
-				(document.getElementById("line") as HTMLTextAreaElement | null)?.disabled === false;
+			const line = document.getElementById("line");
+			return selected?.textContent?.trim() === "mirror-one" && line instanceof HTMLTextAreaElement &&
+				!line.disabled;
 		},
 		undefined,
 		{ timeout: 30_000 },
 	);
 	// The actual session process restores its graph, publications and receipts.
+	// Each page keeps its place and its draft, says it is reconnecting for as
+	// long as the session is gone, and dials the restarted session by itself.
+	const draft = "A draft typed before the session went away";
+	// Drop this page's connection before the write can reach the old owner.
+	// Its replacement restores the room's entrance and acquires a new seat.
+	secondWire.cut();
+	await second.fill("#line", draft);
+	for (const page of [first, second]) await markKept(page);
 	await stopOwned(peer);
-	// Each page says its session is away for as long as it is, and offers the
-	// act that brings it back.
 	for (const page of [first, second]) {
-		await page.locator(".session-away-notice").waitFor({ timeout: 30_000 }).catch(async () =>
-			fail(`a page did not say its session went away: view=${await page.locator("body").innerText()}`)
+		await page.locator(".session-link-notice").getByText(sessionReconnecting, { exact: true }).waitFor({
+			timeout: 30_000,
+		}).catch(async () =>
+			fail(`a page did not say it was reconnecting: view=${await page.locator("body").innerText()}`)
 		);
 	}
+	secondWire.restore();
 	peer = start();
 	const restored = await readAnnounced(peer, {
 		token: "ROOMS-SESSION-LISTENING",
@@ -218,19 +256,93 @@ try {
 	});
 	if (restored !== link) fail("managed process publication changed across restart");
 	for (const page of [first, second]) {
-		await Promise.all([page.waitForEvent("load"), page.click("#sessionAwayReload")]);
-		await page.locator(".session-away-notice").waitFor({ state: "detached" });
-		await page.waitForSelector("#line:not([disabled])", { timeout: 30_000 }).catch(async () =>
+		await page.locator(".session-link-notice").waitFor({ state: "detached", timeout: 60_000 }).catch(async () =>
 			fail(
-				`process restart view did not settle: view=${await page.locator("body").innerText()} process=${
+				`a page did not reconnect: view=${await page.locator("body").innerText()} process=${
 					JSON.stringify(await control("status", {}))
 				}`,
 			)
 		);
+		await page.waitForSelector("#line:not([disabled])", { timeout: 30_000 });
+		if (!await keptItself(page)) fail("a page reloaded instead of reconnecting");
 		await bubble(page, "One managed member, two views");
+		// The restarted session rejoins the room on its own, after the page is back.
+		await page.getByText(rosterWaiting, { exact: true }).waitFor({ state: "detached", timeout: 60_000 }).catch(
+			async () =>
+				fail(
+					`the room did not rejoin after the session restarted: view=${await page.locator("body")
+						.innerText()}`,
+				),
+		);
+	}
+	if (await second.inputValue("#line") !== draft) fail("the draft did not survive the outage");
+	// The draft is the conversation's, so sending it is the one gesture that
+	// proves it reached the restarted session, once, for both views.
+	await second.press("#line", "Enter");
+	// The sending view shows its own line at once and marks it as it settles,
+	// so its row says whether the session took the line or a view missed it.
+	const sent = async () => {
+		const rows = second.locator(".bubble").filter({ hasText: draft });
+		const classes = await rows.evaluateAll((found) => found.map((row) => row.className));
+		const runtime = await openRoomsRuntime({ cleartext: [tcp.plain] });
+		try {
+			const session = await dial(`127.0.0.1:${sessionPort}`, runtime);
+			const effects = await ask(
+				session,
+				await session.enliven(link),
+				"effect-inventory",
+				[],
+				"effect inventory did not answer",
+			);
+			return `the sending view shows ${classes.length} such line: ${JSON.stringify(classes)}; ` +
+				`session effects=${JSON.stringify(effects)}`;
+		} finally {
+			await runtime.close();
+		}
+	};
+	await bubble(first, draft, async () => `the other view; ${await sent()}`);
+	await bubble(second, draft, async () => `the sending view; ${await sent()}`);
+	await second.waitForFunction(
+		() => {
+			const line = document.getElementById("line");
+			return line instanceof HTMLTextAreaElement && line.value === "";
+		},
+		undefined,
+		{ timeout: 30_000 },
+	);
+	if (await second.locator(".bubble").filter({ hasText: draft }).count() !== 1) {
+		fail("the draft was sent more than once");
 	}
 	await say(first, "After managed process restart");
 	await bubble(second, "After managed process restart");
+	await proveSharedSessionOffline(second, secondContext, secondWire, "Typed while this device had no network", first);
+	await proveSharedDraftConflict(second, secondContext, secondWire, first, async (text) => {
+		const { workspace } = await control("status", {});
+		return workspace.conversations.some((row: { id: string; draft: string }) =>
+			row.id === workspace.active && row.draft === text
+		);
+	});
+	await proveHeldAccessOffline(
+		second,
+		secondContext,
+		secondWire,
+		(await Deno.readTextFile(`${state}/management.sturdyref`)).trim(),
+	);
+	const reader = await openRoomsRuntime({ cleartext: [tcp.plain] });
+	try {
+		const session = await dial(`127.0.0.1:${sessionPort}`, reader);
+		const workspace = await session.enliven(link);
+		await proveSharedSessionHalfOpen(
+			second,
+			secondWire,
+			"Sent over a connection that carried nothing",
+			first,
+			async () =>
+				postedLines(await ask(session, workspace, "snapshot", [], "the session did not answer its snapshot")),
+		);
+	} finally {
+		await reader.close();
+	}
 	await proveSharedRoomAuthorityRotation(first, async () => {
 		const status = await control("status", {});
 		console.error("ROOM-AUTHORITY-STATE", JSON.stringify(status));

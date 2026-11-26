@@ -106,6 +106,29 @@ impl Error {
 	pub fn io(what: &'static str) -> impl FnOnce(std::io::Error) -> Self {
 		move |source| Self::Io { what, source }
 	}
+	/// The catalog code this failure names: its own, its primary cause's, or
+	/// the one the binding's refusal line leads with.
+	pub fn code(&self) -> Option<rooms_application::failure::FailureCode> {
+		match self {
+			Self::Admission { refusal, .. } => Some(refusal.code()),
+			Self::Coded { code, .. } => Some(*code),
+			Self::Context { source, .. } => source.code(),
+			Self::Cleanup { primary, .. } => primary.code(),
+			Self::Captp(error) => rooms_glowcap::client::binding_failure(error).map(|failure| failure.code),
+			Self::Refused(_)
+			| Self::Invalid(_)
+			| Self::Busy(_)
+			| Self::Exhausted(_)
+			| Self::Stale(_)
+			| Self::Closed(_)
+			| Self::Uncertain(_)
+			| Self::Storage(_)
+			| Self::Platform(_)
+			| Self::Peer { .. }
+			| Self::Listener(_)
+			| Self::Io { .. } => None,
+		}
+	}
 	/// Keep `self` as the primary cause and retain a failed cleanup beside it.
 	pub fn retain(self, cleanup: Self) -> Self {
 		Self::Cleanup {
@@ -197,7 +220,7 @@ impl From<rooms_runtime::Error> for Error {
 				operation,
 				source: Box::new(Self::from(*source)),
 			},
-			Shared::Coded { code, detail } => Self::Coded { code, detail },
+			Shared::Coded { code, detail, .. } => Self::Coded { code, detail },
 			Shared::Refused(e) => Self::Refused(e),
 			Shared::Invalid(e) => Self::Invalid(e),
 			Shared::Busy(e) => Self::Busy(e),
@@ -278,5 +301,46 @@ mod tests {
 				..
 			}
 		));
+	}
+
+	/// A binding failure is read by the line its refusal leads with, and the
+	/// typed arms by their code, through any context or cleanup around them.
+	#[tokio::test]
+	async fn the_code_is_read_from_every_arm_that_carries_one() {
+		rooms_testing::local_set::run(async {
+			let unreadable = FailureCode::SessionStateUnreadable;
+			let coded = Error::from(Shared::coded(unreadable, "other form"));
+			assert_eq!(coded.code(), Some(unreadable));
+			assert_eq!(
+				Error::from(Shared::admission(rooms_application::admission::Refusal::Capacity, None)).code(),
+				Some(FailureCode::AdmissionBusy)
+			);
+			let wrapped = Error::from(Shared::coded(unreadable, "other form").with_context("opening"))
+				.retain(Error::closed("cleanup"));
+			assert_eq!(wrapped.code(), Some(unreadable));
+			assert_eq!(Error::refused(unreadable.line("other form")).code(), None);
+
+			let server = glowcap::Host::from_seed([31; 32]).unwrap();
+			let caller = glowcap::Host::from_seed([32; 32]).unwrap();
+			let (left, right) = tokio::io::duplex(4096);
+			let locator = glowcap::Locator::bare("tcp", "127.0.0.1:9000");
+			let budget = Some(std::time::Duration::from_secs(2));
+			let (dialed, accepted) = tokio::join!(
+				glowcap::Session::dial_over(&caller, &locator, left, budget),
+				glowcap::Session::accept_over(&server, "tcp", "127.0.0.1:9000", "127.0.0.1:9000", right, budget)
+			);
+			let (dialed, accepted) = (dialed.unwrap(), accepted.unwrap());
+			let _refusing = accepted
+				.publish("refusing", move |_, _| Err(unreadable.line("other form")))
+				.unwrap();
+			let target = dialed.fetch("refusing").await.unwrap();
+			let refused = dialed.send(&target, "open", &[]).await.unwrap_err();
+			assert_eq!(Error::from(refused).code(), Some(unreadable));
+			drop((target, _refusing, dialed, accepted));
+			for host in [caller, server] {
+				host.close(glowcap::PendingWork::Cancel).await.unwrap();
+			}
+		})
+		.await;
 	}
 }

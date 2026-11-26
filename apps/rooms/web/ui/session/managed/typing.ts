@@ -1,23 +1,19 @@
 // Ephemeral typing has one latest level per conversation and one call in
-// flight. Selection changes release the original sender only after its last
-// call has drained.
-// A line ends its author's typing where it arrives. While a line with nothing
-// to upload is on its way, its conversation's typing waits for it, and the
-// level its composer asks for last is read when the line settles. A line that
-// lands was the stop. That holds for a start still on its way when the line
-// left: the session forwards what one source is asked in the order it was
-// asked, so that start reaches the conversation ahead of the line. A member
-// typing a newer draft is said again because the line ended what was said
-// before it.
-// A line the room refused stopped nothing, so the level asked for is sent
-// either way. A line typing did not wait for ends typing the same way, so a
-// member still typing when it lands is said again then.
-// A rate-limited level waits out the room's stated delay and is sent again
-// unless a newer one replaced it. Any other refusal ends typing for that
-// conversation.
+// flight, so a selection change releases the old sender once its last call has
+// ended. A line ends its author's typing where it arrives, so typing waits
+// for a line on its way. A rate-limited level waits out the room's stated delay
+// and is sent again unless a newer one replaced it, and any other refusal ends
+// typing for that conversation. A sender belongs to the link it was opened
+// over: a start lost with a connection is asked for again by the next
+// keystroke, and a stop lost with one is sent again over the next link.
 import { roomsErrorIn } from "../../../../lib/error_codes.ts";
+import { connectionLost } from "../../../../lib/text/failure.ts";
 import type { RoomsManagedTyping } from "../../../../../../zig-out/wasm/rooms/rooms_browser.js";
+import { type LinkPort, type Stamp, stampOf } from "./link_port.ts";
 import type { ManagedRoomsSession } from "./session.ts";
+
+/** Where a typing refusal is reported. */
+export const TYPING_SOURCE = "typing";
 
 interface Level {
 	readonly id: string;
@@ -25,8 +21,14 @@ interface Level {
 	readonly on: boolean;
 }
 
+/** The conversation and selection a refusal ended typing for. */
+function refusedKey(id: string, selected: string): string {
+	return JSON.stringify([id, selected]);
+}
+
 export class ManagedTyping {
 	readonly #session: ManagedRoomsSession;
+	readonly #port: LinkPort;
 	/** The latest level each conversation still has to hear, oldest first. */
 	readonly #desired = new Map<string, Level>();
 	/** The level each conversation's composer asked for last, until the
@@ -34,12 +36,27 @@ export class ManagedTyping {
 	readonly #asked = new Map<string, Level>();
 	/** Conversations with a line on its way. */
 	readonly #lineOut = new Set<string>();
-	#sender: { id: string; selected: string; handle: RoomsManagedTyping } | null = null;
+	/** The open sender, over the current link. */
+	#sender: { id: string; selected: string; handle: RoomsManagedTyping; stamp: Stamp } | null = null;
 	#running: Promise<void> | null = null;
 	#stopped = false;
 	#failed: string | null = null;
-	constructor(session: ManagedRoomsSession) {
+	constructor(session: ManagedRoomsSession, link: LinkPort) {
 		this.#session = session;
+		this.#port = link;
+	}
+	/** Handles held over the link: the open sender, if any. */
+	get resources(): number {
+		return this.#sender == null ? 0 : 1;
+	}
+	/** A new link replaced the old, so the sender over it is released. A level
+	 * already on its way keeps what it uses. A stop not yet heard is sent again
+	 * over the new link, because no keystroke asks for it again. */
+	relink(): Promise<void> {
+		this.#sender?.handle.free();
+		this.#sender = null;
+		const owed = [...this.#asked.values()].filter((level) => !level.on && !this.#lineOut.has(level.id));
+		return Promise.all(owed.map((level) => this.set(level.id, level.selected, false))).then(() => {});
 	}
 	/** A line is leaving conversation `id`. The composer sends one at a time.
 	 * A level not yet sent waits with it. */
@@ -47,7 +64,13 @@ export class ManagedTyping {
 		this.#lineOut.add(id);
 		this.#desired.delete(id);
 	}
-	/** The line from conversation `id` landed there, or did not. */
+	/** The line from conversation `id` landed there, or did not, and the level
+	 * its composer asked for last is read now. A line that lands was the stop,
+	 * even for a start still on its way when the line left: the session
+	 * forwards what one source is asked in the order it was asked, so that start
+	 * reaches the conversation ahead of the line. A member typing a newer draft
+	 * is said again, because the line ended what was said before it. A line the
+	 * room refused stopped nothing, so the level asked for is sent either way. */
 	lineSettled(id: string, landed: boolean): Promise<void> {
 		if (!this.#lineOut.delete(id)) return Promise.resolve();
 		const asked = this.#asked.get(id);
@@ -58,7 +81,8 @@ export class ManagedTyping {
 		}
 		return this.set(asked.id, asked.selected, asked.on);
 	}
-	/** A line typing did not wait for landed in conversation `id`. */
+	/** A line typing did not wait for landed in conversation `id`. It ends
+	 * typing the same way, so a member still typing is said again. */
 	lineLanded(id: string): Promise<void> {
 		const asked = this.#asked.get(id);
 		return asked?.on === true ? this.set(asked.id, asked.selected, true) : Promise.resolve();
@@ -70,7 +94,7 @@ export class ManagedTyping {
 		this.#asked.delete(id);
 	}
 	set(id: string, selected: string, on: boolean): Promise<void> {
-		if (this.#stopped || this.#failed === JSON.stringify([id, selected])) return Promise.resolve();
+		if (this.#stopped || this.#failed === refusedKey(id, selected)) return Promise.resolve();
 		const level = { id, selected, on };
 		this.#asked.set(id, level);
 		if (this.#lineOut.has(id)) return Promise.resolve();
@@ -95,28 +119,47 @@ export class ManagedTyping {
 			const [desired] = this.#desired.values();
 			if (desired == null) break;
 			this.#desired.delete(desired.id);
-			if (JSON.stringify([desired.id, desired.selected]) === this.#failed) continue;
+			if (refusedKey(desired.id, desired.selected) === this.#failed) continue;
 			try {
 				if (this.#sender?.id !== desired.id || this.#sender.selected !== desired.selected) {
 					this.#sender?.handle.free();
 					this.#sender = null;
-					const handle: RoomsManagedTyping = await this.#session.workspace.typingSender(
-						desired.id,
-						desired.selected,
-					);
+					const { handle, link } = await this.#port.over(async (link) => {
+						const handle: RoomsManagedTyping = await link.workspace.typingSender(
+							desired.id,
+							desired.selected,
+						);
+						return { handle, link };
+					});
 					if (this.#stopped) {
 						handle.free();
 						return;
 					}
-					this.#sender = { id: desired.id, selected: desired.selected, handle };
+					if (!this.#port.isCurrent(link)) {
+						// The link was replaced while the sender opened, so the sender
+						// goes with it, as a level lost with its connection does.
+						handle.free();
+						continue;
+					}
+					this.#sender = { id: desired.id, selected: desired.selected, handle, stamp: stampOf(link) };
 				}
 				// The sender may have taken a while to open. A line that left
 				// meanwhile holds the level, and a newer level or a conversation
 				// that is gone leaves nothing of it to send.
 				if (this.#lineOut.has(desired.id) || this.#asked.get(desired.id) !== desired) continue;
-				await this.#sender.handle.set(desired.on);
+				const sender = this.#sender;
+				await this.#port.overStamped(sender.stamp, () => sender.handle.set(desired.on));
 				if (!desired.on && this.#asked.get(desired.id) === desired) this.#asked.delete(desired.id);
 			} catch (error) {
+				if (connectionLost(error)) {
+					// tolerant: the sender goes with its link, unless the new link's
+					// resend already released it. A start comes again with the next
+					// keystroke. A stop stays owed until it is heard, and each new link
+					// sends the stops still owed (`relink`).
+					this.#sender?.handle.free();
+					this.#sender = null;
+					continue;
+				}
 				const delay = roomsErrorIn(error)?.retryAfterMs ?? null;
 				if (delay != null) {
 					// A level the room asked to hear again later is sent again
@@ -128,7 +171,7 @@ export class ManagedTyping {
 					if (this.#desired.size > 0) await new Promise((resume) => setTimeout(resume, delay));
 					continue;
 				}
-				this.#failed = JSON.stringify([desired.id, desired.selected]);
+				this.#failed = refusedKey(desired.id, desired.selected);
 				failure ??= error;
 			}
 		}

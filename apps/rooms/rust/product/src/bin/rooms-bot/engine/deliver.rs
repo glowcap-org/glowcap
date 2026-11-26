@@ -16,186 +16,125 @@
 //! session run, the same operation goes out again at its base, which can post
 //! at most once. When that resend is refused as a conflict, the operation can
 //! never commit, and only a second such read sends the line under a new
-//! operation at a fresh base. A receipt whose send no work will settle is
-//! decided by the echo alone. Whenever activity cannot tell, the line is given
-//! up on without sending it again, and `status` counts it as unconfirmed.
+//! operation at a fresh base. A resend refused any other way is looked at
+//! again, and becomes a failure line only once a look finds no receipt and a
+//! complete read finds no echo. Whenever activity cannot tell, the line is
+//! given up on without sending it again, and `status` counts it as
+//! unconfirmed.
 //!
-//! Every receipt delivery stops caring about is kept or released, so none is
-//! left to fill the session. A line settled without being kept is recorded
-//! first, so a restart before its release finishes the release and never
-//! sends the line. Delivery does not give up on a session that is
-//! unreachable or paused, because giving up would leave a trigger with no
-//! reply while the session may still hold part of it. The wait and the
-//! failure reach `status`.
-use super::{Env, Step, backoff::Backoff, failure_part, operation};
+//! Every receipt this access holds that delivery stops caring about is kept
+//! or released, so none is left to fill the session. A line settled without
+//! being kept is recorded first, so a restart before its release finishes the
+//! release and never sends the line. A line another access sent goes in the
+//! ledger as a replaced line (`ledger/replaced.rs`), and `replaced.rs` keeps
+//! or releases its receipt when a start finds this access holds it again.
+//! Delivery does not give up on a session that is unreachable or paused,
+//! because giving up would leave a trigger with no reply while the session may
+//! still hold part of it. The wait and the failure reach `status`. A first
+//! send the session refused before dispatching it, as a full receipt window
+//! does, waits with no operation sent and then goes out under a new one.
+//!
+//! A reply goes out only while the access is active, so delivery waits while
+//! the session reads it as paused or revoked (`env::access_of`), and no reply
+//! resumes before the link is reached.
+//!
+//! A line another access sent is in [`Core::by_echo`] and is decided by its
+//! echo alone, as `serve/access.rs` describes.
+//!
+//! This file owns the step machine. Its `pace` module owns the bounds, the
+//! waits, and the deadline on a call, its `receipt` module reads the
+//! session's answers about one receipt, and its `replaced` module settles the
+//! replaced lines a start finds this access holds again.
+mod pace;
+pub mod receipt;
+pub(super) use pace::within;
+mod replaced;
+use super::{Core, Step, failure_part, operation};
+use crate::bot::words::{self, CANNOT_SAY_WHETHER, MOVED_ON, NO_RECEIPT, NOT_KEPT, SENDING_UNDER_NEW};
 use crate::bot::{
 	error::Error,
-	fault::{self, Point},
+	fault::{self, Fail, Kill},
 	inbox,
-	ledger::{Attempt, Content, Ledger, Phase, TurnId},
+	ledger::{Attempt, Content, Ledger, Phase, Replaced, TurnId},
 	rooms::{
 		Base, ConversationId, Cursor, Echo, Outcome, Outgoing, READ_DEADLINE, Rooms, RoomsError, RoomsErrorKind,
 		SEND_DEADLINE,
 	},
-	status::Activity,
+	status::{Access, Activity},
 };
-use std::{future::Future, time::Duration};
-use tokio::{sync::watch, time::timeout};
+use pace::{ACCESS_POLL, Call, MAX_LOOKS, MAX_REISSUES, Mode, Next, Tries, late};
+use receipt::{Given, Left, Look, Receipt};
+pub use replaced::settle as settle_replaced;
+use tokio::sync::watch;
 
-/// How many times in a row a line may go out under a new operation after the
-/// session committed nothing before the tries slow down. A conflict refuses
-/// the base, not the line, and a failure line would meet the same writes, so
-/// the line is never replaced.
-const MAX_REISSUES: u32 = 3;
-/// How many looks may find a send still running before the looks slow down
-/// and `status` reports the wait.
-const MAX_LOOKS: u32 = 20;
-/// How many times a release may be refused before the receipt is left with
-/// the session. A send's worker that has not yet seen its reply refuses the
-/// release until it does.
-const MAX_RELEASE_REFUSALS: u32 = 3;
-
-/// What delivery does next.
-enum Next {
-	Now,
-	After(Duration),
-	Finished,
-}
-
-/// The waits and counts one delivery keeps between steps.
-struct Tries {
-	standard: Backoff,
-	slow: Backoff,
-	reissues: u32,
-	/// Releases of this line the session refused.
-	refusals: u32,
-	/// The next step sends the same operation at its base again instead of
-	/// observing it, as this call. A paced send is repeated as the call it
-	/// was, so a paced first send keeps a first send's meaning. A send whose
-	/// receipt the session does not hold, with no echo in a complete read of
-	/// activity, goes out as `Asked::Resend`.
-	again: Option<Asked>,
-}
-
-impl Tries {
-	fn new() -> Self {
-		Self {
-			standard: Backoff::standard(),
-			slow: Backoff::slow(),
-			reissues: 0,
-			refusals: 0,
-			again: None,
-		}
-	}
-	/// The call `again` repeats belongs to one operation of one line. A line
-	/// abandoned for a failure line, or reissued under a new operation, owes
-	/// no repeat, because a repeat would send the next call as a first send
-	/// and skip the echo check that keeps a line from posting twice.
-	fn ended(&mut self) {
-		self.again = None;
-	}
-	fn settled(&mut self) {
-		self.standard.reset();
-		self.slow.reset();
-		self.reissues = 0;
-		self.refusals = 0;
-	}
-}
-
-pub async fn run<R: Rooms>(env: &Env<'_, R>, id: TurnId, stop: &mut watch::Receiver<bool>) -> Result<Step, Error> {
-	drive(env, id, stop, false).await
+pub async fn run<R: Rooms>(env: &Core<'_, R>, id: TurnId, stop: &mut watch::Receiver<bool>) -> Result<Step, Error> {
+	drive(env, id, stop, Mode::Deliver).await
 }
 
 /// Settle the line of turn `id` that is already sent, and stop before
 /// sending another. A line the session refused as a conflict stops there too,
 /// to go out under a new operation later.
 pub async fn settle_sent<R: Rooms>(
-	env: &Env<'_, R>,
+	env: &Core<'_, R>,
 	id: TurnId,
 	stop: &mut watch::Receiver<bool>,
 ) -> Result<Step, Error> {
-	drive(env, id, stop, true).await
+	drive(env, id, stop, Mode::SettleSent).await
 }
 
-/// Whether turn `id` has a line sent, or about to be, that is not settled.
-pub fn sent_unsettled<R: Rooms>(env: &Env<'_, R>, id: TurnId) -> bool {
-	matches!(
-		env.ledger.borrow().phase(id),
-		Some(Phase::Sending {
-			attempt: Attempt::Sent { .. }
-				| Attempt::Committed { .. }
-				| Attempt::Releasing { .. }
-				| Attempt::Handed { .. },
-			..
-		})
-	)
-}
-
-/// What `hand` did with the unsettled line of one turn.
-pub enum Handed {
-	/// The turn had no line sent and unsettled.
-	Nothing,
-	/// The send had not settled, so the new link decides the line by its
-	/// echo alone. The old access holds its receipt.
-	ToEcho { operation: String },
-	/// The line posted, or its receipt's release was owed, and the receipt
-	/// stays with the session, which releases it once the old access is
-	/// revoked.
-	Held { operation: String, why: String },
-}
-
-/// Leave the unsettled line of turn `id` to the link that replaces this one,
-/// because `why` keeps the old access from settling it. A line still being
-/// sent is left to be settled by its echo alone. A line that posted, or
-/// whose release is owed, is marked sent with its receipt left to the
-/// session. Only the ledger changes, so the call is idempotent.
-pub fn hand<R: Rooms>(env: &Env<'_, R>, id: TurnId, why: &str) -> Result<Handed, Error> {
-	let (part, attempt) = match env.ledger.borrow().phase(id) {
-		Some(Phase::Sending {
-			parts, sent, attempt, ..
-		}) => (parts.get(*sent).cloned(), attempt.clone()),
-		_ => return Ok(Handed::Nothing),
+/// Whether turn `id` has a line this access sent, or is about to send, that is
+/// not settled. A line the session says another access sent is that access's.
+pub fn sent_unsettled<R: Rooms>(env: &Core<'_, R>, id: TurnId) -> bool {
+	let ledger = env.ledger.borrow();
+	let Some(Phase::Sending {
+		parts, sent, attempt, ..
+	}) = ledger.phase(id)
+	else {
+		return false;
 	};
-	let Some(part) = part else {
-		return Ok(Handed::Nothing);
-	};
-	let operation = part.operation;
-	match attempt {
-		Attempt::Sent { base, after, .. } => {
-			env.ledger
-				.borrow_mut()
-				.attempt(env.store, id, Attempt::Handed { base, after })?;
-			Ok(Handed::ToEcho { operation })
-		}
-		Attempt::Committed { .. } | Attempt::Releasing { .. } => {
-			env.ledger.borrow_mut().part_sent(env.store, id)?;
-			Ok(Handed::Held {
-				operation,
-				why: why.into(),
-			})
-		}
-		Attempt::Unsent | Attempt::Handed { .. } => Ok(Handed::Nothing),
-	}
+	attempt.is_sent()
+		&& parts
+			.get(*sent)
+			.is_some_and(|part| !env.by_echo.contains(&part.operation))
 }
 
 async fn drive<R: Rooms>(
-	env: &Env<'_, R>,
+	env: &Core<'_, R>,
 	id: TurnId,
 	stop: &mut watch::Receiver<bool>,
-	sent_only: bool,
+	mode: Mode,
 ) -> Result<Step, Error> {
 	let mut tries = Tries::new();
 	loop {
 		if *stop.borrow() {
 			return Ok(Step::Stopped);
 		}
-		if sent_only && !sent_unsettled(env, id) {
+		if mode == Mode::SettleSent && !sent_unsettled(env, id) {
 			return Ok(Step::Finished);
+		}
+		// A reply goes out only while the access is active, as a new turn
+		// starts only then. A refusal under an access the session has not
+		// accepted would give the reply up.
+		if mode == Mode::Deliver && env.facts.borrow().access != Access::Active {
+			if !super::waited(ACCESS_POLL, stop).await {
+				return Ok(Step::Stopped);
+			}
+			continue;
 		}
 		match step(env, id, &mut tries).await? {
 			Next::Finished => return Ok(Step::Finished),
 			Next::Now => {}
+			Next::Access => {
+				if let Some(wait) = mode.access_wait(&mut tries.slow)
+					&& !super::waited(wait, stop).await
+				{
+					return Ok(Step::Stopped);
+				}
+			}
 			Next::After(wait) => {
+				if fault::held_retry(env.store.root(), stop).await {
+					continue;
+				}
 				if !super::waited(wait, stop).await {
 					return Ok(Step::Stopped);
 				}
@@ -205,7 +144,7 @@ async fn drive<R: Rooms>(
 }
 
 /// One call to the session for the next line, and the ledger change it earns.
-async fn step<R: Rooms>(env: &Env<'_, R>, id: TurnId, tries: &mut Tries) -> Result<Next, Error> {
+async fn step<R: Rooms>(env: &Core<'_, R>, id: TurnId, tries: &mut Tries) -> Result<Next, Error> {
 	env.ledger.borrow_mut().durable(env.store)?;
 	let phase = env.ledger.borrow().phase(id).cloned();
 	let (conversation, content, parts, sent, attempt) = match phase {
@@ -232,13 +171,24 @@ async fn step<R: Rooms>(env: &Env<'_, R>, id: TurnId, tries: &mut Tries) -> Resu
 		operation: &part.operation,
 	};
 	let began = env.access_changes.get();
-	let turn = Turn {
+	let turn = Delivery {
 		env,
 		id,
 		content,
 		line,
 		began,
 	};
+	if let Some(base) = attempt.base()
+		&& env.by_echo.contains(&part.operation)
+	{
+		return match attempt {
+			Attempt::Sent { after, .. } => turn.by_echo(&after, base, tries).await,
+			// A committed line posted. A line given up on, which `Releasing`
+			// also records, may never have.
+			Attempt::Releasing { .. } => turn.leave("was given up on", base, tries),
+			_ => turn.leave("posted", base, tries),
+		};
+	}
 	match attempt {
 		Attempt::Unsent => {
 			let base = match within(SEND_DEADLINE, env.rooms.base()).await {
@@ -255,50 +205,38 @@ async fn step<R: Rooms>(env: &Env<'_, R>, id: TurnId, tries: &mut Tries) -> Resu
 					looks: 0,
 				},
 			)?;
-			fault::hit(Point::BeforeSend);
+			// The base is the commit point, so it is on disk before the send.
+			env.ledger.borrow_mut().durable(env.store)?;
+			fault::hit(Kill::BeforeSend);
 			let answer = match within(SEND_DEADLINE, env.rooms.send(&line, base)).await {
-				Ok(_) if fault::fails(Point::LateSend) => Err(late()),
+				Ok(_) if fault::fails(Fail::LateSend) => Err(late()),
 				answer => answer,
 			};
-			fault::hit(Point::AfterSend);
-			turn.answered(answer, Asked::FirstSend, base, after, 0, tries).await
+			fault::hit(Kill::AfterSend);
+			turn.answered(answer, Call::FirstSend, base, after, 0, tries).await
 		}
-		Attempt::Sent { base, after, looks } => {
-			let (answer, asked) = if let Some(asked) = tries.again.take() {
+		Attempt::Sent { base, after, looks, .. } => {
+			let (answer, call) = if let Some(call) = tries.again.take() {
 				let answer = within(SEND_DEADLINE, env.rooms.send(&line, base)).await;
-				fault::hit(Point::AfterSend);
-				(answer, asked)
+				fault::hit(Kill::AfterSend);
+				(answer, call)
 			} else {
-				(
-					within(SEND_DEADLINE, env.rooms.observe(&line, base)).await,
-					Asked::Observe,
-				)
+				match receipt::look(env, &line, base).await {
+					Look::Seen(outcome) => (Ok(outcome), Call::Observe),
+					Look::Refused => return turn.give_up(base),
+					Look::Failed(error) => (Err(error), Call::Observe),
+				}
 			};
-			turn.answered(answer, asked, base, after, looks, tries).await
+			turn.answered(answer, call, base, after, looks, tries).await
 		}
 		Attempt::Committed { base } => turn.keep(base, tries).await,
 		Attempt::Releasing { base } => turn.release(base, tries).await,
-		Attempt::Handed { after, .. } => turn.handed(&after, tries).await,
 	}
 }
 
-/// Which call of an operation an answer is for.
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Asked {
-	/// The operation's first send, so a conflict means it committed nothing.
-	FirstSend,
-	/// The same operation sent again at its base after the session held no
-	/// receipt for it and activity showed no echo. A conflict means the
-	/// operation can never commit, but not that the line never posted under it.
-	Resend,
-	/// A look at an operation already sent. A conflict is its receipt saying
-	/// it committed nothing.
-	Observe,
-}
-
-/// The next line of one turn, as one step handles it.
-struct Turn<'e, 'l, R: Rooms> {
-	env: &'e Env<'e, R>,
+/// The line of one turn being sent, as one step handles it.
+struct Delivery<'e, 'l, R: Rooms> {
+	env: &'e Core<'e, R>,
 	id: TurnId,
 	content: Content,
 	line: Outgoing<'l>,
@@ -306,7 +244,7 @@ struct Turn<'e, 'l, R: Rooms> {
 	began: u64,
 }
 
-impl<R: Rooms> Turn<'_, '_, R> {
+impl<R: Rooms> Delivery<'_, '_, R> {
 	fn log(&self, what: &str) {
 		self.env.store.log(&format!("turn {}: {what}", self.id.0));
 	}
@@ -315,7 +253,7 @@ impl<R: Rooms> Turn<'_, '_, R> {
 	async fn answered(
 		&self,
 		answer: Result<Outcome, RoomsError>,
-		asked: Asked,
+		call: Call,
 		base: Base,
 		after: Cursor,
 		looks: u32,
@@ -355,33 +293,62 @@ impl<R: Rooms> Turn<'_, '_, R> {
 			// a complete read that finds no echo sends the operation again.
 			Ok(Outcome::Absent) => match self.echo(&after).await {
 				Ok(Echo::Found) => self.committed(base, tries),
+				// The operation did not post, so a refusal of its resend is now
+				// the session's answer for the line.
+				Ok(Echo::NotFound) if let Some(refused) = tries.refused_resend.take() => {
+					self.env.facts.borrow_mut().failed(Activity::Sending, &refused);
+					self.env.publish();
+					self.abandon(&format!("the session refused my reply ({})", refused.message), tries)
+				}
 				Ok(Echo::NotFound) => {
 					self.log(&format!(
-						"the session holds no receipt for operation {} and activity shows no echo. Sending it again \
-						 at its base",
+						"{NO_RECEIPT} {} and activity shows no echo. Sending it again at its base",
 						self.line.operation
 					));
-					tries.again = Some(Asked::Resend);
+					tries.again = Some(Call::Resend);
 					Ok(Next::Now)
 				}
 				Ok(Echo::Restarted | Echo::Unknowable) => self.give_up(base),
 				Err(error) => self.failed(&error, tries),
 			},
-			Ok(Outcome::Conflict) => match asked {
-				Asked::FirstSend | Asked::Observe => self.conflict(tries),
-				Asked::Resend => match self.echo(&after).await {
+			Ok(Outcome::Conflict) => match call {
+				Call::FirstSend | Call::Observe => self.conflict(tries),
+				Call::Resend => match self.echo(&after).await {
 					Ok(Echo::Found) => self.committed(base, tries),
 					Ok(Echo::NotFound) => self.conflict(tries),
 					Ok(Echo::Restarted | Echo::Unknowable) => self.give_up(base),
 					Err(error) => self.failed(&error, tries),
 				},
 			},
-			// Only a refusal that proves nothing was dispatched advises a wait,
-			// so a paced send goes out again at its base as the same call and
-			// is never looked at into a give-up.
-			Err(error) if asked != Asked::Observe && error.retry_after.is_some() => {
-				tries.again = Some(asked);
+			// A refusal that proves nothing was dispatched is never looked at
+			// into a give-up. A first send went nowhere, so the line waits with
+			// no operation sent and goes out under a new one at a fresh base,
+			// and a session restart during the wait changes nothing.
+			Err(error) if call == Call::FirstSend && error.refused_before_dispatch => {
+				self.env
+					.ledger
+					.borrow_mut()
+					.reissue(self.env.store, self.id, operation()?)?;
 				self.failed(&error, tries)
+			}
+			// A refused resend, whatever the code, says nothing of the earlier
+			// send of its operation, which may still commit. The line goes on
+			// as after an uncertain send: it waits and is looked at again at
+			// its base, and is never replaced or failed on this answer. A
+			// refusal that waiting will not clear is kept, and the failure line
+			// goes out only once a look finds no receipt and a complete read
+			// finds no echo. A refusal of the access is handled as for any call.
+			Err(error)
+				if call == Call::Resend && (error.refused_before_dispatch || error.kind == RoomsErrorKind::Refused) =>
+			{
+				if error.kind == RoomsErrorKind::Refused {
+					tries.refused_resend = Some(error.clone());
+				}
+				let uncertain = RoomsError {
+					kind: RoomsErrorKind::Uncertain,
+					..error
+				};
+				self.failed(&uncertain, tries)
 			}
 			Err(error) => self.failed(&error, tries),
 		}
@@ -389,12 +356,11 @@ impl<R: Rooms> Turn<'_, '_, R> {
 
 	/// Record the commit, so a crash before the line is kept keeps it later.
 	fn committed(&self, base: Base, tries: &mut Tries) -> Result<Next, Error> {
-		let committed = Attempt::Committed { base };
 		self.env
 			.ledger
 			.borrow_mut()
-			.attempt(self.env.store, self.id, committed)?;
-		fault::hit(Point::AfterCommit);
+			.attempt(self.env.store, self.id, Attempt::Committed { base })?;
+		fault::hit(Kill::AfterCommit);
 		self.env.access_active_since(self.began, Activity::Sending);
 		self.env.publish();
 		tries.settled();
@@ -409,7 +375,7 @@ impl<R: Rooms> Turn<'_, '_, R> {
 			Ok(()) => self.settled(tries),
 			Err(error) if error.kind == RoomsErrorKind::Refused => {
 				self.log(&format!(
-					"a line to {} posted, but the session would not keep it: {error}. Releasing its receipt",
+					"a line to {} posted, but {NOT_KEPT}: {error}. Releasing its receipt",
 					self.line.conversation
 				));
 				self.releasing(base)?;
@@ -422,7 +388,7 @@ impl<R: Rooms> Turn<'_, '_, R> {
 	/// Record the line settled, then move to the next.
 	fn settled(&self, tries: &mut Tries) -> Result<Next, Error> {
 		self.env.ledger.borrow_mut().part_sent(self.env.store, self.id)?;
-		fault::hit(Point::AfterRecord);
+		fault::hit(Kill::AfterRecord);
 		tries.settled();
 		self.env.publish();
 		Ok(Next::Now)
@@ -453,25 +419,31 @@ impl<R: Rooms> Turn<'_, '_, R> {
 	}
 
 	/// Release the receipt of a line settled without being kept, then move to
-	/// the next. A session that does not answer, or asks for a wait, is asked
-	/// again later. One that keeps refusing leaves the receipt with it, which
-	/// the log says.
+	/// the next. A session that does not answer, asks for a wait, or still runs
+	/// the line's executor within its running bound is asked again later. A
+	/// receipt the session refuses to take back is recorded in the ledger when
+	/// it still holds a place (`receipt::leave`), and logged once the line is
+	/// recorded as sent (`receipt::left`).
 	async fn release(&self, base: Base, tries: &mut Tries) -> Result<Next, Error> {
-		match within(SEND_DEADLINE, self.env.rooms.release(&self.line, base)).await {
-			Ok(()) => fault::hit(Point::AfterRelease),
-			Err(error) if error.kind == RoomsErrorKind::Refused => {
-				tries.refusals = tries.refusals.saturating_add(1);
-				if tries.refusals < MAX_RELEASE_REFUSALS {
-					return Ok(Next::After(tries.standard.next()));
+		let refused =
+			match receipt::give_back(self.env.rooms, Receipt::Line(&self.line, base), &mut tries.running).await {
+				Given::Back => {
+					fault::hit(Kill::AfterRelease);
+					None
 				}
-				self.log(&format!(
-					"the session kept the receipt of operation {}: {error}",
-					self.line.operation
-				));
-			}
-			Err(error) => return self.failed(&error, tries),
+				Given::Left(error) => match receipt::leave(self.env, &self.line, base).await {
+					Ok(()) => Some(error),
+					Err(Left::Looking(error)) => return self.failed(&error, tries),
+					Err(Left::Saving(error)) => return Err(error),
+				},
+				Given::Running => return Ok(Next::After(tries.standard.next())),
+				Given::Failed(error) => return self.failed(&error, tries),
+			};
+		let next = self.settled(tries)?;
+		if let Some(error) = refused {
+			receipt::left(self.env, self.line.operation, &error);
 		}
-		self.settled(tries)
+		Ok(next)
 	}
 
 	/// Settle a line nobody can confirm, without sending it again, because a
@@ -479,7 +451,7 @@ impl<R: Rooms> Turn<'_, '_, R> {
 	fn give_up(&self, base: Base) -> Result<Next, Error> {
 		self.releasing(base)?;
 		self.unconfirmed(&format!(
-			"the session cannot say whether operation {} to {} posted. Moving on without sending it again",
+			"the session {CANNOT_SAY_WHETHER} {} to {} posted. {MOVED_ON}",
 			self.line.operation, self.line.conversation
 		));
 		Ok(Next::Now)
@@ -495,35 +467,80 @@ impl<R: Rooms> Turn<'_, '_, R> {
 		self.env.publish();
 	}
 
-	/// Settle a line a replaced link's access sent, by its echo alone. That
-	/// access holds the receipt, so this link neither keeps, releases, nor
+	/// Settle a line another access sent and left unsettled by its echo alone,
+	/// and record it as replaced. This access neither keeps, releases, nor
 	/// sends the line again.
-	async fn handed(&self, after: &Cursor, tries: &mut Tries) -> Result<Next, Error> {
+	async fn by_echo(&self, after: &Cursor, base: Base, tries: &mut Tries) -> Result<Next, Error> {
 		let found = match self.echo(after).await {
 			Ok(echo) => echo == Echo::Found,
 			Err(error) => return self.failed(&error, tries),
 		};
-		let next = self.settled(tries)?;
+		let next = self.replaced(base, tries)?;
 		if found {
-			self.log(&format!(
-				"operation {} posted under the replaced link, whose access holds its receipt",
-				self.line.operation
-			));
+			self.log_left("posted");
 		} else {
 			self.unconfirmed(&format!(
-				"the session cannot say whether operation {}, sent under the replaced link, posted. Moving on \
-				 without sending it again",
-				self.line.operation
+				"the session {} {}, {}, posted. {}",
+				CANNOT_SAY_WHETHER,
+				self.line.operation,
+				words::NOT_SENT_HERE,
+				MOVED_ON
 			));
 		}
 		Ok(next)
+	}
+
+	/// Settle a line another access sent and committed, or owed a release, and
+	/// record it as replaced.
+	fn leave(&self, what: &str, base: Base, tries: &mut Tries) -> Result<Next, Error> {
+		let next = self.replaced(base, tries)?;
+		self.log_left(what);
+		Ok(next)
+	}
+
+	/// Record the line settled and replaced in one write, then move to the
+	/// next.
+	fn replaced(&self, base: Base, tries: &mut Tries) -> Result<Next, Error> {
+		let record = Replaced {
+			operation: self.line.operation.to_owned(),
+			base,
+			conversation: self.line.conversation.clone(),
+			text: self.line.text.to_owned(),
+		};
+		let dropped = self
+			.env
+			.ledger
+			.borrow_mut()
+			.part_replaced(self.env.store, self.id, record)?;
+		if let Some(dropped) = dropped {
+			self.log(&format!(
+				"the session holds more receipts of lines another access sent than it has places, so the record of \
+				 operation {} is dropped and its receipt stays until its access is revoked",
+				dropped.operation
+			));
+		}
+		fault::hit(Kill::AfterRecord);
+		tries.settled();
+		self.env.publish();
+		Ok(Next::Now)
+	}
+
+	/// Log a line settled by its echo: what became of it, and that this access
+	/// holds no receipt of it.
+	fn log_left(&self, what: &str) {
+		self.log(&format!(
+			"operation {} {what}. {}, so its receipt stays with the access that sent it until that access keeps it or is \
+			 revoked",
+			self.line.operation,
+			words::NO_RECEIPT_HELD
+		));
 	}
 
 	fn conflict(&self, tries: &mut Tries) -> Result<Next, Error> {
 		tries.ended();
 		tries.reissues = tries.reissues.saturating_add(1);
 		self.log(&format!(
-			"the session committed nothing for operation {}. Sending it under a new one",
+			"the session committed nothing for operation {}. {SENDING_UNDER_NEW}",
 			self.line.operation
 		));
 		self.env
@@ -538,8 +555,12 @@ impl<R: Rooms> Turn<'_, '_, R> {
 	}
 
 	fn failed(&self, error: &RoomsError, tries: &mut Tries) -> Result<Next, Error> {
-		self.log(&format!("sending to {}: {error}", self.line.conversation));
-		// A refused send refuses this line, not the bot's access.
+		self.log(&format!(
+			"sending operation {} to {}: {error}",
+			self.line.operation, self.line.conversation
+		));
+		// Only `Refused` is a verdict on this line. The rest are about the
+		// access or the session, and the line waits for them.
 		if error.kind == RoomsErrorKind::Refused {
 			self.env.facts.borrow_mut().failed(Activity::Sending, error);
 		} else {
@@ -550,7 +571,9 @@ impl<R: Rooms> Turn<'_, '_, R> {
 			RoomsErrorKind::Refused => {
 				return self.abandon(&format!("the session refused my reply ({})", error.message), tries);
 			}
-			RoomsErrorKind::Paused | RoomsErrorKind::Revoked => Next::After(tries.slow.next()),
+			// The access state is recorded above. A paused access is waited out,
+			// which `drive` paces, and a revoked or denied one ends serving.
+			RoomsErrorKind::Paused | RoomsErrorKind::Revoked | RoomsErrorKind::Denied => Next::Access,
 			RoomsErrorKind::Unreachable | RoomsErrorKind::Uncertain | RoomsErrorKind::Exists => {
 				let wait = tries.standard.next();
 				Next::After(error.retry_after.map_or(wait, |advised| advised.max(wait)))
@@ -577,36 +600,9 @@ impl<R: Rooms> Turn<'_, '_, R> {
 	}
 }
 
-/// A call to the session, failed as unreachable when it outlasts `limit`.
-async fn within<T>(limit: Duration, call: impl Future<Output = Result<T, RoomsError>>) -> Result<T, RoomsError> {
-	timeout(limit, call).await.unwrap_or_else(|_| Err(late()))
-}
-
-fn late() -> RoomsError {
-	RoomsError::new(RoomsErrorKind::Unreachable, "the session did not answer in time")
-}
-
 /// Close the turn in the ledger and remove the files it saved.
-fn finish<R: Rooms>(env: &Env<'_, R>, id: TurnId, conversation: &ConversationId) -> Result<(), Error> {
+fn finish<R: Rooms>(env: &Core<'_, R>, id: TurnId, conversation: &ConversationId) -> Result<(), Error> {
 	env.ledger.borrow_mut().done(env.store, id)?;
 	inbox::remove(env.store, conversation, id);
 	Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-	use super::*;
-
-	#[test]
-	fn an_ended_line_owes_no_repeat_of_its_call() {
-		for asked in [Asked::FirstSend, Asked::Resend] {
-			let mut tries = Tries::new();
-			tries.again = Some(asked);
-			tries.ended();
-			assert!(
-				tries.again.is_none(),
-				"the next line's call is observed, never sent blind"
-			);
-		}
-	}
 }

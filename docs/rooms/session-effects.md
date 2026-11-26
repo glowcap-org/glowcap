@@ -35,12 +35,60 @@ cannot redirect pending work. A returned capability is kept exactly as it
 came back, and a replay cannot mint a new one. A malformed acknowledgment
 leaves the outcome unknown even if the change did happen upstream.
 
-Recovery needs the caller's own pending-change or result authority plus
-`ResolvePending`. An operation ID cannot select another grant's receipt.
-Concurrent resumes share one sender. A changed request is refused, and
-replay pressure cannot evict an unresolved receipt. A missing receipt
-confirms the change never happened, and does not permit preparing or
-resending it.
+Reading back a receipt's original request needs the rights its effect needs
+now, and only the source that sent it gets an answer. A source whose rights were
+narrowed below its effect's since sending is refused. Resuming its executor
+also needs `ResolvePending`. An operation ID cannot select another grant's
+receipt.
+Concurrent resumes share one sender. A changed request is refused.
+
+`held-effects` lists the operations of the caller's own receipts that replay
+pressure cannot evict: those unresolved, and those committed whose result is
+not adopted yet. It takes no argument and needs only an attached access, so it
+names no status and no other source's receipt. An access whose rights were
+narrowed learns from it only that its own request still holds a place. A
+client uses it to find a request that reached the session after the call that
+sent it ended.
+
+## The receipt window
+
+The session keeps at most <!-- value ../../apps/rooms/rust/application/src/content/session/custody.rs MAX_EFFECTS -->8<!-- /value --> receipts for all its sources.
+A new request takes a place by evicting the oldest receipt with a known
+outcome, or else the oldest unknown one. A receipt that holds a place is never
+evicted: one unresolved, one whose committed result is not adopted yet, or one
+an executor still holds. When no receipt can leave, the request is refused
+with class `receipts-full` before it runs.
+
+Eviction is the only way a receipt leaves. A missing receipt therefore says
+nothing about whether the change happened. A client never sends that
+operation again, because a request sent after its receipt left runs again.
+
+A source gives a receipt back with a release, which never deletes it. A
+released receipt holds no place and answers for its operation until it is
+evicted, so the same request sent again is answered from it and never runs. A
+release answers one of three words:
+
+| Answer | What the session did |
+| --- | --- |
+| `released` | Released it now or earlier. An unresolved receipt settles as unknown for good, an unadopted result is forfeited, and a paused executor is retired. |
+| `running` | Nothing. The executor still runs, and every run settles, pauses, or stops within <!-- value ../../apps/rooms/rust/application/src/content/session/effects.rs RUNNING_BOUND_MS milliseconds -->120 seconds<!-- /value -->, except a room upload filling its files after its post, which settles when its fill ends, and a history erasure, which runs until it completes. An executor of the asking source whose commit has not settled, running or paused, answers `running` too, with no receipt held yet, because the commit may install. Another source learns nothing of it. |
+| `kept` | Nothing. The source already adopted the result, so the receipt holds no place. |
+
+A history erasure has no executor. Its receipt runs while the session's record names it as the pending erasure, including between a failed attempt and its retry, and it ends only when the erasure completes. A failing archive therefore costs two things. The receipt holds one of the <!-- value ../../apps/rooms/rust/application/src/content/session/custody.rs MAX_EFFECTS -->8<!-- /value --> places, and a release answers `running` with no time bound. Each failed attempt reaches the session's trouble report with its cause, and closing the session fails until the erasure completes.
+
+Releasing a receipt whose result is not adopted forfeits the line's edit and
+withdraw authority with it, so a client gives one back only for a result it
+can never keep: a conversation that is gone, authority that changed, no room
+for another kept line, or a receipt that does not decode. When keeping fails
+for a reason that clears with time, such as a lost connection, a peer's
+failure, a paused access, or a workspace that moved on every attempt, the
+client holds the receipt and keeps the result later.
+
+A paused executor runs again only when its source resumes it. One whose
+receipt has already settled, or whose commit is confirmed never to have
+landed, is retired at the next admission and frees its place. A request
+whose commit has not settled holds a place no `held-effects` row names, until
+the commit installs a receipt or is confirmed absent.
 
 ## Cancellation, source loss and shutdown
 
@@ -56,10 +104,13 @@ refused temporarily, the completed reply is kept for a retry without sending the
 change again. A reply too large, or with the wrong identity, settles as
 unknown instead of retrying forever.
 
-Shutdown drains workers before releasing their buffers. A failed close keeps
-everything, including the original serving tasks, for another attempt. The
-Host stays alive while settlement still needs it, and durable receipts stay
-until they are explicitly retired.
+Shutdown drains workers before releasing their buffers. A close that fails
+keeps what is left, including paused requests and the original serving
+tasks, for another attempt. Its last step waits for running requests and
+retires every paused one, because no source can resume one after the session
+closes, and the paused request's receipt stays. Only closing credential
+retention can fail after that, and such a close has already retired them. The
+Host stays alive while settlement still needs it.
 
 ## Atomic acquisition
 
@@ -104,10 +155,17 @@ replace the room's membership or authorship checks.
 A room upload keeps the original RoomFiles, the optional Line and the source
 blobs before anything is sent.
 
-- Staging is confirmed before the post or refile. The post is acknowledged
-  before the file is filled, in bounded pieces.
-- If filling fails, the posted line stays, marked as having an incomplete
-  file.
+- Staging is confirmed before the post or refile. Staging and the post are
+  one observation, and one that expires pauses the job, because nothing is
+  known yet. A file staged before the pause can expire while the job waits. The post is acknowledged before the files are filled, in bounded
+  pieces.
+- After the post's acknowledgement the job never pauses and its receipt is
+  never left unresolved by the fill. It fills in rounds, one piece of every
+  unfinished file each, and a round that does not finish within <!-- value ../../apps/rooms/rust/application/src/content/session/effects.rs FILL_ROUND_MS milliseconds -->14 seconds<!-- /value --> ends the fill. The room restarts every file's lease at the post and renews it when a write crosses a multiple of the piece size or finishes the file. A file whose pieces come whole waits less than two rounds between them, which is less than the lease of <!-- value ../../apps/rooms/rust/application/src/files.rs UPLOAD_IDLE_MS milliseconds -->30 seconds<!-- /value -->, so a fill that keeps its rounds loses no such file to its lease, however long the whole takes.
+- A source that answers with less than a piece may cross no multiple for several rounds, and the room then ends that file's lease after its idle time. The first round starts when the post's answer reaches the session. If that takes longer than the lease less one round, a first write can reach the room after its lease expires. The room then refuses it and the fill ends with the files incomplete. The settling step that follows can still pause like any request.
+- If filling fails, the posted line stays and the receipt settles committed
+  with its files marked incomplete and the cause: the room's own words for
+  a write it refused, or that a round did not finish in time. A cause the Rooms catalog names keeps its code first.
 - The worker keeps the whole fill through an interruption, including an
   append still waiting for acknowledgment.
 - Sender leases hold the sources until settlement. Expiry and reads already

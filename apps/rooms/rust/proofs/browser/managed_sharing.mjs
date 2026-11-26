@@ -110,6 +110,22 @@ export async function managedSharing({ moduleUrl = "/rooms_contract_proofs.js" }
 		) {
 			throw new Error("cold foreign restoration changed authority or publication home");
 		}
+		// A broken link is replaced: relink closes the stale session, dials the
+		// saved access again, and the new workspace answers as the old one did.
+		const redialed = await second.relink("foreign", remoteUse);
+		held.push(redialed);
+		await redialed.snapshot();
+		if (await redialed.publish() !== useLink) throw new Error("relink lost the saved publication home");
+		let staleAnswered = true;
+		try {
+			await remoteUse.snapshot();
+		} catch {
+			staleAnswered = false;
+		}
+		if (staleAnswered) throw new Error("relink left the stale session answering");
+		remoteUse = redialed;
+		remoteControl = await second.savedControl("foreign");
+		held.push(remoteControl);
 		const inspection = {
 			inspect: true,
 			pause: false,
@@ -214,6 +230,21 @@ export async function managedSharing({ moduleUrl = "/rooms_contract_proofs.js" }
 		}
 		if (!refused || (await remoteControl.describe()).available) {
 			throw new Error("shared capabilities survived revocation");
+		}
+		// A page whose access was revoked dials again and is told so, at the dial
+		// or at the first read through it. The answer is the session's refusal,
+		// never `session-unreachable`, which a page retries.
+		let redial = null;
+		try {
+			const again = await second.relink("foreign", remoteUse);
+			held.push(again);
+			await again.snapshot();
+		} catch (error) {
+			redial = error;
+		}
+		if (redial == null) throw new Error("a revoked access dialed again and read the session");
+		if (redial.code === "session-unreachable") {
+			throw new Error(`a revoked access was reported as an unreachable session: ${redial.code}`);
 		}
 	} catch (error) {
 		failure = error;

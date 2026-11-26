@@ -5,34 +5,46 @@
 //!
 //! Directives: `reply:<text>`, `exit-after-reply:<text>`, `crash`,
 //! `crash-once`, `hang`, `slow-once:<text>`, `wait-file:<text>` (answers once
-//! a `release` file exists in the working directory), and `long:<bytes>` (an
+//! a `release` file exists in the working directory), `outage-then-wait:<text>`
+//! (the first run reports an `outage` failure and exits 1, and later runs wait
+//! as `wait-file:` does), and `long:<bytes>` (an
 //! answer of that many bytes in numbered paragraphs), `describe-files`
 //! (answers with the saved path, size and SHA-256 of each file the last
 //! message carried), and `act:<json array>` (runs the sibling
 //! `rooms-bot control <request>` once for each request in the array, saves
-//! each stdout as `act-<n>.out` in the working directory, and answers with
-//! the exit codes), `fail:<kind> <message>` (reports a failure of that kind,
-//! `auth`, `rate`, `refused`, or `crash`, with the message and exits 1),
+//! each stdout as `act-<n>.out` and each stderr as `act-<n>.err` in the
+//! working directory, and answers with
+//! the exit codes; a request `{"after": "<file>"}` runs no verb and waits
+//! until that file exists in the working directory, so a test can read what an
+//! earlier action printed before a later one runs), `act-once:<json array>` (the same, as an agent that
+//! follows its prompt: it skips a request whose verb the prompt's bot record
+//! says not to repeat, a line `- <verb> ...` holding "Do not", and answers
+//! `skipped` for it, after a `go` file exists in the working directory, so a
+//! test can place the files it sends first), `fail:<kind> <message>` (reports a failure of that kind,
+//! `auth`, `rate`, `refused`, `outage`, or `crash`, with the message and exits 1),
 //! `reject-resume:<text>` (a resumed run reports a failure without naming a
 //! session and exits 1, as an agent does with a session it cannot find, and
 //! a new run answers with the text), `reject-resume-crash` (the same, and
-//! a new run crashes), `remember:<file> <summary>` (writes the summary as the
-//! first line of `memory/<file>` under `GLOWCAP_ROOMS_TURN_HOME` and answers
-//! with the path it wrote), and `recall` (answers with the memories the
-//! prompt lists, as `<file>=<summary>` separated by ` | `, then
-//! `unlisted=<count>`).
+//! a new run crashes), `reject-resume-slow:<seconds>` (a resumed run waits
+//! that long, then fails as `reject-resume:` does, and a new run writes
+//! `fresh.marker` and never answers), `remember:<file> <summary>` (writes the
+//! summary as the first line of `memory/<file>` under
+//! `GLOWCAP_ROOMS_TURN_HOME` and answers with the path it wrote), and
+//! `recall` (answers with the memories the prompt lists, as
+//! `<file>=<summary>` separated by ` | `, then `unlisted=<count>`).
 //!
 //! A text that holds several directive keys obeys the first key in the order
 //! of `KEYS`, not the first in the text, so a key that is a prefix of another
 //! comes after it.
 //!
-//! A `hang`, an unreleased `wait-file`, or a first `slow-once` would idle
-//! forever, so the harness ends itself, and the `sleep` a `hang` started,
-//! after [`SELF_DEADLINE`].
+//! A `hang`, an unreleased `wait-file`, a first `slow-once`, or a new
+//! `reject-resume-slow:` run would idle forever, so the harness ends itself,
+//! and the `sleep` a `hang` started, after [`SELF_DEADLINE`].
 //!
 //! State lives in the working directory: `harness.pid`, `prompt.txt`,
-//! `settings.txt`, `child.pid`, the `*.marker` files, and `runs.log`, which
-//! gains one line each time the harness starts.
+//! `settings.txt`, `environment.txt` (the environment the bot gave it, one
+//! `NAME=value` per line), `child.pid`, the `*.marker` files, and `runs.log`,
+//! which gains one line each time the harness starts.
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::{
@@ -75,8 +87,9 @@ fn record_run(resumed: Option<&str>) {
 	}
 }
 
-const KEYS: [&str; 15] = [
+const KEYS: [&str; 18] = [
 	"reject-resume-crash",
+	"reject-resume-slow:",
 	"reject-resume:",
 	"fail:",
 	"exit-after-reply:",
@@ -86,8 +99,10 @@ const KEYS: [&str; 15] = [
 	"hang",
 	"slow-once:",
 	"wait-file:",
+	"outage-then-wait:",
 	"long:",
 	"describe-files",
+	"act-once:",
 	"act:",
 	"remember:",
 	"recall",
@@ -169,9 +184,19 @@ fn describe_files(prompt: &str) -> String {
 	}
 }
 
+/// Whether the prompt's record of the bot says not to repeat `verb`: a line
+/// that starts `- <verb> ` and holds "Do not".
+fn told_not_to(prompt: &str, verb: &str) -> bool {
+	let start = format!("- {verb} ");
+	prompt
+		.lines()
+		.any(|line| line.starts_with(&start) && line.contains("Do not"))
+}
+
 /// Run each request in `array` as `rooms-bot control <request>` and describe
-/// what it printed.
-fn act(array: &str) -> String {
+/// what it printed. With a `prompt`, a request it says not to repeat is
+/// skipped, as an agent that follows the prompt skips it.
+fn act(array: &str, prompt: Option<&str>) -> String {
 	let requests: Vec<Value> = match serde_json::from_str(array) {
 		Ok(requests) => requests,
 		Err(error) => fail("act: needs a JSON array of requests", error),
@@ -183,17 +208,31 @@ fn act(array: &str) -> String {
 	requests
 		.iter()
 		.enumerate()
-		.map(
-			|(at, request)| match Command::new(&bot).arg("control").arg(request.to_string()).output() {
+		.map(|(at, request)| {
+			if let Some(file) = request.get("after").and_then(Value::as_str) {
+				while !std::path::Path::new(file).exists() {
+					std::thread::sleep(Duration::from_millis(20));
+				}
+				return "after".to_owned();
+			}
+			let verb = request.get("verb").and_then(Value::as_str).unwrap_or_default();
+			if prompt.is_some_and(|prompt| told_not_to(prompt, verb)) {
+				return "skipped".to_owned();
+			}
+			match Command::new(&bot).arg("control").arg(request.to_string()).output() {
 				Ok(output) => {
-					if let Err(error) = std::fs::write(format!("act-{at}.out"), &output.stdout) {
-						fail("cannot save an action's output", error);
+					// Both streams are saved for a test to scan, since a real agent
+					// reads them both.
+					for (stream, bytes) in [("out", &output.stdout), ("err", &output.stderr)] {
+						if let Err(error) = std::fs::write(format!("act-{at}.{stream}"), bytes) {
+							fail("cannot save an action's output", error);
+						}
 					}
 					format!("exit={}", output.status.code().unwrap_or(-1))
 				}
 				Err(error) => format!("could not run rooms-bot: {error}"),
-			},
-		)
+			}
+		})
 		.collect::<Vec<_>>()
 		.join(" ")
 }
@@ -277,13 +316,33 @@ fn main() {
 	if let Err(error) = std::fs::write("prompt.txt", &prompt) {
 		fail("cannot record its prompt", error);
 	}
+	let environment: Vec<String> = std::env::vars_os()
+		.map(|(name, value)| format!("{}={}", name.to_string_lossy(), value.to_string_lossy()))
+		.collect();
+	if let Err(error) = std::fs::write("environment.txt", environment.join("\n")) {
+		fail("cannot record its environment", error);
+	}
 	let directed = directive(&prompt);
-	if let (Some(_), Some((key @ ("reject-resume:" | "reject-resume-crash"), _))) = (&resumed, &directed) {
+	if let (Some(_), Some((key @ ("reject-resume:" | "reject-resume-crash" | "reject-resume-slow:"), text))) =
+		(&resumed, &directed)
+	{
+		if *key == "reject-resume-slow:" {
+			let wait: u64 = text
+				.trim()
+				.parse()
+				.unwrap_or_else(|error| fail("reject-resume-slow: needs whole seconds", error));
+			// A wait past the self-deadline would end the harness first.
+			if wait >= SELF_DEADLINE.as_secs() {
+				fail("reject-resume-slow: outlasts the self-deadline", wait);
+			}
+			std::thread::sleep(Duration::from_secs(wait));
+		}
 		emit(&serde_json::json!({"failure": "crash", "message": "no conversation found"}).to_string());
 		eprintln!("fake harness: {key} refused the session");
 		std::process::exit(1);
 	}
-	let session = resumed.unwrap_or_else(|| format!("fake-{}", std::process::id()));
+	// A new session has the UUID form every harness session id has.
+	let session = resumed.unwrap_or_else(|| format!("fa4e0000-0000-4000-8000-{:012x}", std::process::id()));
 	emit(&json_line("session", &session));
 	emit(&json_line("activity", "thinking"));
 	emit(&json_line("text", "working"));
@@ -328,12 +387,21 @@ fn main() {
 			}
 			idle();
 		}
+		"reject-resume-slow:" => {
+			mark("fresh.marker");
+			idle();
+		}
 		"slow-once:" if marker("slow.marker") => emit(&json_line("final", &text)),
 		"slow-once:" => {
 			mark("slow.marker");
 			idle();
 		}
-		"wait-file:" => {
+		"outage-then-wait:" if !marker("outage.marker") => {
+			mark("outage.marker");
+			emit(&serde_json::json!({"failure": "outage", "message": "unavailable"}).to_string());
+			std::process::exit(1);
+		}
+		"wait-file:" | "outage-then-wait:" => {
 			mark("waiting.marker");
 			while !marker("release") {
 				std::thread::sleep(Duration::from_millis(20));
@@ -345,7 +413,13 @@ fn main() {
 			Err(error) => fail("long: needs a byte count", error),
 		},
 		"describe-files" => emit(&json_line("final", &describe_files(&prompt))),
-		"act:" => emit(&json_line("final", &act(&text))),
+		"act:" => emit(&json_line("final", &act(&text, None))),
+		"act-once:" => {
+			while !marker("go") {
+				std::thread::sleep(Duration::from_millis(20));
+			}
+			emit(&json_line("final", &act(&text, Some(&prompt))));
+		}
 		"remember:" => emit(&json_line("final", &remember(text.trim()))),
 		"recall" => emit(&json_line("final", &recall(&prompt))),
 		_ => emit(&json_line("final", "no directive")),

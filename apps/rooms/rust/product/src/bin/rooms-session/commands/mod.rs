@@ -43,7 +43,19 @@ async fn request(state: &Path, request: Value) -> Result<Value, Failure> {
 }
 async fn request_encoded(state: &Path, verb: &str, encoded: &[u8]) -> Result<Value, Failure> {
 	let result = tokio::time::timeout(Duration::from_secs(40), async {
-		let mut stream = UnixStream::connect(state.join("control.sock")).await?;
+		let mut stream = UnixStream::connect(state.join("control.sock"))
+			.await
+			.map_err(|error| match error.kind() {
+				std::io::ErrorKind::NotFound | std::io::ErrorKind::ConnectionRefused => Failure::new(
+					"not-running",
+					Retry::AfterStateChange,
+					format!(
+						"no session is running in {}. Start it with session start using the same --dir, then try again",
+						state.display()
+					),
+				),
+				_ => Failure::from(error),
+			})?;
 		let mut bytes = encoded.to_vec();
 		bytes.push(b'\n');
 		if bytes.len() > 1024 * 1024 {

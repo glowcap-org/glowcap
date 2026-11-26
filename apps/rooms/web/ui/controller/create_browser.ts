@@ -16,6 +16,8 @@ import { pagePath } from "../page_base.ts";
 import { addressAt } from "../route_address.ts";
 import { serverInUse } from "../server_choice.ts";
 import { localArea } from "../page_storage.ts";
+import type { PageProjection } from "../store/projection.ts";
+import { roomsErrorIn, SESSION_STATE_UNREADABLE } from "../../../lib/error_codes.ts";
 
 export function createRoomsBrowserController(
 	page: RoomsPageContext,
@@ -55,7 +57,7 @@ export function createRoomsBrowserController(
 			}
 		} catch (error) {
 			uncoverReload();
-			return attachedSessionFailureText(error, serverInUse(), uri);
+			return setupRefusal(projection, error, uri);
 		}
 		await finishCommittedMove(() => session.close(), toFront);
 		return "";
@@ -143,7 +145,7 @@ export function createRoomsBrowserController(
 		shareRoomsSession: () =>
 			sharing ??= (async () => {
 				try {
-					const uri = await (await managed()).workspace.publish();
+					const uri = await (await managed()).request((workspace) => workspace.publish());
 					const local = page.controllerSelection.getSnapshot().kind !== "attached";
 					page.controllerSelection.set({ kind: local ? "hosted" : "attached", sturdyref: uri });
 					return "";
@@ -163,7 +165,7 @@ export function createRoomsBrowserController(
 				await (await managed()).actions.clear();
 				return await selectLocal(false);
 			} catch (error) {
-				return attachedSessionFailureText(error, serverInUse());
+				return setupRefusal(projection, error);
 			}
 		},
 		deleteBrowserData: () => {
@@ -174,6 +176,14 @@ export function createRoomsBrowserController(
 			return Promise.resolve("");
 		},
 	};
+}
+/** What setup says when an act that opens a session fails with `error`, on
+ * the way to `link` when the act has one. Saved data this version can't read
+ * is said once, by setup's own notice beside the way out, so a failure the
+ * page holds as that fact says nothing here. */
+export function setupRefusal(projection: PageProjection, error: unknown, link: string | null = null): string {
+	if (projection.get().savedSessionUnreadable && roomsErrorIn(error)?.code === SESSION_STATE_UNREADABLE) return "";
+	return attachedSessionFailureText(error, serverInUse(), link);
 }
 const choiceKey = (tab: string) => `rooms.workspace-choice.${tab}`;
 

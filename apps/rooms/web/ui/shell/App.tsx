@@ -29,7 +29,7 @@ import { Sidebar } from "./Sidebar.tsx";
 import { Topbar } from "./Topbar.tsx";
 import { SessionEffectNotice } from "../panes/SessionEffectNotice.tsx";
 import { ServerAsk } from "../panes/ServerAsk.tsx";
-import { SessionAwayNotice } from "../panes/SessionAwayNotice.tsx";
+import { SessionLinkNotice } from "../panes/SessionLinkNotice.tsx";
 import { SessionPausedNotice } from "../panes/SessionPausedNotice.tsx";
 import { Stream } from "../panes/Stream.tsx";
 import { Members } from "../panes/Members.tsx";
@@ -430,8 +430,8 @@ export function App() {
 					aboutConv={state.aboutConv}
 					aboutDir={state.aboutDir !== null}
 				/>
-				<SessionPausedNotice />
-				<SessionAwayNotice />
+				{(conv !== null || ops.on) && <SessionPausedNotice />}
+				<SessionLinkNotice />
 				<SessionEffectNotice />
 				<ServerAsk />
 				<div className={noMembers ? "content no-members" : "content"} id="content">

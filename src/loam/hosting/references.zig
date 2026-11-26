@@ -381,7 +381,7 @@ pub const Set = struct {
                 }
                 switch (slot.enliven.?.result()) {
                     .pending => return .waiting,
-                    .failed => |failed| return self.call.restorationFailed(.{ .detail = failed.message, .cause = failed.cause }),
+                    .failed => |failed| return self.call.restorationFailed(save_mod.fetchFailure(failed.kind, .{ .detail = failed.message, .cause = failed.cause })),
                     .ready => |ready| {
                         try save_mod.validateForeignObject(self.call.attachment.host, ready.capability);
                         slot.capability = try slot.enliven.?.take();

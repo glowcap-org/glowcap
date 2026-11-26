@@ -43,10 +43,9 @@ pub(super) fn read(reply: Reply, value: &Argument) -> Result<Settlement> {
 	}
 	Ok(Settlement::data(data))
 }
-pub(super) fn matches(reply: Reply, data: &str, fields: &[Coordinate]) -> Result<bool> {
-	if !fields.is_empty() {
-		return Ok(false);
-	}
+/// Whether `data` is a result of `reply`, a data-only kind whose settlement
+/// `outcome` has already held to no capability.
+pub(super) fn matches(reply: Reply, data: &str) -> Result<bool> {
 	Ok(match reply {
 		Reply::Text => serde_json::from_str::<String>(data).is_ok_and(|value| !value.is_empty()),
 		Reply::Listener => {

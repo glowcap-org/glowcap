@@ -1,6 +1,6 @@
 // Local refusal keys own their sentence and retry advice together.
 import type { RoomsFailureRetry } from "../error_codes.ts";
-import { recoveryLetGoAsk } from "./recovery.ts";
+import { recoveryFinish, recoveryLetGoAsk } from "./recovery.ts";
 import {
 	historyReadAgain,
 	historyTitle,
@@ -85,7 +85,24 @@ export const LOCAL_REFUSALS = {
 	"still-working": { summary: "Rooms is still working on this. Try again once it finishes.", retry: "soon" },
 	"busy": { summary: "Rooms is still working on earlier requests. Try again once they finish.", retry: "soon" },
 	"not-sent": { summary: "Nothing was sent. Try again.", retry: "soon" },
-	"receipt-lost": { summary: "Rooms can't pick this change back up, so it won't be sent again.", retry: "never" },
+	"invite-unsent": {
+		summary:
+			"The direct conversation opened, but Rooms couldn't read it to send the invitation. Try inviting again.",
+		retry: "soon",
+	},
+	"archive-unsent": {
+		summary: "The direct conversation opened, but Rooms couldn't read it to share the archive. Try sharing again.",
+		retry: "soon",
+	},
+	"session-unread": {
+		summary: "Rooms couldn't read the session while its connection is away.",
+		retry: "soon",
+	},
+	"receipt-lost": {
+		summary:
+			"The connection dropped before Rooms could confirm this, so it may not have gone through. Look for it, and do it again if it is missing.",
+		retry: "after-request-change",
+	},
 	"directory-changed": {
 		summary: "This directory's access changed. Check it, then try again.",
 		retry: "after-state-change",
@@ -123,6 +140,11 @@ export const LOCAL_REFUSALS = {
 	"target-gone-held": {
 		summary: `What this change was for is no longer in the session. It stays under ${sessionChangesName}.`,
 		retry: "after-state-change",
+	},
+	"result-still-running": {
+		summary:
+			`The change went through, and the session is still finishing it. It waits under ${sessionChangesName}. Choose ${recoveryFinish} there in a moment.`,
+		retry: "soon",
 	},
 	"old-manager-recovery": {
 		summary:
@@ -169,24 +191,77 @@ export const LOCAL_REFUSALS = {
 		summary: "Save or discard the change to this access first.",
 		retry: "after-state-change",
 	},
-	"access-still-saving": { summary: "This access is still saving. Try again once it finishes.", retry: "soon" },
 	"access-share-unfinished": {
 		summary: "Finish sharing the access you started before sharing another.",
 		retry: "after-state-change",
 	},
-	"access-share-submitting": {
-		summary: "The access you're sharing is still being created. Try again once it finishes.",
-		retry: "soon",
+	"access-share-source": {
+		summary: "You're sharing a new access from this one. Finish sharing it before removing this access.",
+		retry: "after-state-change",
+	},
+	"access-share-made-unsaved": {
+		summary: "Save the new access before removing it, so this browser can still revoke it.",
+		retry: "after-state-change",
+	},
+	"access-share-unread": {
+		summary:
+			"The new access was made, but this browser couldn't read it, so it can't be revoked on its own from here. Ask whoever runs the session to revoke it, then share again.",
+		retry: "after-request-change",
 	},
 	"access-share-unconfirmed": {
 		summary: "Rooms couldn't confirm the access you started sharing. Check it again before finishing.",
 		retry: "after-state-change",
 	},
-	"access-share-unchecked": {
-		summary: "Check the access Rooms just created before finishing.",
+	"access-share-unpublished": {
+		summary: "Get the new access's link before finishing.",
 		retry: "after-state-change",
 	},
 	"access-share-unsaved": { summary: "Save the new access before finishing.", retry: "after-state-change" },
+	"access-share-lost": {
+		summary:
+			"The new access was made, but Rooms lost hold of it before this browser saved it, so it can't be revoked on its own from here. Ask whoever runs the session to revoke it, then share again.",
+		retry: "after-request-change",
+	},
+	"access-share-lost-removed": {
+		summary:
+			"The new access was made, but it was removed from this browser before its link was shown. Ask whoever runs the session to revoke it, then share again.",
+		retry: "after-request-change",
+	},
+	"access-share-lost-unknown": {
+		summary:
+			"Rooms couldn't confirm the new access, so it may have been made, and it can't be revoked on its own from here. Ask whoever runs the session to look for it and revoke it, then share again.",
+		retry: "after-request-change",
+	},
+	"access-share-unsent": {
+		summary:
+			"Nothing was sent, and Rooms can't reach the access you shared from. Share again from an access that works.",
+		retry: "after-request-change",
+	},
+	"access-share-revoked": {
+		summary:
+			"The access you shared from was revoked, which revokes any access shared from it, so nothing was left behind. Share again from an access that is still active.",
+		retry: "after-request-change",
+	},
+	"access-share-unlinked": {
+		summary:
+			"The new access was made and saved, but Rooms lost hold of it before its link was shown. It is listed with this session's other access, where you can revoke it.",
+		retry: "never",
+	},
+	"access-share-unheld": {
+		summary:
+			`The new access was made, but Rooms lost hold of it. Choose ${managedAccessText.recoverReturned} and Rooms asks the session for it again.`,
+		retry: "soon",
+	},
+	"access-narrower-pending": {
+		summary:
+			"Rooms is still asking the session for the management link you asked for last, with the choices it asked for.",
+		retry: "after-state-change",
+	},
+	"access-narrower-unconfirmed": {
+		summary:
+			`Rooms couldn't confirm the management link you asked for last. If it was made, its link was never shown, so no one has it. Choose ${managedAccessText.prepareControl} again to make a new one.`,
+		retry: "after-request-change",
+	},
 	"access-edit-unfinished": {
 		summary: "Finish or discard your other change to this access first.",
 		retry: "after-state-change",
@@ -199,15 +274,16 @@ export const LOCAL_REFUSALS = {
 		summary: "Rooms couldn't confirm whether your change was saved. Check it again before discarding it.",
 		retry: "after-state-change",
 	},
+	"access-edit-lost": {
+		summary:
+			"Rooms couldn't confirm whether your change was saved, and can't check it now. Look at this access to see whether it changed.",
+		retry: "after-state-change",
+	},
 	"settings-capability-set-saving": { summary: "Wait for the capability set to finish saving.", retry: "soon" },
 	"settings-archive-peer-changing": { summary: "Wait for the archive peer change to finish.", retry: "soon" },
 	"settings-access-holding": { summary: "Wait for this access to finish opening.", retry: "soon" },
 	"settings-session-data-busy": { summary: "Wait for the session data change to finish.", retry: "soon" },
 	"settings-attach-busy": { summary: "Wait for this browser to finish attaching.", retry: "soon" },
-	"settings-edit-unfinished": {
-		summary: `Finish your change to this access, or pick it up from ${sessionChangesName}, before discarding it.`,
-		retry: "after-state-change",
-	},
 	"storage-blocked": { summary: storageBlocked, retry: "after-state-change" },
 	"room-link-busy": { summary: roomCapabilityWait, retry: "soon" },
 	"capability-set-incomplete": {
@@ -310,6 +386,11 @@ export const LOCAL_REFUSALS = {
 	"change-busy": {
 		summary: "This change is still running. Wait for it to finish before releasing it.",
 		retry: "soon",
+	},
+	"release-unconfirmed": {
+		summary:
+			`Rooms couldn't confirm that this change was let go. Check it under ${sessionChangesName}, then let it go again if it is still there.`,
+		retry: "after-state-change",
 	},
 	"change-replay-required": {
 		summary: `This change has already started. Pick it up from ${sessionChangesName} instead of starting it again.`,

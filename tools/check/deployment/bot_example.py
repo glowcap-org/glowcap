@@ -4,36 +4,23 @@ No YAML library or Docker daemon is available to the host test, so this reads
 the one block shape the example uses: nested mappings, lists of scalars, and
 flow lists. A heading line `# == name ==` starts a piece, and the comment lines
 after it are the piece. Uncommenting strips the `# ` after each line's
-indentation, as the deployment guide tells an operator to.
+indentation, as the deployment guide tells an operator to. That the block
+names only variables `serve` reads, and quotes only its defaults, is held by
+`the_deployment_example_names_only_variables_serve_reads` in the bot's
+`config.rs`, because the installed tree this check reads holds no Rust.
 """
 
 import re
 from pathlib import Path
 
-HEADING = re.compile(r"^\s*# == .+ ==$")
-# Every setting `bot serve` reads from a variable: `FLAGS` in the bot's
-# config.rs and the link flag. The installed tree this check reads holds no
-# Rust source, so the list is kept here.
-BOT_VARIABLES = {
-    "HARNESS",
-    "MODEL",
-    "PERMISSION",
-    "DEADLINE",
-    "GLOWCAP",
-    "ALLOW",
-    "SENDER_LIMIT",
-    "CONVERSATION_LIMIT",
-    "STREAK_LIMIT",
-    "INSTRUCTIONS",
-    "LINK",
-}
+HEADING = re.compile(r"^\s*# == (.+) ==$")
 
 
 def uncomment(text, headings):
     """Uncomment the pieces whose heading names appear in `headings`."""
     out, active = [], False
     for line in text.splitlines():
-        match = re.match(r"^\s*# == (.+) ==$", line)
+        match = HEADING.match(line)
         if match:
             active = match.group(1) in headings
             out.append(line)
@@ -93,7 +80,25 @@ def parse(text):
     return tree
 
 
-def bot_example(path):
+def dockerfile(path, args):
+    """The example Dockerfile takes the build arguments the override passes."""
+    text = Path(path).read_text()
+    declared = dict(re.findall(r"^ARG (\w+)=(\S+)$", text, re.M))
+    for name in ("GLOWCAP_ROOMS_IMAGE", "AGENT_PACKAGE", "AGENT_DIR"):
+        assert name in declared, f"{path} declares no ARG {name}"
+    assert set(args) <= set(declared), (
+        f"the override passes {set(args) - set(declared)}, which the Dockerfile does not declare"
+    )
+    assert declared["GLOWCAP_ROOMS_IMAGE"] == args["GLOWCAP_ROOMS_IMAGE"]
+    assert "FROM ${GLOWCAP_ROOMS_IMAGE} AS rooms" in text and "COPY --from=rooms /runtime /runtime" in text
+    assert "/bot-state/home" in text and "USER node" in text, "the home and user the example mounts need"
+    assert 'npm install --global "${AGENT_PACKAGE}"' in text and "${AGENT_DIR}" in text
+    # The override's defaults are the Dockerfile's, so an uncommented block builds as the file alone does.
+    for name in ("AGENT_PACKAGE", "AGENT_DIR"):
+        assert declared[name] == args[name], f"{name}: {declared[name]} differs from the override's {args[name]}"
+
+
+def bot_example(path, dockerfile_path):
     text = Path(path).read_text()
     assert "bot" not in parse(text).get("services", {}), "the bot is active in the example"
     assert "bot-session" not in parse(text).get("services", {}), "the bot session is active in the example"
@@ -111,9 +116,7 @@ def bot_example(path):
     assert bot["depends_on"]["bot-session"]["condition"] == "service_healthy"
     assert "networks" not in bot, "the bot needs none of the deployment's networks"
     variables = {name for name in bot["environment"] if name.startswith("GLOWCAP_ROOMS_BOT_")}
-    assert variables and {name.removeprefix("GLOWCAP_ROOMS_BOT_") for name in variables} <= BOT_VARIABLES, variables
-    named = set(re.findall(r"GLOWCAP_ROOMS_BOT_(\w+)", text))
-    assert named <= BOT_VARIABLES, f"the example names variables serve does not read: {named - BOT_VARIABLES}"
+    assert variables, "the bot block sets no setting"
     assert bot["environment"]["GLOWCAP_ROOMS_BOT_LINK"] == "/run/secrets/bot-link", "the link is read from its secret"
     assert bot["secrets"] == ["bot-link"] and secrets["bot-link"]["file"] == "./secrets/bot-link", secrets
     for service in (session, bot):
@@ -130,7 +133,9 @@ def bot_example(path):
     # state volume to start the bot fresh keeps what its agent saved.
     mounts = dict(reversed(mount.split(":")[:2]) for mount in bot["volumes"])
     assert mounts.get("/bot-state") == "bot-state" and mounts.get("/bot-state/home") == "bot-home", mounts
+    assert bot["build"]["context"] == "./bot-image", "keep runtime files outside the bot image build context"
     assert bot["build"]["args"]["GLOWCAP_ROOMS_IMAGE"] == "glowcap-rooms:selected"
+    dockerfile(dockerfile_path, bot["build"]["args"])
     # The example with nothing uncommented still holds its active services only.
     inert = parse(uncomment(text, set()))
     assert "bot" not in inert["services"] and "secrets" not in inert and "volumes" not in inert, inert

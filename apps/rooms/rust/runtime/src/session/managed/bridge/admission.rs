@@ -219,12 +219,13 @@ pub(in crate::session::managed) fn admit<P: Tasks + Deadline + Clone + 'static>(
 		.ok_or_else(|| loam::refusal("original bridge receipt is absent"))?;
 		return Ok(content::receipts::status(
 			receipt,
-			owner.running(
+			owner.receipt_running(
 				request
 					.operation
 					.text()
 					.as_str()
 					.ok_or_else(|| loam::refusal("invalid bridge operation"))?,
+				&metadata,
 			),
 		));
 	}
@@ -357,6 +358,7 @@ pub(in crate::session::managed) fn admit<P: Tasks + Deadline + Clone + 'static>(
 			.text()
 			.as_str()
 			.ok_or_else(|| loam::refusal("invalid bridge operation"))?,
+		record.effects.as_slice(),
 	)?;
 	let (reservation, pending) = call.reserve_continuation_copying(&targets)?;
 	let source = reservation.source()?;

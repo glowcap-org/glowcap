@@ -2,9 +2,12 @@
 //! they never disagree. Every change is written first. A write that left the
 //! file unchanged leaves memory as it was, so the same change can be made
 //! again. A write whose replacement may or may not have landed leaves memory
-//! holding the new document and marks it unsettled. The next change, and
-//! [`Ledger::durable`] before any send, write that same document again first,
-//! so the file never holds a document memory did not.
+//! holding the new document, marks it unsettled, and answers the change as
+//! made, so the caller holds what memory holds and never makes the change a
+//! second time. The next change, and [`Ledger::durable`] before any effect the
+//! ledger must be ahead of (a harness run, a send), write that same document
+//! again first, so the file never holds a document memory did not and a write
+//! that keeps failing stops the effect.
 //!
 //! The cursor is the session's own, and every event after it is either
 //! unread or covered by a row here. The bot numbers events itself as it reads
@@ -16,11 +19,16 @@
 use super::{
 	classify::{Seq, Trigger},
 	error::Error,
-	rooms::{Base, ConversationId, Cursor, Kind},
+	rooms::{ConversationId, Cursor},
 	store::{self, Store},
 };
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
+
+mod phase;
+mod replaced;
+pub use phase::{Asked, Attempt, Content, Covered, Part, Phase, Progress, Runs, TurnId};
+pub use replaced::{MAX_REPLACED, Replaced, Unlisted};
 
 pub const FILE: &str = "turns.json";
 /// The largest ledger the bot writes or reads. The bounds below keep the
@@ -33,145 +41,14 @@ pub const MAX_TRIGGERS: usize = 8;
 /// The most unfinished turns at once: waiting for the harness, running, or
 /// sending.
 pub const MAX_OPEN: usize = 16;
-/// The most rows at once. Triggers become turns in the order they were read,
-/// so no trigger waits behind a turn begun after it, and the next cursor move
-/// drops every finished row. Until then a finished row holds its place, so at
-/// most one finished row stands beside each open one.
+/// The most rows at once. Every held trigger is older than every unheld one
+/// (`engine/lanes.rs`), so the cursor, which stays before the oldest unheld
+/// trigger, has passed every finished row once it is updated, and each update
+/// drops them all. Until then a finished row holds its place, so at most one
+/// finished row stands beside each open one.
 pub const MAX_ROWS: usize = 2 * MAX_OPEN;
 /// The longest failure note a running turn keeps.
 pub const MAX_NOTE_BYTES: usize = 256;
-
-/// A turn's own number. Numbers are never reused.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-#[serde(transparent)]
-pub struct TurnId(pub u64);
-
-/// What a turn answers. Fixed when the turn begins.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Asked {
-	pub conversation: ConversationId,
-	pub kind: Kind,
-	pub triggers: Vec<Trigger>,
-}
-
-/// Where a running turn's current harness run stands.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum Progress {
-	/// No run is in flight.
-	Ready,
-	/// A run started and has not ended. Found at startup, the bot died during it.
-	InFlight,
-	/// A run was cut off by the bot stopping. The next prompt says so.
-	CutOff,
-}
-
-/// A running turn's count of spent runs and its progress, as stored.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Started {
-	pub spent: u32,
-	pub progress: Progress,
-}
-
-/// What the lines of a sending turn say.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum Content {
-	Answer,
-	/// A short line saying the turn could not be answered.
-	Failure,
-}
-
-/// One line of a reply, with the operation that sends it.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Part {
-	pub operation: String,
-	pub text: String,
-}
-
-/// Where the send of a reply's next line stands.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum Attempt {
-	/// Not sent under its operation yet.
-	Unsent,
-	/// Sent, or about to be, at `base`, which is recorded before the send and
-	/// used for every later look at the same operation. `after` was the cursor
-	/// when the base was recorded, so the line's echo is in activity after it.
-	/// `looks` counts the looks that found the send unsettled.
-	Sent { base: Base, after: Cursor, looks: u32 },
-	/// The session committed it at `base`. Keeping it remains.
-	Committed { base: Base },
-	/// Settled without being kept: the operation is never sent again, and
-	/// its receipt at `base` is still to be released. It is recorded before
-	/// the release, so a restart between the two finishes the release.
-	Releasing { base: Base },
-	/// Sent at `base` by the access of a link this bot replaced, which alone
-	/// could keep or release its receipt. Only the line's echo after `after`
-	/// settles it, and it is never sent again.
-	Handed { base: Base, after: Cursor },
-}
-
-/// The trigger events a turn answered, kept so their replay is recognized.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Covered {
-	pub events: Vec<Cursor>,
-	/// The number of the last of them.
-	pub last: Seq,
-}
-
-impl Covered {
-	fn of(triggers: &[Trigger]) -> Self {
-		Self {
-			events: triggers.iter().map(|trigger| trigger.event.clone()).collect(),
-			last: triggers.iter().map(|trigger| trigger.seq).max().unwrap_or_default(),
-		}
-	}
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "phase", rename_all = "lowercase")]
-pub enum Phase {
-	/// The harness is answering. `spent` runs have ended without an answer,
-	/// the last one for `note`.
-	Running {
-		asked: Asked,
-		spent: u32,
-		note: Option<String>,
-		progress: Progress,
-	},
-	/// The reply is fixed and its lines go out in order. `sent` lines are
-	/// settled. `attempt` is where the next line's send stands.
-	Sending {
-		conversation: ConversationId,
-		covered: Covered,
-		content: Content,
-		parts: Vec<Part>,
-		sent: usize,
-		attempt: Attempt,
-	},
-	/// Nothing remains but recognizing a replay of the triggers.
-	Done { covered: Covered },
-}
-
-impl Phase {
-	fn covers(&self, event: &Cursor) -> bool {
-		match self {
-			Self::Running { asked, .. } => asked.triggers.iter().any(|trigger| trigger.event == *event),
-			Self::Sending { covered, .. } | Self::Done { covered } => covered.events.contains(event),
-		}
-	}
-	fn is_open(&self) -> bool {
-		!matches!(self, Self::Done { .. })
-	}
-	fn conversation(&self) -> Option<&ConversationId> {
-		match self {
-			Self::Running { asked, .. } => Some(&asked.conversation),
-			Self::Sending { conversation, .. } => Some(conversation),
-			Self::Done { .. } => None,
-		}
-	}
-}
 
 #[derive(Serialize, Deserialize)]
 struct Row {
@@ -187,6 +64,21 @@ struct Document {
 	cursor_seq: Seq,
 	next_turn: TurnId,
 	turns: Vec<Row>,
+	/// The lines this access finished by their echo, which another access
+	/// holds the receipt of.
+	replaced: Vec<Replaced>,
+	/// The operations of lines whose receipts the session would not take
+	/// back and which still held a place when it refused.
+	#[serde(default)]
+	left: Vec<String>,
+	/// The operations of the agent's actions an access this one replaced
+	/// could not settle before the replacement.
+	#[serde(default)]
+	replaced_actions: Vec<String>,
+	/// Why the old access of the last replacement could not list the
+	/// agent's actions it held.
+	#[serde(default)]
+	unlisted: Option<Unlisted>,
 }
 
 #[derive(Clone)]
@@ -195,8 +87,22 @@ pub struct Ledger {
 	cursor_seq: Seq,
 	next_turn: TurnId,
 	rows: BTreeMap<TurnId, Phase>,
+	replaced: Vec<Replaced>,
+	left: Vec<String>,
+	replaced_actions: Vec<String>,
+	unlisted: Option<Unlisted>,
 	/// The last write may not have landed. Memory holds what it wrote.
 	unsettled: bool,
+}
+
+/// Move past the next line, which is settled.
+fn settle_part(parts: &[Part], sent: &mut usize, attempt: &mut Attempt) -> Result<(), Error> {
+	if *sent >= parts.len() {
+		return Err(Error::state(FILE, "a reply has no line left to send"));
+	}
+	*sent += 1;
+	*attempt = Attempt::Unsent;
+	Ok(())
 }
 
 fn missing() -> Error {
@@ -223,10 +129,32 @@ impl Ledger {
 		let mut rows = BTreeMap::new();
 		for row in document.turns {
 			if row.id >= document.next_turn {
-				return Err(Error::unreadable(FILE, "a turn's number was never handed out"));
+				return Err(Error::unreadable(FILE, "a turn's number was never issued"));
 			}
 			if rows.insert(row.id, row.phase).is_some() {
 				return Err(Error::unreadable(FILE, "two turns share a number"));
+			}
+		}
+		if document.replaced.len() > MAX_REPLACED {
+			return Err(Error::unreadable(
+				FILE,
+				"more replaced lines than the session holds receipts",
+			));
+		}
+		let mut operations = BTreeSet::new();
+		if !document.replaced.iter().all(|line| operations.insert(&line.operation)) {
+			return Err(Error::unreadable(FILE, "two replaced lines share an operation"));
+		}
+		for (records, what) in [
+			(&document.left, "left receipts"),
+			(&document.replaced_actions, "replaced actions"),
+		] {
+			let distinct: BTreeSet<_> = records.iter().collect();
+			if records.len() > MAX_REPLACED || distinct.len() < records.len() {
+				return Err(Error::unreadable(
+					FILE,
+					format!("{what} repeat or outnumber the session's places"),
+				));
 			}
 		}
 		Ok(Some(Self {
@@ -234,8 +162,26 @@ impl Ledger {
 			cursor_seq: document.cursor_seq,
 			next_turn: document.next_turn,
 			rows,
+			replaced: document.replaced,
+			left: document.left,
+			replaced_actions: document.replaced_actions,
+			unlisted: document.unlisted,
 			unsettled: false,
 		}))
+	}
+
+	/// The conversation of turn `id` while it is open, read from the ledger of
+	/// the bot directory `root` without its lease, so a verb a turn runs can
+	/// check the turn it names beside the serving bot.
+	pub fn running_turn_in(root: &std::path::Path, id: TurnId) -> Result<Option<ConversationId>, Error> {
+		let Some(document) = store::read_unleased_bounded::<Document>(root, FILE, MAX_LEDGER_BYTES)? else {
+			return Ok(None);
+		};
+		Ok(document
+			.turns
+			.into_iter()
+			.find(|row| row.id == id && row.phase.is_running())
+			.and_then(|row| row.phase.conversation().cloned()))
 	}
 
 	/// A first ledger whose cursor is the head of activity, written before the
@@ -246,6 +192,10 @@ impl Ledger {
 			cursor_seq: Seq(0),
 			next_turn: TurnId(0),
 			rows: BTreeMap::new(),
+			replaced: Vec::new(),
+			left: Vec::new(),
+			replaced_actions: Vec::new(),
+			unlisted: None,
 			unsettled: false,
 		};
 		ledger.persist(store)?;
@@ -265,6 +215,10 @@ impl Ledger {
 					phase: phase.clone(),
 				})
 				.collect(),
+			replaced: self.replaced.clone(),
+			left: self.left.clone(),
+			replaced_actions: self.replaced_actions.clone(),
+			unlisted: self.unlisted,
 		};
 		store::encode(FILE, &document, MAX_LEDGER_BYTES)
 	}
@@ -284,7 +238,8 @@ impl Ledger {
 	}
 
 	/// Make a change on a copy, write the copy, and keep it once it is written
-	/// or may have been.
+	/// or may have been. A change kept on a write that may not have landed is
+	/// answered with its value, and [`Ledger::durable`] reports the write.
 	fn commit<T>(&mut self, store: &Store, change: impl FnOnce(&mut Self) -> Result<T, Error>) -> Result<T, Error> {
 		self.durable(store)?;
 		let mut next = self.clone();
@@ -294,10 +249,10 @@ impl Ledger {
 				*self = next;
 				Ok(value)
 			}
-			Err(error @ Error::Unsettled(_)) => {
+			Err(Error::Unsettled(_)) => {
 				*self = next;
 				self.unsettled = true;
-				Err(error)
+				Ok(value)
 			}
 			Err(error) => Err(error),
 		}
@@ -314,6 +269,12 @@ impl Ledger {
 
 	pub fn cursor(&self) -> &Cursor {
 		&self.cursor
+	}
+
+	/// Whether the file holds what memory holds: no write since the last one
+	/// that landed may have failed.
+	pub fn is_settled(&self) -> bool {
+		!self.unsettled
 	}
 
 	pub fn cursor_seq(&self) -> Seq {
@@ -338,9 +299,45 @@ impl Ledger {
 			.collect()
 	}
 
+	/// The turns whose verbs own their actions and notes: those whose harness
+	/// may still run. A turn that fixed its reply no longer has a harness, so
+	/// the serving loop settles what its actions left, whether or not the
+	/// reply is delivered yet.
+	pub fn running(&self) -> Vec<TurnId> {
+		self.rows
+			.iter()
+			.filter(|(_, phase)| phase.is_running())
+			.map(|(id, _)| *id)
+			.collect()
+	}
+
+	/// How many turns have stopped running since the bot directory was first
+	/// served, whether they are sending their reply or finished. It grows when
+	/// a turn's verbs hand its actions to the serving loop.
+	pub fn ended(&self) -> u64 {
+		let running = self.rows.values().filter(|phase| phase.is_running()).count();
+		self.next_turn
+			.0
+			.saturating_sub(u64::try_from(running).unwrap_or(u64::MAX))
+	}
+
 	/// The conversations with a turn that still needs work.
 	pub fn open_conversations(&self) -> BTreeSet<ConversationId> {
 		self.rows.values().filter_map(Phase::conversation).cloned().collect()
+	}
+
+	/// The operations of the lines the session may hold a receipt of: one per
+	/// sending turn, its current line once it was sent.
+	pub fn sent(&self) -> Vec<String> {
+		self.rows
+			.values()
+			.filter_map(|phase| match phase {
+				Phase::Sending {
+					parts, sent, attempt, ..
+				} if attempt.is_sent() => parts.get(*sent).map(|part| part.operation.clone()),
+				_ => None,
+			})
+			.collect()
 	}
 
 	/// How many turns have finished since the bot directory was first served.
@@ -371,9 +368,11 @@ impl Ledger {
 		match self.rows.get(&id) {
 			Some(Phase::Running {
 				asked,
-				spent: 0,
+				runs: Runs {
+					spent: 0,
+					progress: Progress::Ready,
+				},
 				note: None,
-				progress: Progress::Ready,
 			}) => MAX_TRIGGERS.saturating_sub(asked.triggers.len()),
 			_ => 0,
 		}
@@ -394,9 +393,11 @@ impl Ledger {
 				id,
 				Phase::Running {
 					asked,
-					spent: 0,
+					runs: Runs {
+						spent: 0,
+						progress: Progress::Ready,
+					},
 					note: None,
-					progress: Progress::Ready,
 				},
 			);
 			Ok(id)
@@ -408,7 +409,7 @@ impl Ledger {
 		if triggers.is_empty() || triggers.len() > self.room_in(id) {
 			return Err(Error::state(FILE, "triggers were added past a turn's room"));
 		}
-		self.change(store, id, |phase| match phase {
+		self.commit(store, |next| match next.rows.get_mut(&id).ok_or_else(missing)? {
 			Phase::Running { asked, .. } => {
 				asked.triggers.extend(triggers);
 				Ok(())
@@ -417,25 +418,37 @@ impl Ledger {
 		})
 	}
 
-	/// Record that a harness run starts, after `spent` runs have ended.
+	/// Record that a harness run starts, after `spent` runs have ended, and
+	/// make the record durable, since the harness starts next. A record that
+	/// cannot be made durable is answered with the failure and leaves memory as
+	/// it was before, so a run that never started spends nothing. The file may
+	/// hold either document, so the next change writes memory's first.
 	pub fn start_run(&mut self, store: &Store, id: TurnId, spent_now: u32) -> Result<(), Error> {
+		let before = self.clone();
 		self.change(store, id, |phase| match phase {
-			Phase::Running { spent, progress, .. } => {
-				*spent = spent_now;
-				*progress = Progress::InFlight;
+			Phase::Running { runs, .. } => {
+				*runs = Runs {
+					spent: spent_now,
+					progress: Progress::InFlight,
+				};
 				Ok(())
 			}
 			_ => Err(Error::state(FILE, "a run started for a turn that is not running")),
-		})
+		})?;
+		if let Err(error) = self.durable(store) {
+			*self = before;
+			self.unsettled = true;
+			return Err(error);
+		}
+		Ok(())
 	}
 
 	/// Return a turn to what it was before [`Ledger::start_run`], for a run
 	/// whose harness never started, so it spends nothing.
-	pub fn unstart_run(&mut self, store: &Store, id: TurnId, before: Started) -> Result<(), Error> {
+	pub fn unstart_run(&mut self, store: &Store, id: TurnId, before: Runs) -> Result<(), Error> {
 		self.change(store, id, |phase| match phase {
-			Phase::Running { spent, progress, .. } => {
-				*spent = before.spent;
-				*progress = before.progress;
+			Phase::Running { runs, .. } => {
+				*runs = before;
 				Ok(())
 			}
 			_ => Err(Error::state(FILE, "a run was undone for a turn that is not running")),
@@ -445,27 +458,28 @@ impl Ledger {
 	/// Record a run that ended without an answer and may be tried again.
 	pub fn retry(&mut self, store: &Store, id: TurnId, why: String) -> Result<(), Error> {
 		self.change(store, id, |phase| match phase {
-			Phase::Running {
-				spent, note, progress, ..
-			} => {
-				*spent = spent.saturating_add(1);
+			Phase::Running { runs, note, .. } => {
+				runs.spent = runs.spent.saturating_add(1);
+				runs.progress = Progress::Ready;
 				*note = Some(bounded_note(why));
-				*progress = Progress::Ready;
 				Ok(())
 			}
 			_ => Err(Error::state(FILE, "a run ended for a turn that is not running")),
 		})
 	}
 
-	/// Record a run the bot's own stop cut off. It spends nothing.
-	pub fn cut_off(&mut self, store: &Store, id: TurnId) -> Result<(), Error> {
-		self.change(store, id, |phase| match phase {
-			Phase::Running { progress, .. } => {
-				*progress = Progress::CutOff;
-				Ok(())
-			}
-			_ => Err(Error::state(FILE, "a run was cut off for a turn that is not running")),
-		})
+	/// Record a run the bot's own stop cut off. It spends nothing. Memory
+	/// takes the change at once, and [`Ledger::durable`] or the next change
+	/// writes it: a run the bot stopped is cut off whether or not the write
+	/// lands, and until it lands a restart reads the run as in flight and
+	/// counts it, as it counts any run a crash ended.
+	pub fn cut_off(&mut self, id: TurnId) -> Result<(), Error> {
+		match self.rows.get_mut(&id).ok_or_else(missing)? {
+			Phase::Running { runs, .. } => runs.progress = Progress::CutOff,
+			_ => return Err(Error::state(FILE, "a run was cut off for a turn that is not running")),
+		}
+		self.unsettled = true;
+		Ok(())
 	}
 
 	/// Fix the reply's lines and their operations before the first is sent.
@@ -507,16 +521,31 @@ impl Ledger {
 		})
 	}
 
-	/// Record that the next line is settled: kept, released, left with a
-	/// replaced access, or given up on without being sent again.
+	/// Record that the next line is settled: kept, released, or given up on
+	/// without being sent again.
 	pub fn part_sent(&mut self, store: &Store, id: TurnId) -> Result<(), Error> {
-		self.change_sending(store, id, |parts, sent, attempt, _| {
-			if *sent >= parts.len() {
-				return Err(Error::state(FILE, "a reply has no line left to send"));
-			}
-			*sent += 1;
-			*attempt = Attempt::Unsent;
-			Ok(())
+		self.change_sending(store, id, |parts, sent, attempt, _| settle_part(parts, sent, attempt))
+	}
+
+	/// Record that the next line is settled by its echo while another access
+	/// holds its receipt, and keep `line` beside the turns until the session
+	/// says who holds it. One write holds both, so a restart never has the
+	/// line settled without its record. A record past [`MAX_REPLACED`] cannot
+	/// come from a session that holds at most that many receipts, and the
+	/// oldest record is dropped to make room and returned, because a
+	/// delivery that could not settle would wait forever.
+	pub fn part_replaced(&mut self, store: &Store, id: TurnId, line: Replaced) -> Result<Option<Replaced>, Error> {
+		self.commit(store, |next| {
+			let Some(Phase::Sending {
+				parts, sent, attempt, ..
+			}) = next.rows.get_mut(&id)
+			else {
+				return Err(Error::state(FILE, "a send was recorded for a turn that is not sending"));
+			};
+			settle_part(parts, sent, attempt)?;
+			next.replaced.retain(|held| held.operation != line.operation);
+			next.replaced.push(line);
+			Ok((next.replaced.len() > MAX_REPLACED).then(|| next.replaced.remove(0)))
 		})
 	}
 
@@ -528,14 +557,11 @@ impl Ledger {
 			let kept = match (&*attempt, &next) {
 				(Attempt::Unsent, Attempt::Sent { .. }) => true,
 				(
-					Attempt::Sent { base, .. },
-					Attempt::Sent { base: now, .. }
-					| Attempt::Committed { base: now }
-					| Attempt::Releasing { base: now }
-					| Attempt::Handed { base: now, .. },
+					Attempt::Sent { .. },
+					Attempt::Sent { .. } | Attempt::Committed { .. } | Attempt::Releasing { .. },
 				)
-				| (Attempt::Committed { base }, Attempt::Committed { base: now } | Attempt::Releasing { base: now })
-				| (Attempt::Releasing { base }, Attempt::Releasing { base: now }) => base == now,
+				| (Attempt::Committed { .. }, Attempt::Committed { .. } | Attempt::Releasing { .. })
+				| (Attempt::Releasing { .. }, Attempt::Releasing { .. }) => attempt.base() == next.base(),
 				_ => false,
 			};
 			if !kept {
@@ -566,8 +592,11 @@ impl Ledger {
 		})
 	}
 
-	/// Replace the lines not yet sent with one failure line. A line that may
-	/// have posted is never replaced.
+	/// Replace the lines not yet sent with one failure line. A line already
+	/// sent is replaced only on the session's answer that its operation did
+	/// not post: a refusal of its first send, or, after a refused resend, a
+	/// look that finds no receipt and a complete read that finds no echo. So a
+	/// line that may have posted is never replaced.
 	pub fn fail_rest(&mut self, store: &Store, id: TurnId, part: Part) -> Result<(), Error> {
 		self.change_sending(store, id, |parts, sent, attempt, content| {
 			if !matches!(attempt, Attempt::Unsent | Attempt::Sent { .. }) {
@@ -593,19 +622,23 @@ impl Ledger {
 		})
 	}
 
-	/// Move the cursor to `cursor`, whose next event gets number `seq`, and drop
-	/// the finished turns it passed. Returns whether the cursor moved.
+	/// Move the cursor to `cursor`, whose next event gets number `seq`, unless
+	/// it stands there or past it already, and drop every finished turn the
+	/// cursor has passed, including turns that finished after it moved.
+	/// Returns whether the ledger changed.
 	pub fn advance(&mut self, store: &Store, cursor: &Cursor, seq: Seq) -> Result<bool, Error> {
-		if seq <= self.cursor_seq {
+		let moves = seq > self.cursor_seq;
+		let next_seq = seq.max(self.cursor_seq);
+		let passed = |phase: &Phase| matches!(phase, Phase::Done { covered } if covered.last < next_seq);
+		if !moves && !self.rows.values().any(passed) {
 			return Ok(false);
 		}
 		self.commit(store, |next| {
-			next.cursor = cursor.clone();
-			next.cursor_seq = seq;
-			next.rows.retain(|_, phase| match phase {
-				Phase::Done { covered } => covered.last >= seq,
-				_ => true,
-			});
+			if moves {
+				next.cursor = cursor.clone();
+				next.cursor_seq = seq;
+			}
+			next.rows.retain(|_, phase| !passed(phase));
 			Ok(true)
 		})
 	}

@@ -18,6 +18,8 @@ mod publication;
 mod readers;
 mod recovery;
 mod saved;
+mod saved_dial;
+mod served;
 pub(super) mod signaling;
 mod uploads;
 use super::{
@@ -31,7 +33,7 @@ use crate::{
 };
 pub use control::RoomsManagedControl;
 use glowcap::{Argument, Ref};
-use publication::PublicationHome;
+use publication::{Publication, PublicationHome};
 use rooms_application::content::session::{custody, workspace};
 use rooms_glowcap::client::{
 	access::Control,
@@ -316,18 +318,9 @@ impl RoomsManagedApplication {
 		};
 		let driver = self.driver.clone();
 		self.driver.submit(uri.len(), move |environment| async move {
-			use rooms_glowcap::client::Deadline;
-			let host = environment.runtime.host();
-			let reference = environment
-				.platform
-				.within(
-					rooms_application::room::authority::REQUEST_TIMEOUT_MS,
-					environment.enliven(&uri),
-				)
-				.await
-				.ok_or_else(|| RuntimeError::from(rooms_glowcap::client::Error::Timeout("Workspace connection")))??;
+			let reference = environment.dial_session(&uri, "Workspace connection timed out").await?;
 			let home = PublicationHome::remote(&driver, uri)?;
-			let workspace = Workspace::local(host.clone(), environment.platform.clone(), reference);
+			let workspace = served::workspace_at(&environment, &home, reference);
 			let workspace = driver.hold(workspace, size_of::<Workspace<Platform>>())?;
 			Ok(RoomsManagedWorkspace {
 				driver,
@@ -345,129 +338,11 @@ impl RoomsManagedApplication {
 		};
 		let driver = self.driver.clone();
 		self.driver.submit(uri.len(), move |environment| async move {
-			use rooms_glowcap::client::Deadline;
-			let host = environment.runtime.host();
 			let reference = environment
-				.platform
-				.within(
-					rooms_application::room::authority::REQUEST_TIMEOUT_MS,
-					environment.enliven(&uri),
-				)
-				.await
-				.ok_or_else(|| RuntimeError::from(rooms_glowcap::client::Error::Timeout("Control connection")))??;
+				.dial_session(&uri, "Management connection timed out")
+				.await?;
 			let home = PublicationHome::remote(&driver, uri)?;
-			RoomsManagedControl::new(
-				driver,
-				Control::local(host.clone(), environment.platform.clone(), reference),
-				home,
-			)
-			.map(Into::into)
-		})
-	}
-	#[wasm_bindgen(js_name = savedWorkspace)]
-	pub fn saved_workspace(&self, id: js_sys::JsString) -> js_sys::Promise {
-		use rooms_glowcap::client::Deadline;
-		let id = match scalar(id, 1024) {
-			Ok(value) => value,
-			Err(error) => return rejected(error),
-		};
-		let driver = self.driver.clone();
-		self.driver.submit(id.len(), move |environment| async move {
-			let opened = owner(&environment)?.opened.lock().await;
-			let snapshot = opened
-				.workspace()
-				.map_err(RuntimeError::from)?
-				.snapshot()
-				.await
-				.map_err(RuntimeError::from)?;
-			let selected = snapshot
-				.intent
-				.accesses
-				.as_slice()
-				.iter()
-				.find(|row| row.id.text().as_str() == Some(&id))
-				.and_then(|row| row.access)
-				.ok_or_else(|| RuntimeError::invalid("No held workspace access for this row"))?;
-			let fields = [custody::Coordinate::new(custody::Role::SessionAccess, selected)];
-			let mut held = environment
-				.platform
-				.within(
-					rooms_application::room::authority::REQUEST_TIMEOUT_MS,
-					opened.session().restore_publication_custody(&fields),
-				)
-				.await
-				.ok_or_else(|| {
-					RuntimeError::coded(
-						rooms_application::failure::FailureCode::SessionRestorationFailed,
-						"Saved workspace connection timed out",
-					)
-				})?
-				.map_err(RuntimeError::from)?;
-			let (reference, uri) = held.remove(0);
-			let home = PublicationHome::restored(&driver, uri)?;
-			let workspace = Workspace::local(
-				environment.runtime.host().clone(),
-				environment.platform.clone(),
-				reference,
-			);
-			let workspace = driver.hold(workspace, size_of::<Workspace<Platform>>())?;
-			Ok(RoomsManagedWorkspace {
-				driver,
-				workspace,
-				home,
-			}
-			.into())
-		})
-	}
-	/// Restore exact independently saved controls through the private owner.
-	/// Descriptive inventory IDs are never accepted as restoration credentials.
-	#[wasm_bindgen(js_name = savedControl)]
-	pub fn saved_control(&self, id: js_sys::JsString) -> js_sys::Promise {
-		use rooms_glowcap::client::Deadline;
-		let id = match scalar(id, 1024) {
-			Ok(id) => id,
-			Err(error) => return rejected(error),
-		};
-		let driver = self.driver.clone();
-		self.driver.submit(id.len(), move |environment| async move {
-			let opened = owner(&environment)?.opened.lock().await;
-			let snapshot = opened
-				.workspace()
-				.map_err(RuntimeError::from)?
-				.snapshot()
-				.await
-				.map_err(RuntimeError::from)?;
-			let selected = snapshot
-				.intent
-				.accesses
-				.as_slice()
-				.iter()
-				.find(|row| row.id.text().as_str() == Some(&id))
-				.and_then(|row| row.control)
-				.ok_or_else(|| RuntimeError::invalid("No held management control for this row"))?;
-			let fields = [custody::Coordinate::new(custody::Role::SessionControl, selected)];
-			let mut held = environment
-				.platform
-				.within(
-					rooms_application::room::authority::REQUEST_TIMEOUT_MS,
-					opened.session().restore_publication_custody(&fields),
-				)
-				.await
-				.ok_or_else(|| {
-					RuntimeError::coded(
-						rooms_application::failure::FailureCode::SessionRestorationFailed,
-						"Saved management connection timed out",
-					)
-				})?
-				.map_err(RuntimeError::from)?;
-			let (reference, uri) = held.remove(0);
-			let home = PublicationHome::restored(&driver, uri)?;
-			let control = Control::local(
-				environment.runtime.host().clone(),
-				environment.platform.clone(),
-				reference,
-			);
-			Ok(RoomsManagedControl::new(driver, control, home)?.into())
+			RoomsManagedControl::new(driver, served::control_at(&environment, &home, reference), home).map(Into::into)
 		})
 	}
 	pub fn publish(&self) -> js_sys::Promise {

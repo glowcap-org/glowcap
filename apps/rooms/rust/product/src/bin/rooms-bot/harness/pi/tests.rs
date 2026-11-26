@@ -118,7 +118,9 @@ fn a_blocked_tool_is_activity_and_the_run_still_answers() {
 fn an_expired_sign_in_in_a_clean_exit_stream_is_an_auth_failure() {
 	let signals = replay(&Pi, FAIL_OAUTH);
 	assert_eq!(signals.len(), 2);
-	assert!(matches!(&signals[1], Signal::Failure(FailureKind::Auth, text) if text.contains("Invalid refresh token")));
+	assert!(
+		matches!(&signals[1], Signal::Failure(FailureKind::SignIn, text) if text.contains("Invalid refresh token"))
+	);
 }
 
 #[test]
@@ -133,7 +135,7 @@ fn retries_are_not_failures_until_the_last_one_gives_up() {
 	assert!(
 		failures
 			.iter()
-			.all(|signal| matches!(signal, Signal::Failure(FailureKind::Crash, text) if text.starts_with("500:")))
+			.all(|signal| matches!(signal, Signal::Failure(FailureKind::Outage, text) if text.starts_with("500:")))
 	);
 	let retrying = r#"{"type":"agent_end","messages":[{"role":"assistant","stopReason":"error","errorMessage":"500: x"}],"willRetry":true}"#;
 	assert!(Pi.read(retrying).is_empty());
@@ -141,10 +143,10 @@ fn retries_are_not_failures_until_the_last_one_gives_up() {
 
 #[test]
 fn provider_statuses_pick_the_failure_kind() {
-	assert_eq!(kind("429: slow down"), FailureKind::RateLimit);
-	assert_eq!(kind("401: no"), FailureKind::Auth);
-	assert_eq!(kind("403: no"), FailureKind::Auth);
-	assert_eq!(kind("500: down"), FailureKind::Crash);
+	assert_eq!(kind("429: slow down"), FailureKind::UsageLimit);
+	assert_eq!(kind("401: no"), FailureKind::SignIn);
+	assert_eq!(kind("403: no"), FailureKind::SignIn);
+	assert_eq!(kind("500: down"), FailureKind::Outage);
 	assert_eq!(kind("something else"), FailureKind::Crash);
 }
 
@@ -180,23 +182,29 @@ fn an_exit_is_classified_from_its_status_and_stderr() {
 	assert_eq!(exit(Some(0), ""), None);
 	assert_eq!(
 		exit(Some(1), "No API key found for openai.\n\nUse /login"),
-		Some(FailureKind::Auth)
+		Some(FailureKind::SignIn)
 	);
 	assert_eq!(
 		exit(
 			Some(1),
 			"Error: Model \"nope-model\" not found. Use --list-models to see available models."
 		),
-		Some(FailureKind::Refused)
+		Some(FailureKind::Declined)
 	);
 	assert_eq!(
 		exit(Some(1), "Error: Unknown provider \"x\"."),
-		Some(FailureKind::Refused)
+		Some(FailureKind::Declined)
 	);
 	assert_eq!(
 		exit(Some(1), "No session found matching '00000000-dead-beef'"),
-		Some(FailureKind::Refused)
+		Some(FailureKind::Crash),
+		"a session pi no longer has is a lost session, so the turn starts a fresh one"
 	);
 	assert_eq!(exit(Some(143), ""), Some(FailureKind::Crash));
 	assert_eq!(exit(None, ""), Some(FailureKind::Crash));
+}
+
+#[test]
+fn a_failure_with_no_recorded_shape_is_a_crash() {
+	assert_eq!(kind("something went wrong with key sk-123"), FailureKind::Crash);
 }

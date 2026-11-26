@@ -33,7 +33,25 @@ pub enum Error {
 	Signaling(rooms_application::signaling::Error),
 	Introduction(rooms_application::directory::introduction::Error),
 	Binding(Box<glowcap::Error>),
+	/// A call to a peer other than the attached session missed its deadline.
+	/// The caller treats that peer as unproved and names no Rooms failure.
 	Timeout(&'static str),
+	/// The session this page is attached to was not reached or was lost. The
+	/// caller ends its link and dials again, and only time clears it. `cause` is the
+	/// binding failure when the connection closed or broke under a call. It is
+	/// none when a call and one more request both missed their deadlines, or
+	/// when a dial or a close missed its own.
+	Unreached {
+		detail: &'static str,
+		cause: Option<Box<glowcap::Error>>,
+	},
+	/// A call through the session this page is attached to missed its
+	/// deadline while the session still answers. The caller keeps its link and
+	/// may ask again soon. A call that changes nothing, or that a repeat cannot
+	/// double (an attenuation is asked again by its sequence), shows it. An
+	/// effect that times out stays uncertain under its receipt, because it may
+	/// still land.
+	RequestTimedOut(&'static str),
 	Reply(Refusal),
 	Custody(rooms_application::room::stewardship::Error),
 	Membership(rooms_application::room::membership::Error),
@@ -45,7 +63,32 @@ pub enum Error {
 	Directory(rooms_application::directory::Error),
 	Registration(rooms_application::directory::registration::Error),
 }
+/// How a submitted request whose reply failed stands.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SubmissionStatus {
+	/// The peer proved the request's base stale and installed nothing, so
+	/// only this permits applying it again.
+	Conflict,
+	/// The peer admitted nothing of the request, which is freed with its reason.
+	Refused,
+	/// Nothing settled the question, so the request stays held for its receipt.
+	Uncertain,
+}
+impl SubmissionStatus {
+	pub const fn wire(self) -> &'static str {
+		match self {
+			Self::Conflict => "conflict",
+			Self::Refused => "refused",
+			Self::Uncertain => "uncertain",
+		}
+	}
+}
 impl Error {
+	/// The attached session was not reached within a call's bound, with no
+	/// binding failure to carry: `detail` names the call.
+	pub const fn unreached(detail: &'static str) -> Self {
+		Self::Unreached { detail, cause: None }
+	}
 	/// Only validated admission advice can prove absence from a peer break.
 	/// A lost observation stays uncertain even when its prose mentions a quota.
 	pub fn admission_refusal(&self) -> Option<Failure<'_>> {
@@ -58,13 +101,22 @@ impl Error {
 	}
 	/// The catalog failure this error names. A binding error is read from its
 	/// typed cause and application message. A receipt's reason is the refusal
-	/// line its executor wrote from the same two sources. Every other variant
-	/// either carries its failure as a value or has none.
+	/// line its executor wrote from the same two sources, as `observed` reads
+	/// it. Every other variant either carries its failure as a value or has
+	/// none.
 	pub fn failure(&self) -> Option<Failure<'_>> {
 		match self {
 			Self::Binding(error) | Self::Unsent(error) => binding_failure(error),
-			Self::RefusedObservation(reason) => Failure::parse(reason),
-			Self::Observation(reason) => uncertain_failure(reason),
+			Self::RefusedObservation(reason) => Failure::parse(reason).map(observed),
+			Self::Observation(reason) => uncertain_failure(reason).map(observed),
+			Self::Unreached { detail, cause } => Some(Failure {
+				code: FailureCode::SessionUnreachable,
+				detail: cause.as_ref().and_then(|cause| cause.message()).unwrap_or(detail),
+			}),
+			Self::RequestTimedOut(what) => Some(Failure {
+				code: FailureCode::SessionRequestTimedOut,
+				detail: what,
+			}),
 			Self::Custody(error) => error.failure(),
 			_ => None,
 		}
@@ -81,13 +133,39 @@ impl Error {
 			_ => self.admission_refusal().is_some(),
 		}
 	}
-	/// A protocol refusal leaves the selected capability usable. Transport loss
-	/// and a missed deadline mean this client no longer has a proved live peer.
+	/// How a submitted request whose reply failed with this error stands. A
+	/// missed deadline proves nothing, so it is `Uncertain`.
+	pub fn submission_status(&self) -> SubmissionStatus {
+		if matches!(self, Self::WorkspaceConflict | Self::ControlConflict(_)) {
+			SubmissionStatus::Conflict
+		} else if self.known_absent() {
+			SubmissionStatus::Refused
+		} else {
+			SubmissionStatus::Uncertain
+		}
+	}
+	/// A protocol refusal leaves the selected capability usable. Transport loss,
+	/// a peer this side could not reach, and a missed deadline mean this client
+	/// no longer has a proved live peer.
 	pub fn connection_failed(&self) -> bool {
 		match self {
-			Self::Binding(error) | Self::Unsent(error) => binding_kind_connection_failed(error.kind()),
-			Self::Timeout(_) => true,
+			Self::Binding(error) | Self::Unsent(error) => binding_connection_failed(error.kind(), error.cause()),
+			Self::Timeout(_) | Self::Unreached { .. } => true,
 			_ => false,
+		}
+	}
+	/// This failure as a call to an attached session sees it: a binding
+	/// failure that says the connection is gone is `Error::Unreached`, named
+	/// by `detail` with that failure as its cause. Any other failure is
+	/// unchanged, so a request the session answered late stays
+	/// `RequestTimedOut` and keeps the link.
+	pub fn unreached_if_lost(self, detail: &'static str) -> Self {
+		match self {
+			Self::Binding(error) if binding_connection_failed(error.kind(), error.cause()) => Self::Unreached {
+				detail,
+				cause: Some(error),
+			},
+			error => error,
 		}
 	}
 	/// Preserve a peer's canonical Rooms failure code when it supplied one.
@@ -100,7 +178,7 @@ impl Error {
 		if let Self::Binding(error) | Self::Unsent(error) = self {
 			return binding_retry(error);
 		}
-		if matches!(self, Self::Timeout(_) | Self::PostedLine(_)) {
+		if matches!(self, Self::Timeout(_) | Self::Unreached { .. } | Self::PostedLine(_)) {
 			return Retry::AfterStateChange;
 		}
 		if matches!(self, Self::SourceRead(_)) {
@@ -115,6 +193,21 @@ impl Error {
 /// distinguishes wire breaks and explicit local Loam refusals from diagnostics.
 pub fn binding_admission_refusal(error: &glowcap::Error) -> Option<Failure<'_>> {
 	Failure::parse(error.application_message()?).filter(|failure| failure.refused_before_dispatch())
+}
+
+/// A receipt's failure as this side reads it. The executor that wrote it
+/// reached the session's other peers over links of its own, and one of them
+/// may have named its own session unreachable. To this side that is a peer it
+/// could not reach, so the code that names this side's own link to its
+/// session comes only from `Error::Unreached`.
+fn observed(failure: Failure<'_>) -> Failure<'_> {
+	match failure.code {
+		FailureCode::SessionUnreachable => Failure {
+			code: FailureCode::PeerUnreachable,
+			..failure
+		},
+		_ => failure,
+	}
 }
 
 /// The failure an uncertain receipt's reason names. An admission code is
@@ -179,13 +272,6 @@ pub fn clears_with_time(cause: glowcap::BreakCause) -> bool {
 	cause.origin == BreakOrigin::Local && matches!(cause.reason, BreakReason::PeerUnreachable | BreakReason::Closed)
 }
 
-/// Whether `code` is one of the two a cause that clears with time is written
-/// as outside restoration. A receipt's reason keeps the code and drops the
-/// cause, so its reader asks by code.
-pub fn reach_code(code: FailureCode) -> bool {
-	matches!(code, FailureCode::PeerUnreachable | FailureCode::MemberUnreachable)
-}
-
 /// Classify retry conditions without confusing transport loss with a remote
 /// application refusal. Frame-size failures can arise in either direction.
 pub fn binding_retry(error: &glowcap::Error) -> Retry {
@@ -195,11 +281,14 @@ pub fn binding_retry(error: &glowcap::Error) -> Retry {
 	}
 }
 
-fn binding_kind_connection_failed(kind: glowcap::ErrorKind) -> bool {
+/// Whether a binding failure says the connection to its peer is gone: the
+/// transport closed, failed or timed out, or the break's cause is one that
+/// clears with time, as a dial that never reached its peer is.
+fn binding_connection_failed(kind: glowcap::ErrorKind, cause: glowcap::BreakCause) -> bool {
 	matches!(
 		kind,
 		glowcap::ErrorKind::Closed | glowcap::ErrorKind::Io | glowcap::ErrorKind::TimedOut
-	)
+	) || clears_with_time(cause)
 }
 
 /// The retry condition of a binding failure the catalog does not name.
@@ -320,7 +409,9 @@ impl core::fmt::Display for Error {
 			Self::ControlConflict(conflict) => conflict.fmt(f),
 			Self::Observation(reason) | Self::RefusedObservation(reason) => f.write_str(reason),
 			Self::Binding(e) | Self::Unsent(e) => e.fmt(f),
-			Self::Timeout(what) => f.write_str(what),
+			Self::Unreached { cause: Some(cause), .. } => cause.fmt(f),
+			Self::Unreached { detail, cause: None } => f.write_str(detail),
+			Self::Timeout(what) | Self::RequestTimedOut(what) => f.write_str(what),
 			Self::Reply(e) => e.fmt(f),
 			Self::Custody(e) => e.fmt(f),
 			Self::Membership(e) => e.fmt(f),
@@ -366,9 +457,48 @@ mod tests {
 		}
 		// A receipt reader recognizes both by the code they are written as.
 		for reason in [BreakReason::PeerUnreachable, BreakReason::Closed] {
-			assert!(reach_failure(BreakCause::local(reason)).is_some_and(reach_code));
+			assert!(reach_failure(BreakCause::local(reason)).is_some_and(FailureCode::reach));
 		}
-		assert!(!reach_code(FailureCode::NickTaken));
+		assert!(FailureCode::SessionUnreachable.reach());
+		assert!(!FailureCode::NickTaken.reach());
+	}
+
+	#[test]
+	fn a_missed_deadline_names_the_attached_session_only() {
+		assert_eq!(
+			Error::unreached("late").failure_code(),
+			Some(FailureCode::SessionUnreachable)
+		);
+		assert_eq!(Error::Timeout("late").failure_code(), None);
+	}
+
+	#[test]
+	fn only_a_lost_connection_reads_as_an_unreached_session() {
+		let lost = |error: Error| error.unreached_if_lost("lost");
+		assert!(matches!(
+			lost(Error::RequestTimedOut("late")),
+			Error::RequestTimedOut("late")
+		));
+		let refused = lost(Error::from(glowcap::loam::refusal("nick-taken: Ann")));
+		assert!(matches!(refused, Error::Binding(_)), "{refused}");
+		assert!(matches!(lost(Error::Timeout("late")), Error::Timeout("late")));
+		let unreached = lost(Error::unreached("gone"));
+		assert!(matches!(unreached, Error::Unreached { detail: "gone", .. }));
+	}
+
+	#[test]
+	fn an_effect_that_times_out_at_the_session_stays_uncertain() {
+		let late = Error::RequestTimedOut("late");
+		assert_eq!(late.submission_status(), SubmissionStatus::Uncertain);
+		assert!(!late.known_absent());
+		assert!(!late.connection_failed(), "the session still answers");
+		assert_eq!(late.failure_code(), Some(FailureCode::SessionRequestTimedOut));
+		assert_eq!(late.retry(), Retry::Soon);
+		assert_eq!(Error::WorkspaceConflict.submission_status(), SubmissionStatus::Conflict);
+		assert_eq!(
+			Error::RefusedObservation("refused".into()).submission_status(),
+			SubmissionStatus::Refused
+		);
 	}
 
 	#[test]
@@ -415,6 +545,24 @@ mod tests {
 			assert_eq!(read.retry(), Retry::AfterRequestOrStateChange);
 		}
 		assert!(Error::RefusedObservation("original Host admission failed".into()).known_absent());
+	}
+
+	/// Only this side's own call names its link to the session unreachable.
+	/// A receipt that says so speaks of a link another peer holds.
+	#[test]
+	fn a_receipt_naming_its_session_unreachable_is_a_peer_this_side_could_not_reach() {
+		let line = FailureCode::SessionUnreachable.line("the archive peer lost its session");
+		for error in [Error::Observation(line.clone()), Error::RefusedObservation(line)] {
+			assert_eq!(error.failure_code(), Some(FailureCode::PeerUnreachable));
+			assert_eq!(
+				error.failure().map(|failure| failure.detail),
+				Some("the archive peer lost its session")
+			);
+		}
+		assert_eq!(
+			Error::unreached("a call").failure_code(),
+			Some(FailureCode::SessionUnreachable)
+		);
 	}
 
 	/// A variant names its code as a value. Text that merely starts like a
@@ -468,9 +616,9 @@ mod tests {
 
 	#[test]
 	fn only_connection_loss_retires_a_selected_peer() {
-		use glowcap::ErrorKind;
+		use glowcap::{BreakCause, BreakReason, ErrorKind};
 		for kind in [ErrorKind::Closed, ErrorKind::Io, ErrorKind::TimedOut] {
-			assert!(binding_kind_connection_failed(kind));
+			assert!(binding_connection_failed(kind, BreakCause::default()), "{kind:?}");
 		}
 		for kind in [
 			ErrorKind::Broken,
@@ -478,7 +626,21 @@ mod tests {
 			ErrorKind::Malformed,
 			ErrorKind::FrameTooLarge,
 		] {
-			assert!(!binding_kind_connection_failed(kind));
+			assert!(!binding_connection_failed(kind, BreakCause::default()), "{kind:?}");
+		}
+		// A break this side could not reach past, as a dial that never reached
+		// its peer ends, is a lost connection whatever kind carries it.
+		for reason in [BreakReason::PeerUnreachable, BreakReason::Closed] {
+			let cause = BreakCause::local(reason).with_fetch();
+			assert!(binding_connection_failed(ErrorKind::Broken, cause), "{reason:?}");
+		}
+		// The peer's own break and a refusal leave the connection proved.
+		for cause in [
+			BreakCause::partner(),
+			BreakCause::local(BreakReason::Refused),
+			BreakCause::local(BreakReason::PublicationAbsent).with_fetch(),
+		] {
+			assert!(!binding_connection_failed(ErrorKind::Broken, cause), "{cause:?}");
 		}
 		assert!(Error::Timeout("late").connection_failed());
 		assert!(!Error::Reply(Refusal::Policy).connection_failed());

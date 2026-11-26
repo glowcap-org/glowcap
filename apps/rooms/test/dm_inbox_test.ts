@@ -16,11 +16,7 @@ import type { Directory } from "../lib/room/client.ts";
 import { MAX_DM_INBOXES } from "../lib/limits.ts";
 import { registrationId } from "./support/registration.ts";
 import { assert } from "./assert.ts";
-
-/** The offer path defers one microtask. Run it. */
-function settle(): Promise<void> {
-	return new Promise((resolve) => setTimeout(resolve, 0));
-}
+import { settle } from "./support/wait.ts";
 
 /** A host that only records what was published, and a directory that only
  * records what was offered. The offerer touches nothing else on either. */

@@ -34,10 +34,10 @@ fn expectPublishedCallRoundTrip(
     cli.signals.resetForTest();
     defer cli.signals.resetForTest();
 
-    var host = makeCtx(io, gpa, &runtime.environ, host_seed);
-    defer host.deinit();
     var host_capture: std.ArrayList(u8) = .empty;
     defer host_capture.deinit(gpa);
+    var host = makeCtx(io, gpa, &runtime.environ, host_seed);
+    defer host.deinit();
     host.sink = .{ .buffer = &host_capture };
 
     var listen_parsed = cli.cmd_types.Parsed{ .gpa = gpa };
@@ -48,13 +48,14 @@ fn expectPublishedCallRoundTrip(
 
     var listen_args = ListenArgs{ .ctx = &host, .parsed = &listen_parsed };
     var host_future = try io.concurrent(runListen, .{&listen_args});
+    defer listen_fixture.stopAndJoin(&host_future, io);
 
-    const uri = try waitListenLocator(&host, &host_future, io);
+    const uri = try waitListenLocator(&host);
 
-    var client = makeCtx(io, gpa, &runtime.environ, client_seed);
-    defer client.deinit();
     var client_capture: std.ArrayList(u8) = .empty;
     defer client_capture.deinit(gpa);
+    var client = makeCtx(io, gpa, &runtime.environ, client_seed);
+    defer client.deinit();
     client.sink = .{ .buffer = &client_capture };
 
     const positionals = [_][]const u8{ uri, "greeter", verb, arg };
@@ -83,11 +84,11 @@ test "MCP listen backgrounds and a client round-trips off the listener's own thr
     defer runtime.deinit();
     const io = runtime.io();
 
+    var host_capture: std.ArrayList(u8) = .empty;
+    defer host_capture.deinit(gpa);
     var host = makeCtx(io, gpa, &runtime.environ, 81);
     defer host.deinit();
     host.front = .mcp;
-    var host_capture: std.ArrayList(u8) = .empty;
-    defer host_capture.deinit(gpa);
     host.sink = .{ .buffer = &host_capture };
 
     var listen_parsed = cli.cmd_types.Parsed{ .gpa = gpa };
@@ -100,10 +101,10 @@ test "MCP listen backgrounds and a client round-trips off the listener's own thr
     try std.testing.expectEqual(cli.exit_codes.ok, try cli.ocapn.cmdListen(&host, &listen_parsed));
     const uri = host.publishedLocator().?;
 
-    var client = makeCtx(io, gpa, &runtime.environ, 82);
-    defer client.deinit();
     var client_capture: std.ArrayList(u8) = .empty;
     defer client_capture.deinit(gpa);
+    var client = makeCtx(io, gpa, &runtime.environ, 82);
+    defer client.deinit();
     client.sink = .{ .buffer = &client_capture };
 
     const positionals = [_][]const u8{ uri, "greeter", "greet", "background" };
@@ -136,10 +137,10 @@ test "MCP locator call retains session for a follow-up call" {
     cli.signals.resetForTest();
     defer cli.signals.resetForTest();
 
-    var host = makeCtx(io, gpa, &runtime.environ, 61);
-    defer host.deinit();
     var host_capture: std.ArrayList(u8) = .empty;
     defer host_capture.deinit(gpa);
+    var host = makeCtx(io, gpa, &runtime.environ, 61);
+    defer host.deinit();
     host.sink = .{ .buffer = &host_capture };
 
     var listen_parsed = cli.cmd_types.Parsed{ .gpa = gpa };
@@ -150,14 +151,15 @@ test "MCP locator call retains session for a follow-up call" {
 
     var listen_args = ListenArgs{ .ctx = &host, .parsed = &listen_parsed };
     var host_future = try io.concurrent(runListen, .{&listen_args});
+    defer listen_fixture.stopAndJoin(&host_future, io);
 
-    const uri = try waitListenLocator(&host, &host_future, io);
+    const uri = try waitListenLocator(&host);
 
+    var client_capture: std.ArrayList(u8) = .empty;
+    defer client_capture.deinit(gpa);
     var client = makeCtx(io, gpa, &runtime.environ, 62);
     defer client.deinit();
     client.front = .mcp;
-    var client_capture: std.ArrayList(u8) = .empty;
-    defer client_capture.deinit(gpa);
     client.sink = .{ .buffer = &client_capture };
 
     const first = [_][]const u8{ uri, "greeter", "greet", "retained" };
@@ -189,10 +191,10 @@ test "argv locator call does not retain a session" {
     cli.signals.resetForTest();
     defer cli.signals.resetForTest();
 
-    var host = makeCtx(io, gpa, &runtime.environ, 63);
-    defer host.deinit();
     var host_capture: std.ArrayList(u8) = .empty;
     defer host_capture.deinit(gpa);
+    var host = makeCtx(io, gpa, &runtime.environ, 63);
+    defer host.deinit();
     host.sink = .{ .buffer = &host_capture };
 
     var listen_parsed = cli.cmd_types.Parsed{ .gpa = gpa };
@@ -203,13 +205,14 @@ test "argv locator call does not retain a session" {
 
     var listen_args = ListenArgs{ .ctx = &host, .parsed = &listen_parsed };
     var host_future = try io.concurrent(runListen, .{&listen_args});
+    defer listen_fixture.stopAndJoin(&host_future, io);
 
-    const uri = try waitListenLocator(&host, &host_future, io);
+    const uri = try waitListenLocator(&host);
 
-    var client = makeCtx(io, gpa, &runtime.environ, 64);
-    defer client.deinit();
     var client_capture: std.ArrayList(u8) = .empty;
     defer client_capture.deinit(gpa);
+    var client = makeCtx(io, gpa, &runtime.environ, 64);
+    defer client.deinit();
     client.sink = .{ .buffer = &client_capture };
 
     const positionals = [_][]const u8{ uri, "greeter", "greet", "oneshot" };
@@ -281,10 +284,10 @@ test "listen exits promptly on requestStop while accepting" {
     cli.signals.resetForTest();
     defer cli.signals.resetForTest();
 
-    var host = makeCtx(io, gpa, &runtime.environ, 33);
-    defer host.deinit();
     var host_capture: std.ArrayList(u8) = .empty;
     defer host_capture.deinit(gpa);
+    var host = makeCtx(io, gpa, &runtime.environ, 33);
+    defer host.deinit();
     host.sink = .{ .buffer = &host_capture };
 
     var listen_parsed = cli.cmd_types.Parsed{ .gpa = gpa };
@@ -294,8 +297,9 @@ test "listen exits promptly on requestStop while accepting" {
 
     var listen_args = ListenArgs{ .ctx = &host, .parsed = &listen_parsed };
     var host_future = try io.concurrent(runListen, .{&listen_args});
+    defer listen_fixture.stopAndJoin(&host_future, io);
 
-    _ = try waitListenLocator(&host, &host_future, io);
+    _ = try waitListenLocator(&host);
 
     // Parked in accept: SIGINT-equivalent must exit without BADF panic.
     cli.signals.requestStop();
@@ -313,10 +317,10 @@ test "listen exits promptly on requestStop while serving" {
     cli.signals.resetForTest();
     defer cli.signals.resetForTest();
 
-    var host = makeCtx(io, gpa, &runtime.environ, 44);
-    defer host.deinit();
     var host_capture: std.ArrayList(u8) = .empty;
     defer host_capture.deinit(gpa);
+    var host = makeCtx(io, gpa, &runtime.environ, 44);
+    defer host.deinit();
     host.sink = .{ .buffer = &host_capture };
 
     var listen_parsed = cli.cmd_types.Parsed{ .gpa = gpa };
@@ -326,8 +330,9 @@ test "listen exits promptly on requestStop while serving" {
 
     var listen_args = ListenArgs{ .ctx = &host, .parsed = &listen_parsed };
     var host_future = try io.concurrent(runListen, .{&listen_args});
+    defer listen_fixture.stopAndJoin(&host_future, io);
 
-    const uri = try waitListenLocator(&host, &host_future, io);
+    const uri = try waitListenLocator(&host);
 
     var client = makeCtx(io, gpa, &runtime.environ, 55);
     defer client.deinit();
@@ -355,10 +360,10 @@ test "await queue detaches its vat listener when the partner vanishes mid-wait" 
     cli.signals.resetForTest();
     defer cli.signals.resetForTest();
 
-    var host = makeCtx(io, gpa, &runtime.environ, 71);
-    defer host.deinit();
     var host_capture: std.ArrayList(u8) = .empty;
     defer host_capture.deinit(gpa);
+    var host = makeCtx(io, gpa, &runtime.environ, 71);
+    defer host.deinit();
     host.sink = .{ .buffer = &host_capture };
 
     var listen_parsed = cli.cmd_types.Parsed{ .gpa = gpa };
@@ -369,13 +374,14 @@ test "await queue detaches its vat listener when the partner vanishes mid-wait" 
 
     var listen_args = ListenArgs{ .ctx = &host, .parsed = &listen_parsed };
     var host_future = try io.concurrent(runListen, .{&listen_args});
-    const uri = try waitListenLocator(&host, &host_future, io);
+    defer listen_fixture.stopAndJoin(&host_future, io);
+    const uri = try waitListenLocator(&host);
 
+    var client_capture: std.ArrayList(u8) = .empty;
+    defer client_capture.deinit(gpa);
     var client = makeCtx(io, gpa, &runtime.environ, 72);
     defer client.deinit();
     client.front = .repl;
-    var client_capture: std.ArrayList(u8) = .empty;
-    defer client_capture.deinit(gpa);
     client.sink = .{ .buffer = &client_capture };
 
     client.session = try cli.ocapn.dialUriWithOpts(&client, uri, .{
@@ -451,10 +457,10 @@ test "await queue names a cancel or a timeout only for the wait it ended itself"
     cli.signals.resetForTest();
     defer cli.signals.resetForTest();
 
-    var host = makeCtx(io, gpa, &runtime.environ, 75);
-    defer host.deinit();
     var host_capture: std.ArrayList(u8) = .empty;
     defer host_capture.deinit(gpa);
+    var host = makeCtx(io, gpa, &runtime.environ, 75);
+    defer host.deinit();
     host.sink = .{ .buffer = &host_capture };
 
     var listen_parsed = cli.cmd_types.Parsed{ .gpa = gpa };
@@ -465,13 +471,14 @@ test "await queue names a cancel or a timeout only for the wait it ended itself"
 
     var listen_args = ListenArgs{ .ctx = &host, .parsed = &listen_parsed };
     var host_future = try io.concurrent(runListen, .{&listen_args});
-    const uri = try waitListenLocator(&host, &host_future, io);
+    defer listen_fixture.stopAndJoin(&host_future, io);
+    const uri = try waitListenLocator(&host);
 
+    var client_capture: std.ArrayList(u8) = .empty;
+    defer client_capture.deinit(gpa);
     var client = makeCtx(io, gpa, &runtime.environ, 76);
     defer client.deinit();
     client.front = .repl;
-    var client_capture: std.ArrayList(u8) = .empty;
-    defer client_capture.deinit(gpa);
     client.sink = .{ .buffer = &client_capture };
 
     client.session = try cli.ocapn.dialUriWithOpts(&client, uri, .{
@@ -530,10 +537,10 @@ test "await queue finishes a dropped socket as connection failure" {
     cli.signals.resetForTest();
     defer cli.signals.resetForTest();
 
-    var host = makeCtx(io, gpa, &runtime.environ, 73);
-    defer host.deinit();
     var host_capture: std.ArrayList(u8) = .empty;
     defer host_capture.deinit(gpa);
+    var host = makeCtx(io, gpa, &runtime.environ, 73);
+    defer host.deinit();
     host.sink = .{ .buffer = &host_capture };
 
     var listen_parsed = cli.cmd_types.Parsed{ .gpa = gpa };
@@ -544,13 +551,14 @@ test "await queue finishes a dropped socket as connection failure" {
 
     var listen_args = ListenArgs{ .ctx = &host, .parsed = &listen_parsed };
     var host_future = try io.concurrent(runListen, .{&listen_args});
-    const uri = try waitListenLocator(&host, &host_future, io);
+    defer listen_fixture.stopAndJoin(&host_future, io);
+    const uri = try waitListenLocator(&host);
 
+    var client_capture: std.ArrayList(u8) = .empty;
+    defer client_capture.deinit(gpa);
     var client = makeCtx(io, gpa, &runtime.environ, 74);
     defer client.deinit();
     client.front = .repl;
-    var client_capture: std.ArrayList(u8) = .empty;
-    defer client_capture.deinit(gpa);
     client.sink = .{ .buffer = &client_capture };
 
     client.session = try cli.ocapn.dialUriWithOpts(&client, uri, .{

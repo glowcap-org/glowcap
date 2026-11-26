@@ -10,6 +10,11 @@ publish.workspace = true
 [lints]
 workspace = true
 
+[features]
+# feature test-support: Builds the fault point the session's process tests set.
+# Release and plain debug builds carry none of it.
+test-support = []
+
 [dependencies]
 rooms-application = { path = "../application" }
 rooms-glowcap = { path = "../glowcap" }

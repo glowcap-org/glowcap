@@ -15,7 +15,7 @@ export interface Coordinate {
 /** Whether a parsed receipt value is a coordinate: a named role and held key. */
 export function isCoordinate(raw: unknown): raw is Coordinate {
 	return raw != null && typeof raw === "object" &&
-		typeof (raw as Coordinate).role === "string" && typeof (raw as Coordinate).key === "string";
+		"role" in raw && typeof raw.role === "string" && "key" in raw && typeof raw.key === "string";
 }
 export function coordinate(role: string, key: FieldKey): string {
 	return JSON.stringify({ role, key });
@@ -154,6 +154,10 @@ export interface UseView {
 	status: "active" | "paused" | "revoked" | "outOfScope";
 	effective?: { permissions: RoomsPermission[] };
 }
+/** Whether `access` is active and carries `permission`. */
+export function permitted(access: UseView, permission: RoomsPermission): boolean {
+	return access.status === "active" && access.effective?.permissions.includes(permission) === true;
+}
 export interface ObservationView {
 	cursor: Uint8Array;
 	source: UseView;
@@ -164,6 +168,9 @@ export interface EffectView {
 	operation: string;
 	status: string;
 	resumable: boolean;
+	/** Its source let the receipt go. The session keeps it only to answer a
+	 * second send of the same operation, so it is no open change. */
+	released: boolean;
 }
 /** An archive coordinate as the wire carries it. Mirrors ArchiveCoordinates
  * in lib/archive/protocol.ts, which owns no JSON schema. */
@@ -278,3 +285,6 @@ export interface ActivityPage<Notice = ActivityNotice | null> {
 /** One read of the journal: a page, and the cursor the journal ended at when
  * it was read. */
 export type ActivityRead<Notice = ActivityNotice | null> = ActivityPage<Notice> & { head: string };
+
+/** The saved row that names the access this tab views. */
+export const ACTIVE_VIEW = "active-view";

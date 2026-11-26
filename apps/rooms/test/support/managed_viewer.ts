@@ -1,13 +1,11 @@
 // Controlled product wrappers for managed viewer recovery scenarios.
 import { ManagedRoomsSession } from "../../web/ui/session/managed/session.ts";
 import type { WorkspaceSnapshot } from "../../web/ui/session/managed/model.ts";
+import type { LinkClock } from "../../web/ui/session/managed/link.ts";
+import { bindingHandle, fakeHandle } from "./managed_link.ts";
 import type { RoomsManagedApplication, RoomsManagedWorkspace } from "../../../../zig-out/wasm/rooms/rooms_browser.js";
 export function deferred<T>() {
-	let resolve!: (value: T) => void;
-	const promise = new Promise<T>((done) => {
-		resolve = done;
-	});
-	return { promise, resolve };
+	return Promise.withResolvers<T>();
 }
 export function snapshot(): WorkspaceSnapshot {
 	return {
@@ -35,15 +33,29 @@ export function viewer(
 	report = (_source: string, _error: unknown) => {},
 	applicationMethods: Record<string, unknown> = {},
 	local = true,
+	clock?: LinkClock,
 ) {
-	const application = {
+	// Each workspace a dial returns is a handle of its own, freed on its own.
+	const relink = applicationMethods.relink;
+	const application = fakeHandle<RoomsManagedApplication>({
 		close: () => Promise.resolve(),
 		free() {},
 		...applicationMethods,
-	} as unknown as RoomsManagedApplication;
-	const held = {
-		free() {},
-		...workspace,
-	} as unknown as RoomsManagedWorkspace;
-	return new ManagedRoomsSession(application, held, held, report, local);
+		...(typeof relink === "function"
+			? {
+				relink: async (...args: unknown[]) =>
+					bindingHandle<RoomsManagedWorkspace>(await Reflect.apply(relink, applicationMethods, args)),
+			}
+			: {}),
+	});
+	// The page's workspace and its custody are two handles over one session.
+	const fields = { free() {}, ...workspace };
+	return new ManagedRoomsSession(
+		application,
+		bindingHandle<RoomsManagedWorkspace>(fields),
+		bindingHandle<RoomsManagedWorkspace>(fields),
+		report,
+		local,
+		clock,
+	);
 }

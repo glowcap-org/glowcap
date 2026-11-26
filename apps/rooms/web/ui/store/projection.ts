@@ -144,6 +144,8 @@ export interface State {
 	 * so `document.hidden` is read in exactly one place in the tree (`hooks.ts`). */
 	visible: boolean;
 	returns: number;
+	/** Whether the device reports a network. One subscriber writes it, in `hooks.ts`. */
+	online: boolean;
 	/** Whether the narrow layout is in force. It is state, not a hook's answer,
 	 * because the verbs below have to know which layout a control belongs to. */
 	mobile: boolean;
@@ -317,6 +319,10 @@ export interface State {
 	aboutMember: MemberRef | null;
 	/** The rest of a long refusal, while its card is up. */
 	errorDetail: { title: string; text: string } | null;
+	/** Whether opening this browser's saved session found it in a form this
+	 * version can't read. Only deleting this browser's data clears it, and that
+	 * reloads the page. */
+	savedSessionUnreadable: boolean;
 	/** Whether the card about the conversation on screen is up. */
 	aboutConv: boolean;
 	/** Whether that card opened already asking to leave the conversation. */
@@ -351,6 +357,7 @@ export function initialState(): State {
 		actionRefusals: new Map(),
 		visible: true,
 		returns: 0,
+		online: true,
 		mobile: mobileQuery.matches,
 		drafts: new Map(),
 		lastSent: new Map(),
@@ -399,6 +406,7 @@ export function initialState(): State {
 		aboutDirLeave: false,
 		aboutMember: null,
 		errorDetail: null,
+		savedSessionUnreadable: false,
 		aboutConv: false,
 		aboutConvLeave: false,
 		aboutConvPane: "about",
@@ -478,6 +486,17 @@ export class PageProjection {
 		const state = this.get();
 		if (state.visible === visible) return;
 		this.set({ visible, returns: visible ? state.returns + 1 : state.returns });
+	}
+
+	/** The page was restored from the browser's back-forward cache, which
+	 * counts as a return though the tab never reported being hidden. */
+	noteReturn(): void {
+		this.set({ returns: this.get().returns + 1 });
+	}
+
+	/** Report whether the device has a network. */
+	noteOnline(online: boolean): void {
+		if (this.get().online !== online) this.set({ online });
 	}
 
 	/** Hear about lines this tab is giving up.

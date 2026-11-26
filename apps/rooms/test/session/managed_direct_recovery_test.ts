@@ -1,14 +1,30 @@
 // Reconnection changes live custody, preserving data only for the same peer.
 import { assert, assertEquals } from "../assert.ts";
 import { snapshot, viewer } from "../support/managed_viewer.ts";
-import { ManagedOperation } from "../../web/ui/session/managed/operation.ts";
+import {
+	actionSession,
+	backedOff,
+	closed,
+	FakeClock,
+	fakeHandle,
+	linkedWorkspace,
+	oneLink,
+	operationOf,
+	relinking,
+	request,
+} from "../support/managed_link.ts";
+import { settle, until } from "../support/wait.ts";
+import { browserFailure } from "../support/browser_failure.ts";
+import { ManagedOperation, ResultAcquisitionError } from "../../web/ui/session/managed/operation.ts";
+import { RELEASE_ASK_MS } from "../../web/ui/session/managed/release.ts";
+import type { ManagedNavigation } from "../../web/ui/session/managed/navigation.ts";
 import { completeResult } from "../../web/ui/session/managed/completion.ts";
 import { ManagedActions } from "../../web/ui/session/managed/actions.ts";
 import { cannotSendRegistrationEnded } from "../../lib/text/conversation.ts";
-import { LocalRefusal } from "../../lib/text/failure.ts";
-import type { DirectIntent } from "../../web/ui/session/managed/model.ts";
-import type { ManagedRoomsSession } from "../../web/ui/session/managed/session.ts";
-import type { RoomsManagedCommand } from "../../../../zig-out/wasm/rooms/rooms_browser.js";
+import { failureView, LocalRefusal } from "../../lib/text/failure.ts";
+import { LOCAL_REFUSALS } from "../../lib/text/local_refusals.ts";
+import { RUNNING_BOUND_MS } from "../../lib/limits.ts";
+import type { DirectIntent, WorkspaceSnapshot } from "../../web/ui/session/managed/model.ts";
 import type { ConversationOpening } from "../../web/ui/session/managed/openings.ts";
 import { acquireDirect } from "../../web/ui/session/managed/direct.ts";
 
@@ -46,15 +62,26 @@ function saved() {
 	current.intent.active = row.id;
 	return current;
 }
+/** The direct row at `at` in `current`. */
+function direct(current: WorkspaceSnapshot, at = 0): DirectIntent {
+	const row = current.intent.conversations.at(at);
+	assert(row?.kind === "direct", "the row is a direct conversation");
+	return row;
+}
+/** The introduction `row` was opened under, which every saved row holds. */
+function introduction(row: DirectIntent): NonNullable<DirectIntent["introduction"]> {
+	assert(row.introduction != null, "the row holds its introduction");
+	return row.introduction;
+}
 
 for (const change of ["none", "draft", "source", "removed", "peer"] as const) {
 	Deno.test(`direct reconnect adoption preserves data and fences ${change} during conflict`, async () => {
 		const current = saved();
 		if (change === "peer") {
-			(current.intent.conversations[0] as DirectIntent).introduction!.registration = "different-peer";
+			introduction(direct(current)).registration = "different-peer";
 		}
 		let preparations = 0;
-		const operation = new ManagedOperation("reconnect", {
+		const operation = operationOf("reconnect", {
 			result: () => Promise.resolve({ inbox: "new-route" }),
 			adopted: () => Promise.resolve(false),
 			originalIntent:
@@ -77,7 +104,7 @@ for (const change of ["none", "draft", "source", "removed", "peer"] as const) {
 				});
 			},
 			free() {},
-		} as unknown as RoomsManagedCommand);
+		});
 		const session = viewer({ snapshot: () => Promise.resolve(current) });
 		try {
 			const [outcome] = await Promise.allSettled([completeResult(session, operation)]);
@@ -88,7 +115,7 @@ for (const change of ["none", "draft", "source", "removed", "peer"] as const) {
 			} else {
 				assertEquals(outcome.status, "fulfilled");
 				assertEquals(current.intent.conversations.length, change === "peer" ? 2 : 1);
-				const row = current.intent.conversations.at(-1) as DirectIntent;
+				const row = direct(current, -1);
 				assertEquals(
 					[row.id, row.draft],
 					change === "peer"
@@ -111,28 +138,20 @@ Deno.test("direct reconnect refuses a reused name before introduction", async ()
 	const current = saved();
 	let freed = 0;
 	let introduced = 0;
-	const session = {
-		execute: async (
-			_id: string,
-			prepare: () => Promise<ManagedOperation>,
-			complete: (op: ManagedOperation) => Promise<void>,
-			continuation?: { settled(): Promise<void> },
-		) => {
-			await complete(await prepare());
-			await continuation?.settled();
-		},
-		refresh: () => Promise.resolve(current),
-		workspace: {
-			directoryReader: () =>
-				Promise.resolve({ memberRegistration: () => Promise.resolve("different-peer"), free: () => freed++ }),
-		},
+	const workspace = {
+		directoryReader: () =>
+			Promise.resolve({ memberRegistration: () => Promise.resolve("different-peer"), free: () => freed++ }),
+	};
+	const session = actionSession(workspace, {
+		readBeforeSending: () => Promise.resolve(current),
+		readNow: () => Promise.resolve(current),
 		command: () => {
 			introduced++;
 			throw new Error("unexpected introduction");
 		},
-	} as unknown as ManagedRoomsSession;
+	});
 	const [outcome] = await Promise.allSettled([
-		new ManagedActions(session).direct("directory", "bob", false, "peer-registration"),
+		new ManagedActions(session, oneLink(workspace)).direct("directory", "bob", false, "peer-registration"),
 	]);
 	assertEquals(outcome.status, "rejected");
 	if (outcome.status === "rejected") {
@@ -146,43 +165,38 @@ Deno.test("direct action returns the adopted conversation identity after reconne
 	const current = saved();
 	let opening = "";
 	const selected: string[] = [];
-	const session = {
-		execute: async (
-			_id: string,
-			prepare: () => Promise<ManagedOperation>,
-			complete: (op: ManagedOperation) => Promise<void>,
-			continuation?: { settled(): Promise<void> },
-		) => {
-			await complete(await prepare());
-			await continuation?.settled();
-		},
-		refresh: () => Promise.resolve(current),
-		workspace: {
-			directoryReader: () =>
-				Promise.resolve({ memberRegistration: () => Promise.resolve("peer-registration"), free() {} }),
-		},
+	const workspace = {
+		directoryReader: () =>
+			Promise.resolve({ memberRegistration: () => Promise.resolve("peer-registration"), free() {} }),
+	};
+	const session = actionSession(workspace, {
+		readBeforeSending: () => Promise.resolve(current),
+		readNow: () => Promise.resolve(current),
 		command: (_name: string, args: string[]) => {
 			opening = args[3];
-			return Promise.resolve({
+			return Promise.resolve(fakeHandle<ManagedOperation>({
 				id: "receipt",
 				result: () => Promise.resolve({ inbox: "route" }),
-			});
+			}));
 		},
 		completeResult: () => {
-			const row = current.intent.conversations[0] as DirectIntent;
+			const row = direct(current);
 			row.closed = false;
 			row.access = "route";
-			row.introduction!.opening = opening;
+			introduction(row).opening = opening;
 			return Promise.resolve();
 		},
-		navigation: {
-			select: (id: string) => {
+		navigation: fakeHandle<ManagedNavigation>({
+			selectAfterCommit: (id: string) => {
 				selected.push(id);
 				return Promise.resolve();
 			},
-		},
-	} as unknown as ManagedRoomsSession;
-	assertEquals(await new ManagedActions(session).direct("directory", "bob", true, "peer-registration"), "saved");
+		}),
+	});
+	assertEquals(
+		await new ManagedActions(session, oneLink(workspace)).direct("directory", "bob", true, "peer-registration"),
+		"saved",
+	);
 	assertEquals(selected, ["saved"]);
 });
 
@@ -191,11 +205,11 @@ Deno.test("direct action returns the adopted conversation identity after reconne
  * route yet. This session opened it when it holds the member's route. */
 function open(opener: "member" | "session") {
 	const current = saved();
-	const row = current.intent.conversations[0] as DirectIntent;
+	const row = direct(current);
 	row.closed = false;
 	row.peer = "Bob";
 	if (opener === "session") row.access = "old-route";
-	else row.introduction!.opening = "their-opening";
+	else introduction(row).opening = "their-opening";
 	return current;
 }
 
@@ -204,7 +218,7 @@ for (const opener of ["member", "session"] as const) {
 		const current = open(opener);
 		const before = structuredClone(current.intent);
 		let released = 0;
-		const operation = new ManagedOperation("again", {
+		const operation = operationOf("again", {
 			result: () => Promise.resolve({ inbox: "surplus-route" }),
 			adopted: () => Promise.resolve(false),
 			originalIntent: () => ["again", 1, "startDirect", ["directory", "bob", "peer-registration", "new-opening"]],
@@ -213,10 +227,10 @@ for (const opener of ["member", "session"] as const) {
 			},
 			release: () => {
 				released++;
-				return Promise.resolve();
+				return Promise.resolve("released");
 			},
 			free() {},
-		} as unknown as RoomsManagedCommand);
+		});
 		const session = viewer({ snapshot: () => Promise.resolve(current) });
 		try {
 			await completeResult(session, operation);
@@ -231,56 +245,276 @@ for (const opener of ["member", "session"] as const) {
 	Deno.test(`a direct action reaches the row the ${opener} opened after the directory registers again`, async () => {
 		const current = open(opener);
 		let introduced = 0;
-		const session = {
-			refresh: () => Promise.resolve(current),
-			workspace: {
-				directoryReader: () =>
-					Promise.resolve({ memberRegistration: () => Promise.resolve("peer-registration"), free() {} }),
-			},
+		const session = actionSession({
+			directoryReader: () =>
+				Promise.resolve({ memberRegistration: () => Promise.resolve("peer-registration"), free() {} }),
+		}, {
+			readBeforeSending: () => Promise.resolve(current),
+			readNow: () => Promise.resolve(current),
 			command: () => {
 				introduced++;
 				throw new Error("unexpected introduction");
 			},
-		} as unknown as ManagedRoomsSession;
+		});
 		assertEquals(await acquireDirect(session, "directory", "bob"), "saved");
 		assertEquals(introduced, 0);
 	});
 }
 
+/** A route given back to the row the member opened, whose session answers
+ * each release with the next of `answers`. */
+function givenBack(answers: unknown[]) {
+	const current = open("member");
+	const asks: unknown[] = [];
+	const operation = operationOf("again", {
+		result: () => Promise.resolve({ inbox: "surplus-route" }),
+		adopted: () => Promise.resolve(false),
+		originalIntent: () => ["again", 1, "startDirect", ["directory", "bob", "peer-registration", "new-opening"]],
+		prepareResultAcquisition: () => {
+			throw new Error("a second open row was prepared");
+		},
+		release: () => {
+			asks.push(answers[asks.length]);
+			return Promise.resolve(answers[asks.length - 1]);
+		},
+		free() {},
+	});
+	const clock = new FakeClock();
+	const session = viewer({ snapshot: () => Promise.resolve(current) }, undefined, {}, true, clock);
+	return { current, before: structuredClone(current.intent), asks, operation, session, clock };
+}
+
+Deno.test("a direct route given back while its job runs is released once the job ends", async () => {
+	const { current, before, asks, operation, session, clock } = givenBack(["running", "released"]);
+	try {
+		let done = false;
+		const completing = completeResult(session, operation).then(() => {
+			done = true;
+		});
+		await until(() => asks.length === 1, "the first release");
+		await settle();
+		assertEquals(done, false);
+		clock.advance(RELEASE_ASK_MS);
+		await completing;
+		assertEquals([asks, operation.acquired], [["running", "released"], false]);
+		assertEquals(current.intent, before);
+	} finally {
+		await operation.close();
+		await session.close();
+	}
+});
+
+Deno.test("a direct route given back while its job runs past the bound fails as still running", async () => {
+	const { asks, operation, session, clock } = givenBack(Array(RUNNING_BOUND_MS / RELEASE_ASK_MS + 1).fill("running"));
+	try {
+		const completing = Promise.allSettled([completeResult(session, operation)]);
+		for (let waited = 0; waited < RUNNING_BOUND_MS; waited += RELEASE_ASK_MS) {
+			await settle();
+			clock.advance(RELEASE_ASK_MS);
+		}
+		const [outcome] = await completing;
+		assert(outcome.status === "rejected", "a release past the bound was taken as released");
+		assert(outcome.reason instanceof ResultAcquisitionError, String(outcome.reason));
+		assertEquals(outcome.reason.stage, "release-effect");
+		assert(LocalRefusal.is(outcome.reason, "result-still-running"), outcome.reason.code);
+		assert(LocalRefusal.is(outcome.reason.cause, "result-still-running"), String(outcome.reason.cause));
+		assertEquals(failureView(outcome.reason).summary, LOCAL_REFUSALS["result-still-running"].summary);
+		assertEquals(
+			outcome.reason.message,
+			LOCAL_REFUSALS["result-still-running"].summary,
+		);
+		assertEquals(asks.length, RUNNING_BOUND_MS / RELEASE_ASK_MS + 1);
+		assert(operation.acquired === false, "the held record was consumed");
+	} finally {
+		await operation.close();
+		await session.close();
+	}
+});
+
+/** A direct route given back while its job runs: each link's workspace holds
+ * its receipt, committed, and answers each ask of its release with `answer`,
+ * which `asks` records by the link's name. A link in `cut` lost its
+ * connection, so an ask over it fails and is not recorded. */
+function runningRoute() {
+	const current = open("member");
+	const asks: string[] = [];
+	const route = { asks, answer: "running", cut: new Set<string>() };
+	const intent = ["again", 1, "startDirect", ["directory", "bob", "peer-registration", "new-opening"]];
+	const receipt = (name: string) => ({
+		status: () => Promise.resolve("committed"),
+		resume: () => Promise.resolve("committed"),
+		result: () => Promise.resolve({ inbox: "surplus-route" }),
+		adopted: () => Promise.resolve(false),
+		originalIntent: () => intent,
+		prepareResultAcquisition: () => {
+			throw new Error("a second open row was prepared");
+		},
+		release: () => {
+			if (route.cut.has(name)) return Promise.reject(closed());
+			route.asks.push(name);
+			return Promise.resolve(route.answer);
+		},
+		free() {},
+	});
+	const over = (name: string) =>
+		linkedWorkspace(name, [], {
+			snapshot: () => Promise.resolve(current),
+			recoverEffect: () => Promise.resolve(receipt(name)),
+		});
+	/** Send the route over the first link and complete it, as Finish does. */
+	const complete = (session: ReturnType<typeof viewer>) =>
+		Promise.allSettled([
+			session.execute(
+				"again",
+				() =>
+					session.perform("again", () =>
+						Promise.resolve(Object.assign(
+							request(
+								() => Promise.resolve({ status: "committed" }),
+								() => Promise.resolve("committed"),
+								intent,
+							),
+							receipt("first"),
+						))),
+				(operation) => completeResult(session, operation).then(() => {}),
+			),
+		]);
+	return { route, over, complete };
+}
+
+Deno.test("a direct route given back while its job runs keeps one bound across two relinks", async () => {
+	const { route, over, complete } = runningRoute();
+	const asks = route.asks;
+	const [first, second, third] = [over("first"), over("second"), over("third")];
+	const { session, clock, dials } = relinking(first.workspace, second.workspace, { third: third.workspace });
+	await session.start();
+	const completing = complete(session);
+	/** Wait `asks` more asks of the running release, a pace apart. */
+	const paced = async (more: number) => {
+		const until = asks.length + more;
+		while (asks.length < until) {
+			await settle();
+			clock.advance(RELEASE_ASK_MS);
+		}
+	};
+	const relinked = async (link: { lose(error?: Error): void }, dialed: number) => {
+		link.lose(closed());
+		// A link lost soon after the last one waits out its back-off first.
+		if (dialed > 1) await backedOff(session, clock);
+		await until(() => dials() === dialed && session.link?.live === true, `link ${dialed + 1}`);
+	};
+	await until(() => asks.length === 1, "the first release");
+	const began = clock.now();
+	await paced(2);
+	await relinked(first, 1);
+	await paced(2);
+	await relinked(second, 2);
+	// Pace on until the release ends, and no further than twice its bound.
+	let ended = false;
+	void completing.then(() => {
+		ended = true;
+	});
+	for (let tick = 0; tick < 2 * RUNNING_BOUND_MS / RELEASE_ASK_MS; tick++) {
+		await settle();
+		if (ended) break;
+		clock.advance(RELEASE_ASK_MS);
+	}
+	const [outcome] = await completing;
+	assert(outcome.status === "rejected", "a release past its bound was taken as released");
+	assert(LocalRefusal.is(outcome.reason, "result-still-running"), String(outcome.reason));
+	assertEquals([asks.includes("second"), asks.at(-1)], [true, "third"], "each link was asked");
+	// The clock also ran through the second relink's back-off.
+	const ran = clock.now() - began;
+	assert(
+		ran >= RUNNING_BOUND_MS && ran < RUNNING_BOUND_MS + RELEASE_ASK_MS,
+		`the bound began at the first running answer, on the first link, and ended ${ran} ms later`,
+	);
+	// Finish asks again with a bound of its own, and the job has ended.
+	route.answer = "released";
+	const before = asks.length;
+	await session.completeOperation("again");
+	assertEquals(asks.slice(before), ["third"], "Finish asks the session again");
+	await session.close();
+});
+
+Deno.test("a direct route's release bound ends with a gesture whose link was refused, so Finish later asks again", async () => {
+	const { route, over, complete } = runningRoute();
+	const [first, second] = [over("first"), over("second")];
+	let dials = 0;
+	// The first dial after the drop is refused, and only Try now dials again.
+	const relink = () =>
+		++dials === 1
+			? Promise.reject(browserFailure(-12, "the saved access was revoked", "session-restoration-failed"))
+			: Promise.resolve(second.workspace);
+	const clock = new FakeClock();
+	const session = viewer(first.workspace, undefined, { relink }, false, clock);
+	await session.start();
+	const completing = complete(session);
+	await until(() => route.asks.length === 1, "the first release");
+	route.cut.add("first");
+	first.lose(closed());
+	// The next ask goes over the lost connection.
+	await until(() => session.link?.state.kind === "refused", "the refused dial");
+	clock.advance(RELEASE_ASK_MS);
+	const [outcome] = await completing;
+	assert(outcome.status === "rejected", "the gesture ends with its link");
+	assertEquals(route.asks, ["first"], "the lost connection asked nothing more");
+	// Long after the first running answer, the person reaches the session again
+	// and presses Finish, and the job has ended.
+	clock.advance(2 * RUNNING_BOUND_MS);
+	session.link?.tryNow();
+	await until(() => session.link?.live === true, "the link Try now dialed");
+	route.answer = "released";
+	const before = route.asks.length;
+	await session.completeOperation("again");
+	assertEquals(route.asks.slice(before), ["second"], "Finish asks the session again");
+	await session.close();
+});
+
+Deno.test("a direct route given back with an unknown release answer holds its result with that cause", async () => {
+	const { asks, operation, session } = givenBack(["paused"]);
+	try {
+		const [outcome] = await Promise.allSettled([completeResult(session, operation)]);
+		assert(outcome.status === "rejected", "an unknown release answer was taken as released");
+		assert(outcome.reason instanceof ResultAcquisitionError, String(outcome.reason));
+		assertEquals(outcome.reason.stage, "release-effect");
+		assert(LocalRefusal.is(outcome.reason.cause, "release-unconfirmed"), String(outcome.reason.cause));
+		assertEquals(outcome.reason.cause.cause, 'the session answered a release with "paused"');
+		assertEquals(asks.length, 1);
+	} finally {
+		await operation.close();
+		await session.close();
+	}
+});
+
 Deno.test("an opening whose route was given back does not own the row it reaches", async () => {
 	const current = saved();
 	const acquired: string[] = [];
-	const session = {
-		execute: async (
-			_id: string,
-			prepare: () => Promise<ManagedOperation>,
-			complete: (op: ManagedOperation) => Promise<void>,
-			continuation?: { settled(): Promise<void> },
-		) => {
-			await complete(await prepare());
-			await continuation?.settled();
-		},
-		refresh: () => Promise.resolve(current),
-		workspace: {
-			directoryReader: () =>
-				Promise.resolve({ memberRegistration: () => Promise.resolve("peer-registration"), free() {} }),
-		},
-		command: () => Promise.resolve({ id: "receipt", result: () => Promise.resolve({ inbox: "route" }) }),
+	const session = actionSession({
+		directoryReader: () =>
+			Promise.resolve({ memberRegistration: () => Promise.resolve("peer-registration"), free() {} }),
+	}, {
+		readBeforeSending: () => Promise.resolve(current),
+		readNow: () => Promise.resolve(current),
+		command: () =>
+			Promise.resolve(
+				fakeHandle<ManagedOperation>({ id: "receipt", result: () => Promise.resolve({ inbox: "route" }) }),
+			),
 		// The member opened the conversation while this command ran, so the
 		// route went back and the row keeps the member's opening.
 		completeResult: () => {
-			const row = current.intent.conversations[0] as DirectIntent;
+			const row = direct(current);
 			row.closed = false;
-			row.introduction!.opening = "their-opening";
+			introduction(row).opening = "their-opening";
 			return Promise.resolve();
 		},
-	} as unknown as ManagedRoomsSession;
-	const opening = {
+	});
+	const opening = fakeHandle<ConversationOpening>({
 		acquired: (id: string) => {
 			acquired.push(id);
 			return Promise.resolve();
 		},
-	} as unknown as ConversationOpening;
+	});
 	assertEquals(await acquireDirect(session, "directory", "bob", undefined, opening), "saved");
 	assertEquals(acquired, []);
 });

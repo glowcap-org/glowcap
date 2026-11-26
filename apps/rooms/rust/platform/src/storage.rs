@@ -5,7 +5,8 @@ use std::{
 	fmt,
 	fs::{self, File, OpenOptions},
 	io::{self, Read},
-	path::PathBuf,
+	path::{Path, PathBuf},
+	time::{Duration, Instant},
 };
 pub mod atomic;
 pub mod session;
@@ -54,8 +55,45 @@ pub struct Directory {
 	pub(crate) directory: File,
 }
 
+/// A reader's shared hold on a lease: it fails only against the exclusive
+/// holder, never against another reader, and it keeps an exclusive taker
+/// waiting only while the reader reads. Dropping it releases the hold.
+pub struct Reading {
+	_lock: Option<File>,
+}
+
+impl Reading {
+	/// Ask whether `lock_name` in `path` is held exclusively, without creating
+	/// anything. `Ok(Some)` means nobody holds it, and the reader keeps the
+	/// shared hold while it reads what the holder would have written. A lease
+	/// file that does not exist is held by nobody. `Ok(None)` means an
+	/// exclusive holder, such as a running service.
+	pub fn begin(path: &Path, lock_name: &str) -> Result<Option<Self>, StorageError> {
+		let file = match OpenOptions::new().read(true).open(path.join(lock_name)) {
+			Ok(file) => file,
+			Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(Some(Self { _lock: None })),
+			Err(e) => return Err(e.into()),
+		};
+		match file.try_lock_shared() {
+			Ok(()) => Ok(Some(Self { _lock: Some(file) })),
+			Err(fs::TryLockError::WouldBlock) => Ok(None),
+			Err(fs::TryLockError::Error(e)) => Err(e.into()),
+		}
+	}
+}
+
 impl Directory {
 	pub fn open(path: PathBuf, lock_name: &str) -> Result<Self, StorageError> {
+		Self::open_within(path, lock_name, Duration::ZERO)
+	}
+
+	/// [`Directory::open`] that waits up to `wait` for a lease held only
+	/// briefly, such as by a [`Reading`], before answering `InUse`. The wait is
+	/// bounded, so a holder that stays is refused at the end of it. A waiting
+	/// taker has no priority over readers, so only readers that follow one
+	/// another with no gap for the whole bound keep it out, and a reader holds
+	/// for one small read.
+	pub fn open_within(path: PathBuf, lock_name: &str, wait: Duration) -> Result<Self, StorageError> {
 		let path = std::path::absolute(path)?;
 		let mut missing = Vec::new();
 		let mut ancestor = path.as_path();
@@ -101,14 +139,17 @@ impl Directory {
 			options.mode(0o600);
 		}
 		let lock = options.open(path.join(lock_name))?;
-		lock.try_lock().map_err(|e| {
-			let error = io::Error::from(e);
-			if error.kind() == io::ErrorKind::WouldBlock {
-				StorageError::InUse(path.clone())
-			} else {
-				StorageError::Io(error)
+		let until = Instant::now() + wait;
+		loop {
+			match lock.try_lock() {
+				Ok(()) => break,
+				Err(fs::TryLockError::WouldBlock) if Instant::now() < until => {
+					std::thread::sleep(Duration::from_millis(5));
+				}
+				Err(fs::TryLockError::WouldBlock) => return Err(StorageError::InUse(path.clone())),
+				Err(fs::TryLockError::Error(e)) => return Err(e.into()),
 			}
-		})?;
+		}
 		let owner = Self {
 			path,
 			directory,

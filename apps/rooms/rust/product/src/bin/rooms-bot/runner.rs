@@ -25,17 +25,21 @@ use std::{
 };
 use tokio::{
 	io::{AsyncBufRead, AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader},
-	process::Command,
+	process::{Child, ChildStdout, Command},
 	sync::watch,
+	task::JoinHandle,
 	time::{Instant, sleep, sleep_until, timeout},
 };
 
+/// Starts the failure for an agent program that did not start.
+const COULD_NOT_START: &str = "could not start";
 /// The longest stdout line the runner reads. A longer line is skipped whole.
 const MAX_LINE_BYTES: usize = 4 * 1024 * 1024;
 /// How much of the end of stderr a failure keeps.
 const STDERR_TAIL_BYTES: usize = 4096;
 /// How long a harness that closed stdout may take to exit before it is killed.
 const EXIT_GRACE: Duration = Duration::from_secs(5);
+/// How long the stderr reader may take to finish after the harness exits.
 const STDERR_GRACE: Duration = Duration::from_secs(2);
 /// How long a harness that has given its final answer may keep its output open
 /// before its group is ended and the answer is taken, so a process it left
@@ -45,7 +49,7 @@ const ANSWER_GRACE: Duration = Duration::from_secs(3);
 /// so twice that leaves room for the breaks the split drops.
 pub const MAX_ANSWER_BYTES: usize = 2 * MAX_PARTS * MAX_REPLY_LINE_BYTES;
 /// The longest session id the runner accepts from a harness.
-pub const MAX_SESSION_BYTES: usize = 128;
+pub const MAX_SESSION_ID_BYTES: usize = 128;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Finish {
@@ -77,9 +81,6 @@ pub enum Heard {
 pub struct Ran {
 	pub finish: Finish,
 	pub heard: Heard,
-	/// What the agent itself said failed, when it said. This is the agent's
-	/// own text, so it is cleaned before a person reads it.
-	pub cause: Option<String>,
 	/// The harness session to resume, when the harness named one.
 	pub session: Option<String>,
 	/// What the runner refused or cut from the harness's output, for the log.
@@ -97,7 +98,7 @@ pub struct Place<'a> {
 /// Whether a session id is one the bot stores and hands back on a command line.
 fn plausible_session(id: &str) -> bool {
 	!id.is_empty()
-		&& id.len() <= MAX_SESSION_BYTES
+		&& id.len() <= MAX_SESSION_ID_BYTES
 		&& !id.starts_with('-')
 		&& id.bytes().all(|byte| byte.is_ascii_graphic())
 }
@@ -113,6 +114,9 @@ fn cut_to(text: &mut String, limit: usize) -> bool {
 
 enum Stop {
 	Eof,
+	/// The leader exited without an answer, and a process it left behind
+	/// held its output open past [`EXIT_GRACE`].
+	Exited,
 	/// The harness gave its final answer and held its output open past
 	/// [`ANSWER_GRACE`].
 	Answered,
@@ -139,8 +143,9 @@ impl Fold {
 		}
 	}
 
-	fn bounded(&mut self, mut text: String) -> String {
-		if cut_to(&mut text, MAX_ANSWER_BYTES) {
+	/// `text` cut to `room` bytes, noting the cut once.
+	fn bounded(&mut self, mut text: String, room: usize) -> String {
+		if cut_to(&mut text, room) {
 			self.note("the harness's answer was cut to the size a reply can post");
 		}
 		text
@@ -157,15 +162,11 @@ impl Fold {
 			Signal::Session(_) => self.note("the harness named a session id the bot does not accept"),
 			Signal::Activity => {}
 			Signal::Text(text) if self.delta => {
-				let room = MAX_ANSWER_BYTES.saturating_sub(self.text.len());
-				let mut text = text;
-				if cut_to(&mut text, room) {
-					self.note("the harness's answer was cut to the size a reply can post");
-				}
+				let text = self.bounded(text, MAX_ANSWER_BYTES.saturating_sub(self.text.len()));
 				self.text.push_str(&text);
 			}
-			Signal::Text(text) => self.text = self.bounded(text),
-			Signal::Final(answer) => self.answer = Some(self.bounded(answer)),
+			Signal::Text(text) => self.text = self.bounded(text, MAX_ANSWER_BYTES),
+			Signal::Final(answer) => self.answer = Some(self.bounded(answer, MAX_ANSWER_BYTES)),
 			Signal::Failure(kind, mut detail) => {
 				cut_to(&mut detail, STDERR_TAIL_BYTES);
 				self.failure.get_or_insert((kind, detail));
@@ -315,34 +316,48 @@ async fn exited(leader: u32, grace: Duration) -> bool {
 	}
 }
 
-pub async fn run(
-	harness: &dyn Harness,
-	invocation: Invocation,
+/// A harness started in its own recorded group, with its stdout and its
+/// stderr tail being read.
+struct Launched {
+	stdout: ChildStdout,
+	watched: Watched,
+}
+
+/// What ends with the invocation: the process, its group, and the stderr tail.
+struct Watched {
+	child: Child,
+	leader: u32,
+	group: Group,
+	tail: JoinHandle<String>,
+}
+
+/// Start the harness, or the finished [`Ran`] that says it could not start or
+/// was never to. The one error is a group that cannot be recorded, and the
+/// harness has not been given its prompt by then.
+fn launch(
+	invocation: &mut Invocation,
 	place: &Place<'_>,
-	deadline: Duration,
-	shutdown: &mut watch::Receiver<bool>,
-) -> Result<Ran, Error> {
+	shutdown: &watch::Receiver<bool>,
+) -> Result<Result<Launched, Ran>, Error> {
 	let failed = |detail: String| Ran {
 		finish: Finish::Failed(FailureKind::Crash, detail),
 		heard: Heard::NeverRan,
-		cause: None,
 		session: None,
 		notes: Vec::new(),
 	};
 	if *shutdown.borrow() {
-		return Ok(Ran {
+		return Ok(Err(Ran {
 			finish: Finish::Cancelled,
 			heard: Heard::NeverRan,
-			cause: None,
 			session: None,
 			notes: Vec::new(),
-		});
+		}));
 	}
 	if let Err(reason) = prepare(&invocation.prepare) {
-		return Ok(failed(format!(
+		return Ok(Err(failed(format!(
 			"could not prepare {}: {reason}",
 			invocation.program.to_string_lossy()
-		)));
+		))));
 	}
 	let mut command = Command::new(&invocation.program);
 	command
@@ -357,14 +372,14 @@ pub async fn run(
 	let mut child = match command.spawn() {
 		Ok(child) => child,
 		Err(error) => {
-			return Ok(failed(format!(
-				"could not start {}: {error}",
+			return Ok(Err(failed(format!(
+				"{COULD_NOT_START} {}: {error}",
 				invocation.program.to_string_lossy()
-			)));
+			))));
 		}
 	};
 	let Some(leader) = child.id() else {
-		return Ok(failed("the harness exited before it could be watched".into()));
+		return Ok(Err(failed("the harness exited before it could be watched".into())));
 	};
 	let stdout = child
 		.stdout
@@ -375,7 +390,7 @@ pub async fn run(
 	// and the harness has not been given its prompt by then.
 	let group = Group::record(place.groups, place.record, leader)?;
 	let stdin = child.stdin.take();
-	if let (Some(mut stdin), Some(prompt)) = (stdin, invocation.stdin) {
+	if let (Some(mut stdin), Some(prompt)) = (stdin, invocation.stdin.take()) {
 		tokio::spawn(async move {
 			// best-effort: a harness that exits before reading its prompt reports
 			// that through its exit status, which the turn already classifies.
@@ -383,10 +398,12 @@ pub async fn run(
 		});
 	}
 	let stderr = child.stderr.take();
-	let mut tail = tokio::spawn(async move {
+	let tail = tokio::spawn(async move {
 		let mut kept = Vec::new();
 		if let Some(mut stderr) = stderr {
 			let mut chunk = [0u8; 4096];
+			// tolerant: the tail is advice for the failure line, so a read error
+			// ends it with what was read before it.
 			while let Ok(count) = stderr.read(&mut chunk).await {
 				if count == 0 {
 					break;
@@ -399,6 +416,28 @@ pub async fn run(
 		}
 		String::from_utf8_lossy(&kept).into_owned()
 	});
+	Ok(Ok(Launched {
+		stdout,
+		watched: Watched {
+			child,
+			leader,
+			group,
+			tail,
+		},
+	}))
+}
+
+pub async fn run(
+	harness: &dyn Harness,
+	mut invocation: Invocation,
+	place: &Place<'_>,
+	deadline: Duration,
+	shutdown: &mut watch::Receiver<bool>,
+) -> Result<Ran, Error> {
+	let Launched { stdout, watched } = match launch(&mut invocation, place, shutdown)? {
+		Ok(launched) => launched,
+		Err(ran) => return Ok(ran),
+	};
 	let mut fold = Fold {
 		engaged: false,
 		delta: harness.text_is_delta(),
@@ -413,6 +452,9 @@ pub async fn run(
 	let mut lines = Lines::default();
 	let ends = Instant::now() + deadline;
 	let mut grace: Option<Instant> = None;
+	// When the leader exited, the output it left may still drain until then.
+	let mut drained: Option<Instant> = None;
+	let leader = watched.leader;
 	let mut read_error = None;
 	let stop = loop {
 		tokio::select! {
@@ -420,6 +462,12 @@ pub async fn run(
 			() = stopping(shutdown) => break Stop::Shutdown,
 			() = sleep_until(ends) => break Stop::Deadline,
 			() = sleep_until(grace.unwrap_or(ends)), if grace.is_some() => break Stop::Answered,
+			() = sleep_until(drained.unwrap_or(ends)), if drained.is_some() && grace.is_none() => break Stop::Exited,
+			exited = exited(leader, deadline), if drained.is_none() => {
+				if exited {
+					drained = Some(Instant::now() + EXIT_GRACE);
+				}
+			}
 			read = lines.next(&mut stdout) => match read {
 				Ok(Some(text)) => {
 					harness.read(&text).into_iter().for_each(|signal| fold.apply(signal));
@@ -435,13 +483,51 @@ pub async fn run(
 			},
 		}
 	};
-	if lines.skipped > 0 || lines.skipping {
+	Ok(conclude(
+		harness,
+		fold,
+		Heardout {
+			long_line: lines.skipped > 0 || lines.skipping,
+			read_error,
+		},
+		stop,
+		watched,
+		asked,
+	)
+	.await)
+}
+
+/// How a harness's output ended, besides how the loop stopped.
+struct Heardout {
+	/// A line longer than the runner reads was skipped.
+	long_line: bool,
+	/// The read that failed, when one did.
+	read_error: Option<String>,
+}
+
+/// End the harness's group, reap it, and decide how the invocation finished.
+async fn conclude(
+	harness: &dyn Harness,
+	mut fold: Fold,
+	heard_out: Heardout,
+	stop: Stop,
+	watched: Watched,
+	asked: Option<String>,
+) -> Ran {
+	let Heardout { long_line, read_error } = heard_out;
+	let Watched {
+		mut child,
+		leader,
+		group,
+		mut tail,
+	} = watched;
+	if long_line {
 		fold.note("the harness wrote a line longer than the runner reads, and it was skipped");
 	}
 	if let Some(error) = &read_error {
 		fold.note(error);
 	}
-	if matches!(stop, Stop::Eof) {
+	if matches!(stop, Stop::Eof | Stop::Exited) {
 		exited(leader, EXIT_GRACE).await;
 	}
 	// The group is ended before the leader is reaped, so its id cannot have
@@ -450,7 +536,7 @@ pub async fn run(
 		fold.note(&format!("the harness group could not be ended: {error}"));
 	}
 	let code = match child.wait().await {
-		Ok(status) if matches!(stop, Stop::Eof) => status.code(),
+		Ok(status) if matches!(stop, Stop::Eof | Stop::Exited) => status.code(),
 		Ok(_) => None,
 		Err(error) => {
 			fold.note(&format!("waiting for the harness failed: {error}"));
@@ -462,7 +548,13 @@ pub async fn run(
 	}
 	let tail = match timeout(STDERR_GRACE, &mut tail).await {
 		Ok(Ok(text)) => text,
-		Ok(Err(_)) | Err(_) => {
+		Ok(Err(error)) => {
+			fold.note(&format!("reading the harness's error output failed: {error}"));
+			String::new()
+		}
+		Err(_) => {
+			// tolerant: a process the harness left behind may hold its error
+			// output open, so after the grace the line goes without the tail.
 			tail.abort();
 			String::new()
 		}
@@ -470,12 +562,11 @@ pub async fn run(
 	let session = fold.session.clone();
 	let notes = fold.notes.clone();
 	let heard = if fold.engaged { Heard::Engaged } else { Heard::Silent };
-	let cause = fold.failure.as_ref().map(|(_, detail)| detail.clone());
 	let finish = match stop {
 		Stop::Shutdown => Finish::Cancelled,
 		Stop::Deadline if fold.answer.is_none() => Finish::TimedOut,
 		Stop::Deadline | Stop::Answered => decide(harness, fold, code, &tail, asked.as_deref()),
-		Stop::Eof => match decide(harness, fold, code, &tail, asked.as_deref()) {
+		Stop::Eof | Stop::Exited => match decide(harness, fold, code, &tail, asked.as_deref()) {
 			Finish::Failed(kind, detail) => match read_error {
 				Some(error) => Finish::Failed(kind, format!("{detail} ({error})")),
 				None => Finish::Failed(kind, detail),
@@ -483,13 +574,12 @@ pub async fn run(
 			finish => finish,
 		},
 	};
-	Ok(Ran {
+	Ran {
 		finish,
 		heard,
-		cause,
 		session,
 		notes,
-	})
+	}
 }
 
 #[cfg(test)]

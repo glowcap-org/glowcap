@@ -3,7 +3,7 @@
 //! fields, so they ask the receipt the same questions in one place. Only the
 //! sentence naming a silent receipt differs between them.
 use super::results::observed;
-use super::{Caller, Deadline, EffectStatus, Error};
+use super::{Caller, Deadline, EffectStatus, Error, Release};
 use glowcap::{Argument, Ref, loam};
 
 pub(super) struct EffectObserver<'a, D> {
@@ -58,6 +58,19 @@ impl<D: Deadline> EffectObserver<'_, D> {
 				.wait(&reader, "read", &[self.operation.into(), self.source.clone().into()])
 				.await?,
 		)
+	}
+	/// Give up the receipt, as `release-effect` answers it.
+	pub async fn release(&self, unanswered: &'static str) -> Result<Release, Error> {
+		let reply = self
+			.caller
+			.call(
+				self.source,
+				"release-effect",
+				&[self.operation.into(), self.canonical.into()],
+				unanswered,
+			)
+			.await?;
+		super::recovery::read_release(&reply)
 	}
 	pub async fn result(&self, unanswered: &'static str) -> Result<Argument, Error> {
 		self.caller

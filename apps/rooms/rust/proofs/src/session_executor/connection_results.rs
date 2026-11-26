@@ -129,7 +129,7 @@ async fn acquisition(
 	)
 	.await
 }
-async fn edit_policy(host: &Host, control: &Ref, terms: loam::PolicyValue) {
+pub(super) async fn edit_policy(host: &Host, control: &Ref, terms: loam::PolicyValue) {
 	let sequence = host
 		.send(control, "mutation-sequence", &[])
 		.await

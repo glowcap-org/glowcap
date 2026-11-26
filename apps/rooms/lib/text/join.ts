@@ -75,7 +75,6 @@ export const joinLinkLabel = "Room link";
  * control's spoken label, and the button's states. */
 export const joinTitleCreate = "Create a room";
 export const joinTitleJoin = "Join a room";
-export const joinLeadPaused = "Your session link is paused, so there's nothing here to browse or join.";
 export const joinLeadReadOnly = "Your session link lets you browse the shared rooms but not join one.";
 export function joinAccessFixedLabel(standing: string, room: string): string {
 	return `Room access: ${standing}. ${room} already exists, and its manager sets this.`;
@@ -89,7 +88,6 @@ export function roomAccessFixedLabel(standing: string): string {
 export const joinStopConnecting = "Stop connecting";
 export const joinStopCreating = "Stop creating";
 export const joinStopJoining = "Stop joining";
-export const joinSessionPaused = "Session paused";
 export const joinCallIt = "Call it";
 export const joinReadOnlySession = "Read-only session";
 export const joinChooseAnotherName = "Choose another name";

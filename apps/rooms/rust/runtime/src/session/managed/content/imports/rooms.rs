@@ -255,7 +255,7 @@ mod tests {
 	) -> custody::EffectReceipt<records::Metadata> {
 		custody::EffectReceipt {
 			operation: Text::new("recovery".into()).unwrap(),
-			adopted: false,
+			disposition: custody::Disposition::Held,
 			outgoing: None,
 			introduction: None,
 			canonical_intent: Text::new(canonical.into()).unwrap(),

@@ -127,7 +127,8 @@ impl Dial {
 
 #[cfg(test)]
 mod tests {
-	use super::cleartext_reach;
+	use super::{Dial, cleartext_reach};
+	use crate::bot::link::Link;
 
 	/// The designator a link names, read the way `Dial::new` reads it.
 	fn designator(link: &str) -> String {
@@ -154,5 +155,16 @@ mod tests {
 		] {
 			assert!(cleartext_reach(&designator(link)).is_err(), "{link}");
 		}
+	}
+
+	#[test]
+	fn a_dial_refuses_plain_tcp_to_another_machine_before_it_connects() {
+		let dial = |link: &str| Dial::new(Link::parse(link).unwrap(), None);
+		assert!(dial("ocapn://127.0.0.1%3A9201.tcp/s/Ym9hcmQ").is_ok());
+		let Err(refused) = dial("ocapn://192.168.1.4%3A9201.tcp/s/Ym9hcmQ") else {
+			panic!("a plain tcp link to another machine was dialed");
+		};
+		assert!(refused.to_string().contains("plain tcp"), "{refused}");
+		assert!(dial("ocapn://192.168.1.4%3A9201.noise-tcp/s/Ym9hcmQ").is_ok());
 	}
 }

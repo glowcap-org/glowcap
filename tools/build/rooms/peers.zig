@@ -241,35 +241,21 @@ pub fn register(b: *std.Build, runtime_gate: *execution.RuntimeGate, iroh_abi: *
         previous_unit = &unit.step;
     }
 
-    // The peers' process proofs, the bot's units, and the bot's process proofs
-    // are separately bounded runs, so the bot's turns cannot spend the
-    // deadline the peers' restarts need. The bot's process proofs run by
-    // module. Each proof against a real session starts two or more sessions,
-    // and a session's start costs seconds of processor time in this profile,
-    // so each of those modules is its own run and holds a few proofs. The
-    // last run takes every module the others do not name. Every run builds
-    // with the `test-support` feature, which carries the fault points and
-    // stand-ins the proofs drive, so the compile above is the one they run.
-    const bot_process: []const []const u8 = &.{ "--test", "bot_process" };
-    const Run = struct { targets: []const []const u8, filter: []const []const u8 = &.{} };
+    // Cargo launches the compiled bot process suite through its target runner,
+    // so each real process journey gets its own deadline and Cargo's environment.
+    const runner = b.root.joinString(b.allocator, "tools/build/rooms/process_cases.py") catch @panic("OOM");
+    const quoted_runner = std.json.Stringify.valueAlloc(b.allocator, runner, .{}) catch @panic("OOM");
+    const bot_runner = b.fmt("target.'cfg(all())'.runner = ['python3', {s}]", .{quoted_runner});
+    const Run = struct { targets: []const []const u8, per_case: bool = false };
     const process_runs = [_]Run{
         .{ .targets = &.{ "--test", "archive_process", "--test", "session_process", "--test", "server_process", "--test", "chat_process", "--bin", "rooms-session" } },
         .{ .targets = &.{ "--bin", "rooms-bot" } },
-        .{ .targets = bot_process, .filter = &.{ "--", "captp::" } },
-        .{ .targets = bot_process, .filter = &.{ "--", "captp_actions::" } },
-        .{ .targets = bot_process, .filter = &.{ "--", "captp_crashes::" } },
-        .{ .targets = bot_process, .filter = &.{ "--", "captp_direct::" } },
-        .{ .targets = bot_process, .filter = &.{ "--", "captp_handover::" } },
-        .{ .targets = bot_process, .filter = &.{ "--", "captp_recovery::" } },
-        .{ .targets = bot_process, .filter = &.{ "--", "captp_session::" } },
-        .{ .targets = bot_process, .filter = &.{ "--", "crashes::", "--skip", "captp" } },
-        .{ .targets = bot_process, .filter = &.{ "--", "sending::" } },
-        .{ .targets = bot_process, .filter = &.{ "--", "--skip", "captp", "--skip", "crashes::", "--skip", "sending::" } },
+        .{ .targets = &.{ "--test", "bot_process", "--config", bot_runner }, .per_case = true },
     };
     const test_step = b.step("rooms-peers-test", "Prove the archive peer, session peer, and Rooms server's identity, transport, restart and shutdown (needs cargo)");
     var previous_process: *std.Build.Step = previous_unit;
-    for (process_runs) |bounded| {
-        const process_run = commands.addRootedSystemCommand(b, .{ .deterministic = 30 }, &.{"env"});
+    for (process_runs) |suite| {
+        const process_run = commands.addRootedSystemCommand(b, if (suite.per_case) .child_bounded else .{ .deterministic = 30 }, &.{"env"});
         commands.addLoaderPathArg(process_run);
         commands.addLibDirArg(process_run, .host);
         Binary.archive.addTestEnv(process_run);
@@ -277,9 +263,8 @@ pub fn register(b: *std.Build, runtime_gate: *execution.RuntimeGate, iroh_abi: *
         Binary.server.addTestEnv(process_run);
         Binary.chat.addTestEnv(process_run);
         process_run.addArgs(&.{ "cargo", "test", "--locked", "--manifest-path", "apps/rooms/rust/Cargo.toml", "-p", "rooms-product", "--features", "test-support" });
-        process_run.addArgs(bounded.targets);
+        process_run.addArgs(suite.targets);
         process_run.addDirectoryArg2(b.path("apps/rooms/rust/target"), .{ .prefix = "--target-dir=", .make_absolute = true });
-        process_run.addArgs(bounded.filter);
         process_run.step.dependOn(previous_process);
         process_run.step.dependOn(&install.step);
         process_run.step.dependOn(&session_install.step);

@@ -1,4 +1,6 @@
 //! The production session callback and worker own actual Loam receipts.
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod absent_confirmation;
 mod activity;
 mod activity_archives;
 mod activity_direct;
@@ -14,8 +16,10 @@ mod browser;
 mod browser_bootstrap;
 mod bundle_imports;
 mod cases;
+mod confirmation_expiry;
 mod connection_results;
 mod creation_results;
+mod data_only;
 mod direct_callbacks;
 mod direct_files;
 #[cfg(all(test, not(target_arch = "wasm32")))]
@@ -29,11 +33,14 @@ mod directory_ingress;
 mod discovery;
 mod discovery_watch;
 mod environment;
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod erasure_release;
 mod execution;
 use execution::run;
 mod failure;
-mod gate;
+use rooms_testing::write_gate as gate;
 mod invitation_results;
+mod late_release;
 mod live_results;
 mod local_commands;
 mod management;
@@ -64,6 +71,8 @@ mod sharing_results;
 mod signaling;
 mod source_lending;
 mod submission;
+mod upload_bound;
+mod upload_fill;
 mod upload_interruption;
 mod uploads;
 mod workspace_supervision;

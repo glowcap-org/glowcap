@@ -52,23 +52,37 @@ struct Environment {
 }
 impl Environment {
 	async fn enliven(&self, uri: &str) -> Result<glowcap::Ref> {
-		match self.runtime.host().enliven(uri).await {
-			Ok(reference) => Ok(reference),
-			Err(error)
-				if self.front.is_none()
-					&& error.cause() == glowcap::RouteFailure::TransportUnavailable.cause().with_fetch() =>
-			{
-				match transport::requires_front(uri) {
-					Ok(true) => Err(transport::no_server()),
-					Ok(false) => Err(RuntimeError::from(error)),
-					Err(classification) => {
-						self.trouble
-							.report("Relay route classification", &RuntimeError::from(classification));
-						Err(RuntimeError::from(error))
-					}
-				}
+		self.runtime
+			.host()
+			.enliven(uri)
+			.await
+			.map_err(|error| self.unrouted(uri, error))
+	}
+	/// Enliven `uri`, a held capability's link, as a dial of the session that
+	/// serves it (`rooms_glowcap::client::dial_session`). `timed_out` names
+	/// the dial whose time ran out.
+	async fn dial_session(&self, uri: &str, timed_out: &'static str) -> Result<glowcap::Ref> {
+		rooms_glowcap::client::dial_session(&self.platform, timed_out, self.runtime.host().enliven(uri))
+			.await
+			.map_err(|error| match error {
+				rooms_glowcap::client::Error::Binding(error) => self.unrouted(uri, *error),
+				error => RuntimeError::from(error),
+			})
+	}
+	/// How enlivening `uri` failed with `error`: on a page with no Rooms
+	/// server, a link only a relay reaches says so.
+	fn unrouted(&self, uri: &str, error: glowcap::Error) -> RuntimeError {
+		if self.front.is_some() || error.cause() != glowcap::RouteFailure::TransportUnavailable.cause().with_fetch() {
+			return RuntimeError::from(error);
+		}
+		match transport::requires_front(uri) {
+			Ok(true) => transport::no_server(),
+			Ok(false) => RuntimeError::from(error),
+			Err(classification) => {
+				self.trouble
+					.report("Relay route classification", &RuntimeError::from(classification));
+				RuntimeError::from(error)
 			}
-			Err(error) => Err(RuntimeError::from(error)),
 		}
 	}
 

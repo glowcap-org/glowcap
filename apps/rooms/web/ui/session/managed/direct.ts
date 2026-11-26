@@ -1,29 +1,27 @@
 // Directory registration and exact introduction receipts own direct admission.
 // The application's rule (`directReach`) names the one open row a member has.
-import { invariant } from "../../../../lib/invariant.ts";
 import { LocalRefusal } from "../../../../lib/text/failure.ts";
-import type { ManagedRoomsSession } from "./session.ts";
+import type { Door } from "./session.ts";
 import type { ConversationOpening } from "./openings.ts";
 import type { WorkspaceSnapshot } from "./model.ts";
-import { readDirectReceipt } from "./direct_receipt.ts";
 import { directReach } from "../../application.ts";
 
 export async function acquireDirect(
-	session: ManagedRoomsSession,
+	session: Door,
 	directory: string,
 	peer: string,
 	expectedRegistration?: string,
 	opening?: ConversationOpening,
-): Promise<string> {
+): Promise<string | null> {
 	const signal = opening?.signal;
 	signal?.throwIfAborted();
 	const accepted = session.current;
-	const initial = await session.refresh();
+	const initial = await session.readBeforeSending();
 	const original = (accepted ?? initial).intent.directories.find((row) => row.id === directory);
 	if (original?.name == null || original.inbox == null) {
 		throw new LocalRefusal("directory-gone");
 	}
-	const reader = await session.workspace.directoryReader(directory);
+	const reader = await session.request((workspace) => workspace.directoryReader(directory));
 	let registration: string;
 	try {
 		registration = await reader.memberRegistration(peer);
@@ -46,7 +44,7 @@ export async function acquireDirect(
 		}
 		return origin;
 	};
-	const current = await session.refresh();
+	const current = await session.readBeforeSending();
 	checkOrigin(current);
 	// The open row that reaches this registration is the conversation, under
 	// any contact the directory held and whoever opened it.
@@ -59,32 +57,26 @@ export async function acquireDirect(
 	);
 	const introduction = crypto.randomUUID();
 	const operation = crypto.randomUUID();
-	let id: string | null = null;
-	await session.execute(operation, () =>
-		session.command(
-			"startDirect",
-			[directory, peer, registration, introduction],
-			operation,
-			checkOrigin,
-			signal,
-		), async (command) => {
-		readDirectReceipt(await command.result());
-		await session.completeResult(command);
-	}, {
-		signal,
-		settled: async () => {
-			const settled = await session.refresh();
+	return await session.press(
+		operation,
+		({ command }) =>
+			command("startDirect", [directory, peer, registration, introduction], operation, checkOrigin, signal),
+		async (command, after) => {
+			await after.complete(command);
+			// The row the route opened or reached is the answer. A session that
+			// cannot be read names no row, and the press never guesses one.
+			const settled = await after.readOr<WorkspaceSnapshot | null>(null, (reads) => reads.readNow());
+			if (settled == null) return null;
 			const open = directReach(settled.intent, directory, registration).open;
 			const row = settled.intent.conversations.find((row) => row.kind === "direct" && row.id === open);
 			if (row?.kind !== "direct") throw new LocalRefusal("direct-not-opened");
-			id = row.id;
 			// Only an opening that landed its own route made the row. A route given
 			// back left a row someone else opened, which the opening does not own.
 			if (row.introduction?.opening === introduction) {
 				await opening?.acquired(row.id, closed.has(row.id) ? "closeDirect" : "leaveConversation");
 			}
+			return row.id;
 		},
-	});
-	invariant(id != null, "the original direct introduction has no ready route");
-	return id;
+		signal,
+	);
 }

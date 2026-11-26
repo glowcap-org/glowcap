@@ -3,7 +3,9 @@
 //! thing a person at the other member's side can see.
 use super::rig::{Bot, Rig, WAIT, eventually};
 use super::session_rig::{Fixture, attach, call, free_port, host, run_within, try_call};
-use rooms_services::session::attached::{EffectStatus, Outgoing};
+use rooms_application::content::session::{Preset, Terms};
+use rooms_platform::HostPlatform;
+use rooms_services::session::attached::{EffectStatus, Grants, Outgoing};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::{
@@ -12,11 +14,22 @@ use std::{
 };
 
 pub(super) const ROOM: &str = "bot-room";
-/// How long a stopped bot's last lines may take to reach the other member's
-/// session, before a count of what it answered is final.
+/// How long a line the bot sent may take to reach the other member's session.
+/// No event says that no further line is coming, so a test that a line was not
+/// sent, or was sent once, waits this long before it counts.
 pub(super) const DWELL: Duration = Duration::from_secs(1);
 pub(super) const BOT: &str = "bot-host";
-const FRIEND: &str = "bot-friend";
+pub(super) const FRIEND: &str = "bot-friend";
+
+/// Another form of the same link: a hint the dialer does not use.
+pub(super) fn another_form(link: &str) -> String {
+	format!("{link}&glowcap%2Fnote=another-form")
+}
+
+/// The link the bot directory stores.
+pub(super) fn stored(world: &World) -> String {
+	std::fs::read_to_string(world.rig.dir.join("session.link")).unwrap()
+}
 
 pub(super) struct World {
 	pub(super) fixture: Fixture,
@@ -34,6 +47,16 @@ pub(super) struct Seen {
 }
 
 impl World {
+	/// A host that issues accesses on the bot's session: the host to close
+	/// when done, its grants, and the collaborator terms every bot access has.
+	pub(super) async fn issuer(&self) -> (glowcap::Runtime, Grants<HostPlatform>, Terms) {
+		let management = std::fs::read_to_string(self.fixture.peers[0].state.join("management.sturdyref")).unwrap();
+		let issuer = host().await;
+		let grants = Grants::attach(&issuer, HostPlatform, &management).await.unwrap();
+		let terms = Terms::new(Preset::Collaborator.values()).unwrap();
+		(issuer, grants, terms)
+	}
+
 	pub(super) fn new(label: &str) -> Self {
 		let fixture = Fixture::start_on(label, &[BOT, FRIEND], ROOM, &[free_port(), 0]);
 		Self {
@@ -111,6 +134,14 @@ impl World {
 			.count()
 	}
 
+	/// How many lines in a `kind` conversation start with `prefix`.
+	pub(super) fn count_starting(&self, kind: &str, prefix: &str) -> usize {
+		self.seen()
+			.iter()
+			.filter(|line| line.kind == kind && line.text.starts_with(prefix))
+			.count()
+	}
+
 	/// Wait until the other member has seen `text` in a `kind` conversation.
 	pub(super) fn await_line(&self, kind: &str, text: &str) {
 		eventually(&format!("{text:?} in a {kind}"), || {
@@ -127,6 +158,32 @@ impl World {
 	/// The bot's status once it is up.
 	pub(super) fn access(&self) -> Value {
 		self.rig.status()["status"]["access"].clone()
+	}
+
+	/// How many of the session's receipt places are free, read by a new
+	/// access that fills them.
+	pub(super) fn free_places(&self) -> usize {
+		run_within(Duration::from_secs(60), async {
+			let (issuer, grants, _) = self.issuer().await;
+			let room = self.fixture.room_id(0);
+			let free = super::session_rig::free_places(&grants, &room, "filler", Duration::ZERO).await;
+			issuer.close(glowcap::PendingWork::Cancel).await.unwrap();
+			free
+		})
+	}
+
+	/// Assert that nothing the bot printed or wrote holds the bot's first
+	/// link, the link it stores now, or the other member's link, then stop
+	/// the sessions.
+	pub(super) fn finish(self) {
+		let stored = std::fs::read_to_string(self.rig.dir.join("session.link")).ok();
+		let links = [
+			Some(self.fixture.peers[0].link.as_str()),
+			Some(&self.fixture.peers[1].link),
+			stored.as_deref(),
+		];
+		self.rig.assert_keeps_no_link(links.into_iter().flatten());
+		self.fixture.finish();
 	}
 }
 
@@ -150,10 +207,7 @@ fn a_private_message_and_a_mention_are_answered_once_and_other_room_lines_are_no
 		"a line that named no one was answered"
 	);
 	// The link is the bot's authority and appears in no output.
-	let link = &world.fixture.peers[0].link;
-	let swiss = link.rsplit('/').next().unwrap().to_owned();
-	assert!(!world.rig.log().contains(&swiss) && !world.rig.status().to_string().contains(&swiss));
-	world.fixture.finish();
+	world.finish();
 }
 
 #[test]
@@ -168,7 +222,7 @@ fn history_from_before_the_first_start_is_never_answered() {
 	assert_eq!(world.count("direct", "an old question"), 0);
 	assert_eq!(world.count("room", "an old mention"), 0);
 	assert_eq!(world.count("direct", "a new question"), 1);
-	world.fixture.finish();
+	world.finish();
 }
 
 fn bytes(length: usize) -> Vec<u8> {
@@ -202,10 +256,11 @@ fn a_file_posted_to_the_bot_reaches_the_harness_with_the_same_bytes_and_is_clean
 				&direct,
 				"describe-files",
 				&[Outgoing::open(&sent).unwrap()],
+				15_000,
 			)
 			.await
 			.unwrap();
-		assert_eq!(posted.status, EffectStatus::Committed);
+		assert_eq!(posted.sent.status, EffectStatus::Committed);
 		let until = Instant::now() + WAIT - Duration::from_secs(5);
 		let reply = loop {
 			if let Some(line) = world
@@ -238,7 +293,7 @@ fn a_file_posted_to_the_bot_reaches_the_harness_with_the_same_bytes_and_is_clean
 		(left == 0).then_some(())
 	});
 	world.stopped(bot);
-	world.fixture.finish();
+	world.finish();
 }
 
 /// A verb as the harness runs it, which names no bot directory.

@@ -1,11 +1,15 @@
 // A proved conflict or a refusal settles a submitted acquisition or session
 // command and frees its request. Only a conflict permits re-preparation, and
-// only an outcome nothing settled keeps the request for replay.
+// only an outcome nothing settled keeps the request for replay. A kept request
+// keeps its sequence, so sending it again, over the same handle or one a new
+// link resumed it onto, asks the session how it ended: the session applies it
+// at most once.
 import { invariant } from "../../../../lib/invariant.ts";
 import { ReportedFailure } from "./reported_failure.ts";
-import { LocalRefusal } from "../../../../lib/text/failure.ts";
+import { connectionLost, LocalRefusal, refusalText } from "../../../../lib/text/failure.ts";
+import { projectedError } from "../../../../lib/error_codes.ts";
 type ConflictKey = "acquisition-conflict" | "access-issue-conflict" | "access-edit-conflict";
-type UnknownKey = "acquisition-unknown" | "access-issue-unknown" | "access-edit-unknown";
+type UnknownKey = "acquisition-unknown" | "access-issue-unknown" | "access-edit-unknown" | "access-share-unheld";
 import { managedSessionText } from "../../../../lib/text/managed_session.ts";
 import type { OperationsCapability } from "../../application_data.ts";
 
@@ -48,12 +52,11 @@ type CommandAdmission =
 	| { readonly status: "conflict" | "refused"; readonly reason?: string; readonly failure?: unknown }
 	| { readonly status: "pending" | "committed" | "unsent" | "unknown" };
 
-const ACQUISITION_STATUSES = ["committed", "conflict", "refused"] as const;
-const COMMAND_STATUSES = ["conflict", "refused", "pending", "committed", "unsent", "unknown"] as const;
-
 /** Read the Rust application's outcome. A reported uncertainty throws while
- * the holder keeps the request. An unrecognized answer violates the shared
- * application contract and cannot authorize another submission. */
+ * the holder keeps the request. One whose link to the session was lost throws
+ * that loss, so its holder settles it over the next link. An unrecognized
+ * answer violates the shared application contract and cannot authorize
+ * another submission. */
 function settledOutcome<S extends string>(value: unknown, statuses: readonly S[]): {
 	readonly status: S;
 	readonly reason?: string;
@@ -67,6 +70,7 @@ function settledOutcome<S extends string>(value: unknown, statuses: readonly S[]
 		if (said == null || typeof said === "string") {
 			const known = statuses.find((candidate) => candidate === status);
 			if (known != null) return { status: known, reason: said ?? undefined, failure };
+			if (status === "uncertain" && connectionLost(failure)) throw projectedError(failure, said ?? "");
 			if (status === "uncertain") throw submissionError({ status, reason: said ?? undefined });
 		}
 	}
@@ -76,13 +80,63 @@ function settledOutcome<S extends string>(value: unknown, statuses: readonly S[]
 /** Submit a prepared acquisition. An outcome Rust could not settle throws, and
  * the holder keeps the request. */
 export async function submitAcquisition(request: { submit(): Promise<unknown> }): Promise<SettledOutcome> {
-	return settledOutcome(await request.submit(), ACQUISITION_STATUSES);
+	return settledOutcome(await request.submit(), ["committed", "conflict", "refused"]);
+}
+
+/** Only some prepared acquisitions retain their target for re-preparation
+ * after a proved conflict. */
+function isRepreparable<A extends object>(request: A): request is A & { reprepare(): Promise<A> } {
+	return "reprepare" in request;
+}
+
+/** Submit a prepared acquisition, and after each proved conflict prepare it
+ * again at the newer revision and submit that, up to the bound. Only a proved
+ * conflict permits a new revision, and Rust re-preparation keeps the exact
+ * acquired target, source, coordinates and recipe. A failed re-preparation
+ * leaves the last request held, and uncertainty never enters this path.
+ * `held` is told the request held now and whether it may have reached the
+ * session: a request on its way may have, and one a conflict refused or not
+ * yet submitted has not. `go` says whether to go on. Returns the outcome and
+ * the request it settled, which the caller frees. */
+export async function submitResolvingConflicts<A extends { submit(): Promise<unknown>; free(): void }>(
+	first: A,
+	held: (request: A, sent: boolean) => void,
+	go: () => boolean,
+): Promise<{ outcome: SettledOutcome; request: A }> {
+	const submit = async (request: A) => {
+		held(request, true);
+		const outcome = await submitAcquisition(request);
+		if (outcome.status === "conflict") held(request, false);
+		return outcome;
+	};
+	let request = first;
+	let outcome = await submit(request);
+	for (
+		let attempt = 1;
+		outcome.status === "conflict" && isRepreparable(request) && go() && attempt < MAX_CONFLICT_REPREPARATIONS;
+		attempt++
+	) {
+		const replacement: A = await request.reprepare();
+		held(replacement, false);
+		request.free();
+		request = replacement;
+		if (!go()) break;
+		outcome = await submit(request);
+	}
+	return { outcome, request };
 }
 
 /** Submit a prepared session command. An outcome Rust could not settle throws,
  * and the holder keeps the request. */
 export async function submitCommand(request: { submit(): Promise<unknown> }): Promise<CommandAdmission> {
-	const outcome = settledOutcome(await request.submit(), COMMAND_STATUSES);
+	const outcome = settledOutcome(await request.submit(), [
+		"conflict",
+		"refused",
+		"pending",
+		"committed",
+		"unsent",
+		"unknown",
+	]);
 	return outcome.status === "conflict" || outcome.status === "refused" ? outcome : { status: outcome.status };
 }
 
@@ -107,6 +161,33 @@ export function submissionError(
 		case "uncertain":
 			return new LocalRefusal(context?.uncertain ?? "acquisition-unknown", { cause: outcome.reason });
 	}
+}
+
+/** What a submit through a held control came to: the outcome the session
+ * answered, or null for a submit that threw and may still have landed, with the
+ * failure it says, if any, in its holder's words. */
+export type SubmitAnswer<T extends SubmissionOutcome> = {
+	readonly outcome: T | null;
+	readonly failure: Error | null;
+	readonly reason: string;
+};
+/** Submit through `submit`, and say what came of it in the words `keys` name.
+ * A local refusal sent nothing and is thrown. Any other throw may have landed,
+ * so it answers as nothing settled. */
+export async function settleSubmit<T extends SubmissionOutcome>(
+	submit: () => Promise<T>,
+	keys: SubmissionFailureContext,
+): Promise<SubmitAnswer<T>> {
+	let outcome: T;
+	try {
+		outcome = await submit();
+	} catch (error) {
+		if (error instanceof LocalRefusal) throw error;
+		const failure = new LocalRefusal(keys.uncertain, { cause: error });
+		return { outcome: null, failure, reason: refusalText(failure) };
+	}
+	const failure = submissionError(outcome, keys);
+	return { outcome, failure, reason: failure == null ? "" : refusalText(failure) };
 }
 
 export function throwUnlessCommitted(outcome: SettledOutcome): void {

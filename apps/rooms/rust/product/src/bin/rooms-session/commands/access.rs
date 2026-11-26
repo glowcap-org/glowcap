@@ -1,10 +1,8 @@
 //! `session access`: hand out and manage access to a running session from a
 //! terminal. The running session does the work over its control socket: it
-//! issues with its own management control and keeps each access's control in
-//! the same workspace rows the page keeps its controls in, so the terminal
-//! and the page list and change one set. An access is named by the id `list`
-//! shows. The link of a new access is printed once, in the result, and
-//! appears nowhere else.
+//! issues with its own management control and keeps each access's control
+//! under the id `list` shows. An attached page manages the controls it holds.
+//! The issue and share-management commands return their links in the result.
 use super::{Failure, Options, operation, request};
 use rooms_services::session::{attached::Lifecycle, control::rights};
 use serde_json::{Value, json};
@@ -22,6 +20,7 @@ enum Action {
 		change: Lifecycle,
 	},
 	Forget(String),
+	Share(String),
 }
 
 impl Action {
@@ -29,7 +28,7 @@ impl Action {
 		let allowed: &[&str] = match options.verb.as_str() {
 			"access-issue" => &["id", "label", "rights"],
 			"access-list" => &[],
-			"access-pause" | "access-resume" | "access-revoke" | "access-forget" => &["id"],
+			"access-pause" | "access-resume" | "access-revoke" | "access-forget" | "access-share-management" => &["id"],
 			_ => return Err(Failure::invalid("unknown access command")),
 		};
 		if let Some(key) = options.named.keys().find(|key| !allowed.contains(&key.as_str())) {
@@ -72,6 +71,7 @@ impl Action {
 			"access-pause" => change(Lifecycle::Pause),
 			"access-resume" => change(Lifecycle::Resume),
 			"access-revoke" => change(Lifecycle::Revoke),
+			"access-share-management" => Ok(Self::Share(single("id")?)),
 			_ => Ok(Self::Forget(single("id")?)),
 		}
 	}
@@ -88,18 +88,13 @@ impl Action {
 			Self::List => json!({"verb": "access-list"}),
 			Self::Change { id, change } => json!({"verb": "access-change", "id": id, "change": change}),
 			Self::Forget(id) => json!({"verb": "access-forget", "id": id}),
+			Self::Share(id) => json!({"verb": "access-share", "id": id}),
 		})
 	}
 }
 
 pub async fn run(options: &Options) -> Result<Value, Failure> {
 	let body = Action::read(options)?.body()?;
-	if !options.state.join("control.sock").exists() {
-		return Err(Failure::invalid(format!(
-			"no session is running in {}. Start it with session start, then try again",
-			options.state.display()
-		)));
-	}
 	request(&options.state, body).await
 }
 
@@ -148,6 +143,10 @@ mod tests {
 			.and_then(Action::body)
 			.unwrap();
 		assert_eq!(revoke, json!({"verb": "access-change", "id": "r1", "change": "revoke"}));
+		let share = Action::read(&request("access-share-management", json!({"id": ["s1"]})))
+			.and_then(Action::body)
+			.unwrap();
+		assert_eq!(share, json!({"verb": "access-share", "id": "s1"}));
 		for (verb, named) in [
 			("access-issue", json!({"label": ["bot"]})),
 			("access-issue", json!({"rights": ["observer"]})),
@@ -163,6 +162,8 @@ mod tests {
 			("access-pause", json!({"name": ["x"]})),
 			("access-revoke", json!({"id": ["x"], "label": ["y"]})),
 			("access-forget", json!({})),
+			("access-share-management", json!({})),
+			("access-share-management", json!({"id": ["x"], "rights": ["observer"]})),
 			("access-unknown", json!({})),
 		] {
 			assert!(Action::read(&request(verb, named.clone())).is_err(), "{verb} {named}");

@@ -1,9 +1,10 @@
 //! Access the terminal issues and manages through the running session. The
 //! session issues with its own management control and keeps each control in
-//! the workspace's `accesses` rows, the rows the page keeps its controls in,
-//! so the terminal and the page list and change one set. A row's id is how
+//! the workspace's `accesses` rows. An attached page manages the controls
+//! held in that page's custody. A row's id is how
 //! the terminal names an access. No bearer name leaves the session except the
-//! use link of an access just issued, in that one reply.
+//! use link of an access just issued and the management link `share` answers,
+//! each in its one reply.
 //!
 //! Issuing commits its row first, with the place the access is derived at,
 //! then issues there, then saves the control into that row. Issuing again at
@@ -25,6 +26,7 @@ use rooms_glowcap::client::{
 	workspace::{Import, Workspace},
 };
 use rooms_platform::HostPlatform;
+use rooms_runtime::session::fault::{SessionFault, armed};
 use serde_json::{Value, json};
 
 /// Attempts at saving a control when another writer moves the workspace
@@ -44,86 +46,91 @@ pub fn rights(name: &str) -> Result<Terms, String> {
 	terms.map_err(|error| error.to_string())
 }
 
-/// Issue an access and keep its control under row `id`. The access starts
-/// paused and is resumed only once its control is saved, so an access the
-/// session cannot manage is never usable. A failed save revokes it.
+/// Issue an access and keep its control under row `id`. A fresh grant starts
+/// paused. A replay may recover a grant another holder already uses, so the
+/// session changes its lifecycle only after saving its control.
 pub(super) async fn issue(app: &Application, id: &str, label: &str, rights_name: &str) -> Result<Value, Failure> {
 	let row = row_id(id)?;
 	let terms = rights(rights_name).map_err(Failure::invalid)?;
+	attached::validate_label(label).map_err(failure)?;
 	let at = reserve(app, &row).await?;
+	end_issue_at(SessionFault::AfterIssueReservation);
 	let issued = attached::issue_at(&app.management, at, label, &terms, true)
 		.await
+		.map_err(|error| unfinished_issue(id, error))?;
+	end_issue_at(SessionFault::AfterIssue);
+	let control = local_control(app, issued.control);
+	let grant = attached::describe(&control).await.map_err(failure)?;
+	save(app, &row, at, &control, grant.as_ref().map(|grant| grant.id))
+		.await
 		.map_err(|error| {
-			let error = failure(error);
 			let message = format!(
-				"{error}. The issue under {id} did not finish. Issue again with the same id, label, and rights to finish it"
+				"could not confirm the control was saved under {id}: {error}. Run session access list to see its state"
 			);
 			error.explained(message)
 		})?;
-	ended_after_issue();
-	let control = local_control(app, issued.control);
-	let grant = attached::describe(&control).await.map_err(failure)?;
-	if let Err(unsaved) = save(app, &row, &control, grant.as_ref().map(|grant| grant.id)).await {
-		let error = match unsaved {
-			// An issue at the same place returns the same access, so a second
-			// issue under this id finished it, and its link works.
-			Unsaved::Elsewhere => {
-				return Err(Failure::new(
-					"conflict",
-					Retry::Never,
-					format!("another issue under {id} finished this access first and printed its link"),
-				));
-			}
-			Unsaved::Failed(error) => error,
-		};
-		return Err(match attached::change(&control, Lifecycle::Revoke).await {
-			Ok(()) => {
-				let message = format!(
-					"the access was revoked unused because its control could not be saved: {error}. Issue again with the same id, label, and rights, then forget it"
-				);
-				error.explained(message)
-			}
-			Err(revoke) => Failure::uncertain(format!(
-				"the access could not be saved ({error}) or revoked ({}). It is paused and its link was never shown, so nobody can use it. Issue again with the same id, label, and rights to finish it",
-				failure(revoke)
-			)),
-		});
-	}
 	let Some(grant) = grant else {
 		return Err(Failure::invalid(format!(
 			"the access issued under {id} was revoked before its issue finished. Forget it and issue again"
 		)));
 	};
-	let saved_paused = |error: Error| {
+	let saved_control = |error: Error| {
 		let error = failure(error);
 		let message = format!(
-			"the access is saved paused as {id}, and its link was not shown: {error}. Revoke it, forget it, and issue again"
+			"the control is saved as {id}, but this issue returned no link: {error}. Run session access list to see its state"
 		);
 		error.explained(message)
 	};
 	let name = Workspace::local(app.host.clone(), HostPlatform, issued.access)
 		.durable_name()
 		.await
-		.map_err(|error| saved_paused(attached::failed(error)))?;
+		.map_err(|error| saved_control(attached::failed(error)))?;
 	let link = glowcap::format_sturdyref(&app.locator, name.as_bytes(), glowcap::CaptpVersion::V1_0)
-		.map_err(|_| saved_paused(Error::Malformed("the access name does not make a link")))?;
+		.map_err(|_| saved_control(Error::Malformed("the access name does not make a link")))?;
 	if grant.state == State::Paused {
 		attached::change(&control, Lifecycle::Resume)
 			.await
-			.map_err(saved_paused)?;
+			.map_err(saved_control)?;
 	}
 	Ok(json!({"ok": true, "link": link, "id": id, "label": label, "rights": names(&terms)}))
 }
 
-/// Test-only: with the `test-support` feature,
-/// `GLOWCAP_ROOMS_SESSION_FAULT=after-issue`
-/// ends the session process between issuing an access and saving its
-/// control, so a process test can prove the next issue finishes it. A build
-/// without the feature contains no trace of this.
-fn ended_after_issue() {
-	#[cfg(feature = "test-support")]
-	if std::env::var_os("GLOWCAP_ROOMS_SESSION_FAULT").is_some_and(|point| point == "after-issue") {
+/// Stop at a durable boundary when the process proof has armed that fault.
+fn end_issue_at(point: SessionFault) {
+	if armed() == Some(point) {
 		std::process::abort();
+	}
+}
+
+/// Another holder of the root control shares its derivation sequence. Only
+/// an exact request still in the root's receipt window can recover a used place.
+fn unfinished_issue(id: &str, error: Error) -> Failure {
+	match error {
+		Error::Peer(ClientError::ControlConflict(glowcap::loam::ControlConflict::Operation)) => Failure::new(
+			"conflict",
+			Retry::AfterRequestChange,
+			format!(
+				"a different request used the issue position for {id}. Retry with the original label and rights, or forget {id} and issue again"
+			),
+		),
+		Error::Peer(ClientError::Binding(ref cause))
+			if cause.kind() == glowcap::ErrorKind::Broken && cause.message() == Some("ReceiptExpired") =>
+		{
+			Failure::new(
+				"receipt-expired",
+				Retry::AfterStateChange,
+				format!(
+					"the issue receipt for {id} has expired. The session can no longer recover its control. Run session access forget --id {id}, then issue again"
+				),
+			)
+		}
+		other => {
+			let error = failure(other);
+			let message = format!(
+				"{error}. The issue under {id} did not finish. Retry with the same id, label, and rights, or forget the unfinished issue"
+			);
+			error.explained(message)
+		}
 	}
 }
 
@@ -136,18 +143,40 @@ async fn reserve(app: &Application, id: &workspace::Id) -> Result<workspace::Pla
 		let mut intent = snapshot.intent;
 		let fresh = attached::place(&app.management).await.map_err(failure)?;
 		let rows = &mut intent.accesses;
-		match rows.as_slice().iter().position(|row| row.id == *id) {
-			Some(index) => match rows.as_slice()[index].issue {
-				Some(Issue::Unsaved(at)) if fresh.sequence > at.sequence || at == fresh => return Ok(at),
-				Some(Issue::Unsaved(_)) => rows.as_mut_slice()[index].issue = Some(Issue::Unsaved(fresh)),
+		let existing = rows.as_slice().iter().position(|row| row.id == *id);
+		let reserved = match existing {
+			Some(i) => match rows.as_slice()[i].issue {
+				Some(Issue::Unsaved(at)) => Some(at),
 				_ => return Err(Failure::invalid("an access is already kept under this id")),
 			},
+			None => None,
+		};
+		let at = reserved.filter(|at| at.sequence < fresh.sequence).unwrap_or(fresh);
+		// A fresh issue would move the root's bounded receipt window past
+		// a prior unfinished issue. Replaying a distinct used place consumes
+		// no sequence, so older reservations can still be recovered.
+		if let Some(owner) = rows.as_slice().iter().find(|row| {
+			row.id != *id
+				&& matches!(row.issue, Some(Issue::Unsaved(other)) if at == fresh || other.sequence == at.sequence)
+		}) {
+			let holder = owner.id.text().as_str().unwrap_or("(unnamed)");
+			return Err(Failure::new(
+				"conflict",
+				Retry::AfterStateChange,
+				format!("the issue under {holder} is unfinished. Finish or forget that issue, then try again"),
+			));
+		}
+		if reserved == Some(at) {
+			return Ok(at);
+		}
+		match existing {
+			Some(i) => rows.as_mut_slice()[i].issue = Some(Issue::Unsaved(at)),
 			None => rows
 				.try_push(workspace::Access {
 					id: id.clone(),
 					access: None,
 					control: None,
-					issue: Some(Issue::Unsaved(fresh)),
+					issue: Some(Issue::Unsaved(at)),
 				})
 				.map_err(|_| {
 					Failure::exhausted("the session keeps as many accesses as it can. Revoke and forget one first")
@@ -160,7 +189,7 @@ async fn reserve(app: &Application, id: &workspace::Id) -> Result<workspace::Pla
 			.submit()
 			.await;
 		match submitted {
-			Ok(()) => return Ok(fresh),
+			Ok(()) => return Ok(at),
 			Err(ClientError::WorkspaceConflict) => {}
 			Err(error) => return Err(peer_failure(error)),
 		}
@@ -240,12 +269,12 @@ pub(super) async fn list(app: &Application) -> Result<Value, Failure> {
 
 /// What a row whose issue did not finish says about itself in the list.
 const UNFINISHED_NOTE: &str =
-	"The issue under this id did not finish. Issue again with the same id, label, and rights to finish it";
+	"The issue under this id did not finish. Retry with the same id, label, and rights, or forget the unfinished issue";
 
 /// What forgetting a row whose issue did not finish says about an access the
 /// issue may have made.
-const FORGOTTEN_UNFINISHED_NOTE: &str = "The issue under this id did not finish. If it made an access, that access is paused, its link was never shown, \
-	and the list shows it without an id";
+const FORGOTTEN_UNFINISHED_NOTE: &str =
+	"Forgetting an unfinished issue leaves any issued access as it was. Run session access list to see its state";
 
 /// What a kept control of a revoked access says about itself in the list.
 const REVOKED_NOTE: &str = "This access is revoked and its control is kept under this id. A revoked access no longer names its control, \
@@ -259,13 +288,32 @@ pub(super) async fn change(app: &Application, id: &str, lifecycle: Lifecycle) ->
 	Ok(json!({"ok": true, "id": id, "state": now.map_or("revoked", |grant| state(grant.state))}))
 }
 
+/// The management link of the access row `id` keeps the control of. The link
+/// names that control, so its holder can read, pause, resume, and revoke the
+/// access, the powers the control was issued with, and can neither change the
+/// access's rights nor issue under it. It works until the access is revoked,
+/// and it leaves the session only in this verb's reply.
+pub(super) async fn share(app: &Application, id: &str) -> Result<Value, Failure> {
+	let control = restore(app, kept(app, id).await?.1).await?;
+	if attached::describe(&control).await.map_err(failure)?.is_none() {
+		return Err(Failure::invalid(format!(
+			"access {id} is revoked, so nothing is left to manage"
+		)));
+	}
+	let name = control
+		.durable_name()
+		.await
+		.map_err(|error| failure(attached::failed(error)))?;
+	let link = glowcap::format_sturdyref(&app.locator, name.as_bytes(), glowcap::CaptpVersion::V1_0)
+		.map_err(|_| failure(Error::Malformed("the control name does not make a link")))?;
+	Ok(json!({"ok": true, "id": id, "link": link}))
+}
+
 /// Stop keeping the control of a revoked access, which frees its row. An
 /// access that can still be used is refused, because forgetting its control
 /// would leave nothing that can end it. A row whose issue did not finish is
-/// dropped too. Once the session has used its place, the access there may be
-/// this row's or another issuer's, and nothing tells them apart, so the
-/// answer says that any access this row made stays paused with its link
-/// never shown.
+/// dropped too. Another issuer can use the same place, so forgetting the
+/// row leaves the grant's lifecycle alone.
 pub(super) async fn forget(app: &Application, id: &str) -> Result<Value, Failure> {
 	for _ in 0..SAVE_ATTEMPTS {
 		let snapshot = app.workspace.snapshot().await.map_err(peer_failure)?;
@@ -326,42 +374,43 @@ pub(super) async fn forget(app: &Application, id: &str) -> Result<Value, Failure
 	Err(conflict())
 }
 
-/// Why an issued access's control was not saved.
-enum Unsaved {
-	/// Another issue under the same id saved this same access first.
-	Elsewhere,
-	Failed(Failure),
-}
-impl From<Failure> for Unsaved {
-	fn from(failure: Failure) -> Self {
-		Self::Failed(failure)
-	}
-}
-
 /// Keep `control`, which manages the access `issued` names, in the row `id`
 /// reserved for it.
 async fn save(
 	app: &Application,
 	id: &workspace::Id,
+	at: workspace::Place,
 	control: &Control<HostPlatform>,
 	issued: Option<GrantId>,
-) -> Result<(), Unsaved> {
+) -> Result<(), Failure> {
+	if armed() == Some(SessionFault::FailAccessSave) {
+		return Err(Failure::uncertain("could not read the workspace to save the control"));
+	}
 	for _ in 0..SAVE_ATTEMPTS {
 		let snapshot = app.workspace.snapshot().await.map_err(peer_failure)?;
 		let mut intent = snapshot.intent;
-		let key = fresh_key()?;
 		let saved_here = issued.map(|GrantId { slot, generation }| Issue::Saved(Entry { slot, generation }));
+		if saved_here.is_some()
+			&& let Some(holder) = intent.accesses.as_slice().iter().find(|row| row.issue == saved_here)
+		{
+			let holder = holder.id.text().as_str().unwrap_or("(unnamed)");
+			return Err(Failure::new(
+				"conflict",
+				Retry::AfterStateChange,
+				format!(
+					"this access was already saved under {holder}. Forget the unfinished issue before issuing again"
+				),
+			));
+		}
 		let Some(row) = intent
 			.accesses
 			.as_mut_slice()
 			.iter_mut()
-			.find(|row| row.id == *id && (matches!(row.issue, Some(Issue::Unsaved(_))) || row.issue == saved_here))
+			.find(|row| row.id == *id && row.issue == Some(Issue::Unsaved(at)))
 		else {
-			return Err(Failure::invalid("the access row changed while its access was issued").into());
+			return Err(Failure::invalid("the access row changed while its access was issued"));
 		};
-		if saved_here.is_some() && row.issue == saved_here {
-			return Err(Unsaved::Elsewhere);
-		}
+		let key = fresh_key()?;
 		row.control = Some(key);
 		row.issue = saved_here;
 		let import = Import {
@@ -378,10 +427,10 @@ async fn save(
 		match submitted {
 			Ok(()) => return Ok(()),
 			Err(ClientError::WorkspaceConflict) => {}
-			Err(error) => return Err(peer_failure(error).into()),
+			Err(error) => return Err(peer_failure(error)),
 		}
 	}
-	Err(conflict().into())
+	Err(conflict())
 }
 
 /// The workspace now and the control key row `id` keeps.

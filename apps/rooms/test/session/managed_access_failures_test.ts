@@ -1,11 +1,13 @@
 // Submission uncertainty stops at the commit point. Later failures keep it.
 /// <reference lib="dom" />
+import { closed, everyReached, noCeilings } from "../support/managed_link.ts";
 import "../support/match_media.ts";
 import { assert, assertEquals } from "@std/assert";
+import { described, reached } from "../../web/ui/session/managed/held_control.ts";
 import { deferred, viewer } from "../support/managed_viewer.ts";
+import { settle } from "../support/wait.ts";
 import { LocalRefusal, refusalText } from "../../lib/text/failure.ts";
 
-const none = { editCeiling: null, issueCeiling: null };
 async function fixture(
 	submitOutcome: () => Promise<unknown>,
 	describeIssued = () => Promise.resolve({ available: false }),
@@ -18,11 +20,9 @@ async function fixture(
 		free() {},
 	};
 	const session = viewer({}, () => {}, { savedControl: () => Promise.resolve(source) });
-	await session.management.restore(["source"], (_id, error) => {
-		throw error;
-	});
+	await session.management.restore(["source"], everyReached);
 	const control = session.management.held[0];
-	assert(control != null);
+	assert(control != null && described(control));
 	const issued = { describe: describeIssued, free() {} };
 	return { session, management: session.management, control, issued };
 }
@@ -33,7 +33,7 @@ for (const kind of ["issue", "edit"]) {
 			const error = known ? new LocalRefusal("session-closed") : new Error("submission interrupted");
 			const f = await fixture(() => Promise.reject(error));
 			try {
-				if (kind === "issue") await f.management.prepareIssue(f.control, [], "test", false, 0, none);
+				if (kind === "issue") await f.management.prepareIssue(f.control, [], "test", false, 0, noCeilings);
 				else await f.management.prepare(f.control, { kind: "label", label: "test" }, "1");
 				const [outcome] = await Promise.allSettled([
 					kind === "issue" ? f.management.submitIssue() : f.management.submit(f.control),
@@ -45,7 +45,7 @@ for (const kind of ["issue", "edit"]) {
 					assert(outcome.status === "fulfilled");
 					assertEquals(outcome.value.phase, "uncertain");
 					assertEquals(
-						outcome.value.reason,
+						"reason" in outcome.value ? outcome.value.reason : null,
 						refusalText(
 							new LocalRefusal(kind === "issue" ? "access-issue-unknown" : "access-edit-unknown", {
 								cause: error,
@@ -60,7 +60,7 @@ for (const kind of ["issue", "edit"]) {
 	}
 }
 
-Deno.test("committed issuance reports inspection failure and clears it after recovery", async () => {
+Deno.test("a committed issuance whose new access fails its first read holds it with that failure, and asks again", async () => {
 	let fails = true;
 	const diagnostic = new Error("inspection disconnected");
 	const f = await fixture(
@@ -69,18 +69,19 @@ Deno.test("committed issuance reports inspection failure and clears it after rec
 	);
 	const returned = { status: "committed", access: { free() {} }, control: f.issued };
 	try {
-		await f.management.prepareIssue(f.control, [], "test", false, 0, none);
-		const [first] = await Promise.allSettled([f.management.submitIssue()]);
-		assert(
-			first.status === "rejected" && first.reason === diagnostic,
-			"post-commit failure is the actual inspection failure",
-		);
-		assertEquals(f.management.issue?.phase, "committed");
+		await f.management.prepareIssue(f.control, [], "test", false, 0, noCeilings);
+		const first = await f.management.submitIssue();
+		assertEquals([first.phase, first.reason], ["committed", ""]);
+		const made = f.management.issued;
+		assert(made != null && made.state.kind !== "reached", "the new access is held unreached");
+		assert(made.state.failure === diagnostic, "its row says the actual read failure");
 		fails = false;
+		Object.assign(f.control.state.kind === "reached" ? f.control.state.handle : {}, {
+			resumeIssue: () => ({ submitOutcome: () => Promise.resolve(returned), free() {} }),
+		});
 		const recovered = await f.management.submitIssue();
-		assertEquals(recovered.phase, "committed");
-		assertEquals(recovered.reason, "");
-		assert(recovered.control != null);
+		assertEquals([recovered.phase, recovered.reason], ["committed", ""]);
+		assertEquals(f.management.issued?.state.kind, "reached", "asking again holds it");
 	} finally {
 		await f.session.close();
 	}
@@ -89,8 +90,10 @@ Deno.test("committed issuance reports inspection failure and clears it after rec
 Deno.test("a session closing during issuance refuses without claiming an uncertain result", async () => {
 	const pending = deferred<unknown>();
 	const f = await fixture(() => pending.promise);
-	await f.management.prepareIssue(f.control, [], "test", false, 0, none);
+	await f.management.prepareIssue(f.control, [], "test", false, 0, noCeilings);
 	const submitted = f.management.submitIssue();
+	// The send starts in its turn, and the session closes while it waits.
+	await settle();
 	f.management.stop();
 	let freed = 0;
 	const wrapper = {
@@ -108,9 +111,11 @@ Deno.test("a session closing during issuance refuses without claiming an uncerta
 
 Deno.test("issuance without a control revision says unavailable instead of changed", async () => {
 	const f = await fixture(() => Promise.resolve({ status: "committed" }));
-	delete f.control.powers.revision;
+	delete f.control.state.powers.revision;
 	try {
-		const [result] = await Promise.allSettled([f.management.prepareIssue(f.control, [], "test", false, 0, none)]);
+		const [result] = await Promise.allSettled([
+			f.management.prepareIssue(f.control, [], "test", false, 0, noCeilings),
+		]);
 		assert(result.status === "rejected" && result.reason instanceof LocalRefusal);
 		assertEquals(result.reason.code, "local-access-unavailable");
 	} finally {
@@ -118,57 +123,89 @@ Deno.test("issuance without a control revision says unavailable instead of chang
 	}
 });
 
+/** The markup of the `kind` card over `f`'s control. */
+async function card(f: Awaited<ReturnType<typeof fixture>>, kind: "issue" | "edit"): Promise<string> {
+	const { createElement: h } = await import("react");
+	const { renderToStaticMarkup } = await import("react-dom/server");
+	const { SessionIssueModal } = await import("../../web/ui/settings/SessionIssue.tsx");
+	const { SessionGrantEditModal } = await import("../../web/ui/settings/SessionGrantEdit.tsx");
+	const { ManagedSessionProvider } = await import("../../web/ui/session/managed/context.tsx");
+	const { RoomsBrowserProvider } = await import("../../web/ui/controller/browser.ts");
+	const { createRoomsBrowserController } = await import("../../web/ui/controller/create_browser.ts");
+	const { ModalProvider } = await import("../../web/ui/modal.ts");
+	const { CommitmentProvider } = await import("../../web/ui/commitment.tsx");
+	const { RoomsPage } = await import("../../web/ui/page.ts");
+	const controller = createRoomsBrowserController(
+		new RoomsPage(),
+		() => {},
+		() => "/",
+		() => Promise.resolve({ session: f.session, local: true }),
+	);
+	return renderToStaticMarkup(
+		h(
+			RoomsBrowserProvider,
+			{ value: controller },
+			h(
+				ModalProvider,
+				null,
+				h(
+					CommitmentProvider,
+					null,
+					h(
+						ManagedSessionProvider,
+						{ value: f.session },
+						h(kind === "issue" ? SessionIssueModal : SessionGrantEditModal, {
+							control: f.control,
+							open: true,
+							onClose() {},
+						}),
+					),
+				),
+			),
+		),
+	);
+}
+
+Deno.test("a share whose source lost its connection says it waits on the source, and holds its send until it is reached", async () => {
+	const { createElement: h } = await import("react");
+	const { renderToStaticMarkup } = await import("react-dom/server");
+	const { managedAccessText: text } = await import("../../lib/text/managed_access.ts");
+	const shown = (said: string) => renderToStaticMarkup(h("span", null, said)).slice(6, -7);
+	const f = await fixture(() => Promise.resolve({ status: "committed" }));
+	try {
+		await f.management.prepareIssue(f.control, [], "test", false, 0, noCeilings);
+		Object.assign(reached(f.control), { describe: () => Promise.reject(closed()) });
+		const lost = await f.management.refresh(f.control).then(() => null, (error: unknown) => error);
+		assert(lost != null && f.control.state.kind === "unreached", "the source is unreached");
+		const html = await card(f, "issue");
+		assert(html.includes(shown(text.issueSourceUnreached)), "the card says the share waits on its source");
+		const create = html.match(/<button[^>]*aria-describedby="sessionIssueWaiting"[^>]*>/)?.[0] ?? "";
+		assert(create.includes("disabled"), `the share's send waits on its source: ${create}`);
+		assert(html.includes(shown(text.create)), "the share's send is shown");
+	} finally {
+		await f.session.close();
+	}
+});
+
 for (const phase of ["conflict", "uncertain"]) {
-	for (const kind of ["issue", "edit"]) {
+	const kinds: ("issue" | "edit")[] = ["issue", "edit"];
+	for (const kind of kinds) {
 		Deno.test(`the ${kind} dialog renders its ${phase} reason once beside its recovery action`, async () => {
 			const { createElement: h } = await import("react");
 			const { renderToStaticMarkup } = await import("react-dom/server");
-			const { SessionIssueModal } = await import("../../web/ui/settings/SessionIssue.tsx");
-			const { SessionGrantEditModal } = await import("../../web/ui/settings/SessionGrantEdit.tsx");
-			const { ManagedSessionProvider } = await import("../../web/ui/session/managed/context.tsx");
-			const { RoomsBrowserProvider } = await import("../../web/ui/controller/browser.ts");
-			const { createRoomsBrowserController } = await import("../../web/ui/controller/create_browser.ts");
-			const { ModalProvider } = await import("../../web/ui/modal.ts");
-			const { CommitmentProvider } = await import("../../web/ui/commitment.tsx");
-			const { RoomsPage } = await import("../../web/ui/page.ts");
 			const { managedAccessText: text } = await import("../../lib/text/managed_access.ts");
 			const f = await fixture(() => Promise.resolve({ status: phase }));
 			try {
-				if (kind === "issue") await f.management.prepareIssue(f.control, [], "test", false, 0, none);
+				if (kind === "issue") await f.management.prepareIssue(f.control, [], "test", false, 0, noCeilings);
 				else await f.management.prepare(f.control, { kind: "label", label: "test" }, "1");
 				const outcome = kind === "issue"
 					? await f.management.submitIssue()
 					: await f.management.submit(f.control);
-				const controller = createRoomsBrowserController(
-					new RoomsPage(),
-					() => {},
-					() => "/",
-					() => Promise.resolve({ session: f.session, local: true }),
+				const html = await card(f, kind);
+				const said = renderToStaticMarkup(h("span", null, "reason" in outcome ? outcome.reason : "")).slice(
+					6,
+					-7,
 				);
-				const html = renderToStaticMarkup(
-					h(
-						RoomsBrowserProvider,
-						{ value: controller },
-						h(
-							ModalProvider,
-							null,
-							h(
-								CommitmentProvider,
-								null,
-								h(
-									ManagedSessionProvider,
-									{ value: f.session },
-									h(kind === "issue" ? SessionIssueModal : SessionGrantEditModal, {
-										control: f.control,
-										open: true,
-										onClose() {},
-									}),
-								),
-							),
-						),
-					),
-				);
-				const said = renderToStaticMarkup(h("span", null, outcome.reason)).slice(6, -7);
 				assert(said.length > 0);
 				assertEquals(html.split(said).length, 2, "one owner supplies the explanation");
 				const button = kind === "issue"
@@ -196,15 +233,15 @@ Deno.test("a changed grant identity refuses inspection rather than adopting anot
 		configured: { permissions: [], bounds: [] },
 		ceiling: { permissions: [], bounds: [] },
 		delegationDepth: 0,
-	} satisfies import("../../web/ui/session/managed/access.ts").GrantView;
-	f.control.grant = grant;
-	f.control.handle.describe = () => Promise.resolve({ available: true, inspect: true });
-	f.control.handle.inspect = () => Promise.resolve({ ...grant, generation: "2" });
+	} satisfies import("../../web/ui/session/managed/access_powers.ts").GrantView;
+	f.control.state = { ...f.control.state, grant };
+	reached(f.control).describe = () => Promise.resolve({ available: true, inspect: true });
+	reached(f.control).inspect = () => Promise.resolve({ ...grant, generation: "2" });
 	try {
 		const [result] = await Promise.allSettled([f.management.refresh(f.control)]);
 		assert(result.status === "rejected" && result.reason instanceof LocalRefusal);
 		assertEquals(result.reason.code, "local-access-changed");
-		assert(f.control.grant === grant);
+		assert(f.control.state.grant === grant);
 	} finally {
 		await f.session.close();
 	}
@@ -214,12 +251,12 @@ Deno.test("reapplying after control revocation keeps the conflict and names unav
 	const f = await fixture(() => Promise.resolve({ status: "conflict" }));
 	await f.management.prepare(f.control, { kind: "label", label: "test" }, "1");
 	await f.management.submit(f.control);
-	f.control.handle.describe = () => Promise.resolve({ available: false });
+	reached(f.control).describe = () => Promise.resolve({ available: false });
 	try {
 		const [result] = await Promise.allSettled([f.management.reapply(f.control)]);
 		assert(result.status === "rejected" && result.reason instanceof LocalRefusal);
 		assertEquals(result.reason.code, "local-access-unavailable");
-		assertEquals(f.control.pending?.phase, "conflict");
+		assertEquals(f.control.edit?.phase, "conflict");
 	} finally {
 		await f.session.close();
 	}
@@ -229,7 +266,7 @@ for (
 	const phase of [
 		"conflict",
 		"uncertain",
-	] satisfies import("../../web/ui/session/managed/access.ts").PendingIssue["phase"][]
+	] satisfies import("../../web/ui/session/managed/share_state.ts").PendingIssue["phase"][]
 ) {
 	Deno.test(`a new issuance failure has failure styling over a held ${phase}`, async () => {
 		const { createElement: h } = await import("react");
@@ -264,3 +301,10 @@ for (
 		}
 	});
 }
+
+Deno.test("closing the share card drops only a form it has not sent, so a press waiting behind a turn never holds it open", async () => {
+	const { holdsUnsent } = await import("../../web/ui/settings/SessionIssue.tsx");
+	assertEquals(holdsUnsent(false, null, true), true, "an unsent form asks before it is dropped");
+	assertEquals(holdsUnsent(false, null, false), false, "an untouched form closes at once");
+	assertEquals(holdsUnsent(true, null, true), false, "a form being sent closes at once");
+});

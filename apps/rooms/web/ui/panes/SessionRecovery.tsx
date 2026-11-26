@@ -13,7 +13,8 @@ import { useManagedSession } from "../session/managed/context.tsx";
 import { useOpenChanges } from "../session/managed/open_changes.ts";
 import { isRetainedCommandIntent } from "../session/managed/admission.ts";
 import { useRoomsProjection, useRoomsState } from "../hooks.ts";
-import { releaseSentLine } from "../store.ts";
+import { confirmSentOperations, releaseSentLine } from "../store.ts";
+import { invariant } from "../../../lib/invariant.ts";
 import {
 	recoveryFinish,
 	recoveryKeep,
@@ -23,6 +24,7 @@ import {
 	recoveryLetGoLabel,
 	recoveryLetGoSay,
 	recoveryLetGoSend,
+	recoveryListAway,
 	recoveryListUnread,
 	recoveryOperationDetails,
 	recoveryPickUp,
@@ -57,8 +59,21 @@ export function SessionRecoveryModal(
 			if (act === "acquire") await session.actions.recoverAcquisition(id);
 			else if (act === "complete") await session.completeOperation(id);
 			else {
-				await session.releaseOperation(id);
-				releaseSentLine(projection, id);
+				// A receipt whose result was already adopted is kept: the workspace
+				// holds what it made, so a sent line is confirmed, not marked unsent.
+				const answer = await session.releaseOperation(id);
+				switch (answer) {
+					case "released":
+						releaseSentLine(projection, id);
+						break;
+					case "kept":
+						confirmSentOperations(projection, new Set([id]));
+						break;
+					default: {
+						const undecided: never = answer;
+						invariant(false, `undecided release answer: ${String(undecided)}`);
+					}
+				}
 			}
 			if (act === "release") setAsking((open) => open?.id === id ? null : open);
 		} catch (error) {
@@ -69,7 +84,7 @@ export function SessionRecoveryModal(
 	const { held, onExited } = useHeldModal(open);
 	useModalDialog(dialog, onClose, close, open, onExited);
 	// The rows, read while the card is open and re-read as the session changes.
-	const { rows, changes: items, failure: unread } = useOpenChanges(session, open);
+	const { rows, changes: items, failure: unread, away } = useOpenChanges(session, open);
 	const busy = recovery.busy ? acting : null;
 	const act = (id: string, kind: "complete" | "acquire" | "release") => void recovery.run(id, kind);
 	// The card closes itself once a read finds nothing open, not when the
@@ -129,7 +144,9 @@ export function SessionRecoveryModal(
 						   then says what it could not read, where the count would be. */
 					}
 					{unread !== ""
-						? <Said kind="failure">{recoveryListUnread(unread)}</Said>
+						? away
+							? <Said kind="warning">{recoveryListAway}</Said>
+							: <Said kind="failure">{recoveryListUnread(unread)}</Said>
 						: (
 							<p className="lead" style={{ visibility: rows == null ? "hidden" : undefined }}>
 								{recoveryLead(items.length)}

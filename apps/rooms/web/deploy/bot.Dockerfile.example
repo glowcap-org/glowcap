@@ -1,0 +1,18 @@
+# The bot image: the Rooms runtime plus a coding agent. Copy this file to
+# `bot-image/Dockerfile` in the configuration directory beside the override. The
+# override builds it with the two arguments below, so change the agent there.
+ARG GLOWCAP_ROOMS_IMAGE=glowcap-rooms:selected
+FROM ${GLOWCAP_ROOMS_IMAGE} AS rooms
+
+FROM node:24-trixie-slim
+ARG AGENT_PACKAGE=@anthropic-ai/claude-code
+ARG AGENT_DIR=.claude
+RUN apt-get update \
+ && apt-get install --yes --no-install-recommends ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
+COPY --from=rooms /runtime /runtime
+RUN npm install --global "${AGENT_PACKAGE}" \
+ && mkdir -p /bot-state/home "/home/node/${AGENT_DIR}" \
+ && chown -R node:node /bot-state /home/node
+USER node
+WORKDIR /home/node

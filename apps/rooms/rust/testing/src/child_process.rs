@@ -5,6 +5,7 @@
 
 use std::{
 	process::{Child, Command, ExitStatus},
+	thread::JoinHandle,
 	time::{Duration, Instant},
 };
 
@@ -17,6 +18,9 @@ pub struct Process {
 	pub child: Child,
 	name: &'static str,
 	deadline: Duration,
+	/// Threads copying the child's pipes, which [`Process::wait`] joins once
+	/// the child has exited, so every line it printed has been handled.
+	pumps: Vec<JoinHandle<()>>,
 }
 
 impl Process {
@@ -27,7 +31,16 @@ impl Process {
 			child,
 			name,
 			deadline: DEFAULT_DEADLINE,
+			pumps: Vec::new(),
 		}
+	}
+
+	/// Join `pump` when the child exits. It ends when the child's pipe does,
+	/// and a panic in it fails the wait.
+	#[must_use]
+	pub fn pumped_by(mut self, pump: JoinHandle<()>) -> Self {
+		self.pumps.push(pump);
+		self
 	}
 
 	/// Wait up to `deadline` for the child to finish instead of the default.
@@ -43,12 +56,32 @@ impl Process {
 		let deadline = Instant::now() + self.deadline;
 		loop {
 			match self.child.try_wait() {
-				Ok(Some(status)) => return status,
+				Ok(Some(status)) => {
+					self.join_pumps(deadline);
+					return status;
+				}
 				Ok(None) => {}
 				Err(error) => panic!("{} process status: {error}", self.name),
 			}
 			assert!(Instant::now() < deadline, "{} process did not finish", self.name);
 			std::thread::sleep(Duration::from_millis(5));
+		}
+	}
+
+	/// Wait for each pump to reach its pipe's end, within the same deadline.
+	fn join_pumps(&mut self, deadline: Instant) {
+		for pump in std::mem::take(&mut self.pumps) {
+			while !pump.is_finished() {
+				assert!(
+					Instant::now() < deadline,
+					"{} process: its output was still open after it exited",
+					self.name
+				);
+				std::thread::sleep(Duration::from_millis(5));
+			}
+			if let Err(panic) = pump.join() {
+				std::panic::resume_unwind(panic);
+			}
 		}
 	}
 

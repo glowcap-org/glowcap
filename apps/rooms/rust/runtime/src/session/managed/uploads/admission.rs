@@ -123,7 +123,7 @@ pub(in crate::session::managed) fn admit<P: Tasks + Deadline + Clone + 'static>(
 		}
 		return Ok(content::receipts::status(
 			receipt,
-			owner.running(&request.intent.operation),
+			owner.receipt_running(&request.intent.operation, &metadata),
 		));
 	}
 	if !metadata.fence.admits(request.intent.base, input.content_revision) {
@@ -213,7 +213,7 @@ pub(in crate::session::managed) fn admit<P: Tasks + Deadline + Clone + 'static>(
 			)
 			.map_err(super::super::admission::callback_error)?;
 	}
-	let seat = Seat::reserve(owner, &request.intent.operation)?;
+	let seat = Seat::reserve(owner, &request.intent.operation, metadata.effects.as_slice())?;
 	targets.extend(request.sources.iter().cloned());
 	let (reservation, pending) = call.reserve_continuation_copying(&targets)?;
 	let mut retained = coordinates

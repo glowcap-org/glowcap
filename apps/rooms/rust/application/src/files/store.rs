@@ -184,6 +184,8 @@ impl FileStore {
 					continue;
 				}
 				record.phase = Phase::Streaming;
+				// The window of a posted file starts at the post.
+				record.deadline = self.now.saturating_add(UPLOAD_IDLE_MS);
 				record.owner = Some(Rc::downgrade(&file._owner));
 				if record.bytes.is_empty() {
 					self.finish(file.blob.key.id);
@@ -211,7 +213,9 @@ impl FileStore {
 		}
 		let end = record.written + chunk.len();
 		record.bytes[record.written..end].copy_from_slice(chunk);
-		// A reservation lasts while its sender brings a chunk in each window.
+		// A reservation lasts while its sender brings a write that crosses a
+		// multiple of the chunk size, or finishes the file, in each window. A
+		// write that stays inside one chunk renews nothing.
 		if end / CHUNK_BYTES > record.written / CHUNK_BYTES {
 			record.deadline = self.now.saturating_add(UPLOAD_IDLE_MS);
 		}

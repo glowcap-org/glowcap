@@ -53,6 +53,7 @@ macro_rules! codes {
 codes! {
 	RateLimited => ("rate-limited", "operation", Soon, "This action is temporarily rate limited.", Some("Wait for the retry time before trying again.")),
 	AdmissionBusy => ("admission-busy", "server", Soon, "This server is handling as much work as it can.", Some("Try again in a moment.")),
+	ReceiptsFull => ("receipts-full", "session", AfterStateChange, "This session is holding as many unfinished requests as it can.", Some("Try again once one of them finishes or is given up.")),
 	NoServer => ("no-server", "server", AfterStateChange, "This page has no Rooms server to reach through.", Some("Choose one in Settings, under Connection.")),
 	RequestTooLarge => ("request-too-large", "operation", AfterRequestChange, "This request exceeds its work allowance.", Some("Reduce the request before trying again.")),
 	NickTaken => ("nick-taken", "nickname", AfterRequestChange, "That name is taken in this room.", Some("Pick another.")),
@@ -90,10 +91,14 @@ codes! {
 	NoSuchListener => ("no-such-listener", "listener", AfterRequestChange, "There's no listener by that name.", None),
 	NoRoomManagers => ("no-room-managers", "room-authority", AfterRequestChange, "This server doesn't hand out room management.", Some("Open the room without requesting management.")),
 	SessionUnreachable => ("session-unreachable", "session-peer", AfterStateChange, "Rooms couldn't reach the session this link opens.", Some("Check that the device or server keeping it is still running, then try again.")),
+	SessionRequestTimedOut => ("session-request-timed-out", "session-peer", Soon, "The session didn't answer that request in time.", Some("Try again in a moment.")),
+	SessionNotReachedYet => ("session-not-reached-yet", "session-peer", Soon, "Rooms ran out of time before it could reach the session.", Some("Try again in a moment.")),
 	SessionCapabilityGone => ("session-capability-gone", "session-capability", AfterRequestChange, "This session link no longer works.", Some("Ask for a current one.")),
 	SessionRestorationFailed => ("session-restoration-failed", "session-capability", AfterStateChange, "Rooms couldn't restore the saved session link.", Some("Check that the session is running. If it was reset, attach its new session link.")),
 	SavedTransportUnavailable => ("saved-transport-unavailable", "saved-address", AfterStateChange, "The saved address uses a transport this session can't reach.", Some("Enter its current address again, or start the session with a transport that reaches it.")),
 	SessionPeerUnverified => ("session-peer-unverified", "session-peer", AfterRequestChange, "The session answered, but this browser couldn't confirm it is the one the link names.", Some("Try again with a link the session shows now.")),
+	SessionStateUnreadable => ("session-state-unreadable", "session-state", Never, "This session's saved data is in a form this version of Rooms can't read.", Some("Start a new session in its place.")),
+	ActivityCursorStale => ("activity-cursor-stale", "session-activity", AfterRequestOrStateChange, "The session restarted since Rooms last read its activity.", Some("Open the session again to read what it holds now.")),
 	LinkPreviewInvalidUrl => ("link-preview-invalid-url", "link-preview", AfterRequestChange, "That address can't be previewed.", Some("Use a public HTTP or HTTPS address without embedded credentials.")),
 	LinkPreviewAddressBlocked => ("link-preview-address-blocked", "link-preview", AfterRequestChange, "Rooms won't connect to that address for a preview.", Some("Link previews can reach only public internet addresses, never this server or its private network.")),
 	LinkPreviewDnsFailed => ("link-preview-dns-failed", "link-preview", Soon, "The preview service couldn't find that site.", Some("Retry if its address is temporarily unavailable.")),
@@ -115,8 +120,21 @@ impl FailureCode {
 		format!("{}: {detail}", self.wire())
 	}
 	/// The codes an admission owner refuses with before it starts the work.
+	/// A session's full receipt window is one: it refuses a request before it
+	/// holds any receipt for it.
 	pub fn admission(self) -> bool {
-		matches!(self, Self::RateLimited | Self::AdmissionBusy | Self::RequestTooLarge)
+		matches!(
+			self,
+			Self::RateLimited | Self::AdmissionBusy | Self::ReceiptsFull | Self::RequestTooLarge
+		)
+	}
+	/// Whether this code names a failure to reach a peer, a member, or the
+	/// attached session. Where this side wrote it, time clears it.
+	pub const fn reach(self) -> bool {
+		matches!(
+			self,
+			Self::PeerUnreachable | Self::MemberUnreachable | Self::SessionUnreachable
+		)
 	}
 }
 

@@ -1,5 +1,5 @@
 //! Typed use of one exact managed session. Controls remain separate custody.
-use super::Caller;
+use super::{Attached, Caller};
 use super::{Client, Deadline, Error};
 use glowcap::{Argument, Ref, loam};
 use rooms_application::{
@@ -23,7 +23,7 @@ mod presence;
 pub use operations::{OperationsAcquisition, OperationsSelection};
 mod recovery;
 mod rooms;
-pub use recovery::{EffectEntry, RecoveredEffect};
+pub use recovery::{EffectEntry, Holder, RecoveredEffect, Release};
 mod signaling;
 pub use acquisition::{Acquisition, AcquisitionRequest, Import, import_arguments};
 pub use directories::{DirectoryAcquisition, DirectoryImport};
@@ -114,12 +114,31 @@ impl<D: Deadline> Workspace<D> {
 	}
 	pub fn local(host: glowcap::Host, platform: D, reference: Ref) -> Self {
 		Self {
-			caller: Caller::Local { host, platform },
+			caller: Caller::hosted(host, platform),
+			reference,
+		}
+	}
+	/// A workspace another process serves, reached through this Host. A call
+	/// through it that misses its deadline, while the session misses one more
+	/// `describe-access` too, is `Error::Unreached`, which says the link is no
+	/// longer proved. One the session still answers is `Error::RequestTimedOut`.
+	pub fn attached(host: glowcap::Host, platform: D, reference: Ref) -> Self {
+		let attached = Attached {
+			session: reference.clone(),
+			probe: "describe-access",
+		};
+		Self {
+			caller: Caller::attached(host, platform, attached),
 			reference,
 		}
 	}
 	pub fn reference(&self) -> &Ref {
 		&self.reference
+	}
+	/// Close the connection to the session that serves this workspace, if one
+	/// remains, so the next dial opens a new one (`Caller::retire`).
+	pub async fn retire(&self) -> Result<(), Error> {
+		self.caller.retire(&self.reference).await
 	}
 	/// Check this exact held use without registering an observation or reading
 	/// workspace content. Shared wakes convey no authority to this source.
@@ -271,6 +290,16 @@ impl<D: Deadline + Clone> Workspace<D> {
 	/// Both retain their original target across subsequent selection changes.
 	pub async fn device_history(&self, files: bool) -> Result<super::archive::Archive<D>, Error> {
 		self.history_source("device", files).await
+	}
+	/// The archive `archive_reader` admits, read through this workspace's own
+	/// route, so a link lost under a read is named as one.
+	pub async fn archive(
+		&self,
+		coordinate: custody::Coordinate,
+		files: bool,
+	) -> Result<super::archive::Archive<D>, Error> {
+		let reference = self.archive_reader(coordinate, files).await?;
+		Ok(super::archive::Archive::through(self.caller.clone(), reference))
 	}
 	pub async fn selected_archive(&self, files: bool) -> Result<super::archive::Archive<D>, Error> {
 		self.history_source("selected", files).await
@@ -428,18 +457,13 @@ impl<D: Deadline> Command<D> {
 	}
 	/// Give up this command's receipt through its original source. An
 	/// unadopted result is forfeited and the operation can never be sent
-	/// again. A receipt the session no longer holds answers done, and one
-	/// whose executor is still retained is refused.
-	pub async fn release(&self) -> Result<(), Error> {
-		self.caller
-			.call(
-				&self.source,
-				"release-effect",
-				&[self.operation.clone().into(), self.canonical.clone().into()],
-				"the session receipt did not answer",
-			)
-			.await
-			.map(|_| ())
+	/// again. A receipt already released, or one the session no longer holds,
+	/// answers [`Release::Released`]. One whose executor runs answers
+	/// [`Release::Running`] and stays, and the session retires a paused
+	/// executor. One whose result was adopted answers [`Release::Kept`] and
+	/// stays adopted.
+	pub async fn release(&self) -> Result<Release, Error> {
+		self.observer().release("the session receipt did not answer").await
 	}
 	/// Committed data is encoded JSON text, optionally paired with exact
 	/// returned custody. An unsettled receipt returns its status instead.
@@ -452,13 +476,17 @@ impl<D: Deadline> Command<D> {
 	/// The committed result's JSON text, whether the receipt carries it alone
 	/// or beside returned custody.
 	pub async fn result_text(&self) -> Result<String, Error> {
-		let result = self.result().await?;
-		result
-			.as_str()
-			.or_else(|| result.as_list()?.first()?.as_str())
-			.map(str::to_owned)
-			.ok_or_else(|| loam::refusal("command has no committed data").into())
+		committed_text(&self.result().await?)
 	}
+}
+/// A committed result's JSON text, whether the receipt carries it alone or
+/// beside returned custody.
+pub(super) fn committed_text(result: &Argument) -> Result<String, Error> {
+	result
+		.as_str()
+		.or_else(|| result.as_list()?.first()?.as_str())
+		.map(str::to_owned)
+		.ok_or_else(|| loam::refusal("command has no committed data").into())
 }
 fn snapshot(revision: &Argument, intent: &Argument) -> Result<Snapshot, Error> {
 	let revision = revision

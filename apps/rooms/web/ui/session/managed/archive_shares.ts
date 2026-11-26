@@ -6,6 +6,7 @@ import { archiveDropFull, archiveReadFull } from "../../../../lib/text/archive.t
 import { managedSessionText as managedText, sharedHistoryLabel } from "../../../../lib/text/managed_session.ts";
 import type { RoomsPageContext } from "../../page.ts";
 import type { ManagedRoomsSession } from "./session.ts";
+import type { ManagedActions } from "./actions.ts";
 import type { RoomsWorkspaceController } from "../../controller/session.ts";
 import type { AttachedSessionFiles } from "../attached_files.ts";
 import type { PresentedFile } from "./files.ts";
@@ -16,7 +17,7 @@ import { reconcileSharedArchive } from "../shared_archive_projection.ts";
 import type { ArchiveRecord } from "../../../../lib/archive/protocol.ts";
 import { MAX_ARCHIVE_READ, MAX_ARCHIVE_RECORDS } from "../../../../lib/archive/limits.ts";
 import { LocalRefusal, refusalText } from "../../../../lib/text/failure.ts";
-import { revisionReadKey } from "./reads.ts";
+import { type ManagedReads, revisionReadKey } from "./reads.ts";
 
 function offerIdentity(row: ReceivedArchive): string {
 	return JSON.stringify([
@@ -41,9 +42,18 @@ type Reading = Pick<
 	| "listIssuedArchiveShares"
 	| "revokeIssuedArchiveShare"
 >;
+/** What archive shares read of the session: the workspace, the reads and
+ * actions a share runs, and whether the session permits a read. */
+export type ArchiveSession =
+	& Pick<ManagedRoomsSession, "current" | "candidateBeforeSending" | "permits" | "request">
+	& {
+		readonly reads: Pick<ManagedReads, "run">;
+		readonly actions: Pick<ManagedActions, "direct" | "replace" | "run">;
+	};
+
 export function managedArchiveReading(
 	page: RoomsPageContext,
-	session: ManagedRoomsSession,
+	session: ArchiveSession,
 	files: AttachedSessionFiles<PresentedFile>,
 ): Reading {
 	const running = new Map<string, Promise<string>>();
@@ -65,6 +75,9 @@ export function managedArchiveReading(
 			const recipient = conversation.type === "dm"
 				? conversation.persistId
 				: await session.actions.direct(conversation.dir, peer?.trim() || "", false);
+			// The introduction went through. The share needs its row, which an
+			// unread session does not name.
+			if (recipient == null) throw new LocalRefusal("archive-unsent");
 			const selected = conversationById(session.current, conversation.persistId);
 			if (selected == null || conversationIdentity(selected) !== identity) {
 				throw new LocalRefusal("conversation-changed");
@@ -82,7 +95,7 @@ export function managedArchiveReading(
 		}
 	}
 	async function drop(id: string, identity?: string): Promise<void> {
-		const snapshot = await session.candidate();
+		const snapshot = await session.candidateBeforeSending();
 		const shares = snapshot.intent.archiveShares;
 		if (shares == null) return;
 		const selected = shares.find((row) => row.id === id);
@@ -114,9 +127,8 @@ export function managedArchiveReading(
 		let source: ArchiveSource | null = null;
 		try {
 			source = new ArchiveSource(
-				await session.workspace.archiveReader(
-					coordinate("archiveAccess", selected.access),
-					session.permits("readFile"),
+				await session.request((workspace) =>
+					workspace.archiveReader(coordinate("archiveAccess", selected.access), session.permits("readFile"))
 				),
 			);
 			if (!fresh()) throw new LocalRefusal("history-offer-changed");
@@ -180,7 +192,7 @@ export function managedArchiveReading(
 		listIssuedArchiveShares: () =>
 			session.reads.run(
 				revisionReadKey("issuedShares", session.current?.intent.archive, session.current?.revision),
-				() => session.workspace.issuedArchiveShares(),
+				() => session.request((workspace) => workspace.issuedArchiveShares()),
 			),
 		revokeIssuedArchiveShare: async (id) => {
 			try {

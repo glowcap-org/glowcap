@@ -13,6 +13,11 @@ pub const REVOKE_ROOM_LINK: &str = "revokeRoomLink";
 pub const UNREGISTER_ROOM: &str = "unregisterRoom";
 pub const SET_POLICY: &str = "setRoomPolicy";
 pub const REQUEST_TIMEOUT_MS: u64 = 15_000;
+/// The longest one call through an attached session takes to settle.
+/// The call waits one request bound for its answer. A call that misses it
+/// asks once whether the session is there, within the rest of this bound, so
+/// a timed out request is told apart from a session that went unreached.
+pub const CALL_BOUND_MS: u64 = 2 * REQUEST_TIMEOUT_MS;
 
 pub trait Reply {
 	fn text(&self) -> Option<&str>;

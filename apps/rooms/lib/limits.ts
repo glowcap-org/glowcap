@@ -408,6 +408,14 @@ export const TRANSFER_STALL_MS = APPLICATION_DATA.TRANSFER_STALL_MS;
  * Nothing else recovers the states that leaves behind: a line that says it is
  * sending, a Join that says it is joining, an edit that never lands. */
 export const REQUEST_TIMEOUT_MS = APPLICATION_DATA.REQUEST_TIMEOUT_MS;
+/** The longest one call through an attached session takes to settle:
+ * one request bound for the answer, then the rest for asking once whether
+ * the session is there. */
+export const CALL_BOUND_MS = APPLICATION_DATA.CALL_BOUND_MS;
+/** The longest a receipt's job runs after the session answers a release with
+ * `running`. The job settles or pauses by itself within it, and a release
+ * asked after that is answered `released`. */
+export const RUNNING_BOUND_MS = APPLICATION_DATA.RUNNING_BOUND_MS;
 
 /** How many reads one file will hold parked at once.
  *

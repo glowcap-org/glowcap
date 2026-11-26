@@ -298,8 +298,10 @@ creates a replacement send from the bubble's text.
 How each kind of change shows while it is pending:
 
 - Withdrawing a line hides only that line's pending change, and its place and any refusal stay visible.
-- Draft synchronization keeps editable local text and one persistent retry notice inside the composer above its text
-  field. Long diagnostics open through the notice's detail card, and retry requires current participation access.
+- Draft synchronization keeps local text editable. After a temporary failure, **Retry sync** is available with
+  participation access. If another tab changed the draft or the destination changed, the composer keeps the local
+  text available to copy. **Use session draft** replaces this conversation’s local draft and selected files with
+  the session’s current text.
 - Access edits keep recovery beside the original control. Entry action groups wrap within their row on phones.
 - Typing expires with its authority and records a bounded diagnostic instead of a toast per keystroke.
 - Typing starts at a keystroke, never at focus on a draft kept from earlier, a draft put back after a refused send,

@@ -3,15 +3,21 @@
 // settled stays listed until it is picked back up or let go.
 import { assert, assertEquals } from "../assert.ts";
 import { snapshot, viewer } from "../support/managed_viewer.ts";
+import { failedOutcome } from "../support/managed_link.ts";
 import { ManagedRoomsSession } from "../../web/ui/session/managed/session.ts";
 import type { RoomsManagedApplication, RoomsManagedWorkspace } from "../../../../zig-out/wasm/rooms/rooms_browser.js";
 import { SubmissionRefused } from "../../web/ui/session/managed/acquisition.ts";
 import { openChanges } from "../../web/ui/session/managed/open_changes.ts";
 import { failureView } from "../../lib/text/failure.ts";
+import { managedSessionText } from "../../lib/text/managed_session.ts";
 
 // A reason Rust reports as `refused`: a coded refusal the session is known to
 // make before any effect. A bare break stays `uncertain`.
-const REFUSED = "glowcap error -12: admission-busy: the session is handling as much work as it can";
+const BUSY = "the session is handling as much work as it can";
+const REFUSED = `glowcap error -12: admission-busy: ${BUSY}`;
+/** The binding's admission refusal, as Rust projects it beside its text. */
+const refusedOutcome = () =>
+	failedOutcome("refused", { status: -12, reason: `admission-busy: ${BUSY}`, code: "admission-busy", detail: BUSY });
 
 Deno.test("a directory acquisition the session refused is forgotten and its reason reaches the caller", async () => {
 	let submissions = 0;
@@ -21,7 +27,7 @@ Deno.test("a directory acquisition the session refused is forgotten and its reas
 			Promise.resolve({
 				submit: () => {
 					submissions++;
-					return Promise.resolve({ status: "refused", reason: REFUSED });
+					return Promise.resolve(refusedOutcome());
 				},
 				free() {},
 			}),
@@ -51,7 +57,9 @@ Deno.test("a directory acquisition nothing settled is listed with its outcome un
 			Promise.resolve({
 				submit: () => {
 					submissions++;
-					return Promise.resolve({ status: "uncertain", reason: "the reply never came" });
+					return Promise.resolve(
+						failedOutcome("uncertain", { status: null, reason: "the reply never came", code: null }),
+					);
 				},
 				free() {},
 			}),
@@ -104,9 +112,10 @@ Deno.test("an outcome Rust did not shape is held as unsettled, never taken as co
 	}
 });
 
-Deno.test("a directory acquisition that went through but could not be shown here can be let go", async () => {
+Deno.test("a directory acquisition that went through but could not be shown here is finished, with a notice", async () => {
 	let committed = false;
 	let reads = 0;
+	const notices: { source: string; error: unknown }[] = [];
 	const session = viewer({
 		snapshot: () => {
 			if (committed) {
@@ -123,23 +132,15 @@ Deno.test("a directory acquisition that went through but could not be shown here
 				},
 				free() {},
 			}),
-	});
+	}, (source, error) => notices.push({ source, error }));
 	try {
-		const outcome: unknown = await session.actions
-			.directory("directory", "127.0.0.1:1234", { kind: "exact", name: "ada" }, true)
-			.then(() => null, (error: unknown) => error);
-		assert(outcome instanceof Error && outcome.message.includes("the session did not answer"), String(outcome));
-		const [row] = openChanges(session, []);
-		assertEquals(
-			{ status: row.status, state: row.state, act: row.act, letGo: row.letGo },
-			{ status: "committed", state: "saving", act: "acquire", letGo: true },
-		);
-		// Finishing reads the session again and fails the same way; letting go
-		// is the exit, and the change itself stays saved in the session.
-		await session.actions.recoverAcquisition("directory:directory").catch(() => {});
-		assertEquals(reads, 2);
-		await session.releaseOperation("directory:directory");
-		assertEquals([session.actions.pending, openChanges(session, [])], [[], []]);
+		await session.actions.directory("directory", "127.0.0.1:1234", { kind: "exact", name: "ada" }, true);
+		// The change went through, so the press is done and nothing is held for a
+		// repeat. The read that would redraw it is a notice, and the next update
+		// redraws.
+		assertEquals(reads, 1);
+		assertEquals(notices.map((notice) => notice.source), [managedSessionText.changeUnread]);
+		assertEquals([session.actions.pending, session.actions.recoverable, openChanges(session, [])], [[], [], []]);
 	} finally {
 		await session.close();
 	}
@@ -155,7 +156,7 @@ Deno.test("a workspace selection the session refused is freed and the next selec
 			return Promise.resolve({
 				submit: () =>
 					Promise.resolve(
-						preparations === 1 ? { status: "refused", reason: REFUSED } : { status: "committed" },
+						preparations === 1 ? refusedOutcome() : { status: "committed" },
 					),
 				free() {
 					freed++;
@@ -178,6 +179,38 @@ Deno.test("a workspace selection the session refused is freed and the next selec
 		// replacement the retained one refuses.
 		await session.selectWorkspace("replacement");
 		assertEquals([preparations, freed], [2, 2]);
+	} finally {
+		await session.close();
+	}
+});
+
+Deno.test("an inventory status with no words here reads as unknown, an inherited name included", async () => {
+	const session = viewer({ snapshot: () => Promise.resolve(snapshot()) });
+	try {
+		const rows = ["toString", "later"].map((status) => ({
+			operation: status,
+			status,
+			resumable: false,
+			released: false,
+		}));
+		assertEquals(openChanges(session, rows).map((row) => row.state), ["unknown", "unknown"]);
+	} finally {
+		await session.close();
+	}
+});
+
+Deno.test("a receipt its source let go is no open change, though the session still lists it", async () => {
+	const session = viewer({ snapshot: () => Promise.resolve(snapshot()) });
+	try {
+		const row = (operation: string, released: boolean) => ({
+			operation,
+			status: "unknown",
+			resumable: false,
+			released,
+		});
+		assertEquals(openChanges(session, [row("let-go", true), row("held", false)]).map((change) => change.id), [
+			"held",
+		]);
 	} finally {
 		await session.close();
 	}

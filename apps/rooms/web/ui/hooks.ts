@@ -255,6 +255,27 @@ export function useDismissOnClickOutside(
 export function bindTabVisibility(projection: PageProjection): () => void {
 	projection.noteVisibility(!document.hidden);
 	const onChange = () => projection.noteVisibility(!document.hidden);
+	// A page restored from the back-forward cache never reported being hidden.
+	const onShow = (event: PageTransitionEvent) => {
+		if (event.persisted) projection.noteReturn();
+	};
 	document.addEventListener("visibilitychange", onChange);
-	return () => document.removeEventListener("visibilitychange", onChange);
+	addEventListener("pageshow", onShow);
+	return () => {
+		document.removeEventListener("visibilitychange", onChange);
+		removeEventListener("pageshow", onShow);
+	};
+}
+
+/** Mirror whether the device reports a network into the page's projection. */
+export function bindNetwork(projection: PageProjection): () => void {
+	projection.noteOnline(navigator.onLine);
+	const online = () => projection.noteOnline(true);
+	const offline = () => projection.noteOnline(false);
+	addEventListener("online", online);
+	addEventListener("offline", offline);
+	return () => {
+		removeEventListener("online", online);
+		removeEventListener("offline", offline);
+	};
 }

@@ -42,21 +42,22 @@ const team_start = start ++ [_]Flag{
     many("member", "Member nickname (repeat for each member)"),
     value("max", "Maximum roster size including lead (default 4)"),
 };
-/// Handing out access to a running session, for a person at a terminal. The
-/// session keeps each access's control, so the page lists the same accesses.
-/// The link of a new access is printed once and kept nowhere else.
+/// The terminal manages the access controls its session keeps. An attached
+/// page can manage an access once it holds that access's control.
+/// Issuance prints the new use link once.
 const access_commands = [_]types.Command{
     .{ .name = "issue", .short_help = "Create an access and print the link that lets someone use it, and its id", .flags = &.{
         dir,
         value("label", "Your own name for this access, shown in the list"),
-        value("rights", "What the access may do: observer (watch only), collaborator (also post and join), or administrator (also manage the workspace)"),
-        value("id", "The id to keep the access under (default: a new one). An issue that did not finish is finished by issuing again with its id, label, and rights"),
+        value("rights", "What the access may do: observer (watch only), collaborator (also post, join, and act), or administrator (also manage the workspace)"),
+        value("id", "The id to keep the access under (default: a new one). Retry an unfinished issue with its original id, label, and rights. If the receipt has expired, forget the id before issuing again"),
     }, .run = run("access-issue") },
     .{ .name = "list", .short_help = "Show each access with its id, rights, and whether it is active, paused, or revoked, and each id whose issue did not finish", .flags = &.{dir}, .run = run("access-list") },
     .{ .name = "pause", .short_help = "Stop an access from working until you resume it", .flags = &.{ dir, access_id }, .run = run("access-pause") },
     .{ .name = "resume", .short_help = "Let a paused access work again", .flags = &.{ dir, access_id }, .run = run("access-resume") },
     .{ .name = "revoke", .short_help = "End an access for good", .flags = &.{ dir, access_id }, .run = run("access-revoke") },
     .{ .name = "forget", .short_help = "Drop a revoked access from the list", .flags = &.{ dir, access_id }, .run = run("access-forget") },
+    .{ .name = "share-management", .short_help = "Print the link that lets a browser or another person pause, resume, or revoke one access", .flags = &.{ dir, access_id }, .run = run("access-share-management") },
 };
 pub const commands = [_]types.Command{
     .{ .name = "serve", .short_help = "Serve a foreground session for a host supervisor or attached browser", .flags = &([_]Flag{dir} ++ serve_options), .run = @import("mod.zig").run("rooms-session", .session_serve) },

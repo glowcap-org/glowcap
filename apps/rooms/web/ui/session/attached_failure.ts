@@ -8,15 +8,15 @@
 import { capabilityDoors } from "../application.ts";
 import {
 	doorUnreachable,
-	type FailureNames,
+	type FailureRewording,
 	failureView,
-	namedFailure,
 	renderFailure,
+	reworded,
 	transportBreak,
 } from "../../../lib/text/failure.ts";
 
 /** An attach reaches for a session. */
-const ATTACHING: FailureNames = new Map([
+const ATTACHING: FailureRewording = new Map([
 	["peer-unreachable", "session-unreachable"],
 	["member-unreachable", "session-unreachable"],
 ]);
@@ -35,5 +35,5 @@ export function attachedSessionFailureText(
 			: capabilityDoors(link)?.relay?.host ?? null;
 		if (through != null) return doorUnreachable("session", through, broke);
 	}
-	return renderFailure(namedFailure(failureView(error), ATTACHING));
+	return renderFailure(reworded(failureView(error), ATTACHING));
 }

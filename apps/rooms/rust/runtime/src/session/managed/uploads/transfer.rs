@@ -1,28 +1,50 @@
 //! The worker owns private observations independently of the task polling them.
 use super::super::results::{Prepared, Settlement};
 use super::*;
+use crate::session::managed::executor::paused;
 use glowcap::{
 	Host,
 	loam::{Continuation, EffectExecution, EffectResult},
 };
 use rooms_application::{
+	content::session::effects::{FILL_ROUND_MS, OBSERVATION_MS},
 	files::{self, transfer::UploadProgress},
 	session::effect::Reply,
 };
+use rooms_glowcap::client::Deadline;
 use std::{cell::Cell, future::Future, pin::Pin, rc::Rc};
 
 struct Upload {
 	reference: Ref,
 	progress: UploadProgress,
 }
-type Completion = Pin<Box<dyn Future<Output = Option<Settlement>>>>;
+type Completion = Pin<Box<dyn Future<Output = Ending>>>;
 /// The continuation and intent live in the phases that use them. The final
 /// phase moves them into its future, so nothing in the pipeline is optional.
 enum Phase {
-	Staging { continuation: Continuation, intent: Intent },
-	Primary { continuation: Continuation, intent: Intent },
+	Staging {
+		continuation: Continuation,
+		intent: Intent,
+	},
+	Primary {
+		continuation: Continuation,
+		intent: Intent,
+	},
 	Completing(Completion),
+	/// The post is acknowledged and the room holds the line. The fill's output
+	/// is a settlement and nothing else, so no deadline can pause it or leave
+	/// the receipt unresolved: a round that does not finish ends it as an
+	/// incomplete line.
+	Filling(Fill),
 	Finished,
+}
+type Fill = Pin<Box<dyn Future<Output = Settlement>>>;
+/// Where `acknowledge` stopped.
+enum Step {
+	/// The upload ended before any file was filled.
+	Ended(Option<Ending>),
+	/// The post is acknowledged and the fill is next.
+	Posted,
 }
 /// A private EffectExecution stays here after drive or projection refusal.
 /// Retrying observation never recreates its dispatch. Filling and cleanup own
@@ -76,16 +98,18 @@ impl Pipeline {
 			phase: Phase::Staging { continuation, intent },
 		}
 	}
-	fn cleanup(&mut self, known_absent: bool) {
+	/// Discard the staged uploads and end unresolved by `cause`. The receipt
+	/// cannot settle on a lost answer: a lost attach may have staged an upload
+	/// no handle names, and a lost post may have posted the line, so a
+	/// confirmed discard of the known handles proves neither absent.
+	fn cleanup(&mut self, cause: glowcap::Error) {
 		let host = self.host.clone();
 		let uploads = std::mem::take(&mut self.uploads);
 		self.phase = Phase::Completing(Box::pin(async move {
-			let empty = discard(&host, &uploads).await;
-			if known_absent && empty {
-				Some(Settlement::absent())
-			} else {
-				None
-			}
+			// best-effort: the receipt stays unresolved whatever the discard
+			// confirms, and an unconfirmed upload expires with its staging.
+			discard(&host, &uploads).await;
+			Ending::Unresolved(cause)
 		}));
 	}
 	/// Confirm compensation before declaring the original post absent. A failed
@@ -94,7 +118,7 @@ impl Pipeline {
 		let host = self.host.clone();
 		let uploads = std::mem::take(&mut self.uploads);
 		self.phase = Phase::Completing(Box::pin(async move {
-			Some(if discard(&host, &uploads).await {
+			Ending::Settled(if discard(&host, &uploads).await {
 				Settlement::refused(&error)
 			} else {
 				Settlement::unknown(&error.with_context("upload cleanup was not confirmed after admission refusal"))
@@ -108,14 +132,38 @@ impl Pipeline {
 			other => other,
 		};
 	}
-	pub async fn advance(&mut self) -> Result<Option<Settlement>> {
+	/// Run the upload to its ending. Staging and the post are one observation
+	/// of [`OBSERVATION_MS`], whose expiry pauses the job, because their
+	/// outcome is unknown. Files already staged may expire during a pause. The
+	/// next observation resumes with the remaining files. After the
+	/// post's acknowledgement the fill runs under no observation of the
+	/// executor's. Each round of it has its own bound.
+	pub async fn advance<P: Deadline + Clone + 'static>(&mut self, platform: &P) -> Result<Option<Ending>> {
+		if !matches!(self.phase, Phase::Filling(_)) {
+			let step = platform
+				.within(OBSERVATION_MS, self.acknowledge(platform))
+				.await
+				.ok_or_else(|| paused("upload observation deadline expired"))??;
+			if let Step::Ended(ending) = step {
+				return Ok(ending);
+			}
+		}
+		let Phase::Filling(fill) = &mut self.phase else {
+			return Ok(None);
+		};
+		let settlement = fill.await;
+		self.phase = Phase::Finished;
+		Ok(Some(Ending::Settled(settlement)))
+	}
+	async fn acknowledge<P: Deadline + Clone + 'static>(&mut self, platform: &P) -> Result<Step> {
 		loop {
 			match &mut self.phase {
-				Phase::Finished => return Ok(None),
+				Phase::Finished => return Ok(Step::Ended(None)),
+				Phase::Filling(_) => return Ok(Step::Posted),
 				Phase::Completing(pending) => {
 					let outcome = pending.await;
 					self.phase = Phase::Finished;
-					return Ok(outcome);
+					return Ok(Step::Ended(Some(outcome)));
 				}
 				Phase::Staging { continuation, intent } => {
 					let Some(description) = intent.files.as_slice().get(self.uploads.len()) else {
@@ -162,7 +210,8 @@ impl Pipeline {
 						}
 						// An unanswered or malformed attach can have staged an
 						// unseen upload. Returning known handles cannot prove empty.
-						_ => self.cleanup(false),
+						EffectResult::Unknown(cause) => self.cleanup(cause),
+						_ => self.cleanup(refuse("upload attach answered without its upload")),
 					}
 				}
 				Phase::Primary { continuation, intent } => {
@@ -207,15 +256,19 @@ impl Pipeline {
 								self.cleanup_refused(error);
 								continue;
 							}
-							_ => {
-								self.cleanup(false);
+							EffectResult::Unknown(cause) => {
+								self.cleanup(cause);
 								continue;
 							}
+							EffectResult::Pending => unreachable!("completed upload post"),
 						};
-					let settlement = match Prepared::read(reply, &primary, "", None) {
-						Ok(Prepared::Complete(settlement)) => settlement,
-						_ => {
-							self.cleanup(false);
+					let posted = match Prepared::read(reply, &primary, "", None).and_then(|read| match read {
+						Prepared::Complete(settlement) => Posted::read(settlement, reply),
+						_ => Err(refuse("upload post answer is not a settlement")),
+					}) {
+						Ok(posted) => posted,
+						Err(cause) => {
+							self.cleanup(cause);
 							continue;
 						}
 					};
@@ -223,12 +276,11 @@ impl Pipeline {
 					// Cold unresolved custody conservatively excludes it again.
 					self.released.set(true);
 					let host = self.host.clone();
+					let platform = platform.clone();
 					let uploads = std::mem::take(&mut self.uploads);
 					self.phase = match std::mem::replace(&mut self.phase, Phase::Finished) {
-						Phase::Primary { continuation, intent } => Phase::Completing(Box::pin(async move {
-							finish(&host, &continuation, intent.target_count(), uploads, settlement, reply)
-								.await
-								.unwrap_or(None)
+						Phase::Primary { continuation, intent } => Phase::Filling(Box::pin(async move {
+							fill(&host, &platform, &continuation, intent.target_count(), uploads, posted).await
 						})),
 						other => other,
 					};
@@ -248,64 +300,100 @@ async fn discard(host: &Host, uploads: &[Upload]) -> bool {
 	}
 	complete
 }
-async fn finish(
+/// Fill every file, a chunk of each in turn, and settle the posted line as
+/// complete or as standing with its files incomplete. The room renews a
+/// file's lease when a write crosses a multiple of the chunk size or finishes
+/// the file, so a file whose chunks come whole renews with each, and the files
+/// advance together. A source that answers with less than a chunk may cross no
+/// multiple for some rounds, and the room ends the lease of that file after
+/// its idle time all the same. Each round is one chunk of every unfinished
+/// file, bounded by [`FILL_ROUND_MS`]: a whole-chunk file waits less than two
+/// rounds between its chunks, which is below the room's lease. A round that
+/// does not finish within its bound ends the fill, and so does a failed read
+/// or write, which keeps its typed cause.
+async fn fill<P: Deadline>(
 	host: &Host,
+	platform: &P,
 	continuation: &Continuation,
 	source_start: usize,
 	mut uploads: Vec<Upload>,
-	settlement: Settlement,
-	reply: Reply,
-) -> Result<Option<Settlement>> {
-	let filled = fill(host, continuation, source_start, &mut uploads).await;
-	if filled.is_err() {
-		discard(host, &uploads).await;
+	posted: Posted,
+) -> Settlement {
+	let mut failure = None;
+	while uploads.iter().any(|upload| !upload.progress.complete()) {
+		let round = platform.within(
+			FILL_ROUND_MS,
+			round(host, platform, continuation, source_start, &mut uploads),
+		);
+		match round.await {
+			Some(Ok(())) => {}
+			Some(Err(error)) => {
+				failure = Some(Settlement::reason_text(&error));
+				break;
+			}
+			None => {
+				failure = Some(format!(
+					"a round of one piece of each file did not finish within {FILL_ROUND_MS} ms"
+				));
+				break;
+			}
+		}
 	}
-	let failure = filled
-		.err()
-		.map(|error| {
-			rooms_application::fields::Text::new(error.to_string().into())
-				.or_else(|| {
-					rooms_application::fields::Text::new("the line stands, but its files could not be completed".into())
-				})
-				.ok_or_else(|| refuse("upload failure text is not admitted"))
-		})
-		.transpose()?;
-	complete(settlement, reply, failure).map(Some)
+	if failure.is_some() {
+		// best-effort: the line stands and its files are reported incomplete
+		// whatever the discard confirms, and an unconfirmed upload expires
+		// with the room's lease.
+		let _ = platform.within(OBSERVATION_MS, discard(host, &uploads)).await;
+	}
+	posted.finish(failure)
 }
-async fn fill(host: &Host, continuation: &Continuation, source_start: usize, uploads: &mut [Upload]) -> Result<()> {
+/// One chunk of every unfinished file, read from its source and appended to
+/// its upload.
+async fn round<P: Deadline>(
+	host: &Host,
+	platform: &P,
+	continuation: &Continuation,
+	source_start: usize,
+	uploads: &mut [Upload],
+) -> Result<()> {
 	for (index, upload) in uploads.iter_mut().enumerate() {
+		if upload.progress.complete() {
+			continue;
+		}
 		// Recheck original upload admission before dispatch and after each read.
 		let source = continuation.project(source_start + index)?;
-		while !upload.progress.complete() {
-			let args = [
-				Argument::Integer(upload.progress.written() as i64),
-				Argument::Integer(files::CHUNK_BYTES.min(upload.progress.remaining()) as i64),
-			];
-			let value = host
-				.send(&source, rooms_application::protocol_data::READ, &args)
-				.await?;
-			let Argument::Bytes(bytes) = value else {
-				return Err(refuse("upload source returned no bytes"));
-			};
-			upload
-				.progress
-				.begin(bytes.len())
-				.map_err(|_| refuse("upload source returned an invalid chunk"))?;
-			let value = host
-				.send(
-					&upload.reference,
-					rooms_application::protocol_data::WRITE,
-					&[Argument::Bytes(bytes)],
-				)
-				.await?;
-			if !matches!(value, Argument::Void) {
-				return Err(refuse("upload write returned no acknowledgement"));
-			}
-			upload
-				.progress
-				.acknowledge()
-				.map_err(|_| refuse("upload append has no acknowledgement"))?;
+		let args = [
+			Argument::Integer(upload.progress.written() as i64),
+			Argument::Integer(files::CHUNK_BYTES.min(upload.progress.remaining()) as i64),
+		];
+		let value = host
+			.send(&source, rooms_application::protocol_data::READ, &args)
+			.await?;
+		let Argument::Bytes(bytes) = value else {
+			return Err(refuse("upload source returned no bytes"));
+		};
+		upload
+			.progress
+			.begin(bytes.len())
+			.map_err(|_| refuse("upload source returned an invalid chunk"))?;
+		if let Some(delay) = crate::session::fault::upload_write_delay_ms() {
+			// tolerant: the pause ends at its deadline by design.
+			let _ = platform.within(delay, std::future::pending::<()>()).await;
 		}
+		let value = host
+			.send(
+				&upload.reference,
+				rooms_application::protocol_data::WRITE,
+				&[Argument::Bytes(bytes)],
+			)
+			.await?;
+		if !matches!(value, Argument::Void) {
+			return Err(refuse("upload write returned no acknowledgement"));
+		}
+		upload
+			.progress
+			.acknowledge()
+			.map_err(|_| refuse("upload append has no acknowledgement"))?;
 	}
 	Ok(())
 }

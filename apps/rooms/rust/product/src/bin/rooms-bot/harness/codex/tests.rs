@@ -137,7 +137,7 @@ fn an_unsupported_model_is_refused_and_warning_items_are_not_failures() {
 		vec![
 			Signal::Session("01a1fcd5-67bd-7892-85cb-88492108706b".into()),
 			Signal::Failure(
-				FailureKind::Refused,
+				FailureKind::Declined,
 				"The 'nonexistent-model-xyz' model is not supported when using Codex with a ChatGPT account.".into()
 			)
 		]
@@ -180,4 +180,53 @@ fn an_exit_is_a_crash_unless_it_was_clean() {
 	assert_eq!(kind, FailureKind::Crash);
 	assert!(detail.contains("no rollout found"));
 	assert_eq!(exit(None, "").map(|(kind, _)| kind), Some(FailureKind::Crash));
+}
+
+#[test]
+fn a_status_the_message_names_decides_the_kind_and_an_unrecognised_failure_is_a_crash() {
+	let kind_of = |message: &str| {
+		let line = serde_json::json!({"type": "turn.failed", "error": {"message": message}}).to_string();
+		match codex().read(&line).as_slice() {
+			[Signal::Failure(kind, _)] => *kind,
+			other => panic!("{other:?}"),
+		}
+	};
+	assert_eq!(
+		kind_of("unexpected status 401 Unauthorized: token expired"),
+		FailureKind::SignIn
+	);
+	// The message a signed-out Codex 0.162.1 ends its turn with.
+	assert_eq!(
+		kind_of(
+			"unexpected status 401 Unauthorized: Missing bearer or basic authentication in header, url: https://api.openai.com/v1/responses, cf-ray: 0, request id: req_0"
+		),
+		FailureKind::SignIn
+	);
+	assert_eq!(kind_of("unexpected status 403 Forbidden"), FailureKind::SignIn);
+	assert_eq!(
+		kind_of("unexpected status 429 Too Many Requests"),
+		FailureKind::UsageLimit
+	);
+	assert_eq!(
+		kind_of("unexpected status 503 Service Unavailable"),
+		FailureKind::Outage
+	);
+	assert_eq!(kind_of("unexpected status: 429"), FailureKind::UsageLimit);
+	assert_eq!(
+		kind_of("You've reached your usage limit. Increase your limits to continue using codex."),
+		FailureKind::UsageLimit
+	);
+	assert_eq!(kind_of("usage_limit_reached"), FailureKind::UsageLimit);
+	assert_eq!(kind_of("your key sk-123 is wrong"), FailureKind::Crash);
+	assert_eq!(kind_of("the status page is down"), FailureKind::Crash);
+	// The status Codex reports leads, whatever the body says after it, and a
+	// word before it that names no number is skipped.
+	assert_eq!(
+		kind_of("status page: upstream returned unexpected status 503 Service Unavailable"),
+		FailureKind::Outage
+	);
+	assert_eq!(
+		kind_of("unexpected status 401 Unauthorized: the body mentions status 503"),
+		FailureKind::SignIn
+	);
 }

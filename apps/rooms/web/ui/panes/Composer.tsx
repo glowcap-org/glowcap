@@ -52,7 +52,7 @@ import { Button } from "../Button.tsx";
 import { kindOf } from "../media.ts";
 import { FileChip, KEYBOARD_SETTLE_MS, useTypingSignal } from "../composer/bits.tsx";
 import { ComposerStatus } from "../composer/status.tsx";
-import { DraftSync } from "../composer/DraftSync.tsx";
+import { DraftSync, useDraftFailure } from "../composer/DraftSync.tsx";
 import { markerFor, wrapSelection } from "../composer/keys.ts";
 import { useOpenModal } from "../modal.ts";
 import { composerHintFormatting } from "../../../lib/text/writing.ts";
@@ -105,6 +105,8 @@ export function Composer(
 		changing,
 		keeping: draftKeeping,
 	} = useRoomsState((state) => conv == null ? NO_DRAFT : state.drafts.get(conv.key) ?? NO_DRAFT);
+	const draftId = conv != null && conv.type !== "directory" ? conv.persistId : null;
+	const draftFailure = useDraftFailure(draftId);
 	const bar = useRef<HTMLDivElement>(null);
 	const field = useRef<HTMLTextAreaElement>(null);
 	const filePick = useRef<HTMLInputElement>(null);
@@ -369,7 +371,12 @@ export function Composer(
 				{conv != null && conv.type !== "directory" && (
 					<DraftLinkPreviews conversation={conv.key} previews={draftPreviews} />
 				)}
-				<DraftSync convKey={conv?.key ?? null} />
+				<DraftSync
+					id={draftId}
+					convKey={conv?.key ?? null}
+					failure={draftFailure}
+					files={draftFiles.length > 0}
+				/>
 				<ActionFeedback action={`send:${conv?.key ?? ""}`} />
 				<div className="composer-input">
 					<textarea
@@ -620,7 +627,7 @@ export function Composer(
 								tone={emptiesLine ? "danger" : canSend ? "accent" : "neutral"}
 								shape="circle"
 								type="submit"
-								disabled={!enabled || !canSend || sendCooldown > 0}
+								disabled={!enabled || !canSend || sendCooldown > 0 || draftFailure?.conflict}
 								onMouseDown={(e) => e.preventDefault()}
 							/>
 						)}

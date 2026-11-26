@@ -110,7 +110,7 @@ pub fn add(b: *std.Build, target: std.Build.ResolvedTarget, version: std.Semanti
             \\  mkdir -p "$stage/tree/share/glowcap/rooms" "$stage/tree/share/glowcap/skills/rooms-peer/references" "$stage/tree/share/glowcap/skills/rooms-team"
             \\  cp -R -L zig-out/rooms-web/current/. "$stage/tree/share/glowcap/rooms/"
             \\  mkdir -p "$stage/tree/share/glowcap/deployment"
-            \\  cp apps/rooms/web/deploy/rooms.Dockerfile apps/rooms/web/deploy/docker-compose.yml apps/rooms/web/deploy/docker-compose.override.yml.example "$stage/tree/share/glowcap/deployment/"
+            \\  cp apps/rooms/web/deploy/rooms.Dockerfile apps/rooms/web/deploy/docker-compose.yml apps/rooms/web/deploy/docker-compose.override.yml.example apps/rooms/web/deploy/bot.Dockerfile.example "$stage/tree/share/glowcap/deployment/"
             \\  for path in rooms-peer/SKILL.md rooms-peer/references/commands.md rooms-team/SKILL.md rooms-team/ops.md rooms-team/gotchas.md rooms-team/strategies.md; do
             \\    cp ".agents/skills/$path" "$stage/tree/share/glowcap/skills/$path"
             \\  done

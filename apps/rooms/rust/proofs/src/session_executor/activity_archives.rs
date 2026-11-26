@@ -100,6 +100,8 @@ pub(super) async fn sharing(
 	let revocations = Rc::new(Cell::new(0));
 	let offers = Rc::new(Cell::new(0));
 	let refuse_delivery = Rc::new(Cell::new(false));
+	let unreadable_issue = Rc::new(Cell::new(false));
+	let unreadable_ack = Rc::new(Cell::new(false));
 	let delivered = Rc::new(std::cell::RefCell::new(None));
 	let share_uri = glowcap::format_sturdyref(&locator, b"durable-share", glowcap::CaptpVersion::V1_0).unwrap();
 	let read = exporter
@@ -116,7 +118,9 @@ pub(super) async fn sharing(
 			let issues = issues.clone();
 			let revocations = revocations.clone();
 			let share_uri = share_uri.clone();
+			let unreadable_issue = unreadable_issue.clone();
 			move || {
+				let unreadable_issue = unreadable_issue.clone();
 				let read = read.clone();
 				let narrows = narrows.clone();
 				let issues = issues.clone();
@@ -131,7 +135,11 @@ pub(super) async fn sharing(
 							Request::Issue(share) => {
 								assert_eq!(share.filter().conversation.as_ref().unwrap().as_str(), Some("direct"));
 								issues.set(issues.get() + 1);
-								share_uri.clone().into()
+								if unreadable_issue.get() {
+									Argument::Void
+								} else {
+									share_uri.clone().into()
+								}
 							}
 							Request::Revoke(id) => {
 								assert_eq!(id, "00000000-0000-4000-8000-000000000002");
@@ -159,7 +167,9 @@ pub(super) async fn sharing(
 			let offers = offers.clone();
 			let share_uri = share_uri.clone();
 			let refuse_delivery = refuse_delivery.clone();
+			let unreadable_ack = unreadable_ack.clone();
 			move || {
+				let unreadable_ack = unreadable_ack.clone();
 				let delivered = delivered.clone();
 				let offers = offers.clone();
 				let share_uri = share_uri.clone();
@@ -171,6 +181,8 @@ pub(super) async fn sharing(
 						offers.set(offers.get() + 1);
 						return if refuse_delivery.get() {
 							Err("delivery outcome is uncertain".into())
+						} else if unreadable_ack.get() {
+							Ok(Argument::from("not an acknowledgment"))
 						} else {
 							Ok(Argument::Void)
 						};
@@ -341,6 +353,67 @@ pub(super) async fn sharing(
 		(2, 2),
 		"unknown delivery cannot issue or offer again after replay and resume"
 	);
+	// An answer no resume can read ends the request unresolved: it reads
+	// unknown, holds no executor, and asking the session to resume changes
+	// nothing and sends nothing again.
+	for (operation, id, ack) in [
+		(
+			"archive-unreadable-issue",
+			"00000000-0000-4000-8000-000000000003",
+			false,
+		),
+		("archive-unreadable-ack", "00000000-0000-4000-8000-000000000004", true),
+	] {
+		unreadable_issue.set(!ack);
+		unreadable_ack.set(ack);
+		let (issued, offered) = (issues.get(), offers.get());
+		let base = workspace.snapshot().await.unwrap().revision;
+		let command = workspace
+			.prepare_command(
+				operation,
+				base,
+				"offerDurableArchive",
+				&[
+					"direct".into(),
+					"sharing-recipient".into(),
+					"direct".into(),
+					id.into(),
+					"Unreadable history".into(),
+				],
+			)
+			.await
+			.unwrap();
+		command.submit().await.unwrap();
+		assert_eq!(
+			finished(host, source, operation, source).await.as_str(),
+			Some("unknown")
+		);
+		assert_eq!(
+			(issues.get(), offers.get()),
+			(issued + 1, offered + usize::from(ack)),
+			"{operation}: the unreadable answer was the first and only one"
+		);
+		for _ in 0..3 {
+			environment::yield_turn().await;
+		}
+		#[cfg(not(target_arch = "wasm32"))]
+		assert!(
+			!owner.holds_request(operation),
+			"{operation}: an unreadable answer ends the job instead of pausing it for a resume that can only fail again"
+		);
+		owner.resume_pending().unwrap();
+		assert_eq!(
+			finished(host, source, operation, source).await.as_str(),
+			Some("unknown")
+		);
+		assert_eq!(
+			(issues.get(), offers.get()),
+			(issued + 1, offered + usize::from(ack)),
+			"{operation}: a resume sends nothing again"
+		);
+	}
+	unreadable_issue.set(false);
+	unreadable_ack.set(false);
 	owner.replace_workspace(&original.intent).await.unwrap();
 	// The recipient owns the handed facet until it releases it. Retire that
 	// custody while both Hosts and the issuing attachment can still progress.

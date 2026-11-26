@@ -76,11 +76,19 @@ fn a_first_safe_turn_scopes_every_tool_to_the_working_directory() {
 			"Bash(/opt/glowcap/bin/glowcap apps rooms bot workspace *)",
 			"Bash(/opt/glowcap/bin/glowcap apps rooms bot command)",
 			"Bash(/opt/glowcap/bin/glowcap apps rooms bot command *)",
+			"Bash(/opt/glowcap/bin/glowcap apps rooms bot actions)",
+			"Bash(/opt/glowcap/bin/glowcap apps rooms bot actions *)",
 		])
 	);
 	assert_eq!(invocation.stdin.as_deref(), Some("hello"));
 	assert_eq!(invocation.resume, None);
-	assert!(invocation.env.is_empty());
+	assert_eq!(
+		invocation.env,
+		vec![(
+			"BASH_DEFAULT_TIMEOUT_MS".into(),
+			crate::bot::act::CLAUDE_BASH_DEFAULT_MS.to_string().into()
+		)]
+	);
 	// The instructions travel in a file beside the conversation's state,
 	// outside the working directory, and never on the command line.
 	assert_eq!(
@@ -152,6 +160,19 @@ fn safe_refuses_a_glowcap_path_or_home_a_rule_cannot_hold() {
 	}
 }
 
+/// The home rules of a safe run, which both recordings below were made under.
+/// A change to them makes a recording stale, so it is recorded again.
+fn assert_recorded_rules() {
+	let words = words(&turn(None, None, Permission::Safe));
+	for rule in [
+		"Read(//w/bot/home/**)",
+		"Write(//w/bot/home/**)",
+		"Edit(//w/bot/home/**)",
+	] {
+		assert!(words.iter().any(|word| word == rule), "{rule}");
+	}
+}
+
 /// Recorded with the safe flags this adapter writes, asking the agent to
 /// read `<HOME>/../session.link`, the bot's access link one step out of the
 /// home, and then `<HOME>/memory/../note.md`, a file in the home reached the
@@ -159,6 +180,7 @@ fn safe_refuses_a_glowcap_path_or_home_a_rule_cannot_hold() {
 /// first read was denied under its resolved path and the second ran.
 #[test]
 fn a_safe_run_resolves_a_dotted_path_before_its_home_rule_matches() {
+	assert_recorded_rules();
 	let lines: Vec<serde_json::Value> = HOME_DOTDOT
 		.lines()
 		.map(|line| serde_json::from_str(line).unwrap())
@@ -187,14 +209,7 @@ fn a_safe_run_resolves_a_dotted_path_before_its_home_rule_matches() {
 /// and the read ran, and the second write was the run's only denial.
 #[test]
 fn a_safe_run_writes_its_home_and_nothing_outside_it_or_its_working_directory() {
-	let words = words(&turn(None, None, Permission::Safe));
-	for rule in [
-		"Read(//w/bot/home/**)",
-		"Write(//w/bot/home/**)",
-		"Edit(//w/bot/home/**)",
-	] {
-		assert!(words.iter().any(|word| word == rule), "{rule}");
-	}
+	assert_recorded_rules();
 	let lines: Vec<serde_json::Value> = HOME.lines().map(|line| serde_json::from_str(line).unwrap()).collect();
 	let blocks = |kind: &'static str| {
 		lines
@@ -277,8 +292,8 @@ fn a_success_subtype_with_is_error_is_a_failure() {
 			})
 			.collect::<Vec<_>>()
 	};
-	assert_eq!(kinds(FAIL_AUTH), vec![FailureKind::Auth, FailureKind::Auth]);
-	assert_eq!(kinds(FAIL_MODEL), vec![FailureKind::Refused, FailureKind::Refused]);
+	assert_eq!(kinds(FAIL_AUTH), vec![FailureKind::SignIn, FailureKind::SignIn]);
+	assert_eq!(kinds(FAIL_MODEL), vec![FailureKind::Declined, FailureKind::Declined]);
 }
 
 #[test]
@@ -297,12 +312,12 @@ fn a_result_alone_decides_when_the_error_line_is_missing() {
 	let line = r#"{"type":"result","subtype":"success","is_error":true,"api_error_status":429,"result":"limit"}"#;
 	assert_eq!(
 		claude().read(line),
-		vec![Signal::Failure(FailureKind::RateLimit, "limit".into())]
+		vec![Signal::Failure(FailureKind::UsageLimit, "limit".into())]
 	);
 	let line = r#"{"type":"result","subtype":"success","is_error":true,"result":"Not logged in · Please run /login"}"#;
 	assert!(matches!(
 		claude().read(line)[..],
-		[Signal::Failure(FailureKind::Auth, _)]
+		[Signal::Failure(FailureKind::SignIn, _)]
 	));
 }
 
@@ -328,11 +343,18 @@ fn an_exit_is_classified_from_its_status_and_stderr() {
 	assert_eq!(exit(Some(0), ""), None);
 	assert_eq!(
 		exit(Some(1), r#"[claude-code:unrecognized_model] {"model":"x"}"#),
-		Some(FailureKind::Refused)
+		Some(FailureKind::Declined)
 	);
 	assert_eq!(
 		exit(Some(1), "Error: Session ID x is already in use."),
 		Some(FailureKind::Crash)
 	);
 	assert_eq!(exit(None, ""), Some(FailureKind::Crash));
+}
+
+#[test]
+fn a_failure_with_no_recorded_shape_is_a_crash() {
+	assert_eq!(kind(Some("some_new_error"), None), FailureKind::Crash);
+	assert_eq!(kind(None, None), FailureKind::Crash);
+	assert_eq!(kind(None, Some(401)), FailureKind::SignIn);
 }

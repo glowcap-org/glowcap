@@ -38,6 +38,18 @@ impl<D: Deadline> Mutation<D> {
 		}
 	}
 }
+impl<D: Clone> Mutation<D> {
+	/// This exact request through `control`, which holds the same access over
+	/// a new connection. The sequence and revision stay, so the session answers
+	/// a request it already took with what it recorded for it.
+	pub fn through(&self, control: &Control<D>) -> Self {
+		Self {
+			caller: control.caller.clone(),
+			control: control.reference.clone(),
+			arguments: self.arguments.clone(),
+		}
+	}
+}
 impl<D: Deadline + Clone> Control<D> {
 	async fn prepare_mutation(&self, arguments: impl FnOnce(u32) -> Vec<Argument>) -> Result<Mutation<D>, Error> {
 		let sequence = self.mutation_sequence().await?;
