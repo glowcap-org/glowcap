@@ -204,6 +204,7 @@ pub const Served = struct {
             self.budgeted_local_turns = null;
         }
         try self.port.peer.stepToIdle();
+        self.port.collectReleased(vat);
         // Encoding a deferred resolution can synthesize local pipeline
         // deliveries. Observe after stepToIdle so the Host schedules them.
         return if (self.port.peer.hasEvent() or turn_progress == .more_pending) .more_pending else .drained;
@@ -264,7 +265,7 @@ pub const Served = struct {
     /// unbounded when none is set.
     pub fn drivePostBatch(self: *Served, vat: *actors.Vat, budget: usize) !void {
         switch (try vat.driveIngressBudgeted(self.port.ingress, budget)) {
-            .drained => {},
+            .drained => self.port.collectReleased(vat),
             .more_pending => return error.LocalTurnLimitExceeded,
         }
     }
@@ -274,7 +275,10 @@ pub const Served = struct {
     /// committed part of the event's effects, so allocation pressure during
     /// the serve is terminal for the session rather than retryable.
     fn serveTransferred(self: *Served, vat: *actors.Vat, event: *engine.Event) !void {
-        defer event.deinit();
+        defer {
+            event.deinit();
+            self.port.collectReleased(vat);
+        }
         self.serveEvent(vat, event) catch |err| switch (err) {
             error.OutOfMemory => return error.EventServeOutOfMemory,
             else => return err,

@@ -346,10 +346,15 @@ test "core host: deferred local listener can publish its returned occurrence" {
         try server.flushSession(pair.b);
         if (!try h.shuttleAll(&.{pair})) break;
     } else return error.PumpDidNotQuiesce;
-    // A published position keeps Port's ordinary binding until session
-    // retirement; all peer-held wire occurrences must return to its baseline.
-    const position = pair.a.served.port.reverse_exports.get(actor.local).?;
-    try std.testing.expectEqual(@as(u64, 1), pair.a.served.port.peer.session_state.exportRefcount(.from(position)));
+    // The partner released every occurrence it held, so the position the
+    // value projected is unbound and its row is gone. The Host capability
+    // still roots the actor, and a later mention projects a fresh position.
+    try std.testing.expect(pair.a.served.port.reverse_exports.get(actor.local) == null);
+    try std.testing.expectEqual(exports, pair.a.served.port.exports.count());
+    try std.testing.expect(client.vat.hasActor(actor.local));
+    const again = try pair.a.served.port.prepareProjection(&client.vat, actor);
+    try std.testing.expect(again.created);
+    pair.a.served.port.rollbackExport(&client.vat, actor, again.near.export_position.int());
 }
 
 const ReservationSnapshot = struct {

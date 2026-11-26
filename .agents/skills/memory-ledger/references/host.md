@@ -53,6 +53,25 @@ custody costs.
   promise. Its `then` method adds a chained promise so decoder failures reach
   the awaiter's rejection callback. No reply or capability wrapper is copied.
 
+- **Projected actor events**: `Port.prepareProjection` creates one
+  `Event.ActorCustody` link at the first projection. The last owner frees it.
+  A transferred event can outlive its Peer, which detaches this link before
+  tearing down the session. `Event.holdProjectedActors` takes one local hold
+  per projected object occurrence in the admitted frame. Disposal revisits
+  the frame's immutable parse with its admission stamp, so a reused position
+  cannot release another object. Each event adds a nullable custody pointer
+  and a 64-bit stamp, with no per-event allocation.
+
+  The export row's existing purpose union holds the stamp, local count and
+  release-queue links within the existing 48-byte row. The table stores two
+  32-bit values for the ready head and projection count. A Port binding
+  stores one link to its next alias.
+  Disposing a projected binding takes constant time regardless of alias count.
+
+  A local turn whose arguments name a projection holds those occurrences in
+  `Queued.Held`. Its record lives in the queue chunk's arena and spends the
+  same ingress byte budget as the message. Plain local deliveries keep their
+  original queue row and storage.
 - **Borrowed callback capabilities**: `HostTurn.retainArguments` keeps incoming
   identities live through reply consumption. A capability-bearing input adds one
   five-word turn-arena node (`ArgumentLease` plus `ResourceCleanup`), with no

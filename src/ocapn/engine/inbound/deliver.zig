@@ -401,15 +401,16 @@ fn surface(
     var appended = true;
     errdefer if (appended) inbound.abandonPushedEvent(self);
 
+    const event_index = self.events.pending().len - 1;
     const was_closed = self.session_state.state == .closed;
     if (resolve) |callback| {
         try self.session_state.applyValidatedResolverCallbackResolve(callback.*, introduced);
         self.session_state.applyPromiseSettlingFollowers(callback.answer, callback.resolution);
-        self.events.backPtr().?.resolve_aliases = self.session_state.takePromiseSettlingFollowers(callback.answer);
+        self.events.pending()[event_index].resolve_aliases = self.session_state.takePromiseSettlingFollowers(callback.answer);
     } else {
         const body = parse.body();
         try self.session_state.applyValidatedInboundDeliverView(body, introduced);
-        self.events.backPtr().?.reference_slots = introduced.reference_slots;
+        self.events.pending()[event_index].reference_slots = introduced.reference_slots;
         if (route.classified.resolver) |*resolver|
             resolver.commit(&self.session_state);
         if (route.callback == .node_resolver)
@@ -421,19 +422,19 @@ fn surface(
             else => if (body.deliver.answer) |answer| .fromWire(answer) else null,
         };
         if (answer_name) |answer| if (self.session_state.answerTargetNamed(answer)) |target| {
-            self.events.backPtr().?.answer = .{ .deliver = target };
+            self.events.pending()[event_index].answer = .{ .deliver = target };
         };
     }
     if (!was_closed and self.session_state.state == .closed) self.retireClosedSessionAuthority();
+    self.events.pending()[event_index].holdProjectedActors(self.actor_event_custody);
     appended = false;
 
     prepared.commitShortening(self);
 
-    // Publish the pre-commit GC annotation onto the just-pushed event. Nothing
-    // between the push and here can grow `self.events`, so the back pointer is
-    // stable and this transfer is infallible.
+    // Applying the frame may append a reserved retirement behind it. Publish
+    // the pre-commit annotation on the original event by its queue index.
     if (prepared_far_imports) |positions| {
-        self.events.backPtr().?.introduced_far_imports = positions;
+        self.events.pending()[event_index].introduced_far_imports = positions;
         prepared_far_imports = null;
     }
 }

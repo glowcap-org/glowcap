@@ -107,6 +107,10 @@ pub fn deinit(self: *Peer) void {
     self.session_state.retireAnswerPipelineTargets();
     for (self.events.pending()) |*event| event.deinit();
     self.events.deinit(self.allocator);
+    if (self.actor_event_custody) |custody| {
+        custody.state = null;
+        custody.drop();
+    }
 
     self.gift_registry.deinit(self.allocator, localObjectProjection(self));
     self.session_state.deinit();

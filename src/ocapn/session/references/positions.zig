@@ -164,11 +164,9 @@ pub fn allocateExportMentioned(self: *Session, kind: model.RefKind, mentions: u6
     return self.exports.allocate(self.allocator, kind, mentions);
 }
 
-/// Roll back one freshly allocated, unshared export. The slot returns to the
-/// slab's free list. The retain is certain because
-/// every caller runs this as the errdefer of an allocation made in the same
-/// dispatch (for example `port.zig`'s dial-mint errdefer), so the decrement
-/// cannot underflow.
+/// Return the baseline of an export without wire retains to its slab. The
+/// caller owns either an unpublished reservation or a projected binding
+/// whose local work and partner have both finished with it.
 pub fn releaseUnsharedExport(self: *Session, id: model.ExportPosition) void {
     self.exports.decrementHeld(id, 1);
 }

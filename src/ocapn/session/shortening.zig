@@ -72,7 +72,7 @@ pub fn sourceIsHeld(self: *const Session, resolver: model.ExportPosition) bool {
     const source = switch (purpose) {
         .shortening_pending => |source| source,
         .shortening_complete => |source| source,
-        .none, .forwarding, .application_answer, .local_promise_answer, .node_settling, .retired => return false,
+        .none, .projected_actor, .forwarding, .application_answer, .local_promise_answer, .node_settling, .retired => return false,
     };
     return incarnationIsHeld(self, source);
 }
@@ -107,7 +107,7 @@ pub fn sourceForResolver(self: *const Session, resolver: model.ExportPosition) ?
         // purpose off a resolver key, and that discipline holds across
         // dispatches, so the null return is the safe answer to a mint bug or
         // a probing partner.
-        .none, .forwarding, .application_answer, .local_promise_answer, .node_settling, .retired => null,
+        .none, .projected_actor, .forwarding, .application_answer, .local_promise_answer, .node_settling, .retired => null,
     };
 }
 
@@ -124,7 +124,7 @@ pub fn validateCompletion(self: *const Session, resolver: model.ExportPosition, 
     const source = switch (purpose) {
         .shortening_pending => |incarnation| incarnation,
         .shortening_complete => return error.UnexpectedMessage,
-        .none, .forwarding, .application_answer, .local_promise_answer, .node_settling, .retired => unreachable,
+        .none, .projected_actor, .forwarding, .application_answer, .local_promise_answer, .node_settling, .retired => unreachable,
     };
     if (!incarnationIsCurrent(self, source)) return;
     // Charge the proposed edge plus the current target path. Rewriting uses
@@ -199,7 +199,7 @@ pub fn releaseResolverExport(self: *Session, resolver: model.ExportPosition) voi
             return;
         },
         .shortening_pending, .shortening_complete => |incarnation| incarnation,
-        .none, .forwarding, .application_answer, .local_promise_answer, .node_settling => return,
+        .none, .projected_actor, .forwarding, .application_answer, .local_promise_answer, .node_settling => return,
     };
     if (self.exports.wireHeld(resolver) != 0) return;
 

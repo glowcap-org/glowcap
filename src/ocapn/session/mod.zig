@@ -56,6 +56,7 @@ pub const parsePreferenceHints = validate.parsePreferenceHints;
 /// cap that bounds partner-driven imports is a property of `ImportTable`, not a
 /// rule each call site must restate.
 const ExportTable = export_table.ExportTable;
+pub const ActorCustodyChange = ExportTable.ActorCustodyChange;
 const ImportTable = import_table.ImportTable;
 
 /// Error set for the borrowed-view recv walkers: session authority errors plus

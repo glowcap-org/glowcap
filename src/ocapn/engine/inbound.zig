@@ -258,6 +258,8 @@ fn applyPlainOwnedFrame(
     var appended = true;
     errdefer if (appended) abandonPushedEvent(self);
 
+    // Recording the frame can append a reserved pipeline retirement behind it.
+    const event_index = self.events.pending().len - 1;
     const was_closed = self.session_state.state == .closed;
     try self.session_state.recordRecvView(recorded_body.*);
     if (!was_closed and self.session_state.state == .closed) self.retireClosedSessionAuthority();
@@ -265,9 +267,10 @@ fn applyPlainOwnedFrame(
     // Apply settled the answer's live row, so the event names the question
     // by identity for every reader that serves it after the position may
     // have been released and reused.
-    if (decoded_body.* == .resolve) self.events.backPtr().?.answer = .{
+    if (decoded_body.* == .resolve) self.events.pending()[event_index].answer = .{
         .resolve = self.session_state.outboundAnswerTarget(decoded_body.resolve.answer) orelse unreachable,
     };
+    self.events.pending()[event_index].holdProjectedActors(self.actor_event_custody);
     appended = false;
 
     // op:get / op:index / op:untag responder (ADR-0004): apply above

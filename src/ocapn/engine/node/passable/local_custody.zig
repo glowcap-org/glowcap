@@ -7,45 +7,45 @@ const session = @import("session");
 const passable = @import("../passable.zig");
 const Custody = session.Session.LocalPromiseCustody;
 
-pub fn acquire(owner: *session.Session, payload: *passable.Outbound, inventory: session.Inventory) error{QueueCapExceeded}!void {
+pub fn acquire(owner: *session.Session, payload: *passable.Outbound, inventory: session.Inventory, stamp: u64) error{QueueCapExceeded}!void {
     const resolver = resolverReference(payload);
-    if (resolver) |reference| try Custody.retain(owner, reference);
-    errdefer if (resolver) |reference| Custody.release(owner, reference);
+    if (resolver) |reference| try Custody.retain(owner, reference, stamp);
+    errdefer if (resolver) |reference| Custody.release(owner, reference, stamp);
     const root = payload.resolutionRoot();
     for (inventory.slots, 0..) |slot, index| {
         const value = slot.read(root).*;
         if (value != .reference) continue;
-        Custody.retain(owner, value.reference) catch |err| {
+        Custody.retain(owner, value.reference, stamp) catch |err| {
             for (inventory.slots[0..index]) |prior| {
                 const previous = prior.read(root).*;
-                if (previous == .reference) Custody.release(owner, previous.reference);
+                if (previous == .reference) Custody.release(owner, previous.reference, stamp);
             }
             return err;
         };
     }
 }
 
-pub fn release(owner: *session.Session, payload: *passable.Outbound) void {
-    visitPayload(owner, payload, false);
+pub fn release(owner: *session.Session, payload: *passable.Outbound, stamp: u64) void {
+    visitPayload(owner, payload, false, stamp);
 }
 
 /// Restore counts just returned in the same synchronous collection pause.
 /// The original tree has been restored, and no competing owner can overflow
 /// these exact counts. No allocation belongs on an error rollback edge.
-pub fn restore(owner: *session.Session, payload: *passable.Outbound) void {
-    visitPayload(owner, payload, true);
+pub fn restore(owner: *session.Session, payload: *passable.Outbound, stamp: u64) void {
+    visitPayload(owner, payload, true, stamp);
 }
 
-fn visitPayload(owner: *session.Session, payload: *passable.Outbound, comptime retaining: bool) void {
+fn visitPayload(owner: *session.Session, payload: *passable.Outbound, comptime retaining: bool, stamp: u64) void {
     switch (payload.*) {
         .message => |message| switch (message) {
             .deliver => |deliver| {
-                if (deliver.resolve_me_desc) |reference| visitArgument(owner, .{ .reference = reference }, retaining);
-                for (deliver.args) |arg| visitArgument(owner, arg, retaining);
+                if (deliver.resolve_me_desc) |reference| visitArgument(owner, .{ .reference = reference }, retaining, stamp);
+                for (deliver.args) |arg| visitArgument(owner, arg, retaining, stamp);
             },
             else => {},
         },
-        .answer_settlement => |settlement| visitResolution(owner, settlement.resolution, retaining),
+        .answer_settlement => |settlement| visitResolution(owner, settlement.resolution, retaining, stamp),
     }
 }
 
@@ -56,18 +56,18 @@ fn resolverReference(payload: *passable.Outbound) ?model.Reference {
     };
 }
 
-fn visitResolution(owner: *session.Session, resolution: model.Resolution, comptime retaining: bool) void {
-    if (resolution == .fulfill) visitArgument(owner, resolution.fulfill, retaining);
+fn visitResolution(owner: *session.Session, resolution: model.Resolution, comptime retaining: bool, stamp: u64) void {
+    if (resolution == .fulfill) visitArgument(owner, resolution.fulfill, retaining, stamp);
 }
 
-fn visitArgument(owner: *session.Session, value: model.Argument, comptime retaining: bool) void {
+fn visitArgument(owner: *session.Session, value: model.Argument, comptime retaining: bool, stamp: u64) void {
     switch (value) {
         .reference => |reference| if (retaining) {
-            Custody.retain(owner, reference) catch unreachable;
-        } else Custody.release(owner, reference),
-        .list, .set => |items| for (items) |item| visitArgument(owner, item, retaining),
-        .tagged => |tagged| for (tagged.value) |item| visitArgument(owner, item, retaining),
-        .@"struct" => |entries| for (entries) |entry| visitArgument(owner, entry.value, retaining),
+            Custody.retain(owner, reference, stamp) catch unreachable;
+        } else Custody.release(owner, reference, stamp),
+        .list, .set => |items| for (items) |item| visitArgument(owner, item, retaining, stamp),
+        .tagged => |tagged| for (tagged.value) |item| visitArgument(owner, item, retaining, stamp),
+        .@"struct" => |entries| for (entries) |entry| visitArgument(owner, entry.value, retaining, stamp),
         else => {},
     }
 }

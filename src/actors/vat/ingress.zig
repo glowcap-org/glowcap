@@ -404,6 +404,7 @@ fn enqueue(self: *Vat, ingress: IngressId, port: ?*Port, id: u64, msg: Queued, a
     const state = try ingressState(self, ingress);
     const vow = try vat_mod.peekId(self.vow_ids);
     const payload_bytes = switch (msg) {
+        .held => unreachable, // Only cloneForQueue constructs this representation.
         .message => |message| bytes: {
             const args = model.measureArgumentSliceOwnedBytes(message.args) catch |err| return switch (err) {
                 error.MalformedView => error.MalformedView,
@@ -413,7 +414,12 @@ fn enqueue(self: *Vat, ingress: IngressId, port: ?*Port, id: u64, msg: Queued, a
         },
         .owned => |body| body.owned_bytes,
     };
-    const charge = std.math.add(usize, @sizeOf(QueuedTurn), payload_bytes) catch return error.ResourceExhausted;
+    const custody = if (port) |source|
+        if (msg == .message and source.peer.session_state.exports.namesActor(msg.message.args)) source.peer.actor_event_custody else null
+    else
+        null;
+    const row_bytes: usize = @sizeOf(QueuedTurn) + if (custody != null) @as(usize, @sizeOf(Queued.Held)) else 0;
+    const charge = std.math.add(usize, row_bytes, payload_bytes) catch return error.ResourceExhausted;
     const limits = self.queue_limits;
     if (charge > limits.max_chunk_bytes or charge > std.math.maxInt(u32)) return error.ResourceExhausted;
     const charge32: u32 = @intCast(charge);
@@ -438,7 +444,7 @@ fn enqueue(self: *Vat, ingress: IngressId, port: ?*Port, id: u64, msg: Queued, a
         chunk = try acquireQueueChunk(self);
         acquired = true;
     }
-    const owned = cloneForQueue(self, chunk.?, msg) catch |err| {
+    const owned = cloneForQueue(self, chunk.?, msg, custody) catch |err| {
         if (acquired) releaseQueueChunk(self, chunk.?);
         return err;
     };
@@ -480,16 +486,26 @@ fn enqueue(self: *Vat, ingress: IngressId, port: ?*Port, id: u64, msg: Queued, a
 /// outgoing args in, so the queue owns its bytes. Its chunk is reclaimed
 /// immediately after that chunk's last turn, independent of every other
 /// ingress.
-fn cloneForQueue(self: *Vat, chunk: *QueueChunk, msg: Queued) Error!Queued {
+fn cloneForQueue(self: *Vat, chunk: *QueueChunk, msg: Queued, custody: ?*@import("engine").Event.ActorCustody) Error!Queued {
     std.debug.assert(!self.queue_copy_active);
     self.queue_copy_active = true;
     defer self.queue_copy_active = false;
     const arena = chunk.arena.allocator();
     return switch (msg) {
-        .message => |message| .{ .message = .{
-            .verb = if (message.verb) |method| try arena.dupe(u8, method) else null,
-            .args = try model.cloneArgumentSlice(arena, message.args),
-        } },
+        .held => unreachable,
+        .message => |message| owned: {
+            const copy: Message = .{
+                .verb = if (message.verb) |method| try arena.dupe(u8, method) else null,
+                .args = try model.cloneArgumentSlice(arena, message.args),
+            };
+            const link = custody orelse break :owned .{ .message = copy };
+            const held = try arena.create(Queued.Held);
+            const owner = link.state.?;
+            held.* = .{ .message = copy, .custody = link, .stamp = owner.store_stamp_counter };
+            owner.exports.updateActorCustodyIn(copy.args, held.stamp, .retain);
+            link.owners += 1;
+            break :owned .{ .held = held };
+        },
         .owned => |body| switch (body.vtable.copy(body.ctx, arena)) {
             .copied => |copy| .{ .owned = copy },
             .refused => |failure| failure.toError(),
@@ -577,17 +593,15 @@ fn runQueuedTurn(self: *Vat, state: *IngressState) Error!void {
     makeRunnable(self, state);
     state.active_turns += 1;
     chunk.active_turns += 1;
+    defer {
+        queued.msg.retire(null);
+        state.active_turns -= 1;
+        finishQueueTurn(self, chunk);
+    }
     const source: vat_mod.Turn.Source = if (queued.port) |port| .{ .port = port } else .{ .ingress = state.id };
     const outcome = frame.callQueued(self, source, queued.target, queued.msg, if (queued.answered) queued.vow else null);
     if (outcome) |settled| {
         const retirement = if (queued.msg == .owned) &queued.msg else null;
-        vows_mod.settleLocal(self, queued.vow, settled, retirement) catch |err| {
-            state.active_turns -= 1;
-            finishQueueTurn(self, chunk);
-            return err;
-        };
+        try vows_mod.settleLocal(self, queued.vow, settled, retirement);
     }
-    queued.msg.retire(null);
-    state.active_turns -= 1;
-    finishQueueTurn(self, chunk);
 }

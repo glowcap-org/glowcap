@@ -58,12 +58,13 @@ const Reserved = struct {
     claimed_leases: usize = 0,
     staged_row: ?engine.Peer.PendingReservation = null,
     custody_owned: bool = false,
+    export_stamp: u64,
     first_ticket: u64 = 0,
     pipeline: ?*session_mod.AnswerPayload.PipelineTarget = null,
 
     fn abandon(self: *Reserved, node: *Node) void {
         if (self.pipeline) |target| target.retire(target);
-        if (self.custody_owned) local_custody.release(&self.recipient.session_state, self.payload);
+        if (self.custody_owned) local_custody.release(&self.recipient.session_state, self.payload, self.export_stamp);
         if (self.staged_row) |row| self.recipient.cancelPendingReservation(row);
         var remaining = self.claimed_leases;
         for (self.gifts) |gift| {
@@ -176,6 +177,7 @@ fn reserve(
 ) !Reserved {
     const counts = admission.counts;
     var reserved: Reserved = .{
+        .export_stamp = recipient.session_state.store_stamp_counter,
         .recipient = recipient,
         .payload = payload,
         .staging_reservation = try recipient.reserveInlinePassableStaging(admission.message_charge),
@@ -199,7 +201,7 @@ fn reserve(
     // An outbound carrier keeps its place in the recipient's queue while it
     // stages, so later sends to that recipient cannot overtake it.
     reserved.staged_row = try recipient.reserveStagedRow();
-    try local_custody.acquire(&recipient.session_state, payload, inventory);
+    try local_custody.acquire(&recipient.session_state, payload, inventory, reserved.export_stamp);
     reserved.custody_owned = true;
     reserved.pipeline = try pipeline_target.prepare(self, recipient_peer, payload, reserved.gifts);
     reserved.first_ticket = try actions.claimTicketRange(self, counts.objects);
@@ -227,6 +229,7 @@ fn publish(
         .allocator = recipient.allocator,
         .payload = payload.*,
         .local_custody_owned = true,
+        .export_stamp = reserved.export_stamp,
         .failure_target = failure_target,
         .failure_escrow = failure_escrow.*,
         .staging_reservation = reserved.staging_reservation,

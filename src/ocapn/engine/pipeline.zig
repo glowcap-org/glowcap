@@ -519,6 +519,7 @@ fn deliverDrainedCallLocally(peer: *Peer, queued: session.QueuedCall, near: mode
         .reference_slots = queued.reference_slots,
         .allocator = peer.allocator,
     });
+    peer.events.backPtr().?.holdProjectedActors(peer.actor_event_custody);
     imports_transferred = true;
     peer.local_delivery_depth += 1;
 }

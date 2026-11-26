@@ -44,14 +44,14 @@ pub fn prepare(ctx: ?*anyopaque, peer: engine.PeerHandle, route: model.Capabilit
         else => error.RouteNotLowerable,
     };
     errdefer host.vat.discardFreshActor(actor);
-    const projected = session.served.port.prepareProjection(&host.vat, actor) catch |err| return switch (err) {
+    const near = session.served.port.bindOwnedExport(&host.vat, actor) catch |err| return switch (err) {
         error.OutOfMemory => error.OutOfMemory,
         else => error.RouteNotLowerable,
     };
     // The Port binding takes the only root; the constructor transfers its
     // spawn root so retirement can reclaim the actor and destination retain.
     host.vat.releaseActor(actor.local);
-    return .{ .near = projected.near, .target = actor.local };
+    return .{ .near = near, .target = actor.local };
 }
 
 fn retainCanonical(host: *host_mod.Host, raw: u64) !capability.Ref {

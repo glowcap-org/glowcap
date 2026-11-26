@@ -195,13 +195,13 @@ const registered = [_]Table{
         .file = "actors/vat/port.zig",
         .name = "exports",
         .owner = "Export positions the session allocated, mapped to vat-local actor ids; one table per Port.",
-        .epoch = "Export positions are never reused, so a stale one maps to nothing.",
+        .epoch = "A projected position can be reused once the partner and local owners have released it.",
     },
     .{
         .file = "actors/vat/port.zig",
         .name = "reverse_exports",
         .owner = "Vat-local actor ids projected by one Port; the containing Port supplies the session owner dimension.",
-        .epoch = "Actor ids are monotonic within the Vat and never reused; rollback removes a projection that never became observable.",
+        .epoch = "Actor ids are monotonic within the Vat and never reused; the last binding releases the actor root.",
     },
     .{
         .file = "actors/vat/mod.zig",

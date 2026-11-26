@@ -77,7 +77,7 @@ pub fn abandonOutbound(self: *Session, id: model.AnswerPosition) void {
     if (self.outbound_answers.reservedStamp(id) != null) return self.outbound_answers.abandonReserved(id);
     const entry = self.outbound_answers.getPtr(id) orelse unreachable;
     std.debug.assert(entry.status() == .pending and entry.count == 1);
-    _ = store.deinitAnswerCell(self.allocator, entry);
+    _ = store.deinitAnswerCell(self, entry);
     self.outbound_answers.remove(id);
 }
 
@@ -102,7 +102,7 @@ pub fn releaseOutbound(self: *Session, id: model.AnswerPosition) session.Error!v
     entry.count -= 1;
     if (entry.count != 0) return;
     const resolver_export = entry.resolverExport();
-    const released = store.deinitAnswerCell(self.allocator, entry);
+    const released = store.deinitAnswerCell(self, entry);
     std.debug.assert(released.resolution == 0 and released.queued_calls == 0);
     // Both profiles settle through resolver exports. Retiring that export
     // below consumes a callback already in flight without naming this slot,
@@ -123,5 +123,5 @@ pub fn abandonUnsharedInboundNamed(self: *Session, id: model.AnswerName) void {
 
 /// Retire one inbound cell and release its exact retained charges.
 pub fn releaseInboundCell(self: *Session, entry: *AnswerCell) void {
-    self.returnReleasedCharges(store.deinitAnswerCell(self.allocator, entry));
+    self.returnReleasedCharges(store.deinitAnswerCell(self, entry));
 }
