@@ -391,12 +391,14 @@ maintainer's own push answers to it. GitHub verifies a signature only against
 a signing key on the maintainer's account, so upload the public key before
 applying the rulesets.
 
-Maintainer and agent commits on pull-request branches are signed before
-pushing, including commits that will be squashed. Enable signing for the
-repository with `git config --local commit.gpgsign true`, use `git commit -S`,
-and verify each new commit with `git verify-commit` before pushing. If the
-signing key is unavailable, stop and report it rather than making an unsigned
-commit. GitHub also signs the squash commit it creates. The administrator's
+Every commit on a pull-request branch needs a verified signature, including
+commits that will be squashed. For a GitHub-signed PR update, use `gh api
+graphql` with `createCommitOnBranch`. Supply the staged file changes and the
+PR's current head as `expectedHeadOid`. Before advancing the local branch,
+check that GitHub verified the signature and that the commit's tree matches
+`git write-tree`. This route works without a local signing key. For a locally
+signed commit, use `git commit -S` and `git verify-commit` before pushing.
+GitHub also signs the squash commit it creates. The administrator's
 pull-request bypass does not apply to pushes or to `main`.
 
 Four checks watch the posture without being asked. The `workflows` job of
