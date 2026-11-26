@@ -343,6 +343,25 @@ fn refused(error: tokio_tungstenite::tungstenite::Error, code: u16) {
 		other => panic!("HTTP refusal expected: {other}"),
 	}
 }
+/// A closed client can exit before the relay retires its upgrade task and returns the slot.
+async fn connect_after_relay_release(
+	url: &str,
+) -> tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<TcpStream>> {
+	tokio::time::timeout(Duration::from_secs(5), async {
+		loop {
+			match tokio_tungstenite::connect_async(url).await {
+				Ok((socket, _)) => return socket,
+				Err(error) => {
+					refused(error, 503);
+					tokio::time::sleep(Duration::from_millis(10)).await;
+				}
+			}
+		}
+	})
+	.await
+	.expect("relay did not return the closed client’s slot")
+}
+
 #[tokio::test(flavor = "current_thread")]
 async fn web_rendezvous_admission_early_bytes_and_shutdown() {
 	tokio::time::timeout(Duration::from_secs(45), async {
@@ -421,15 +440,7 @@ async fn web_rendezvous_admission_early_bytes_and_shutdown() {
 		assert!(retired.starts_with("HTTP/1.1 404"), "{retired}");
 		// A query is refused at the endpoint, through the proxy, on either socket route.
 		for path in ["/trace/captp?cap=0000", "/publish?cap=0000"] {
-			let (mut refused_socket, _) = loop {
-				match tokio_tungstenite::connect_async(web.url(path)).await {
-					Ok(pair) => break pair,
-					Err(error) => {
-						refused(error, 503);
-						tokio::time::sleep(Duration::from_millis(10)).await;
-					}
-				}
-			};
+			let mut refused_socket = connect_after_relay_release(&web.url(path)).await;
 			match refused_socket.next().await.unwrap().unwrap() {
 				Message::Close(Some(frame)) => assert_eq!(u16::from(frame.code), 4403),
 				other => panic!("timeline refusal code must survive proxying: {other:?}"),
@@ -440,7 +451,7 @@ async fn web_rendezvous_admission_early_bytes_and_shutdown() {
 		let identity = "ab".repeat(32);
 		let register = web.url(&format!("/register?id={identity}"));
 		let dial = web.url(&format!("/relay?rendezvous={identity}"));
-		let (mut absent, _) = tokio_tungstenite::connect_async(&dial).await.unwrap();
+		let mut absent = connect_after_relay_release(&dial).await;
 		match absent.next().await.unwrap().unwrap() {
 			Message::Close(Some(frame)) => {
 				assert_eq!(u16::from(frame.code), 1011);
@@ -487,15 +498,7 @@ async fn web_rendezvous_admission_early_bytes_and_shutdown() {
 		caller.close(None).await.unwrap();
 		let _ = first.next().await;
 		eprintln!("first pair closed");
-		let (mut next, _) = loop {
-			match tokio_tungstenite::connect_async(&dial).await {
-				Ok(pair) => break pair,
-				Err(error) => {
-					refused(error, 503);
-					tokio::time::sleep(Duration::from_millis(10)).await;
-				}
-			}
-		};
+		let mut next = connect_after_relay_release(&dial).await;
 		assert_eq!(next.next().await.unwrap().unwrap().into_data(), &b"second hello"[..]);
 		// Shutdown includes a live pair and a replenished held registration.
 		let (_held, _) = tokio_tungstenite::connect_async(&register).await.unwrap();
