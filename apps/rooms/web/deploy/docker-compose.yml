@@ -40,7 +40,7 @@ services:
       # other containers and on other hosts reach the directory.
       GLOWCAP_ROOMS_REACHABILITY: discovery
       # Every operator capability. Each one's secret persists in the state
-      # volume and prints in the logs. To withhold some, list the ones you want
+      # volume. To withhold some, list the ones you want
       # in the override, for example GLOWCAP_ROOMS_CAPABILITIES:
       # "admin-listeners,diagnostics,operator,peering,trace" leaves IRC out.
       # Read them any time with
@@ -94,15 +94,7 @@ services:
     tmpfs:
       - /run/rooms-session:mode=0700
     healthcheck:
-      test: [
-        "CMD",
-        "/runtime/bin/glowcap",
-        "apps",
-        "rooms",
-        "session",
-        "ready",
-        "--file=/run/rooms-session/use.sturdyref",
-      ]
+      test: ["CMD", "/runtime/libexec/rooms-session", "--check-ready=/run/rooms-session/use.sturdyref"]
       interval: 30s
       timeout: 10s
       retries: 3

@@ -3,13 +3,17 @@
 use super::*;
 
 #[tokio::test]
-async fn print_capabilities_reads_the_running_fronts_locators() {
+async fn private_startup_allows_explicit_reads_of_the_running_fronts_capabilities() {
 	tokio::time::timeout(Duration::from_secs(20), async {
 		let state = rooms_testing::scratch::Scratch::create("web-capabilities");
 		let mut options = Web::options(0);
 		options.insert("state", state.display().to_string());
 		options.insert("capabilities", "operator,trace".to_owned());
-		let mut web = Web::spawn(Web::command_with(options));
+		let mut command = Web::endpoint_command_with(options);
+		command
+			.arg("--no-browser-assets")
+			.env(rooms_services::announce::PRIVATE_STARTUP, "1");
+		let mut web = Web::spawn(command);
 		web.ready().await;
 		let locator = web.status("locator").await;
 		let printed = answered(print_capabilities(&state, Reach::Port(web.port)).await);
@@ -44,7 +48,11 @@ async fn print_capabilities_reads_the_running_fronts_locators() {
 		let mut options = Web::options(0);
 		options.insert("state", state.display().to_string());
 		options.insert("capabilities", "operator".to_owned());
-		let mut web = Web::spawn(Web::command_with(options));
+		let mut command = Web::endpoint_command_with(options);
+		command
+			.arg("--no-browser-assets")
+			.env(rooms_services::announce::PRIVATE_STARTUP, "1");
+		let mut web = Web::spawn(command);
 		web.ready().await;
 		let printed = answered(print_capabilities(&state, Reach::Port(web.port)).await);
 		let trace = printed.lines().find(|line| line.starts_with("ROOMS-TRACE")).unwrap();
@@ -115,6 +123,7 @@ async fn print_capabilities(state: &Path, reach: Reach) -> std::process::Output 
 	let mut command = Command::new(Web::binary());
 	command
 		.arg(format!("--print-capabilities={}", state.display()))
+		.env(rooms_services::announce::PRIVATE_STARTUP, "1")
 		.env_remove("GLOWCAP_ROOMS_HTTP_PORT")
 		.env_remove("GLOWCAP_ROOMS_LOCATOR")
 		.env_remove("GLOWCAP_ROOMS_TRACE_LOCATOR")

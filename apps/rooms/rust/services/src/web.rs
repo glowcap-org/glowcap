@@ -115,8 +115,8 @@ async fn serve(
 			Some(assets)
 		}
 	};
-	let ice = ice::Policy::open(ice).await?;
 	let admission = admission::Admission::new(admission_config.clone());
+	let ice = ice::Policy::open(ice, admission.clone()).await?;
 	let previews = preview::Preview::open(admission.clone()).await?;
 	if *stopping.borrow() {
 		return Ok(());
@@ -197,6 +197,7 @@ async fn serve(
 	// this relay, and a TCP door joins the relay's forwarding targets.
 	let session_links = shared
 		.as_ref()
+		.filter(|_| crate::announce::startup_links_visible())
 		.map(|peer| (peer.link().to_owned(), peer.management_link().to_owned()));
 	let session_offered = shared
 		.as_ref()

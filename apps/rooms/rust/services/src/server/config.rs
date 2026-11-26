@@ -57,12 +57,13 @@ pub const HELP: &str = "rooms-server [--state=<directory>] [--transport=<transpo
   --onion-socks=<endpoint> --onion-control=<endpoint>  running Tor endpoints (or GLOWCAP_ONION_SOCKS/CONTROL)
   --port=<port>  onion local forward port; 0 chooses an ephemeral loopback port
   --onion-forward=<absolute-path>  bind a Unix forwarding socket instead (requires --port=0)
-  --capabilities=all|<name>[,<name>...]  mint operator capabilities and print each one's link: all, or names from admin-listeners, diagnostics, operator, peering, irc, trace (or GLOWCAP_ROOMS_CAPABILITIES, and none by default)
+  --capabilities=all|<name>[,<name>...]  mint operator capabilities: all, or names from admin-listeners, diagnostics, operator, peering, irc, trace (or GLOWCAP_ROOMS_CAPABILITIES, and none by default)
   --trace-bind=<ip>  the live timeline listener interface (default: 127.0.0.1), which speaks cleartext ws. A specific address off loopback needs both wss:// routes below, and a wildcard advertises loopback
   --trace-port=<port>  the live timeline listener port (default: 9300; 0 takes any)
   --trace-connect=<ws-url>  advertise the CapTP byte-channel endpoint through a deployment proxy (wss:// off loopback)
   --trace-publish=<ws-url>  advertise the producer endpoint through a deployment proxy (wss:// off loopback)
 Options override GLOWCAP_ROOMS_* environment variables. TCP defaults to 127.0.0.1:0.
+Setting GLOWCAP_ROOMS_PRIVATE_STARTUP withholds bearer links from startup output.
 rooms-web --print-capabilities reads the kept capabilities again as complete links.
 ";
 

@@ -8,6 +8,7 @@ LABEL org.opencontainers.image.title="glowcap Rooms" \
       org.opencontainers.image.url="https://glowcap.org" \
       org.opencontainers.image.source="https://github.com/glowcap-org/glowcap" \
       org.opencontainers.image.licenses="Apache-2.0"
+ENV GLOWCAP_ROOMS_PRIVATE_STARTUP=1
 COPY . /runtime
 WORKDIR /runtime
 ENTRYPOINT ["/runtime/bin/glowcap", "apps", "rooms", "serve"]

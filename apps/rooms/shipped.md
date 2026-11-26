@@ -37,6 +37,8 @@ the way in, and [operating Rooms](operating.md) covers its grants, services, and
   that wait plus redemption. Waiting for a signaling route has its own bound, and the directory bounds how
   many calls wait. The [session guide](../../docs/rooms/session.md) holds each bound.
   The managed command is admitted once and retains one receipt through acquisition and recovery.
+- *Deployment links.* Operators retrieve directory and session capabilities with `deployment links`.
+  The deployment image keeps them out of startup logs, and the managed session's health check validates its link silently.
 - *Work admission.* Configurable process-local budgets cover peer work, validated shared grant ancestry,
   receiving direct callbacks and expensive HTTP starts. Refusals preserve drafts and exact effect outcomes.
   Reconnects retain debt, and cleanup has its own allowance and its own incoming-call storage.

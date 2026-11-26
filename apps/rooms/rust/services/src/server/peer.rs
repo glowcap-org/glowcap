@@ -59,11 +59,10 @@ pub struct Ready {
 }
 
 impl Ready {
-	/// One versioned readiness record. A supervisor's carries `lines`, so it
-	/// presents them and the server prints nothing of its own. Anything else
-	/// reads routing data only, and the lines stay on the server's own block.
-	pub fn announcement(&self, supervised: bool) -> &str {
-		if supervised {
+	/// One versioned readiness record. A supervisor that presents the bearer
+	/// links receives the minted lines alongside the routing data.
+	pub fn announcement(&self, include_capabilities: bool) -> &str {
+		if include_capabilities {
 			&self.supervised_announcement
 		} else {
 			&self.announcement

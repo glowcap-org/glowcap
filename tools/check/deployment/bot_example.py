@@ -108,9 +108,12 @@ def bot_example(path, dockerfile_path):
     assert session["entrypoint"][-3:] == ["rooms", "session", "serve"], session
     assert session["environment"]["GLOWCAP_ROOMS_SESSION_STATE"] == "/session-state"
     assert "glowcap-rooms-net" in session["networks"], "the bot session must reach the directory"
-    assert session["healthcheck"]["test"][-3:] == ["session", "ready", "--file=/run/rooms-session/use.sturdyref"]
+    probe = ["CMD", "/runtime/libexec/rooms-session", "--check-ready=/run/rooms-session/use.sturdyref"]
+    managed = parse(Path(path).with_name("docker-compose.yml").read_text())["services"]["session"]
+    assert managed["healthcheck"]["test"] == probe and session["healthcheck"]["test"] == probe
     assert bot["entrypoint"][-3:] == ["rooms", "bot", "serve"], bot
     assert bot["command"] == ["--dir=/bot-state"], bot
+    assert bot["cap_drop"] == ["ALL"] and bot["security_opt"] == ["no-new-privileges:true"], bot
     assert bot["healthcheck"]["test"][-3:] == ["bot", "ready", "--dir=/bot-state"], bot["healthcheck"]
     assert bot["restart"] == "unless-stopped" and session["restart"] == "unless-stopped"
     assert bot["depends_on"]["bot-session"]["condition"] == "service_healthy"

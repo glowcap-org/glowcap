@@ -19,63 +19,8 @@ pub fn assert_same_secret(found: impl AsRef<[u8]>, expected: impl AsRef<[u8]>, w
 	assert!(found.as_ref() == expected.as_ref(), "{what}");
 }
 
-/// The forms a leaked session link takes: the whole link, its swissnum (the
-/// bearer secret, as the link type parses it and as the link writes it), that
-/// swissnum as `{:?}` prints a byte list, and as a JSON string escapes it. Every leak check in
-/// these tests goes through [`LinkSecret::assert_absent`], which never prints
-/// a form.
-pub struct LinkSecret {
-	forms: Vec<Vec<u8>>,
-}
-
-impl LinkSecret {
-	/// The secret of `link`, or none when `link` is not a session link.
-	pub fn try_of(link: &str) -> Option<Self> {
-		let link = link.trim();
-		let parsed = glowcap::parse_sturdyref(link, glowcap::CaptpVersion::V1_0).ok()?;
-		if parsed.swissnum.is_empty() {
-			return None;
-		}
-		let listed = format!("{:?}", parsed.swissnum).into_bytes();
-		let mut forms = vec![link.as_bytes().to_vec(), parsed.swissnum.clone(), listed];
-		// The swissnum as the link writes it, which a cut-down link keeps.
-		if let Some((_, tail)) = link.split_once("/s/") {
-			let written = tail.split(['?', '#']).next().unwrap_or_default().as_bytes().to_vec();
-			if !written.is_empty() && !forms.contains(&written) {
-				forms.push(written);
-			}
-		}
-		if let Some(Ok(escaped)) = std::str::from_utf8(&parsed.swissnum).ok().map(serde_json::to_string) {
-			let escaped = escaped.trim_matches('"').as_bytes().to_vec();
-			if !forms.contains(&escaped) {
-				forms.push(escaped);
-			}
-		}
-		Some(Self { forms })
-	}
-
-	#[track_caller]
-	pub fn of(link: &str) -> Self {
-		let Some(secret) = Self::try_of(link) else {
-			panic!("a test's session link is not a sturdyref with a swissnum");
-		};
-		secret
-	}
-
-	/// Whether `text` holds any form of the link.
-	pub fn is_in(&self, text: impl AsRef<[u8]>) -> bool {
-		let text = text.as_ref();
-		self.forms
-			.iter()
-			.any(|form| text.windows(form.len()).any(|window| window == form.as_slice()))
-	}
-
-	/// Assert that `text`, read from `place`, holds no form of the link.
-	#[track_caller]
-	pub fn assert_absent(&self, text: impl AsRef<[u8]>, place: &str) {
-		assert!(!self.is_in(text), "a session link reached {place}");
-	}
-}
+mod link_secret;
+pub use link_secret::LinkSecret;
 
 /// A `rooms-session` command with the test environment cleared.
 pub fn command() -> Command {

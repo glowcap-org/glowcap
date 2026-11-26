@@ -4,6 +4,14 @@
 //! keeps serving.
 use std::io::Write;
 
+/// The Rooms deployment image and children writing a retained log set this
+/// variable to withhold bearer links from unsolicited announcements.
+pub const PRIVATE_STARTUP: &str = "GLOWCAP_ROOMS_PRIVATE_STARTUP";
+
+pub fn startup_links_visible() -> bool {
+	std::env::var_os(PRIVATE_STARTUP).is_none()
+}
+
 /// Write `text` and a final newline to stdout in one write.
 pub fn announce(text: &str) -> std::io::Result<()> {
 	let mut out = std::io::stdout().lock();

@@ -44,7 +44,9 @@ pub const HELP: &str = "rooms-session --state=<directory> [--transport=<transpor
   --relay-url=<url>  the rendezvous relay this peer dials browser members through (a listener registers at --relay)
   --relay-alias-url=<url>  redirect this advertised route to --relay-url (same registry)
 Options override GLOWCAP_ROOMS_SESSION_* environment variables. TCP defaults to 127.0.0.1:0.
-rooms-session --check-ready=<path>  print the sturdyref a running peer wrote to its readiness file, or exit nonzero
+Setting GLOWCAP_ROOMS_PRIVATE_STARTUP withholds bearer links from startup output.
+rooms-session --check-ready=<path> [--quiet|--show-link]  validate the readiness file
+  Print its sturdyref unless private startup or --quiet selects exit status alone. --show-link explicitly prints it.
 ";
 
 /// The options beyond the transport's own.

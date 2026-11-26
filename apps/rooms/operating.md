@@ -119,8 +119,9 @@ the variable. Leave a name out to withhold it. A name that is unknown, empty,
 or repeated is refused.
 
 The server keeps each capability's swiss number (the
-secret part of its link) in the state directory. At startup it prints the
-complete `ocapn://` link as a `ROOMS-*` line.
+secret part of its link) in the state directory. A foreground server normally prints each
+complete `ocapn://` link as a `ROOMS-*` line. The deployment image sets `GLOWCAP_ROOMS_PRIVATE_STARTUP`
+to keep bearer links out of startup and restart logs. Set it in another supervisor's environment if it retains output.
 
 `glowcap apps rooms capabilities --state=<state-directory>` prints the saved
 capabilities again as complete links. Under Docker, run
@@ -142,8 +143,8 @@ locator while the others print.
 | `irc` | `ROOMS-IRC` | Open IRC networks and bridge channels as rooms |
 | `trace` | `ROOMS-TRACE`, `ROOMS-TRACE-LISTENING` | The live timeline endpoint and the capability its sockets present |
 
-Anyone who can read the state directory or the startup log holds these
-capabilities, so protect both.
+Anyone who can read the state directory or a copy of these links holds the capabilities.
+This includes logs collected from versions that printed them on startup.
 
 In the browser, each one is a toggle under **Settings**, **Holdings**.
 
@@ -200,8 +201,8 @@ attach to it and see the same thing. Closing every browser changes nothing.
 glowcap apps rooms session serve --dir=./rooms-session
 ```
 
-When its session, listener and publications are ready, the process prints
-`ROOMS-SESSION-LISTENING`. It writes the use link to `use.sturdyref` and
+When its session, listener and publications are ready, a foreground session normally prints
+`ROOMS-SESSION-LISTENING`. The deployment image keeps this link private. The session writes the use link to `use.sturdyref` and
 the independent management link to `management.sturdyref` in the state directory.
 `--readiness-file` sets where the use link is also written. The Compose
 deployment uses a private tmpfs.
@@ -209,8 +210,8 @@ deployment uses a private tmpfs.
 - The link files have mode 0600. They are removed on an orderly stop and before
   every startup once this process has the session to itself. A refused second
   process cannot remove the running owner's files.
-- `rooms-session --check-ready=<path>` reads the readiness file back as a
-  health check.
+- `glowcap apps rooms session ready --file=<path> --quiet` validates the readiness file and exits successfully
+  when it holds a use link. Omit `--quiet` to print the link.
 - The use link authorizes using the session and the management link authorizes
   managing it. Protect both, and share narrower grants through the access
   editor.

@@ -61,7 +61,10 @@ const access_commands = [_]types.Command{
 };
 pub const commands = [_]types.Command{
     .{ .name = "serve", .short_help = "Serve a foreground session for a host supervisor or attached browser", .flags = &([_]Flag{dir} ++ serve_options), .run = @import("mod.zig").run("rooms-session", .session_serve) },
-    .{ .name = "ready", .short_help = "Read the foreground session's readiness capability", .flags = &.{value("file", "Readiness file (required)")}, .run = @import("mod.zig").run("rooms-session", .session_ready) },
+    .{ .name = "ready", .short_help = "Read the foreground session's readiness capability", .flags = &.{
+        value("file", "Readiness file (required)"),
+        .{ .long = "quiet", .help = "Report readiness through the exit status alone" },
+    }, .run = @import("mod.zig").run("rooms-session", .session_ready) },
     .{ .name = "start", .short_help = "Start or restore a durable Rooms workspace", .flags = &start, .run = run("start") },
     .{ .name = "join", .short_help = "Join rooms without leaving existing conversations", .flags = &join, .run = run("join") },
     .{ .name = "recover", .short_help = "Resume an acquisition from its saved original request", .flags = &.{ dir, value("acquisition", "Exact acquisition identifier from the interrupted command") }, .run = run("recover") },

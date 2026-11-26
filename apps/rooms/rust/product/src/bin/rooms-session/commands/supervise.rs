@@ -164,6 +164,7 @@ pub async fn start(options: &Options) -> Result<Value, Failure> {
 				launch.arg(format!("--{key}={value}"));
 			}
 			launch
+				.env(rooms_services::announce::PRIVATE_STARTUP, "1")
 				.stdin(Stdio::null())
 				.stdout(log.try_clone()?)
 				.stderr(log)

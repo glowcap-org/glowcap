@@ -99,6 +99,10 @@ Releases before 0.1.7 are in the
 
 ### Security
 
+- Release staging now stops if Git cannot determine whether the checkout has local changes. Previously a failed status check could mark a modified build as clean.
+- A Rooms web server configured to issue TURN credentials now charges each issuance against its HTTP start budget before contacting the provider. Static ICE configuration remains available when the budget is exhausted.
+- The Rooms deployment image keeps startup bearer links out of service logs. Read them with `glowcap apps rooms deployment links`. Upgrade the host CLI as well as the image so the managed session's health check keeps its use link out of Docker health history. If you run a bot session, copy the health check from the updated override example. Earlier log and health records may still contain working credentials.
+- The example bot container drops Linux capabilities and blocks privilege gains when it runs an agent. Existing deployments can copy the two settings into their bot override.
 - The Python binding's `rendezvous` extra requires websockets 17.4 or later, the first release that limits how many frames one relay message may span.
 - In the Rust binding, a fetch or enliven whose partner answers with something other than a capability fails without showing the name or sturdyref it asked for. Either one holds the secret that grants the access, so the failure now says only `fetch did not resolve to a capability` or `enliven did not resolve to a capability`.
 

@@ -41,8 +41,7 @@ async fn start(started: Rc<Cell<bool>>) -> Result<(), Error> {
 	};
 	let mut interrupt = signal(tokio::signal::unix::SignalKind::interrupt())?;
 	let mut terminate = signal(tokio::signal::unix::SignalKind::terminate())?;
-	// A supervisor reads the JSON record, which carries the operator lines it
-	// presents in its own block, so a supervised server prints nothing else.
+	// A supervisor reads the JSON record and owns the startup banner.
 	let supervised = std::env::var("GLOWCAP_ROOMS_SUPERVISED").as_deref() == Ok("1");
 	let structured = match (std::env::var("GLOWCAP_ROOMS_READY_FORMAT").as_deref(), supervised) {
 		(Err(std::env::VarError::NotPresent), supervised) => supervised,
@@ -68,16 +67,18 @@ async fn start(started: Rc<Cell<bool>>) -> Result<(), Error> {
 		|ready: &Ready| -> Result<(), Error> {
 			started.set(true);
 			let location = ready.location.as_str();
+			let show_links = rooms_services::announce::startup_links_visible();
 			let token = rooms_platform::serving::announce_token(location, announced_host);
 			// The announce line stays first and alone on stdout: its readers
 			// wait for it. The human block rides behind it on stderr.
 			if structured {
-				announce::announce(ready.announcement(supervised));
+				announce::announce(ready.announcement(supervised && show_links));
 			} else {
 				announce::announce(&format!("ROOMS-SERVER-LISTENING {token}"));
 			}
 			if !supervised {
-				eprint!("{}", boot_block(transport, location, keeps, &ready.lines));
+				let lines = if show_links { ready.lines.as_slice() } else { &[] };
+				eprint!("{}", boot_block(transport, location, keeps, lines));
 			}
 			Ok(())
 		},

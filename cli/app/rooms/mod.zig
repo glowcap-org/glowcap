@@ -66,6 +66,7 @@ pub fn run(comptime name: []const u8, comptime mode: Mode) *const fn (*Ctx, *Par
             if (mode == .session_ready) {
                 const file = parsed.flagString("file") orelse return error.Usage;
                 try arguments.append(alloc, try alloc.print("--check-ready={s}", .{file}));
+                try arguments.append(alloc, if (parsed.flagBool("quiet")) "--quiet" else "--show-link");
             } else if (mode == .status or mode == .locator or mode == .revision or mode == .page) {
                 const option = switch (mode) {
                     .status => "check-ready",

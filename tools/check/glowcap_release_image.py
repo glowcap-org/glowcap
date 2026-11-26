@@ -2,8 +2,8 @@
 """Exercise a release image through Docker, without a checkout mount.
 
 The release workflow calls this after loading the exact single-platform image
-artifact it uploads. Docker is the host-side test driver; every command run in
-the distroless container is a public glowcap product command. The 256 MiB filesystem
+artifact it uploads. Docker runs the public commands and the packaged session
+healthcheck in the distroless container. The 256 MiB filesystem
 ceiling covers the measured 206 MiB ReleaseSafe product plus the 27 MiB pinned
 base, while rejecting a duplicated runtime. The exact manifest inventory
 separately rejects extra files and SDK content.
@@ -337,7 +337,7 @@ def check_session(deadline, image):
             )
             assert started.stdout.strip(), "Docker did not return a session container ID"
 
-        def readiness():
+        def readiness(*flags):
             return run(
                 deadline,
                 "docker",
@@ -349,6 +349,7 @@ def check_session(deadline, image):
                 "session",
                 "ready",
                 f"--file={ready}",
+                *flags,
                 check=False,
             )
 
@@ -368,7 +369,13 @@ def check_session(deadline, image):
 
         start()
         capability = wait_for(deadline, "Rooms session", readiness, name).stdout.strip()
-        assert capability.startswith("ocapn://"), capability
+        assert capability.startswith("ocapn://"), "the explicit session ready command did not return a link"
+        quiet = readiness("--quiet")
+        assert quiet.returncode == 0 and not quiet.stdout and not quiet.stderr, (
+            "public quiet readiness emitted output or failed"
+        )
+        health = run(deadline, "docker", "exec", name, "/runtime/libexec/rooms-session", f"--check-ready={ready}")
+        assert not health.stdout and not health.stderr, "the image healthcheck emitted output"
         control = management()
         assert control != capability, "management shares the workspace publication"
         run(deadline, "docker", "restart", "--time", "5", name)

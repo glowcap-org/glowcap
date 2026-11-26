@@ -8,6 +8,8 @@ use std::{
 	sync::mpsc,
 	time::Duration,
 };
+#[path = "session_rig/link_secret.rs"]
+mod link_secret;
 #[path = "server_process/operator.rs"]
 mod operator;
 fn command() -> Command {
@@ -247,5 +249,40 @@ fn rooms_server_executable_custody_restart_and_signals() {
 			);
 			process.signal(signal);
 		}
+	}
+}
+
+#[test]
+fn private_startup_keeps_server_readiness_and_diagnostics_free_of_minted_links() {
+	let state = Scratch::create("private-server");
+	for supervised in [false, true] {
+		let mut cmd = command();
+		cmd.arg(format!("--state={}", state.display()))
+			.args(["--transport=tcp", "--port=0", "--capabilities=operator"])
+			.env(rooms_services::announce::PRIVATE_STARTUP, "1")
+			.env("GLOWCAP_ROOMS_READY_FORMAT", "json")
+			.stdout(Stdio::piped())
+			.stderr(Stdio::piped());
+		if supervised {
+			cmd.env("GLOWCAP_ROOMS_SUPERVISED", "1");
+		}
+		let mut process = Process::new(cmd.spawn().unwrap(), "directory");
+		let mut line = String::new();
+		BufReader::new(process.child.stdout.take().unwrap())
+			.read_line(&mut line)
+			.unwrap();
+		let record: serde_json::Value =
+			serde_json::from_str(line.strip_prefix("ROOMS-SERVER-READY ").unwrap()).unwrap();
+		assert!(record["location"].is_string() && record.get("capabilities").is_none());
+		let swiss = std::fs::read_to_string(state.join("operator")).unwrap();
+		let locator = glowcap::parse_locator(record["location"].as_str().unwrap()).unwrap();
+		let operator =
+			glowcap::format_sturdyref(&locator, swiss.trim().as_bytes(), glowcap::CaptpVersion::V1_0).unwrap();
+		let secret = link_secret::LinkSecret::of(&operator);
+		process.signal("-TERM");
+		let stderr = stderr_until(&mut process, "\0");
+		assert!(supervised || stderr.contains("rooms: ready"));
+		secret.assert_absent(line, "directory readiness");
+		secret.assert_absent(stderr, "directory diagnostics");
 	}
 }
