@@ -10,6 +10,32 @@ import {
 import { LocalRefusal } from "../../../lib/text/failure.ts";
 import { fixture, store, tick } from "./fixture.ts";
 import { fakeHandle } from "../../support/managed_link.ts";
+import { initializeApplication } from "../../support/application.ts";
+
+Deno.test("using the session draft starts fresh preview choices for an immediate send", async () => {
+	await initializeApplication();
+	const f = fixture();
+	try {
+		const projection = f.page.projection;
+		projection.set({ server: { base: "http://rooms.example/", chosen: false, directory: null } });
+		const url = "https://example.com/article";
+		store.setDraft(projection, `Local words ${url}`);
+		store.removeDraftPreview(projection, f.first.key, store.activeDraft(projection).previews[0]!.id);
+		store.addDraftFiles(projection, [new File(["private"], "local.txt")]);
+		const accepted = `Session words ${url}`;
+		f.session.drafts.useSessionDraft = () => accepted;
+		f.actions.useSessionDraft(f.first.key);
+		const draft = store.activeDraft(projection);
+		assertEquals([draft.text, draft.files.length, draft.previews.map((p) => p.state)], [accepted, 0, ["offered"]]);
+		assertEquals(f.drafts, []);
+		f.completion.resolve();
+		f.actions.send();
+		await tick();
+		assertEquals(f.commands, [["say", ["first", accepted, JSON.stringify([url])]]]);
+	} finally {
+		f.close();
+	}
+});
 
 Deno.test("an uncertain chat keeps its own recovery while a newly typed command executes", async () => {
 	let recovered = 0;

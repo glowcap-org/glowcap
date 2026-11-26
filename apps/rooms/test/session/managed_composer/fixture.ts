@@ -38,6 +38,7 @@ export function fixture(powers: Partial<CommandPowers> = {}, result?: unknown) {
 		pending: [],
 		effects: fakeHandle<ManagedRoomsSession["effects"]>({ reserve() {} }),
 		drafts: fakeHandle<ManagedDrafts>({
+			failure: () => undefined,
 			stage: (id: string, text: string) => drafts.push([id, text]),
 			flush: () => Promise.resolve(),
 			sync() {},

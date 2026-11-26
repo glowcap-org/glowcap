@@ -30,6 +30,7 @@ import { openRoomsRuntime } from "../../lib/runtime.ts";
 import { ask } from "../../lib/ask.ts";
 import {
 	proveHeldAccessOffline,
+	proveSharedDraftConflict,
 	proveSharedSessionHalfOpen,
 	proveSharedSessionOffline,
 	RelayWire,
@@ -234,6 +235,9 @@ try {
 	// Each page keeps its place and its draft, says it is reconnecting for as
 	// long as the session is gone, and dials the restarted session by itself.
 	const draft = "A draft typed before the session went away";
+	// Drop this page's connection before the write can reach the old owner.
+	// Its replacement restores the room's entrance and acquires a new seat.
+	secondWire.cut();
 	await second.fill("#line", draft);
 	for (const page of [first, second]) await markKept(page);
 	await stopOwned(peer);
@@ -244,6 +248,7 @@ try {
 			fail(`a page did not say it was reconnecting: view=${await page.locator("body").innerText()}`)
 		);
 	}
+	secondWire.restore();
 	peer = start();
 	const restored = await readAnnounced(peer, {
 		token: "ROOMS-SESSION-LISTENING",
@@ -311,6 +316,12 @@ try {
 	await say(first, "After managed process restart");
 	await bubble(second, "After managed process restart");
 	await proveSharedSessionOffline(second, secondContext, secondWire, "Typed while this device had no network", first);
+	await proveSharedDraftConflict(second, secondContext, secondWire, first, async (text) => {
+		const { workspace } = await control("status", {});
+		return workspace.conversations.some((row: { id: string; draft: string }) =>
+			row.id === workspace.active && row.draft === text
+		);
+	});
 	await proveHeldAccessOffline(
 		second,
 		secondContext,

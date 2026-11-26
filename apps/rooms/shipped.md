@@ -53,7 +53,8 @@ the way in, and [operating Rooms](operating.md) covers its grants, services, and
   other members still receive the complete message.
 - *Pending work.* A user action stays owned until it settles and its result arrives.
   - Shared controls delay progress decoration and announce a delayed wait.
-  - Draft sync keeps local text and a persistent refusal.
+  - Draft sync keeps local text across a room rejoin. A conflicting edit stays visible so the reader can copy it before
+    choosing the session draft.
   - Line edits project over the accepted line until their one explicit outcome.
   - **Session settings** opens the list of kept receipts, and local reads and acquisitions keep their declared
     bounds.

@@ -50,7 +50,7 @@ function degradedCompletion(error: ResultAcquisitionError): CompletedLine {
 
 type Composer = Pick<
 	RoomsConversationController,
-	"setDraft" | "send" | "mention" | "recallLastSent" | "retry" | "withdraw"
+	"setDraft" | "useSessionDraft" | "send" | "mention" | "recallLastSent" | "retry" | "withdraw"
 >;
 export function managedComposer(page: RoomsPageContext, session: ManagedRoomsSession, powers: CommandPowers): Composer {
 	const projection = page.projection;
@@ -99,7 +99,9 @@ export function managedComposer(page: RoomsPageContext, session: ManagedRoomsSes
 	}
 	function submit(): Promise<void> {
 		const row = store.activeConv(projection);
-		if (row == null) return Promise.resolve();
+		if (row == null || (isSessionConv(row) && session.drafts.failure(row.persistId)?.conflict)) {
+			return Promise.resolve();
+		}
 		const draft = store.draftFor(projection, row.key);
 		const previous = sending.get(row.key);
 		if (previous?.draft === draft) return previous.task;
@@ -439,6 +441,15 @@ export function managedComposer(page: RoomsPageContext, session: ManagedRoomsSes
 	}
 	return {
 		setDraft,
+		useSessionDraft: (key) => {
+			const row = store.getConv(projection, key);
+			if (row == null || !isSessionConv(row)) return;
+			const text = session.drafts.useSessionDraft(row.persistId);
+			if (text != null) {
+				store.replaceDraft(projection, key, store.draftFor(projection, key), store.NO_DRAFT);
+				store.setDraft(projection, text, key);
+			}
+		},
 		mention: (who) => setDraft(draftWithMention(store.activeDraft(projection).text, who)),
 		recallLastSent: () => {
 			const row = store.activeConv(projection);

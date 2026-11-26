@@ -328,6 +328,7 @@ export class ManagedRoomsSession {
 		return null;
 	}
 	#take(snapshot: WorkspaceSnapshot): void {
+		this.drafts.followRoomLinks(this.#snapshot, snapshot);
 		this.#snapshot = snapshot;
 		this.#changed();
 	}

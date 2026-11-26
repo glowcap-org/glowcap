@@ -2,13 +2,23 @@
 // replaces a newer local edit with an older accepted snapshot.
 import { conversationById } from "./conversation_lookup.ts";
 import type { ManagedRoomsSession } from "./session.ts";
-import { conversationIdentity, type WorkspaceSnapshot } from "./model.ts";
+import { conversationIdentity, type ConversationIntent, type WorkspaceSnapshot } from "./model.ts";
 import { LocalRefusal, refusalText } from "../../../../lib/text/failure.ts";
 import { WorkspaceConflict } from "./operation.ts";
 
+/** A changed destination or competing text, as opposed to an unrelated
+ * workspace revision that a fresh admission can try again. */
+class DraftConflict extends WorkspaceConflict {}
+
+export interface DraftFailure {
+	readonly text: string;
+	readonly conflict: boolean;
+	readonly linkCaused: boolean;
+}
+
 /** What a staged conversation's draft was, as this tab knows it. */
 interface Origin {
-	readonly identity: string;
+	identity: string;
 	/** The draft the session last confirmed holding. */
 	accepted: string;
 	/** The text of each write of this tab whose link was lost before the
@@ -16,6 +26,26 @@ interface Origin {
 	 * per distinct text and lost link since `accepted` was last confirmed, and
 	 * a confirmed write clears them. */
 	readonly lost: Set<string>;
+}
+
+/** A rejoined room has a new seat but keeps its entrance. Only a draft for
+ * that same entrance, publication, and initiating source can follow it.
+ * Without an entrance, keep the fence on the exact live authority. */
+function draftDestination(row: ConversationIntent): string {
+	if (row.kind !== "room" || (row.access == null && row.accepted == null && row.publicEntry == null)) {
+		return conversationIdentity(row);
+	}
+	return JSON.stringify([
+		row.kind,
+		row.id,
+		row.directory,
+		row.name,
+		row.source,
+		row.access,
+		row.accepted,
+		row.publicEntry?.access,
+		row.publication,
+	]);
 }
 
 export class ManagedDrafts {
@@ -31,9 +61,9 @@ export class ManagedDrafts {
 	readonly #writes = new Map<string, { operation: string; text: string }>();
 	#stopped = false;
 	/** Why each failed write failed, and whether the link caused it. */
-	readonly #failures = new Map<string, { readonly text: string; readonly linkCaused: boolean }>();
-	failure(id: string): string {
-		return this.#failures.get(id)?.text ?? "";
+	readonly #failures = new Map<string, DraftFailure>();
+	failure(id: string): DraftFailure | undefined {
+		return this.#failures.get(id);
 	}
 	sync(id: string): void {
 		if (this.#failures.has(id)) return;
@@ -72,6 +102,30 @@ export class ManagedDrafts {
 	value(id: string, accepted: string): string {
 		return this.#values.get(id) ?? accepted;
 	}
+	/** Acquiring a link for a joined public room replaces its public entrance
+	 * in the workspace. The same live seat and public generation witness the
+	 * transfer. A later rejoin can then follow the newly held entrance. */
+	followRoomLinks(before: WorkspaceSnapshot | null, after: WorkspaceSnapshot): void {
+		if (before == null) return;
+		for (const [id, origin] of this.#origins) {
+			const joined = conversationById(before, id);
+			if (
+				joined?.kind !== "room" || joined.publicEntry == null || joined.seat == null ||
+				joined.publication == null
+			) {
+				continue;
+			}
+			const linked = conversationById(after, id);
+			if (
+				linked?.kind === "room" && linked.access != null && linked.publicEntry == null &&
+				linked.publication === joined.publication &&
+				conversationIdentity(linked) === conversationIdentity(joined) &&
+				origin.identity === draftDestination(joined)
+			) {
+				origin.identity = draftDestination(linked);
+			}
+		}
+	}
 	stage(id: string, text: string): void {
 		if (this.#stopped) throw new LocalRefusal("session-closed");
 		const row = conversationById(this.#session.current, id);
@@ -79,18 +133,23 @@ export class ManagedDrafts {
 			throw new LocalRefusal("conversation-gone");
 		}
 		if (!this.#values.has(id)) {
-			this.#origins.set(id, { identity: conversationIdentity(row), accepted: row.draft, lost: new Set() });
+			this.#origins.set(id, { identity: draftDestination(row), accepted: row.draft, lost: new Set() });
 		}
 		this.#values.set(id, text);
 	}
 	flush(id: string): Promise<void> {
 		const current = this.#jobs.get(id);
 		if (current != null) return current;
+		if (this.#failures.get(id)?.conflict) return Promise.reject(new DraftConflict());
 		const job = Promise.resolve().then(() => this.#flush(id)).then(() => {
 			this.#failures.delete(id);
 		}, (error: unknown) => {
 			// Only a write the link ended is written again over a new link.
-			this.#failures.set(id, { text: refusalText(error), linkCaused: this.#session.linkEnded(error) });
+			this.#failures.set(id, {
+				text: refusalText(error),
+				conflict: error instanceof DraftConflict,
+				linkCaused: this.#session.linkEnded(error),
+			});
 			throw error;
 		}).finally(() => {
 			this.#jobs.delete(id);
@@ -113,7 +172,7 @@ export class ManagedDrafts {
 			const operation = crypto.randomUUID();
 			this.#writes.set(id, { operation, text });
 			// Raised at admission when another draft took the row's place.
-			const competing = new WorkspaceConflict();
+			const competing = new DraftConflict();
 			const writable = (snapshot: WorkspaceSnapshot) => {
 				if (!this.#writesOver(snapshot, id, text)) throw competing;
 			};
@@ -186,8 +245,19 @@ export class ManagedDrafts {
 		const row = conversationById(snapshot, id);
 		const origin = this.#origins.get(id);
 		if (row == null || origin == null) return true;
-		return conversationIdentity(row) === origin.identity &&
+		return draftDestination(row) === origin.identity &&
 			(row.draft === origin.accepted || origin.lost.has(row.draft) || row.draft === text);
+	}
+	/** Replace this one refused local edit with the accepted session text.
+	 * The conflicting write never reached the session. A pending or uncertain
+	 * write keeps its own recovery. */
+	useSessionDraft(id: string): string | undefined {
+		if (!this.#failures.get(id)?.conflict || this.#jobs.has(id) || this.#writes.has(id)) return;
+		const row = conversationById(this.#session.current, id);
+		if (row == null) return;
+		this.retire(id);
+		this.#session.acquisitionChanged();
+		return row.draft;
 	}
 	retire(id: string): void {
 		this.#failures.delete(id);

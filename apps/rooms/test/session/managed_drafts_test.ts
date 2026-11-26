@@ -3,6 +3,8 @@
 // while held access is still being reached over the new link. A write
 // never replaces a draft another tab wrote since this one staged, and one the
 // session refused waits for the person.
+import "./managed_drafts/room.ts";
+import { initializeApplication } from "../support/application.ts";
 import { browserFailure, refusalCode } from "../support/browser_failure.ts";
 import { assert, assertEquals } from "../assert.ts";
 import { deferred, snapshot, viewer } from "../support/managed_viewer.ts";
@@ -21,6 +23,8 @@ import { settle, until, within } from "../support/wait.ts";
 import { refusalText } from "../../lib/text/failure.ts";
 import { LINK_WAIT_MS } from "../../web/ui/session/managed/link.ts";
 import { fakeHandle } from "../support/managed_link.ts";
+
+await initializeApplication();
 
 /** A workspace holding the conversation "dm" whose draft is `draft`. */
 function withDm(draft: string) {
@@ -246,11 +250,11 @@ Deno.test("background draft failure keeps newer text and one persistent notice u
 	}
 	assertEquals(attempts, 1);
 	assertEquals(session.drafts.value("dm", ""), "latest 49");
-	assertEquals(session.drafts.failure("dm").includes("storage unavailable"), true);
+	assertEquals(session.drafts.failure("dm")?.text.includes("storage unavailable"), true);
 	session.command = () => Promise.resolve(fakeHandle<ManagedOperation>({ result: () => Promise.resolve(null) }));
 	session.finish = () => {};
 	await session.drafts.flush("dm");
-	assertEquals(session.drafts.failure("dm"), "");
+	assertEquals(session.drafts.failure("dm"), undefined);
 	await session.close();
 });
 
@@ -300,7 +304,7 @@ Deno.test("a draft write the session holds no record of after a lost link is wri
 	const { session, failed, written } = await lostDraftWrite(false);
 	assertEquals(failed, null, "the draft is saved over the next link");
 	assertEquals(written, ["first:kept", "second:kept"]);
-	assertEquals(session.drafts.failure("dm"), "");
+	assertEquals(session.drafts.failure("dm"), undefined);
 	assertEquals(session.drafts.value("dm", "accepted"), "accepted", "the session holds the text now");
 	await session.close();
 });
@@ -311,7 +315,7 @@ Deno.test("a lost draft write that reached the session anyway counts as this tab
 	const { session, failed, written } = await lostDraftWrite(true, "kept, and more");
 	assertEquals(failed, null, "the draft the lost write left is not a competing one");
 	assertEquals(written, ["first:kept", "second:kept, and more", "second:kept, and more"]);
-	assertEquals(session.drafts.failure("dm"), "");
+	assertEquals(session.drafts.failure("dm"), undefined);
 	await session.close();
 });
 
@@ -329,7 +333,7 @@ Deno.test("a draft write the session refused is not written again when the link 
 	await session.start();
 	session.drafts.stage("dm", "mine");
 	await Promise.allSettled([session.drafts.flush("dm")]);
-	assert(session.drafts.failure("dm") !== "", "the refusal is shown");
+	assert(session.drafts.failure("dm") != null, "the refusal is shown");
 	first.lose();
 	await settle();
 	assert(first.state.freed === 1 && session.link?.live === true, "the new link");
@@ -366,12 +370,12 @@ Deno.test("a draft held back while the link was refused is written once Try now 
 	assertEquals(session.link?.state.kind, "refused");
 	session.drafts.stage("dm", "mine");
 	await Promise.allSettled([session.drafts.flush("dm")]);
-	assert(session.drafts.failure("dm") !== "", "the refusal is shown on the draft");
+	assert(session.drafts.failure("dm") != null, "the refusal is shown on the draft");
 	session.link?.tryNow();
 	await settle();
 	await settle();
 	assertEquals([session.link?.live, written], [true, ["second:mine"]], "the draft written without a press");
-	assertEquals(session.drafts.failure("dm"), "", "the draft's failure clears");
+	assertEquals(session.drafts.failure("dm"), undefined, "the draft's failure clears");
 	await session.close();
 });
 
@@ -518,7 +522,7 @@ Deno.test("a draft write whose reply a lost link cut off, which landed, counts a
 	await settle();
 	assert(written.includes("third:ab"), "the draft to be written over the third link");
 	await settle();
-	assert(session.drafts.failure("dm") === "", "the write to be confirmed");
+	assert(session.drafts.failure("dm") == null, "the write to be confirmed");
 	assertEquals(written, ["first:a", "third:ab"]);
 	await session.close();
 });
@@ -530,7 +534,7 @@ Deno.test("a draft held for the link while another tab wrote its own stays here,
 	const failed = await within(flushing, "the write to meet the other draft");
 	assert(failed instanceof WorkspaceConflict, String(failed));
 	assertEquals(written, [], "the other tab's draft is not written over");
-	assertEquals(session.drafts.failure("dm"), competingDraft);
+	assertEquals(session.drafts.failure("dm")?.text, competingDraft);
 	assertEquals(session.drafts.value("dm", "the other tab's"), "typed while away");
 	await session.close();
 });
@@ -546,7 +550,7 @@ Deno.test("a draft the link kept from being sent, while another tab wrote its ow
 	await settle();
 	assert(first.state.freed === 1 && session.link?.live === true, "the new link");
 	await settle();
-	assert(session.drafts.failure("dm") === competingDraft, "the write to meet the other draft");
+	assert(session.drafts.failure("dm")?.text === competingDraft, "the write to meet the other draft");
 	assertEquals(written, [], "the other tab's draft is not written over");
 	assertEquals(session.drafts.value("dm", "the other tab's"), "typed while away");
 	await session.close();
@@ -577,7 +581,7 @@ Deno.test("a held draft write whose record the session no longer holds is writte
 	assertEquals(session.pending.length, 1, "this tab holds the write");
 	await within(session.drafts.flush("dm"), "the draft to be written again");
 	assertEquals(written, ["kept", "kept"]);
-	assertEquals(session.drafts.failure("dm"), "");
+	assertEquals(session.drafts.failure("dm"), undefined);
 	assertEquals(session.drafts.value("dm", "old"), "old", "nothing is left staged");
 	await session.close();
 });

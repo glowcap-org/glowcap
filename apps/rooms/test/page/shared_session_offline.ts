@@ -10,6 +10,7 @@ import type { BrowserContext, Locator, Page, WebSocketRoute } from "playwright";
 import { fail } from "../support/fail.ts";
 import { sessionOffline, sessionTryNow } from "../../lib/text/page.ts";
 import { managedAccessText } from "../../lib/text/managed_access.ts";
+import { composerUseSessionDraft } from "../../lib/text/controls.ts";
 import { holdControl } from "./shared_session_access.ts";
 import { keptItself, markKept } from "./harness.ts";
 import { until, within } from "../support/wait.ts";
@@ -131,6 +132,46 @@ export async function proveSharedSessionOffline(
 	);
 	for (const [name, copies] of [["this page", bubbles], ["the other page", seen]] as const) {
 		if (await copies.count() !== 1) fail(`a line sent after the network returned landed more than once on ${name}`);
+	}
+}
+
+/** The other view saves its draft while this page is offline. The local
+ * draft stays readable until the person explicitly adopts the session copy. */
+export async function proveSharedDraftConflict(
+	page: Page,
+	context: BrowserContext,
+	wire: RelayWire,
+	peer: Page,
+	saved: (text: string) => Promise<boolean>,
+): Promise<void> {
+	const local = "Private words to keep before choosing";
+	const remote = "The draft saved from the other view";
+	await context.setOffline(true);
+	wire.cut();
+	try {
+		await page.fill("#line", local);
+		await peer.fill("#line", remote);
+		await until(() => saved(remote), "the other view's draft to be saved");
+	} finally {
+		wire.restore();
+		await context.setOffline(false);
+	}
+	const useSession = page.getByRole("button", { name: composerUseSessionDraft, exact: true });
+	await useSession.waitFor();
+	await page.press("#line", "Enter");
+	if (!await page.locator("#sendBtn").isDisabled() || await page.inputValue("#line") !== local) {
+		fail("the conflicting draft must stay local and available to copy");
+	}
+	await useSession.click();
+	await page.waitForFunction((text) => document.querySelector<HTMLTextAreaElement>("#line")?.value === text, remote);
+	const fresh = "Written after choosing the session draft";
+	await page.fill("#line", fresh);
+	await page.press("#line", "Enter");
+	await peer.locator(".bubble").filter({ hasText: fresh }).first().waitFor();
+	for (const text of [local, remote]) {
+		if (await peer.locator(".bubble").filter({ hasText: text }).count()) {
+			fail("resolving the draft conflict sent a draft");
+		}
 	}
 }
 
