@@ -9,7 +9,7 @@ use super::captp::{FRIEND, World};
 use super::captp_crashes::answered;
 use super::captp_direct::{say, turn};
 use super::rig::{Bot, eventually};
-use super::session_rig::{free_places, run_within};
+use super::session_rig::{call, free_places, run_within};
 use super::words;
 use glowcap::PendingWork;
 use rooms_application::content::session::custody::MAX_EFFECTS;
@@ -32,7 +32,18 @@ pub(super) async fn paused(
 	let (issuer, grants, terms) = world.issuer().await;
 	let issued = grants.issue("the bot", &terms).await.unwrap();
 	issuer.close(PendingWork::Cancel).await.unwrap();
+	let room = world.fixture.room_id(0);
 	world.fixture.peers[0].restart_at(Some(fault));
+	// The listening session can accept the bot before it has a seat to hear
+	// a room mention. Observe its return to the original room before posting.
+	eventually("the restarted session to regain its room seat", || {
+		let status = call(&world.fixture.peers[0].state, "status", json!({}));
+		status["workspace"]["conversations"]
+			.as_array()?
+			.iter()
+			.any(|row| row["id"] == room && row["seat"].is_string())
+			.then_some(())
+	});
 	let (issuer, grants, _) = world.issuer().await;
 	let bot = world.rig.serve_linked_at(&issued.link, json!({}), bot_fault);
 	(issuer, grants, bot)
