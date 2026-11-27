@@ -26,7 +26,8 @@ workspaces share the same typed application contract. React shows what the
 application reports and submits reader actions through these handles.
 
 Pass the workspace ID and a required boolean before the trouble callback. Use
-`true` to reopen a saved workspace and `false` to start a new one. The
+`true` to require an existing committed workspace. With `false`, the constructor
+opens the supplied ID and may create it if missing. Use a fresh ID for a separate workspace. The
 optional fourth argument is a JSON string containing
 an object of string values for the four admission settings in the
 [admission guide](../../../../docs/rooms/admission.md). It validates policy before
