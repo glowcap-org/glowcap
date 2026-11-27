@@ -27,7 +27,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 INSTALLER = ROOT / "site/assets/install.sh"
-VERSION = "0.9.0"
+VERSION = "0.10.12"
 TARGET = (
     {"x86_64": "x86_64", "amd64": "x86_64", "aarch64": "aarch64", "arm64": "aarch64"}[platform.machine()]
     + "-"
@@ -55,7 +55,17 @@ class QuietHandler(SimpleHTTPRequestHandler):
 
     def do_GET(self):
         type(self).requests.append(self.path)
+        if self.path == "/releases.json?page=2":
+            self.path = "/next.json"
+        elif self.path == "/interrupted.json?page=2":
+            self.send_error(503)
+            return
         super().do_GET()
+
+    def end_headers(self):
+        if self.path in ("/releases.json", "/interrupted.json"):
+            self.send_header("Link", f'<{self.path}?page=2>; rel="next"')
+        super().end_headers()
 
 
 class Installer(unittest.TestCase):
@@ -73,9 +83,31 @@ class Installer(unittest.TestCase):
         (release / ARCHIVE).write_bytes(archive)
         digest = hashlib.sha256(archive).hexdigest()
         (release / "SHA256SUMS").write_text(f"{digest}  {ARCHIVE}\n{'0' * 64}  glowcap-c-v{VERSION}-{TARGET}.tar.gz\n")
-        (mirror / "releases.json").write_text(
-            json.dumps([{"tag_name": f"v{VERSION}", "draft": False, "prerelease": True}])
+        earlier = {"tag_name": "v0.9.99", "draft": False}
+        (mirror / "releases.json").write_text(json.dumps([earlier, {"tag_name": "v0.10.2", "draft": False}]))
+        (mirror / "next.json").write_text(
+            json.dumps(
+                [
+                    {"draft": True, "tag_name": "v0.11.0"},
+                    {"tag_name": "v0.020.0", "draft": False},
+                    {"tag_name": "v1.0.0", "draft": False},
+                    {"tag_name": "site-media", "draft": False},
+                    {
+                        "tag_name": f"v{VERSION}",
+                        "assets": [{"tag_name": "v0.97.0", "draft": True}],
+                        "body": 'See {"tag_name":"v0.98.0","draft":false}',
+                        "draft": False,
+                        "prerelease": True,
+                    },
+                    earlier,
+                ],
+                indent=2,
+            )
         )
+        (mirror / "interrupted.json").write_text(json.dumps([earlier]))
+        (mirror / "empty.json").write_text("[]")
+        (mirror / "truncated.json").write_text('[{"tag_name":"v0.10.12","draft":false}')
+
         broken = mirror / "v0.9.1"
         broken.mkdir()
         (broken / f"glowcap-v0.9.1-{TARGET}.tar.gz").write_bytes(archive)
@@ -105,8 +137,8 @@ class Installer(unittest.TestCase):
             GLOWCAP_RELEASE_BASE_URL=self.base,
             GLOWCAP_TEST_RECORD=str(record),
             TMPDIR=self.temporary.name,
-            **env,
         )
+        environment.update(env)
         result = subprocess.run(
             ["sh", str(INSTALLER)], env=environment, cwd=self.temporary.name, capture_output=True, text=True, timeout=20
         )
@@ -117,10 +149,26 @@ class Installer(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(record.read_text(), "install\n")
         self.assertIn(f"verified {ARCHIVE}", result.stdout)
-        self.assertEqual(QuietHandler.requests, ["/releases.json", f"/v{VERSION}/SHA256SUMS", f"/v{VERSION}/{ARCHIVE}"])
+        self.assertEqual(
+            QuietHandler.requests,
+            ["/releases.json", "/releases.json?page=2", f"/v{VERSION}/SHA256SUMS", f"/v{VERSION}/{ARCHIVE}"],
+        )
         self.assertEqual(
             sorted(Path(self.temporary.name).glob("glowcap-install.*")), [], "the temporary directory is removed"
         )
+
+    def test_incomplete_or_empty_release_discovery_refuses_before_downloading_a_product(self):
+        for listing, reason in (
+            ("interrupted", "could not reach the release listing"),
+            ("empty", "no supported public release"),
+            ("truncated", "invalid release listing"),
+        ):
+            with self.subTest(listing=listing):
+                result, record = self.run_installer(GLOWCAP_RELEASES_API=f"{self.base}/{listing}.json")
+                self.assertEqual(result.returncode, 1)
+                self.assertIn(reason, result.stderr)
+                self.assertFalse(record.exists())
+                self.assertFalse(any("SHA256SUMS" in path for path in QuietHandler.requests))
 
     def test_pins_a_version_and_forwards_install_arguments(self):
         result, record = self.run_installer(GLOWCAP_VERSION=VERSION, GLOWCAP_INSTALL_ARGS="--prefix /opt/glowcap")
