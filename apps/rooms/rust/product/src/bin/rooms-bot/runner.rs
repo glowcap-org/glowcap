@@ -307,6 +307,12 @@ struct Watched {
 	tail: JoinHandle<String>,
 }
 
+impl Drop for Watched {
+	fn drop(&mut self) {
+		self.group.abandon(&mut self.child);
+	}
+}
+
 /// Start the harness, or the finished [`Ran`] that says it could not start or
 /// was never to. A failure to watch or record the group returns an error
 /// before the harness receives its prompt.
@@ -499,24 +505,20 @@ async fn conclude(
 	mut fold: Fold,
 	heard_out: Heardout,
 	stop: Stop,
-	watched: Watched,
+	mut watched: Watched,
 	asked: Option<String>,
 ) -> Ran {
 	let Heardout { long_line, read_error } = heard_out;
-	let Watched {
-		mut child,
-		mut group,
-		mut tail,
-	} = watched;
+	let Watched { child, group, tail } = &mut watched;
 	if long_line {
 		fold.note("the harness wrote a line longer than the runner reads, and it was skipped");
 	}
 	if let Some(error) = &read_error {
 		fold.note(error);
 	}
-	// The group is ended before the leader is reaped, so its id cannot have
-	// been reused by then.
-	let code = match group.kill() {
+	// Every group signal precedes reaping. Darwin can reap an exited
+	// leader during stop to confirm that the refused group has disappeared.
+	let code = match group.stop(child) {
 		Ok(()) => {
 			let code = match child.wait().await {
 				Ok(status) if matches!(stop, Stop::Eof | Stop::Exited) => status.code(),
@@ -535,11 +537,16 @@ async fn conclude(
 			// The leader may still run if signalling failed. Waiting here
 			// would make even a cancelled turn wait for the harness.
 			fold.note(&format!("the harness group could not be ended: {error}"));
-			drop(group);
-			None
+			// Darwin may already have reaped an exited harness to check for
+			// surviving group members. Only read its cached status here.
+			if child.id().is_none() && matches!(stop, Stop::Eof | Stop::Exited) {
+				child.try_wait().ok().flatten().and_then(|status| status.code())
+			} else {
+				None
+			}
 		}
 	};
-	let tail = match timeout(STDERR_GRACE, &mut tail).await {
+	let tail = match timeout(STDERR_GRACE, &mut *tail).await {
 		Ok(Ok(text)) => text,
 		Ok(Err(error)) => {
 			fold.note(&format!("reading the harness's error output failed: {error}"));

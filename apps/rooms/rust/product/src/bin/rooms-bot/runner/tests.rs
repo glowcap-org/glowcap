@@ -185,17 +185,17 @@ os.execv(sys.argv[1], sys.argv[1:])"#,
 		.await
 		.unwrap()
 		.unwrap();
-	group.kill().unwrap();
+	group.stop(&mut watched.child).unwrap();
 	assert_eq!(watched.child.wait().await.unwrap().code(), Some(23));
 	assert_eq!(
 		group.exited(&mut child_signal).await.unwrap_err().raw_os_error(),
 		Some(Errno::ECHILD as i32)
 	);
-	assert!(group.kill().is_err());
+	assert!(group.stop(&mut watched.child).is_err());
 	drop(watched);
 	let record = groups.join(place.record);
 	let retained = std::fs::read(&record).unwrap();
-	let next = Script("echo F:recovered");
+	let next = Script("echo T:recovered");
 	let mut invocation = next.invocation(&dummy_turn(&dirs.work));
 	let Err(refused) = launch(&mut invocation, &place, &shutdown) else {
 		panic!("another harness started over an unconfirmed group");
@@ -207,7 +207,24 @@ os.execv(sys.argv[1], sys.argv[1:])"#,
 		.await
 		.unwrap();
 	assert_eq!(ran.finish, Finish::Answered("recovered".into()));
+	assert!(ran.notes.is_empty(), "{:?}", ran.notes);
 	assert!(!record.exists());
+	let mut invocation = Script("exit 0").invocation(&dummy_turn(&dirs.work));
+	let Launched {
+		mut watched,
+		mut child_signal,
+		..
+	} = launch(&mut invocation, &place, &shutdown).unwrap().unwrap();
+	timeout(Duration::from_secs(5), watched.group.exited(&mut child_signal))
+		.await
+		.unwrap()
+		.unwrap();
+	assert!(record.exists());
+	drop(watched);
+	assert!(
+		!record.exists(),
+		"abandoning an exited harness must reconcile its group"
+	);
 	std::fs::write(observed, "").unwrap();
 }
 

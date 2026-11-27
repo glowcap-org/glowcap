@@ -141,6 +141,7 @@ jobs:
           cargo test --locked --manifest-path apps/rooms/rust/Cargo.toml -p rooms-product
           --features test-support --bin rooms-bot --
           --exact bot::runner::tests::observing_a_harness_exit_leaves_its_status_for_the_reaper
+          bot::group::tests::a_refused_group_is_gone_only_after_its_leader_exits_and_no_member_remains
 
       - name: Build and verify the browser bundle and WebAssembly libraries
         if: matrix.runner == 'ubuntu-24.04'

@@ -191,14 +191,15 @@ fn pid(raw: u32) -> Result<Pid, Error> {
 }
 
 /// End every process in the group. A group with no members is already ended.
-fn kill(group: u32) -> Result<(), Error> {
-	match killpg(pid(group)?, Signal::SIGKILL) {
+fn kill(group: Pid) -> Result<(), Errno> {
+	match killpg(group, Signal::SIGKILL) {
 		Ok(()) | Err(Errno::ESRCH) => Ok(()),
-		Err(errno) => Err(Error::Io {
-			context: "ending the harness process group",
-			source: errno.into(),
-		}),
+		Err(errno) => Err(errno),
 	}
+}
+
+fn signal_error(errno: Errno) -> Error {
+	Error::io("ending the harness process group")(errno.into())
 }
 
 pub fn forget(record: &Path) -> Result<(), Error> {
@@ -302,20 +303,55 @@ impl Group {
 		Ok(())
 	}
 
-	/// Signal the whole group while we still own its leader. The record stays
-	/// until [`Group::end`].
-	pub fn kill(&mut self) -> Result<(), Error> {
+	/// The target of a group signal, only while we still own its leader.
+	fn target(&mut self) -> Result<Pid, Error> {
 		self.leader_exited()
 			.map_err(|error| Error::io("checking the harness group leader")(error.into()))?;
-		kill(self.leader)
+		pid(self.leader)
+	}
+
+	/// XNU's killpg1 skips zombies. If an exited leader was the only member,
+	/// signalling the group reports EPERM until the leader is reaped.
+	pub fn stop(&mut self, child: &mut tokio::process::Child) -> Result<(), Error> {
+		let result = kill(self.target()?);
+		if cfg!(target_os = "macos") && result == Err(Errno::EPERM) && self.gone_after_reap(child)? {
+			return Ok(());
+		}
+		result.map_err(signal_error)
+	}
+
+	fn gone_after_reap(&mut self, child: &mut tokio::process::Child) -> Result<bool, Error> {
+		if child.id() != Some(self.leader)
+			|| !self
+				.leader_exited()
+				.map_err(|error| Error::io("checking the harness group leader")(error.into()))?
+		{
+			return Ok(false);
+		}
+		// From this point even Drop may only leave the record. Tokio caches
+		// the child's exact exit status. Signal zero tests the former group's
+		// existence without signalling any process that might reuse the id.
+		self.live = false;
+		let reaped = child.try_wait().map_err(Error::io("reaping the exited harness"))?;
+		Ok(reaped.is_some() && killpg(pid(self.leader)?, None) == Err(Errno::ESRCH))
 	}
 
 	/// Remove the record of a group whose leader has been reaped. Its group id
 	/// may be reused from then on, so the group is never signalled again. The
-	/// caller signals it with [`Group::kill`] before it reaps the leader.
-	pub fn end(mut self) -> Result<(), Error> {
+	/// caller ends it with [`Group::stop`].
+	pub fn end(&mut self) -> Result<(), Error> {
 		self.live = false;
 		forget(&self.record)
+	}
+
+	/// A cancelled run still owns the child handle. Use it while its cached
+	/// status and, on Darwin, the read-only group check are available.
+	pub fn abandon(&mut self, child: &mut tokio::process::Child) {
+		if self.live && self.stop(child).is_ok() {
+			// best-effort: startup reconciles a record that could not be removed.
+			let _ = self.end();
+		}
+		self.live = false;
 	}
 }
 
@@ -323,7 +359,7 @@ impl Drop for Group {
 	fn drop(&mut self) {
 		// best-effort: preserve the record for startup reconciliation when
 		// ownership was lost or signalling failed.
-		if self.live && self.kill().is_ok() {
+		if self.live && self.target().is_ok_and(|target| kill(target).is_ok()) {
 			let _ = forget(&self.record);
 		}
 	}
@@ -372,7 +408,7 @@ pub fn reap(record: &Path) -> Reaped {
 	if identity(group).as_ref() != Some(&recorded) {
 		return Reaped::Left(group, "its leader is gone or is another process now".into());
 	}
-	signalled(group, kill(group))
+	signalled(group, kill(target).map_err(signal_error))
 }
 
 /// What a restart did once it signalled a group whose leader it confirmed. A
