@@ -161,7 +161,12 @@ fn a_first_start_that_has_not_reached_its_session_shows_as_running() {
 	let mut waiting = rig.serve_unreached();
 	eventually("status to show a serve that has not reached its session", || {
 		let (status, ok) = rig.run("status", json!({}));
-		(ok && status["running"] == true && status["configured"] == false).then_some(())
+		(ok && status["running"] == true && status["status"]["harness"] == "fake").then(|| {
+			assert_eq!(status["configured"], false);
+			assert!(status["agent"].is_null());
+			assert_eq!(status["status"]["permission"], "safe");
+			assert_eq!(status["status"].get("model"), Some(&serde_json::Value::Null));
+		})
 	});
 	waiting.signal("-TERM");
 	assert!(waiting.wait().success(), "a stopped first start exited with a failure");

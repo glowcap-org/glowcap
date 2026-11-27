@@ -12,7 +12,26 @@ fn paused_access_keeps_the_message_until_it_resumes() {
 	run_within(Duration::from_secs(60), async {
 		let (issuer, grants, terms) = world.issuer().await;
 		let issued = grants.issue("the bot", &terms).await.unwrap();
-		let bot = world.rig.serve_linked(&issued.link, json!({}));
+		let bot = world.rig.serve_linked(&issued.link, json!({"model": ["test-model"]}));
+		assert_eq!(
+			world.rig.status()["agent"],
+			json!({
+				"harness": "fake", "model": "test-model", "permission": "safe",
+				"conversation_work_root": world.rig.dir.join("work"),
+			})
+		);
+
+		let config = world.rig.dir.join("config.json");
+		let mut saved: serde_json::Value = serde_json::from_slice(&std::fs::read(&config).unwrap()).unwrap();
+		saved["model"] = json!("next-model");
+		saved["permission"] = json!("full");
+		std::fs::write(config, serde_json::to_vec(&saved).unwrap()).unwrap();
+		let report = world.rig.status();
+		assert_eq!(report["agent"]["model"], "next-model");
+		assert_eq!(report["agent"]["permission"], "full");
+		assert_eq!(report["status"]["model"], "test-model");
+		assert_eq!(report["status"]["permission"], "safe");
+
 		world.dm("reply:first");
 		world.await_line("direct", "first");
 
