@@ -76,6 +76,7 @@ export function rtcChannel(dc: RTCDataChannel, release: () => void = () => {}): 
 	let pendingWriteBytes = 0;
 	let pendingWrites = 0;
 	let closed = false;
+	let released = false;
 	let failure: unknown = null;
 
 	function fail(error: unknown): void {
@@ -161,6 +162,8 @@ export function rtcChannel(dc: RTCDataChannel, release: () => void = () => {}): 
 			await current;
 		},
 		close(): void {
+			if (released) return;
+			released = true;
 			dc.onmessage = null;
 			dc.onclose = null;
 			dc.onerror = null;

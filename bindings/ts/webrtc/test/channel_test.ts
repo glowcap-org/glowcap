@@ -73,6 +73,16 @@ Deno.test("rtcChannel bounds concurrent outbound writes", async () => {
 	await Promise.all(queued);
 });
 
+Deno.test("rtcChannel releases its owner once even after the peer closes", async () => {
+	const dc = new FakeDataChannel();
+	let releases = 0;
+	const channel = rtcChannel(dc as unknown as RTCDataChannel, () => releases++);
+	dc.close();
+	await channel.close();
+	await channel.close();
+	assertDeepEquals(releases, 1);
+});
+
 Deno.test("rtcChannel releases write slots after delivery", async () => {
 	const dc = new FakeDataChannel();
 	const channel = rtcChannel(dc as unknown as RTCDataChannel);
