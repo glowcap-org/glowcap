@@ -191,6 +191,7 @@ including on macOS with Docker Desktop. This command keeps state in a named volu
 
 ```sh
 docker run --rm --name glowcap-rooms \\
+  --cap-drop=ALL --security-opt=no-new-privileges:true --read-only \\
   -p 127.0.0.1:8080:8080 \\
   -v glowcap-rooms-state:/state \\
   -e GLOWCAP_ROOMS_STATE=/state \\

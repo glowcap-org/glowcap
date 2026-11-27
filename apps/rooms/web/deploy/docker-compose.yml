@@ -23,6 +23,9 @@ services:
   directory:
     image: ${GLOWCAP_ROOMS_IMAGE:?select an image through glowcap apps rooms deployment up}
     container_name: glowcap-rooms-directory
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    read_only: true
     working_dir: /runtime
     # The web server serves the prepared page and runs the directory as its
     # child. It listens on every container interface, since only the override
@@ -70,6 +73,9 @@ services:
   session:
     image: ${GLOWCAP_ROOMS_IMAGE:?select an image through glowcap apps rooms deployment up}
     container_name: glowcap-rooms-session
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    read_only: true
     working_dir: /runtime
     entrypoint: ["/runtime/bin/glowcap", "apps", "rooms", "session", "serve"]
     command:

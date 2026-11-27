@@ -11,6 +11,10 @@ Releases before 0.1.7 are in the
 
 ## [Unreleased]
 
+### Security
+
+- The Rooms directory and session run with read-only root filesystems, drop all Linux capabilities, and prevent privilege gains on exec. Upgrade the host CLI and run `deployment up` to apply the managed Compose settings. If your override defines a bot session, copy the same settings from the bot-session example.
+
 ### Changed
 
 - Each Rooms bot turn receives the running agent’s harness, requested model, and permission. `bot status` shows those settings alongside the saved configuration. Restart the bot after upgrading so it can publish its live status and pass `bot ready`.

@@ -88,6 +88,11 @@ chooses belongs in `docker-compose.override.yml`, which `up` copies once from th
 some, list the ones you want in the override, such as
 `GLOWCAP_ROOMS_CAPABILITIES: "admin-listeners,diagnostics,operator,peering,trace"`, which leaves IRC out.
 
+The directory and session run as container user 0 so they can reopen their existing state volumes. Compose drops all
+Linux capabilities, prevents the processes from gaining privileges on exec, and makes the container root filesystem
+read-only. The state volumes and the session's readiness tmpfs remain writable. If you supply your own mounts,
+give the container user write access to its state and mount any additional output directories writable.
+
 ### Host it publicly
 
 The example override publishes the page on this host's loopback port only. That keeps the page local but not the
@@ -189,18 +194,21 @@ until the deployment is healthy. The CLI does not discover or copy configuration
 
 ## Upgrade
 
-Read the release notes and [back up the stopped stack](#data-and-reset) before upgrading. Run these commands in the
-configuration directory printed by `deployment doctor`. For a local build or a rollback on another Docker host,
-[save the selected image](#keep-a-copy-of-the-selected-image) with the backup. Select the new version and check its health:
+Read the release notes and [back up the stopped stack](#data-and-reset) before upgrading. For a local build or
+a rollback on another Docker host, [save the selected image](#keep-a-copy-of-the-selected-image) with the backup.
+
+Upgrade the host CLI first. It writes the managed Compose file on each `up`. In the configuration directory printed by
+`deployment doctor`, check your `docker-compose.override.yml`. If it defines a bot session, copy that service's
+`healthcheck`, `cap_drop`, `security_opt`, and `read_only` settings from the updated
+[override example](docker-compose.override.yml.example). Both the shared session and bot session should probe
+`/runtime/libexec/rooms-session --check-ready=/run/rooms-session/use.sturdyref`.
+
+From that configuration directory, select the new image and check its health:
 
 ```sh
 glowcap apps rooms deployment up --dir "$PWD" --image ghcr.io/glowcap-org/glowcap-rooms:vNEW
 glowcap apps rooms deployment status --dir "$PWD"
 ```
-
-Upgrade the host CLI as well as the image. The CLI writes the managed Compose file on each `up`. If your
-override defines a bot session, copy its health check from the updated override example before running `up`.
-Both checks should invoke `/runtime/libexec/rooms-session --check-ready=/run/rooms-session/use.sturdyref`.
 
 With the updated image these probes report readiness by exit status. An older template calls a command that prints
 the use link into Docker health history, even with the updated image. Older images can also retain bearer links
