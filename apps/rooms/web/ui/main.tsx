@@ -46,6 +46,7 @@ import { RoomsBrowserProvider } from "./controller/browser.ts";
 import { createRoomsBrowserController, setupRefusal } from "./controller/create_browser.ts";
 import {
 	coldWorkspace,
+	markedWorkspaces,
 	pinWorkspace,
 	recordWorkspaceChoice,
 	rememberOpenWorkspace,
@@ -65,7 +66,7 @@ import { chooseServer, serverOffer } from "./server_choice.ts";
 import { sessionOffer } from "./session_offer.ts";
 import { reachesLocalNetwork } from "./local_network.ts";
 import { openServedDirectory, showServedDirectory, startLocalRooms } from "./served_directory.ts";
-import { sessionDidNotOpen } from "../../lib/text/session.ts";
+import { savedWorkspaceTitle, sessionDidNotOpen } from "../../lib/text/session.ts";
 import { settingsServerOffer, settingsServerRefused } from "../../lib/text/settings.ts";
 import { roomsErrorIn } from "../../lib/error_codes.ts";
 
@@ -157,7 +158,8 @@ async function showSessionSetup(initialCapability = "", initialError = "", openF
 		saved = await application.applicationModule().RoomsBrowserData.savedWorkspaces();
 	} catch (error) {
 		// Setup still offers a new session or a link when storage is blocked.
-		report("Listing saved workspaces", error);
+		saved = markedWorkspaces();
+		report(savedWorkspaceTitle, error);
 	}
 	root.render(
 		<StrictMode>

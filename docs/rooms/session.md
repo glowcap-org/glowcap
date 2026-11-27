@@ -64,7 +64,9 @@ the original branch derivation. Startup checks workspace and receipt metadata
 without restoring every held field.
 
 The server process uses SQLite, atomic replacement of metadata files and a
-directory lease. The browser pins a workspace to each open tab and remembers the last one that opened on this device. Its IndexedDB bootstrap and the Store's exclusive Web Lock belong to the workspace. A saved workspace with missing owner metadata refuses recovery. Replacing metadata compares the previous bootstrap in the
+directory lease.
+
+The browser pins a workspace to each open tab and remembers the last one that opened on this device. Its IndexedDB bootstrap and the Store's exclusive Web Lock belong to the workspace. A saved workspace with missing owner metadata refuses recovery. Replacing metadata compares the previous bootstrap in the
 same transaction, so a slow preparation cannot overwrite a confirmed root.
 Browser metadata and Loam both require strict durability. Startup refuses
 when a confirmed root is missing or storage is uncertain.

@@ -74,11 +74,13 @@ let openingScreen: HTMLElement | null = null;
 export function coverForReload(): void {
 	const root = bootRoot();
 	if (root == null) return;
+	if (root.dataset.boot === LEAVING) return;
 	root.dataset.boot = LEAVING;
 	if (openingScreen !== null) {
 		const note = openingScreen.querySelector(".boot-note");
 		if (note) note.textContent = bootOpeningSession;
 		if (!openingScreen.isConnected) document.body.append(openingScreen);
+		startOpeningMark();
 	}
 }
 
@@ -149,6 +151,7 @@ export function uncoverReload(): void {
 	const root = bootRoot();
 	if (root == null || root.dataset.boot !== LEAVING) return;
 	root.dataset.boot = HANDED_OVER;
+	stopOpeningMark();
 	openingScreen?.remove();
 }
 
@@ -213,7 +216,7 @@ export function startOpeningMark(): void {
 	if (box === null) return;
 	openingMark = import("../../../../ui/mark/live.ts").then((m) => m.start(box, "loop")).then((mark) => {
 		// The screen may already be gone by the time a device arrives.
-		if (mark !== null && (!box.isConnected || handedOver())) {
+		if (mark !== null && (!box.isConnected || bootRoot()?.dataset.boot === HANDED_OVER)) {
 			mark.stop();
 			return null;
 		}
@@ -226,10 +229,14 @@ export function startOpeningMark(): void {
 	});
 }
 
-export function handOffNow(): void {
-	if (handedOver()) return;
+function stopOpeningMark(): void {
 	void openingMark.then((mark) => mark?.stop());
 	openingMark = Promise.resolve(null);
+}
+
+export function handOffNow(): void {
+	if (handedOver()) return;
+	stopOpeningMark();
 	stopBootAsides();
 	document.documentElement.dataset.boot = HANDED_OVER;
 	const boot = document.getElementById("boot");

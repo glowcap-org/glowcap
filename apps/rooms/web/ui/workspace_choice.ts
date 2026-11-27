@@ -56,6 +56,13 @@ export function recordWorkspaceChoice(chosen: boolean): LocalRefusal | null {
 	return id === null ? null : localArea.remove(PREFIX + id);
 }
 
+/** Fallback when this browser cannot list its databases. Opening a candidate
+ * still requires the existing private identity and committed workspace. */
+export function markedWorkspaces(): string[] {
+	return localArea.keys().filter((key) => key.startsWith(PREFIX) && localArea.read(key) === "yes")
+		.map((key) => key.slice(PREFIX.length)).filter(validId).sort();
+}
+
 export function coldWorkspace(): string | null {
 	if (sessionArea.read(TAB) !== null) return null;
 	const last = localArea.read(LAST);
