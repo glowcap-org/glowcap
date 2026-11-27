@@ -9,7 +9,7 @@ use std::{
 	collections::BTreeMap,
 	rc::{Rc, Weak},
 };
-use tokio::sync::watch;
+use tokio::sync::{Notify, watch};
 
 const MAX_STARTING: usize = 4;
 // Failed cleanup still owns a task and its exact upstream target. Charge it
@@ -19,6 +19,7 @@ const MAX_RETAINED: usize = rooms_application::content::session::workspace::MAX_
 
 pub(in crate::session::managed) struct Budget<P: Tasks> {
 	starting: Cell<usize>,
+	startup_available: Notify,
 	tasks: RefCell<BTreeMap<String, Running<P>>>,
 }
 struct Running<P: Tasks> {
@@ -61,7 +62,7 @@ impl<P: Tasks> DirectoryRegistrations<P> {
 		}
 		let status = worker.ready.borrow().clone();
 		match status {
-			Some(Err(error)) if retry && super::nickname_refused(&error) => {
+			Some(Err(error)) if retry && error.refused_nickname() => {
 				worker.ready.send_replace(None);
 				worker
 					.retry
@@ -78,6 +79,7 @@ impl<P: Tasks> Default for Budget<P> {
 	fn default() -> Self {
 		Self {
 			starting: Cell::new(0),
+			startup_available: Notify::new(),
 			tasks: RefCell::new(BTreeMap::new()),
 		}
 	}
@@ -215,8 +217,21 @@ impl<P: Tasks> Permit<P> {
 		if budget.starting.get() == MAX_STARTING {
 			return Err(Error::busy("Membership startup capacity is exhausted"));
 		}
+		Ok(Self::charge(budget))
+	}
+
+	/// An explicitly retried worker already has a retained task slot. It only
+	/// needs one active startup slot before preparing its next candidate.
+	pub(super) async fn resume(budget: &Rc<Budget<P>>) -> Self {
+		while budget.starting.get() == MAX_STARTING {
+			budget.startup_available.notified().await;
+		}
+		Self::charge(budget)
+	}
+
+	fn charge(budget: &Rc<Budget<P>>) -> Self {
 		budget.starting.set(budget.starting.get() + 1);
-		Ok(Self(Rc::downgrade(budget)))
+		Self(Rc::downgrade(budget))
 	}
 }
 
@@ -226,6 +241,7 @@ impl<P: Tasks> Drop for Permit<P> {
 	fn drop(&mut self) {
 		if let Some(budget) = self.0.upgrade() {
 			budget.starting.set(budget.starting.get() - 1);
+			budget.startup_available.notify_one();
 		}
 	}
 }

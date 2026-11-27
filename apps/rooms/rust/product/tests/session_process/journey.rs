@@ -213,7 +213,8 @@ fn exact_member_registration_and_existing_rooms_survive_restart() {
 	let occupied = fixture.temp.join("occupied");
 	let mut contender = launch(&occupied);
 	let refused = try_call(&occupied, "start", strict("scout", "workshop")).unwrap_err();
-	assert!(refused.contains("nick-taken"), "{refused}");
+	assert!(refused.contains(r#""class":"nick-taken""#), "{refused}");
+	assert!(refused.contains(r#""retry":"after-state-change""#), "{refused}");
 	let state = call(&occupied, "status", json!({}));
 	let directory = &state["workspace"]["directories"][0];
 	assert_eq!(directory["nickAllocation"], "exact");
@@ -254,6 +255,31 @@ fn exact_member_registration_and_existing_rooms_survive_restart() {
 	assert_eq!(state["workspace"]["directories"][0]["assignedNick"], "scout");
 	contender.signal("-TERM");
 	fixture.finish();
+}
+
+#[test]
+fn refused_directory_names_leave_capacity_for_an_unrelated_room() {
+	use super::session_rig::{Fixture, try_call};
+	let fixture = Fixture::start("name-capacity", &["worker", "holder"], "workshop");
+	let worker = &fixture.peers[0].state;
+	let holder = &fixture.peers[1].state;
+	let mut directories = Vec::new();
+	// Keep four exact names occupied in independent directories. The worker
+	// must still be able to open a room in its original directory.
+	for _ in 0..4 {
+		let directory = Fixture::start("occupied-directory", &[], "unused");
+		let registration = json!({"locator":[directory.locator],"nick":["taken"],"exact-nick":["true"]});
+		call(holder, "start", registration.clone());
+		let refused = try_call(worker, "start", registration).unwrap_err();
+		assert!(refused.contains(r#""class":"nick-taken""#), "{refused}");
+		directories.push(directory);
+	}
+	let new_room = call(worker, "join", json!({"room":["garden"]}));
+	assert_eq!(new_room["joined"][0]["room"], "garden");
+	fixture.finish();
+	for directory in directories {
+		directory.finish();
+	}
 }
 
 #[test]

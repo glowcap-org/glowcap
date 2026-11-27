@@ -101,11 +101,6 @@ impl<P: Tasks> Drop for Membership<P> {
 		self.stop.send_replace(true);
 	}
 }
-/// The receipt proved that the directory refused this attempt's name.
-fn nickname_refused(error: &Error) -> bool {
-	matches!(error, Error::Peer(cause) if matches!(cause.as_ref(), rooms_glowcap::client::Error::RefusedObservation(_))
-        && cause.failure_code() == Some(rooms_application::failure::FailureCode::NickTaken))
-}
 async fn outcome(mut state: watch::Receiver<Option<Result<()>>>) -> Result<()> {
 	loop {
 		if let Some(result) = state.borrow_and_update().clone() {

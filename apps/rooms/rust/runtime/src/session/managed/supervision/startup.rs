@@ -7,7 +7,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Worker<P> {
 		original_source: realization::Source<P>,
 		target: Target,
 		operation: &str,
-		permit: Permit<P>,
+		mut permit: Permit<P>,
 		budget: Rc<Budget<P>>,
 	) -> Result<()> {
 		let workspace = source.workspace().clone();
@@ -157,25 +157,31 @@ impl<P: Tasks + Deadline + Clone + 'static> Worker<P> {
 							.err()
 							.map(Error::from)
 							.unwrap_or_else(|| Error::uncertain("Membership was not sent"));
-						let occupied = matches!(target, Target::Directory { .. }) && nickname_refused(&failure);
+						drop(command);
+						let occupied = matches!(target, Target::Directory { .. }) && failure.refused_nickname();
 						let advice = failure.admission_retry();
 						self.ready.send_replace(Some(Err(failure)));
-						if occupied || advice.is_some() {
-							let retry = if let Some(advice) = advice {
-								self.retry_after(advice).await?
-							} else {
-								self.retry_wait().await? && self.retry_selection_current().await?
-							};
-							if !retry {
+						if occupied {
+							drop(permit);
+							if !self.retry_wait().await? {
 								return Ok(());
 							}
-							attempt += 1;
-							admission = format!("{operation}:{attempt}");
-							self.ready.send_replace(None);
-							continue 'admission;
+							permit = Permit::resume(&budget).await;
+							if !self.retry_selection_current().await? {
+								return Ok(());
+							}
+						} else if let Some(advice) = advice {
+							if !self.retry_after(advice).await? {
+								return Ok(());
+							}
+						} else {
+							self.recovery.recover();
+							return Ok(());
 						}
-						self.recovery.recover();
-						return Ok(());
+						attempt += 1;
+						admission = format!("{operation}:{attempt}");
+						self.ready.send_replace(None);
+						continue 'admission;
 					}
 					EffectStatus::Pending => {
 						if !self.changed().await? {

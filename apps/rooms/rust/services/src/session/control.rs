@@ -258,7 +258,19 @@ impl Control {
 				Ok(json!({"ok": true}))
 			}
 			RequestBody::RegistrationReady { inbox, retry } => {
-				Ok(json!({"ok":true, "ready":app.registrations.ready(inbox, retry)?}))
+				let ready = app.registrations.ready(inbox, retry).map_err(|error| {
+					if error.refused_nickname() {
+						// This command can start a fresh registration after the name frees.
+						Failure::new(
+							rooms_application::failure::FailureCode::NickTaken.wire(),
+							Retry::AfterStateChange,
+							error,
+						)
+					} else {
+						error.into()
+					}
+				})?;
+				Ok(json!({"ok":true, "ready":ready}))
 			}
 			RequestBody::Status {} => {
 				let mut result = snapshot(app).await?;
