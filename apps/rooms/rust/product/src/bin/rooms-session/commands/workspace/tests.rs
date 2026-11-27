@@ -23,8 +23,10 @@ async fn only_the_fallback_makes_a_new_or_held_directory_home_when_other_directo
 			let other = json!({"id":"other","home":false});
 			let mut rows = vec![other.clone()];
 			if held {
+				// Home promotion alone must write even when the saved nickname is already exact.
+				let allocation = if flag == "home-locator" { "exact" } else { "automatic" };
 				rows.push(
-					json!({"id":"selected","nick":"scout","nickAllocation":"automatic","access":"held","home":false}),
+					json!({"id":"selected","nick":"scout","nickAllocation":allocation,"access":"held","home":false}),
 				);
 			}
 			let server = async {
