@@ -279,8 +279,11 @@ tag, because every registry step skips a version its registry already holds:
 gh workflow run publish.yml --ref v0.1.1 -f tag=v0.1.1
 ```
 
-A manual run of the release workflow rehearses the builds and the image proofs
-without attesting or publishing. The
+To rehearse the archive builds and Linux image proofs before choosing a version,
+run `gh workflow run release.yml --ref dev`. Changes can stay under
+`Unreleased`. Use the current `dev` branch for this command. GitHub runs the
+workflow stored at the selected ref, and an older tag can still contain a
+workflow that publishes on manual dispatch. The
 [validation workflow](../.github/workflows/validate-release.yml) runs weekly
 and on demand: it installs the newest release through the site's installer on
 each host and installs every published package from its registry.

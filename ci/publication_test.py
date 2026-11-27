@@ -264,7 +264,7 @@ else:
         self.assertEqual(needs[0], "contract")
         self.assertGreater(len(needs), 1)
         verifier = step(release["contract"], "Require this commit's successful check workflow")
-        self.assertEqual(verifier["if"], "github.ref_type == 'tag'")
+        self.assertEqual(verifier["if"], release["release"]["if"])
         pages_workflow = workflow(".github/workflows/pages.yml")
         pages = pages_workflow["jobs"]
         self.assertEqual(pages["deploy"]["needs"], "build")

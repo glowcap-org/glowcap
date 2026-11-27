@@ -32,12 +32,20 @@ RELEASE = jobs(WORKFLOW)
 class ReleaseBuild(unittest.TestCase):
     def test_a_tag_push_releases_and_a_dispatch_only_rehearses(self):
         release = RELEASE["release"]
-        predicate = release["if"]
-        self.assertEqual(predicate, "github.ref_type == 'tag'")
         self.assertEqual(release["needs"], ["contract", "archives", "images"])
-        self.assertTrue(selected(predicate, {"event_name": "push", "ref_type": "tag"}))
-        self.assertFalse(selected(predicate, {"event_name": "workflow_dispatch", "ref_type": "branch"}))
-        self.assertFalse(selected(predicate, {"event_name": "workflow_dispatch", "ref_type": "tag"}, success=False))
+        guarded = [
+            release,
+            step(RELEASE["archives"], "Attest the archives' build provenance"),
+            step(RELEASE["contract"], "Require the tag of this version"),
+            step(RELEASE["contract"], "Require this commit's successful check workflow"),
+            step(RELEASE["contract"], "Require the version's changelog entry"),
+        ]
+        for event in ("push", "workflow_dispatch"):
+            for ref_type in ("tag", "branch"):
+                github = {"event_name": event, "ref_type": ref_type}
+                for job_or_step in guarded:
+                    with self.subTest(event=event, ref_type=ref_type, name=job_or_step.get("name", "release")):
+                        self.assertEqual(selected(job_or_step.get("if"), github), event == "push" and ref_type == "tag")
         for name, needs in (("contract", None), ("archives", "contract"), ("images", ["contract", "archives"])):
             with self.subTest(job=name):
                 job = RELEASE[name]
@@ -56,8 +64,6 @@ class ReleaseBuild(unittest.TestCase):
     def test_only_a_tag_attests_and_only_the_archives_and_release_may_attest(self):
         archives = RELEASE["archives"]
         attest = step(archives, "Attest the archives' build provenance")
-        for ref_type, expected in (("tag", True), ("branch", False), ("", False)):
-            self.assertEqual(selected(attest["if"], {"ref_type": ref_type}), expected)
         self.assertTrue(attest["uses"].startswith("actions/attest-build-provenance@"))
         self.assertEqual(archives["permissions"]["attestations"], "write")
         self.assertEqual(archives["permissions"]["id-token"], "write")

@@ -56,16 +56,17 @@ jobs:
         run: python3 ci/github_release.py version
 
       - name: Require the tag of this version
-        if: github.ref_type == 'tag'
+        if: github.event_name == 'push' && github.ref_type == 'tag'
         run: python3 ci/github_release.py version "$GITHUB_REF_NAME"
 
       - name: Require this commit's successful check workflow
-        if: github.ref_type == 'tag'
+        if: github.event_name == 'push' && github.ref_type == 'tag'
         env:
           GH_TOKEN: ${{ github.token }}
         run: python3 ci/require_main_check.py "$GITHUB_SHA"
 
       - name: Require the version's changelog entry
+        if: github.event_name == 'push' && github.ref_type == 'tag'
         env:
           VERSION: ${{ steps.version.outputs.version }}
         run: python3 ci/release_notes.py --changelog "$VERSION"
@@ -151,7 +152,7 @@ jobs:
         run: zig build consumer-check --summary all
 
       - name: Attest the archives' build provenance
-        if: github.ref_type == 'tag'
+        if: github.event_name == 'push' && github.ref_type == 'tag'
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-path: |
@@ -231,7 +232,7 @@ jobs:
           if-no-files-found: error
 
   release:
-    if: github.ref_type == 'tag'
+    if: github.event_name == 'push' && github.ref_type == 'tag'
     needs: [contract, archives, images]
     timeout-minutes: 25
     concurrency:
