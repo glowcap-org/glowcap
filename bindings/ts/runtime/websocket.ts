@@ -305,24 +305,25 @@ export function webSocketChannel(
 			) {
 				return Promise.reject(new Error("WebSocket outbound queue exceeded"));
 			}
+			const bytes = data.byteLength;
 			pendingWrites++;
-			pendingWriteBytes += data.byteLength;
+			pendingWriteBytes += bytes;
 			const current = writing.then(async () => {
 				if (ws.readyState === WebSocket.CONNECTING) await waitForOpen(ws);
 				if (ws.readyState != WebSocket.OPEN) throw new Error("WebSocket closed");
-				if (data.byteLength === 0) {
-					ws.send(data as Uint8Array<ArrayBuffer>);
-					await waitForBufferedLow(ws);
-					return;
-				}
-				for (let offset = 0; offset < data.byteLength; offset += wsSendHighWaterBytes) {
-					const chunk = data.subarray(offset, offset + wsSendHighWaterBytes);
+				let offset = 0;
+				do {
+					if (data.byteLength !== bytes) throw new TypeError("WebSocket write buffer changed size");
+					const chunk = bytes <= wsSendHighWaterBytes
+						? data
+						: data.subarray(offset, offset + wsSendHighWaterBytes);
+					offset += chunk.byteLength;
 					ws.send(chunk as Uint8Array<ArrayBuffer>);
 					await waitForBufferedLow(ws);
-				}
+				} while (offset < bytes);
 			}).finally(() => {
 				pendingWrites--;
-				pendingWriteBytes -= data.byteLength;
+				pendingWriteBytes -= bytes;
 			});
 			writing = current;
 			return current;

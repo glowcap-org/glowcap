@@ -95,6 +95,21 @@ Deno.test("rtcChannel releases write slots after delivery", async () => {
 	assertDeepEquals(dc.sent.length, queueLimit + 1);
 });
 
+Deno.test("rtcChannel releases the admitted bytes when a sent buffer moves", async () => {
+	const dc = new FakeDataChannel();
+	const channel = rtcChannel(dc as unknown as RTCDataChannel);
+	const packets = WEBRTC_DATA_CHANNEL_QUEUE_BYTES / TRANSPORT_WEBRTC_MAX_PACKET_BYTES;
+	const data = new Uint8Array(TRANSPORT_WEBRTC_MAX_PACKET_BYTES);
+	dc.bufferedAmount = WEBRTC_DATA_CHANNEL_QUEUE_BYTES + 1;
+	const sent = channel.write(data);
+	await Promise.resolve();
+	data.buffer.transfer();
+	dc.drain();
+	await sent;
+	const packet = new Uint8Array(TRANSPORT_WEBRTC_MAX_PACKET_BYTES);
+	await Promise.all(Array.from({ length: packets }, () => channel.write(packet)));
+});
+
 Deno.test("rtcChannel rejects outbound packets over the WebRTC transport cap", async () => {
 	const dc = new FakeDataChannel();
 	const channel = rtcChannel(dc as unknown as RTCDataChannel);

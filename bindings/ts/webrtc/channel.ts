@@ -139,24 +139,26 @@ export function rtcChannel(dc: RTCDataChannel, release: () => void = () => {}): 
 			});
 		},
 		async write(data: Uint8Array): Promise<void> {
-			if (data.byteLength > TRANSPORT_WEBRTC_MAX_PACKET_BYTES) {
+			const bytes = data.byteLength;
+			if (bytes > TRANSPORT_WEBRTC_MAX_PACKET_BYTES) {
 				throw new Error("webrtc: packet exceeds transport cap");
 			}
 			if (
 				pendingWrites >= BINDING_BROWSER_CHANNEL_MAX_QUEUED_MESSAGES ||
-				pendingWriteBytes + data.byteLength > rtcSendHighWaterBytes
+				pendingWriteBytes + bytes > rtcSendHighWaterBytes
 			) {
 				throw new Error("webrtc: outbound queue exceeded");
 			}
 			pendingWrites++;
-			pendingWriteBytes += data.byteLength;
+			pendingWriteBytes += bytes;
 			const current = writing.then(async () => {
 				if (dc.readyState !== "open") throw new Error("webrtc: data channel closed");
+				if (data.byteLength !== bytes) throw new TypeError("webrtc: write buffer changed size");
 				dc.send(data as Uint8Array<ArrayBuffer>);
 				await waitForDrain(dc);
 			}).finally(() => {
 				pendingWrites--;
-				pendingWriteBytes -= data.byteLength;
+				pendingWriteBytes -= bytes;
 			});
 			writing = current;
 			await current;
