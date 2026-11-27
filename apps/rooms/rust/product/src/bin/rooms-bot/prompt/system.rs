@@ -112,7 +112,9 @@ fn shell_path(path: &Path) -> String {
 				quoted.push(char::from(byte));
 			}
 			b' '..=b'~' => quoted.push(char::from(byte)),
-			_ => write!(quoted, "\\{byte:03o}").expect("writing a string"),
+			_ => {
+				let _ = write!(quoted, "\\{byte:03o}");
+			}
 		}
 	}
 	quoted.push('\'');
