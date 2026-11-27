@@ -139,10 +139,12 @@ glowcap_pins_dep_class() {
 }
 
 glowcap_pins_dep_gate() {
+    local bot_image_check="build the example Rooms bot image and check the installed agent version"
+    local agent_check="container: bash .devcontainer/test/tool-install.sh $1 (cold-seed smoke; no rebuild; adopt with tools.sh ensure)"
     case "$1" in
         debian) echo "zig build check" ;;
         distroless) echo "release workflow Linux image proofs" ;;
-        rooms-bot-base) echo "build the example Rooms bot image and check the installed agent version" ;;
+        rooms-bot-base) echo "${bot_image_check}" ;;
         zig) echo "zig build check with the new toolchain" ;;
         zls) echo "rebuild + post-create.sh (verify-toolchains)" ;;
         bend) echo ".agents/skills/work/bin/glowcap-dev python3 ci/gates.py run bend-proofs" ;;
@@ -152,7 +154,8 @@ glowcap_pins_dep_gate() {
         python) echo "rebuild (Serena installs against it, so its requires-python bounds the pin), then zig build ocapn-conformance" ;;
         ruff | mypy) echo "rebuild, then zig build python-check bindings-fmt-check site-python-examples-check" ;;
         racket | goblins) echo "zig build check-external" ;;
-        claude | codex | opencode | cursor-agent) echo "container: bash .devcontainer/test/tool-install.sh <name> (cold-seed smoke; no rebuild; adopt with tools.sh ensure)" ;;
+        claude) printf '%s; %s\n' "${agent_check}" "${bot_image_check}" ;;
+        codex | opencode | cursor-agent) echo "${agent_check}" ;;
         *) echo "rebuild + post-create.sh (verify-toolchains)" ;;
     esac
 }

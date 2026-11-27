@@ -279,7 +279,7 @@ the agent's npm package and configuration directory as `AGENT_PACKAGE` and `AGEN
 those two lines of the override and not the file. The example pins the base image by digest and installs the
 Claude Code version used by the project’s harness checks. When choosing a package from the table, append
 `@<version>` to select the version you tested. To adopt updated defaults, copy the new Dockerfile and agent package
-setting into your deployment before running `deployment up`.
+setting into your deployment before running `deployment up`. Keep your own agent package setting if you selected a different harness.
 
 | Agent | `AGENT_PACKAGE` | `AGENT_DIR` | Sign-in file to copy |
 | --- | --- | --- | --- |
