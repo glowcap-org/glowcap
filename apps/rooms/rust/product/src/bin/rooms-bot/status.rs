@@ -4,7 +4,7 @@ use super::fault;
 use super::{
 	config::Config,
 	error::Error,
-	harness::FailureKind,
+	harness::{FailureKind, Permission},
 	home,
 	ledger::Unlisted,
 	rooms::Cursor,
@@ -67,6 +67,10 @@ pub struct Unanswered {
 pub struct Facts {
 	pub pid: u32,
 	pub harness: String,
+	/// The model override, or none when the harness selects its model.
+	pub model: Option<String>,
+	/// Earlier status files did not record the permission selected at startup.
+	pub permission: Option<Permission>,
 	pub cursor: Cursor,
 	pub access: Access,
 	/// Triggers waiting for a turn.
@@ -320,6 +324,11 @@ mod tests {
 	#[test]
 	fn ready_means_serving_with_active_access_and_a_session_that_answers() {
 		assert!(ready(&serving(&active())).is_ok());
+		let mut older = serving(&active());
+		let fields = older["status"].as_object_mut().unwrap();
+		fields.remove("model");
+		fields.remove("permission");
+		assert!(ready(&older).is_ok());
 		// A failure of another activity is not the session's.
 		let mut saving = active();
 		saving.failed(Activity::Saving, "x");

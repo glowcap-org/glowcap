@@ -138,7 +138,9 @@ fn prepare(request: &Request, session: Session) -> Result<Prepared, Error> {
 	// start that cannot write it serves nothing under the old one.
 	let facts = Facts {
 		pid: std::process::id(),
-		harness: config.harness.clone(),
+		harness: harness.name().to_owned(),
+		model: config.model.clone(),
+		permission: Some(config.permission),
 		..Facts::default()
 	};
 	facts.claim(&store)?;

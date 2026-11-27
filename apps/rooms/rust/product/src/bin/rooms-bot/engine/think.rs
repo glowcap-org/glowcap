@@ -470,7 +470,7 @@ async fn attempt<R: Rooms>(
 	};
 	let home = home::path(env.store.root());
 	let system = prompt::system(&prompt::Facts {
-		glowcap: &env.config.glowcap,
+		config: env.config,
 		home: &home,
 		conversation,
 		kind: asked.kind,

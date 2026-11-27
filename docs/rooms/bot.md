@@ -55,6 +55,8 @@ The agent remembers each conversation. It works in its own directory for that co
 
 ## The bot's home
 
+Each turn tells the agent which harness and permission Rooms selected, and whether Rooms requested a model or left that choice to the harness.
+
 The bot's home is the `home` directory inside the bot directory, the one place the agent keeps across every conversation and restart. `serve` creates it, and the agent saves there what will help it later: notes, scripts, procedures it worked out, and its memories.
 
 A memory is one small file in `home/memory/` whose first line is a one-line summary. For every reply, the agent is shown a list of its memories, newest first, by file name and summary, so it knows what it saved and opens a file when its summary matters. The list names at most <!-- value ../../apps/rooms/rust/product/src/bin/rooms-bot/home.rs MAX_LISTED -->64<!-- /value --> memories and <!-- value ../../apps/rooms/rust/product/src/bin/rooms-bot/home.rs MAX_LISTING_BYTES -->8,192<!-- /value --> bytes of names and summaries, and says how many more there are. A summary is cut after <!-- value ../../apps/rooms/rust/product/src/bin/rooms-bot/home.rs MAX_SUMMARY_BYTES -->200<!-- /value --> bytes. A file that is not text, and any symbolic link, is listed by name only, and a `home` or `home/memory/` that is itself a link lists nothing. Files whose names cannot be shown are counted, and the agent is told to list the directory to see them.
@@ -231,7 +233,7 @@ The cursor, the turn counts, and the counts kept in `turns.json` show only what 
 | `running` | Whether a `serve` holds the directory now, including a first start still reaching its session. |
 | `status` | What `serve` last wrote, or `null` when no `serve` has written it. |
 | `status.pid` | The process id of the `serve` that wrote it. |
-| `status.harness` | The agent it serves with: `claude`, `codex`, or `pi`. |
+| `status.harness`, `status.model`, `status.permission` | The harness, model override and permission selected by the process that wrote this status. A null model leaves selection to the harness. Older status files omit the model and permission. |
 | `status.cursor` | The bot's position in the session's activity, as `turns.json` holds it. |
 | `status.access` | `active`, `paused`, or `revoked`, as the session reported the bot's access, where `revoked` also covers an access the session dropped or no longer scopes to the bot, and `unknown` until the session first answers. No turn starts unless it is `active`. |
 | `status.queued` | Lines read but not yet given a turn, because <!-- value ../../apps/rooms/rust/product/src/bin/rooms-bot/ledger.rs MAX_OPEN -->16<!-- /value --> turns are already open. The bot reads them again after a restart. |
@@ -251,7 +253,7 @@ The cursor, the turn counts, and the counts kept in `turns.json` show only what 
 | `status.unreleased_lines` | How many reply lines have receipts the session would not take back and still lists as held by this access, unknown ones included. `turns.json` records each one, so the count survives a restart, and a record drops once the session stops listing it. To free them, give the bot a new link and then revoke this access, as [Replacing the link](#replacing-the-link) says, because a revoked access serves nothing. |
 | `status.last_error` | The last failure of reading the session, running a turn, sending a line, or saving the bot's own state, and which of these it was in `during`: `receiving`, `thinking`, `sending`, or `saving`. It stays until that activity next succeeds. A failure to settle a `--dm` open or an agent's action, or to list the receipts the access holds, shows here as `sending` when the session failed and `saving` when the bot's own files did, and it clears when a later list answers. A line the session is slow to take shows here, and so does a line given up on, until a later line posts. An agent's action whose line the bot could not keep yet, because its workspace was moving or the session did not answer, shows here as `sending` with the action's operation and the cause, and clears when the bot keeps the line. |
 | `status.unanswered` | The last turn the agent could not answer, with its next step, in fixed words that never quote the agent. `bot.log` holds what the agent printed. The `kind` is `sign-in`, `usage-limit`, `declined`, `outage`, `crash`, or `null`. It clears when a later turn is answered or the bot restarts. |
-| `agent.harness`, `agent.model`, `agent.permission` | Which coding agent runs turns, its configured model, and its permissions. A null model uses the harness default. An unconfigured bot reports a null agent. |
+| `agent.harness`, `agent.model`, `agent.permission` | The settings currently saved in the bot directory. A restart with new flags reports its selection in `status` while it connects and saves the settings once the session answers. Editing the saved settings takes effect on the next start. An unconfigured bot reports a null agent. |
 | `agent.conversation_work_root` | Each conversation has its own working directory under this path. |
 | `home.path` | The home shared across conversations. Files here survive a restart and `/reset`. |
 | `home.memories` | How many memories `home/memory/` holds now. |
