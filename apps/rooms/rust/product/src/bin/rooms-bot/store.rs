@@ -34,7 +34,8 @@ use rooms_platform::storage::{self, Directory, Reading, StorageError, atomic};
 use serde::{Serialize, de::DeserializeOwned};
 use sha2::{Digest, Sha256};
 use std::{
-	fs::OpenOptions,
+	cell::Cell,
+	fs::{File, OpenOptions},
 	io::Write,
 	path::{Path, PathBuf},
 	time::Duration,
@@ -57,6 +58,8 @@ const MAX_LOG_LINE_BYTES: usize = 4096;
 pub const MAX_DOCUMENT_BYTES: usize = 4 * 1024 * 1024;
 
 pub struct Store {
+	/// Drop the published snapshot before releasing the directory lease.
+	status: Cell<Option<File>>,
 	lease: Directory,
 }
 
@@ -104,7 +107,10 @@ impl Store {
 			crate::bot::fault::lease_met(&path);
 		}
 		match Directory::open_within(path.clone(), LEASE, LEASE_WAIT) {
-			Ok(lease) => Ok(Self { lease }),
+			Ok(lease) => Ok(Self {
+				status: Cell::default(),
+				lease,
+			}),
 			Err(StorageError::InUse(path)) => Err(Error::Lease(path)),
 			Err(error) => Err(error.into()),
 		}
@@ -151,6 +157,14 @@ impl Store {
 	/// Replace a document with bytes the caller already encoded and measured.
 	pub fn write_bytes(&self, name: &str, bytes: &[u8]) -> Result<(), Error> {
 		atomic::replace(&self.lease, name, [bytes])?;
+		Ok(())
+	}
+
+	/// Publish a status snapshot whose inode stays locked as long as it is
+	/// this running bot's latest snapshot.
+	pub fn publish_status(&self, name: &str, facts: &super::status::Facts) -> Result<(), Error> {
+		let bytes = encode(name, facts, MAX_DOCUMENT_BYTES)?;
+		atomic::replace_held(&self.lease, name, [&bytes[..]], &self.status)?;
 		Ok(())
 	}
 

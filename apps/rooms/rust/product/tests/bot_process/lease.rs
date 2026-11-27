@@ -1,6 +1,6 @@
 //! The bot directory's lease: a `status` probe never keeps a `serve` out of
 //! it and never reads another probe as a running `serve`.
-use super::rig::Rig;
+use super::rig::{Rig, eventually};
 use serde_json::json;
 
 #[test]
@@ -32,8 +32,7 @@ fn a_status_probe_never_reports_another_probe_as_a_running_serve() {
 }
 
 /// A start that cannot write its status ends with that error before it
-/// serves, because `ready` would read the previous process's `active` under
-/// the new lease.
+/// serves, so every serving bot has observable status.
 #[test]
 fn a_start_that_cannot_write_its_status_ends_instead_of_serving_under_the_old_one() {
 	let rig = Rig::new("bot-status-unwritable");
@@ -55,4 +54,36 @@ fn a_start_that_cannot_write_its_status_ends_instead_of_serving_under_the_old_on
 		rig.output()
 	);
 	assert!(rig.output().contains("\"ok\":false"), "{}", rig.output());
+}
+
+/// A restart holds the directory before it can publish a status. The prior
+/// bot may have been killed while its last published status was ready.
+#[test]
+fn a_restart_cannot_claim_the_killed_publishers_status() {
+	let rig = Rig::new("bot-publisher");
+	let mut old = rig.serve(json!({"model": ["old-model"]}), None);
+	eventually("the bot to report ready", || {
+		rig.run("ready", json!({})).1.then_some(())
+	});
+	old.kill();
+	old.process.wait();
+	let stopped = rig.status();
+	assert_eq!(stopped["running"], false);
+	assert_eq!(stopped["status"]["model"], "old-model");
+
+	// Hold just the directory lease, the exact state before startup publishes.
+	let lease = std::fs::File::open(rig.dir.join("lock")).unwrap();
+	lease.lock().unwrap();
+	let starting = rig.status();
+	assert_eq!(starting["running"], true);
+	assert!(starting["status"].is_null());
+	assert!(!rig.run("ready", json!({})).1);
+	drop(lease);
+
+	let new = rig.serve(json!({"model": ["new-model"]}), None);
+	assert_eq!(rig.status()["status"]["model"], "new-model");
+	eventually("the bot to report ready", || {
+		rig.run("ready", json!({})).1.then_some(())
+	});
+	assert!(new.stop().success());
 }

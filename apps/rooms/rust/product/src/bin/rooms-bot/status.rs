@@ -12,7 +12,13 @@ use super::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use std::{fmt::Display, path::Path};
+use std::{
+	fmt::Display,
+	fs::{File, TryLockError},
+	io,
+	os::unix::fs::{MetadataExt, OpenOptionsExt},
+	path::Path,
+};
 
 const FILE: &str = "status.json";
 /// The longest error message status keeps.
@@ -188,9 +194,9 @@ impl Facts {
 
 	/// Write the facts as a start that holds the lease first does. A start
 	/// that cannot replace the previous process's status ends with the error,
-	/// because `ready` would read that status under this lease.
+	/// so it never serves without observable status.
 	pub fn claim(&self, store: &Store) -> Result<(), Error> {
-		store.write(FILE, self)
+		store.publish_status(FILE, self)
 	}
 
 	/// Write the facts once the start has claimed the file. A status file that
@@ -233,11 +239,52 @@ pub fn report(dir: &Path) -> Result<Value, Error> {
 		store::read_unleased::<Value>(root, FILE)
 	})? {
 		Some(status) => (false, status),
-		None => (true, store::read_unleased::<Value>(&directory, FILE)?),
+		None => (true, published(&directory)?),
 	};
 	Ok(
 		json!({"ok": true, "configured": agent.is_some(), "agent": agent, "running": running, "status": status, "home": home}),
 	)
+}
+
+/// A locked snapshot belongs to a publisher. An unlocked snapshot still at
+/// its name is from an earlier run. If a publish retired the opened snapshot
+/// before the probe, read its replacement.
+fn published(directory: &Path) -> Result<Option<Value>, Error> {
+	let path = directory.join(FILE);
+	loop {
+		let file = match File::options()
+			.read(true)
+			.custom_flags(nix::fcntl::OFlag::O_NONBLOCK.bits())
+			.open(&path)
+		{
+			Ok(file) => file,
+			Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
+			Err(e) => return Err(Error::io("opening published bot status")(e)),
+		};
+		let snapshot = file.metadata().map_err(Error::io("checking published bot status"))?;
+		if !snapshot.is_file() {
+			return Err(Error::unreadable(FILE, "a Rooms state file must be a regular file"));
+		}
+		match file.try_lock_shared() {
+			Err(TryLockError::WouldBlock) => {
+				let bytes = rooms_platform::storage::read_open(file, store::MAX_DOCUMENT_BYTES)?;
+				return serde_json::from_slice(&bytes)
+					.map(Some)
+					.map_err(|e| Error::unreadable(FILE, e));
+			}
+			Err(TryLockError::Error(e)) => return Err(Error::io("probing published bot status")(e)),
+			Ok(()) => {
+				let current = match path.metadata() {
+					Ok(current) => current,
+					Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
+					Err(e) => return Err(Error::io("checking current bot status")(e)),
+				};
+				if (snapshot.dev(), snapshot.ino()) == (current.dev(), current.ino()) {
+					return Ok(None);
+				}
+			}
+		}
+	}
 }
 
 /// `ready`: succeed only while a `serve` holds the bot directory, has written
@@ -251,7 +298,7 @@ pub fn ready(report: &Value) -> Result<(), Error> {
 	}
 	let status = &report["status"];
 	if status.is_null() {
-		return not_ready("serve has not written its status yet".into());
+		return not_ready("serve has not published verifiable status yet. If you upgraded Rooms while this bot was running, restart it".into());
 	}
 	let facts = match Facts::deserialize(status) {
 		Ok(facts) => facts,
