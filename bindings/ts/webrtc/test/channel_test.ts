@@ -1,7 +1,11 @@
 /// <reference lib="dom" />
 
 import { rtcChannel } from "../channel.ts";
-import { TRANSPORT_WEBRTC_MAX_PACKET_BYTES, WEBRTC_DATA_CHANNEL_QUEUE_BYTES } from "@glowcap/abi";
+import {
+	BINDING_BROWSER_CHANNEL_MAX_QUEUED_MESSAGES as queueLimit,
+	TRANSPORT_WEBRTC_MAX_PACKET_BYTES,
+	WEBRTC_DATA_CHANNEL_QUEUE_BYTES,
+} from "@glowcap/abi";
 import { assertDeepEquals } from "../../test/assert.ts";
 
 class FakeDataChannel extends EventTarget {
@@ -67,6 +71,43 @@ Deno.test("rtcChannel bounds concurrent outbound writes", async () => {
 	if (!String(error).includes("outbound queue exceeded")) throw error;
 	dc.drain();
 	await Promise.all(queued);
+});
+
+Deno.test("rtcChannel releases its owner once even after the peer closes", async () => {
+	const dc = new FakeDataChannel();
+	let releases = 0;
+	const channel = rtcChannel(dc as unknown as RTCDataChannel, () => releases++);
+	dc.close();
+	await channel.close();
+	await channel.close();
+	assertDeepEquals(releases, 1);
+});
+
+Deno.test("rtcChannel releases write slots after delivery", async () => {
+	const dc = new FakeDataChannel();
+	const channel = rtcChannel(dc as unknown as RTCDataChannel);
+	const packet = new Uint8Array([1]);
+	const writes = Array.from({ length: queueLimit }, () => channel.write(packet));
+	const error = await rejectionOf(channel.write(packet));
+	if (!String(error).includes("outbound queue exceeded")) throw error;
+	await Promise.all(writes);
+	await channel.write(packet);
+	assertDeepEquals(dc.sent.length, queueLimit + 1);
+});
+
+Deno.test("rtcChannel releases the admitted bytes when a sent buffer moves", async () => {
+	const dc = new FakeDataChannel();
+	const channel = rtcChannel(dc as unknown as RTCDataChannel);
+	const packets = WEBRTC_DATA_CHANNEL_QUEUE_BYTES / TRANSPORT_WEBRTC_MAX_PACKET_BYTES;
+	const data = new Uint8Array(TRANSPORT_WEBRTC_MAX_PACKET_BYTES);
+	dc.bufferedAmount = WEBRTC_DATA_CHANNEL_QUEUE_BYTES + 1;
+	const sent = channel.write(data);
+	await Promise.resolve();
+	data.buffer.transfer();
+	dc.drain();
+	await sent;
+	const packet = new Uint8Array(TRANSPORT_WEBRTC_MAX_PACKET_BYTES);
+	await Promise.all(Array.from({ length: packets }, () => channel.write(packet)));
 });
 
 Deno.test("rtcChannel rejects outbound packets over the WebRTC transport cap", async () => {

@@ -470,6 +470,7 @@ pub const groups = [_]Group{
             kp("BINDING_WEBSOCKET_DRAIN_POLL_MS", "websocket_drain_poll_ms"),
             kp("BINDING_WEBSOCKET_CLOSE_TIMEOUT_MS", "websocket_close_timeout_ms"),
             kp("BINDING_WEBSOCKET_INBOUND_HIGH_WATER_BYTES", "websocket_inbound_high_water_bytes"),
+            kp("BINDING_BROWSER_CHANNEL_MAX_QUEUED_MESSAGES", "browser_channel_max_queued_messages"),
         },
     },
     .{

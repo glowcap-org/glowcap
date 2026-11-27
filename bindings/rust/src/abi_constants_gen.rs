@@ -225,6 +225,7 @@ pub const BINDING_WEBSOCKET_DRAIN_POLL_MS: usize = 4;
 pub const BINDING_WEBSOCKET_CLOSE_TIMEOUT_MS: usize = 5000;
 pub const BINDING_BROWSER_CHANNEL_CLOSE_TIMEOUT_MS: usize = 5000;
 pub const BINDING_WEBSOCKET_INBOUND_HIGH_WATER_BYTES: usize = 1048576;
+pub const BINDING_BROWSER_CHANNEL_MAX_QUEUED_MESSAGES: usize = 256;
 pub const HINT_DIRECT_ADDRESSES: &str = "direct-addresses";
 pub const HINT_ALT_LOCATORS: &str = "alt-locators";
 pub const HINT_VIA: &str = "via";

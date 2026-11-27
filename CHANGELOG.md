@@ -19,6 +19,7 @@ Releases before 0.1.7 are in the
 
 - Each Rooms bot turn receives the running agent’s harness, requested model, and permission. `bot status` shows those settings alongside the saved configuration. Restart the bot after upgrading so it can publish its live status and pass `bot ready`.
 - Rooms reopens the last workspace in the same browser profile after the browser closes. Setup lists saved workspaces, and Settings lets you choose another. Browser embeddings must pass a boolean after the workspace ID in `new RoomsManagedApplication(id, existing, trouble, admission, server)`. Pass `true` to require an existing committed workspace. To create a separate workspace, supply a fresh ID and `false`.
+- TypeScript WebSocket and WebRTC channels admit at most 256 queued messages per direction. Callers can await writes to stay within the limit. The WebSocket adapter closes a refused text message with application code 4003 and a full inbound queue with 4009.
 
 ### Fixed
 

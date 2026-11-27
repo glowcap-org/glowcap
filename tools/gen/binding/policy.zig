@@ -46,3 +46,4 @@ pub const browser_channel_close_timeout_ms: Policy = .{ .value = relay_tcp_dial_
 pub const websocket_close_timeout_ms: Policy = .{ .value = browser_channel_close_timeout_ms.value, .doc = "WebSocket close deadline in milliseconds, the same policy as browser channel retirement." };
 
 pub const websocket_inbound_high_water_bytes: Policy = .{ .value = 1024 * 1024, .doc = "Retained inbound WebSocket bytes before the shared adapter closes the channel." };
+pub const browser_channel_max_queued_messages: Policy = .{ .value = 256, .doc = "Maximum pending messages per direction in a browser channel adapter." };

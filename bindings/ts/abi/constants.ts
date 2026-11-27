@@ -352,6 +352,8 @@ export const BINDING_WEBSOCKET_DRAIN_POLL_MS = 4;
 export const BINDING_WEBSOCKET_CLOSE_TIMEOUT_MS = 5000;
 /** A resource policy the language bindings own, with no C declaration behind it. Retained inbound WebSocket bytes before the shared adapter closes the channel. */
 export const BINDING_WEBSOCKET_INBOUND_HIGH_WATER_BYTES = 1048576;
+/** A resource policy the language bindings own, with no C declaration behind it. Maximum pending messages per direction in a browser channel adapter. */
+export const BINDING_BROWSER_CHANNEL_MAX_QUEUED_MESSAGES = 256;
 /** A relay transport config version, TLS trust mode, or hint bound (libglowcap_net_transport_relay). Mirrors `GLOWCAP_RELAY_CONFIG_ABI_VERSION`. */
 export const RELAY_CONFIG_ABI_VERSION = 1;
 /** A relay transport config version, TLS trust mode, or hint bound (libglowcap_net_transport_relay). Mirrors `GLOWCAP_RELAY_TRUST_SYSTEM`. */
