@@ -11,12 +11,83 @@
        (define session (accept server))
        (define m (session-host session))
        (define result (session-spawn session (lambda (bcom) (methods [(ping) "remote alive"]))))
-       (host-publish m "echo" (lambda (verb . args) (car args)))
+       (host-publish m "echo"
+                     (lambda (verb . args)
+                       (case verb
+                         [(anchor) result]
+                         [(compound) (list result (tagged-arg "nested" (list result)))]
+                         [(barrier) #t]
+                         [else (car args)])))
        (host-publish m "worker"
                      (lambda (verb . args)
                        (async-channel-put pending-resolvers (cons (host-defer-turn m) result))
                        (void)))
        (thread (lambda () (session-serve session)))))))
+(define (vow-witness v)
+  (cons (make-weak-box v) (session-vow-release-armed v)))
+
+(define (collect-vow! witness scenario)
+  ;; The weak reference and the release ticket can clear in different
+  ;; collection rounds. Wait for both before probing the native retain.
+  (for ([_ (in-range 4)] #:break (not (or (unbox (cdr witness)) (weak-box-value (car witness)))))
+    (collect-garbage)
+    (sleep 0))
+  (expect (and (not (weak-box-value (car witness))) (not (unbox (cdr witness))))
+          (format "~a: wrapper live ~a, release armed ~a" scenario (and (weak-box-value (car witness)) #t) (unbox (cdr witness)))))
+
+(define (check-vow-custody session echo worker)
+  (define m (session-host session))
+  (for ([case-name '(abandoned missing rejected observed listener)])
+    (define anchor (session-send session echo 'anchor))
+    (define id (ref-id anchor))
+    (define ((accept! done) value broken?)
+      (expect (not broken?) "observed compound was fulfilled")
+      (define other (car (tagged-arg-value (cadr value))))
+      (expect (= id (ref-id (car value)) (ref-id other)) "two occurrences have the same identity")
+      (host-release-reference! m (car value))
+      (host-release-reference! m other)
+      (semaphore-post done))
+    (define weak
+      (case case-name
+        [(rejected)
+         (expect (with-handlers ([exn:fail:glowcap? (lambda (e) (= ERR-UNSUPPORTED-VALUE (exn:fail:glowcap-code e)))])
+                   (blocking-fetch session 'session-fetch "fetch" "compound"
+                                   (lambda ()
+                                     (glowcap_host_session_send (session-ptr session) (ref->c echo)
+                                                                (pin-immobile #"compound") 8 #f 0))
+                                   #:track-gc? #t)
+                   #f)
+                 "fetch refused a real compound capability result")
+         #f]
+        [(missing)
+         (define v (session-far-send session worker 'work '() #t))
+         (define completion (async-channel-get pending-resolvers))
+         ;; Remove only the routing row, keeping the FFI vow alive: its actual
+         ;; SETTLE must arrive after the binding no longer has an observer.
+         (call-with-host m (lambda () (hash-remove! (host-vows m) (session-vow-id v))))
+         (define child (cdr completion))
+         (resolver-fulfill! (car completion) (list child (tagged-arg "nested" (list child))))
+         (session-send session echo 'barrier)
+         (vow-witness v)]
+        [else
+         (define done (make-semaphore))
+         (define v (session-far-send session echo 'compound '() #t))
+         (when (eq? case-name 'listener) (session-vow-listen! v (accept! done)))
+         (session-send session echo 'barrier)
+         (expect (pair? (session-vow-state v)) "the reply settled before its wrapper was dropped")
+         (when (eq? case-name 'observed)
+           ((accept! done) (session-await session v) #f))
+         (unless (eq? case-name 'abandoned) (semaphore-wait done))
+         (vow-witness v)]))
+    (when weak (collect-vow! weak case-name))
+    (drain-host-gc! m)
+    (expect (equal? "remote alive" (session-send session anchor 'ping))
+            (format "~a: discarding reply occurrences preserves the separate retain" case-name))
+    (host-release-reference! m anchor)
+    (expect (with-handlers ([exn:fail:glowcap? (lambda (e) (= ERR-NOT-FOUND (exn:fail:glowcap-code e)))])
+              (host-retain-reference m (make-ref/internal id)) #f)
+            (format "~a: native reply retains survived" case-name))))
+
 (for ([gc? '(#f #t)])
   (define session (open-test-session (tcp-locator "127.0.0.1" (server-port server))))
   (when gc? (session-with-gc! session))
@@ -37,6 +108,7 @@
             "retain: released and foreign references refuse"))
   (define worker (session-fetch session "worker"))
   (define echo (session-fetch session "echo"))
+  (check-vow-custody session echo worker)
   (define pending (session-far-send session worker 'work '() #t))
   (define completion (async-channel-get pending-resolvers))
   (define promise-ref (session-send session echo 'echo pending))
@@ -78,6 +150,17 @@
             (host-retain-reference foreign resolved) #f)
           "retain: closed Host refuses")
   (session-close! session))
+(define closed-host (make-fresh-host))
+(define after-close
+  (let* ([child (host-spawn closed-host (lambda (verb . args) #t))]
+         [echo (host-spawn closed-host (lambda (verb . args) (list child child)))]
+         [v (host-send-promise closed-host echo 'compound)])
+    (expect (pair? (session-vow-state v)) "Host settled the unobserved compound")
+    (host-close! closed-host)
+    (vow-witness v)))
+(collect-vow! after-close 'late-finalizer)
+(expect (not (host-gc-pending? closed-host)) "a late finalizer did not reopen the retired Host queue")
+
 (server-close! server)
 (thread-wait serving)
 (printf "racket test OK: independent retains and object resolution with Session GC off and on\n")

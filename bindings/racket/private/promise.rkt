@@ -25,7 +25,7 @@
 (lazy-require
  ["session.rkt" (session-flush!)]
  ["pump.rkt" (pump-until)]
- ["gc.rkt" (session-gc-enabled? track-argument! track-vow! park-vow-release! release-host-unit! adopt-host-reference track-host-argument!)])
+ ["gc.rkt" (session-gc-enabled? discard-host-argument! track-vow! park-vow-release! release-host-unit! adopt-host-reference track-host-argument!)])
 
 (provide (struct-out session-vow)
          listen-far
@@ -40,10 +40,13 @@
          session-get
          project-vow
          await-vow
+         wait-for-vow
          release-vow!
          release-vow-from-host!
          blocking-fetch
          call-with-far-args
+         observed-vow-outcome!
+         classify-vow-capability!
          settled-vow-value
          session-far-send)
 
@@ -56,14 +59,14 @@
 ;; The action drain's SETTLE/FAIL arms record the outcome here, and no settle
 ;; callback crosses the C boundary.
 (struct session-vow (host session id [state #:mutable] [listeners #:mutable]
-                           track-gc? pipeline-target? [release-armed #:mutable])
+                           [outcome-policy #:mutable] pipeline-target? [release-armed #:mutable])
   #:transparent)
 
 ;; Register a freshly minted vow so the drain can route its completion.
 ;; Caller holds the host lock, so no drain can pop the completion first.
 (define (register-vow! m v)
   (hash-set! (host-vows m) (session-vow-id v) (make-weak-box v))
-  (track-vow! m v (session-vow-id v) (session-vow-release-armed v)))
+  (track-vow! m v (session-vow-id v) (session-vow-release-armed v) take-unobserved-vow!))
 
 ;; Run the binding-side adoption that follows one successful FFI mint. A
 ;; refusal cannot leave the FFI row ownerless: the cleanup arm removes any
@@ -147,25 +150,56 @@
   (define boxed (hash-ref (host-vows m) id #f))
   (define v (vow-entry-value boxed))
   (cond
-    [v
+    [(and v (eq? (session-vow-state v) 'pending))
      (hash-remove! (host-vows m) id)
-     ;; An 'owned answer belongs to the Host whether or not a session homes
-     ;; the vow, so a Host send's capabilities are collected like a retain.
-     (define track (and (eq? (car outcome) 'ok) (session-vow-track-gc? v)))
-     (define tracked
-       (cond
-         [(eq? track 'owned) (cons 'ok (track-host-argument! m (cdr outcome)))]
-         [(and track (session-vow-session v))
-          (cons 'ok (track-argument! (session-vow-session v) (cdr outcome)))]
-         [else outcome]))
-     (set-session-vow-state! v tracked)
+     (set-session-vow-state! v outcome)
      (define ls (session-vow-listeners v))
      (set-session-vow-listeners! v '())
      (for/list ([l (in-list (reverse ls))])
-       (lambda () (l (cdr tracked) (not (eq? (car tracked) 'ok)))))]
+       (lambda ()
+         (define exposed (observed-vow-outcome! v))
+         (l (cdr exposed) (not (eq? (car exposed) 'ok)))))]
     [else
      (hash-remove! (host-vows m) id)
+     (when (eq? (car outcome) 'ok) (discard-host-argument! m (cdr outcome)))
      '()]))
+
+;; The vow's existing finalizer also owns a successful, unexposed projection.
+;; Only the public handoff installs any per-reference automatic guards. A
+;; manual return transfers custody without a walk or a separate allocation.
+(define (observed-vow-outcome! v)
+  (define m (session-vow-host v))
+  (call-with-host/terminal m
+    (lambda ()
+      (define s (session-vow-state v))
+      (when (and (pair? s) (eq? (car s) 'ok)
+                 (not (eq? (session-vow-outcome-policy v) 'exposed)))
+        (parameterize-break #f
+          (when (and (session-vow-outcome-policy v) (not (unbox (host-released? m))))
+            (track-host-argument! m (cdr s)))
+          (set-session-vow-outcome-policy! v 'exposed)))
+      s)))
+
+(define (take-unobserved-vow! v)
+  ;; A weak box can still name a wrapper during its finalizer's collection
+  ;; round. Close its routing state under the same lock used by settlement.
+  (and (not (eq? (session-vow-outcome-policy v) 'exposed))
+       (call-with-host/terminal (session-vow-host v)
+         (lambda ()
+           (define s (session-vow-state v))
+           (and (not (eq? (session-vow-outcome-policy v) 'exposed))
+                (begin (set-session-vow-state! v '(closed))
+                       (and (pair? s) (eq? (car s) 'ok) s)))))))
+
+(define (classify-vow-capability! v who label)
+  (define val (cdr (session-vow-state v)))
+  (unless (ref? val)
+    (parameterize-break #f
+      (define outcome (take-unobserved-vow! v))
+      (when outcome (discard-host-argument! (session-vow-host v) (cdr outcome))))
+    (raise-glowcap who ERR-UNSUPPORTED-VALUE
+                   "~a did not resolve to a capability: ~a" label val))
+  (cdr (observed-vow-outcome! v)))
 
 ;; Register `(listener value broken?)` on a far vow: fire now from the recorded
 ;; state when it already settled, else park it for the drain's settle arm. The
@@ -191,7 +225,8 @@
           [else s]))))
   ;; Application code never runs under the Host lock.
   (when settled
-    (listener (cdr settled) (not (eq? (car settled) 'ok)))))
+    (define exposed (observed-vow-outcome! a-vow))
+    (listener (cdr exposed) (not (eq? (car exposed) 'ok)))))
 
 ;; ── Pipelined projections (ADR-0004) ─────────────────────────────────────────
 ;; Project an element, unwrapped tag, or Struct field out of a far vow WITHOUT
@@ -258,20 +293,22 @@
 ;; settle was the disconnect's own break. Flush before parking so a deliver
 ;; minted on another thread (or ahead of this await) cannot sit unsent while
 ;; both peers wait on the socket.
-(define (await-vow c v who label)
-  (cond
-    ;; A handle for an operation that never left is already settled and owns no
-    ;; wire, so awaiting it reports the retained failure without a flush or a
-    ;; pump. That is what lets a caller read the outcome after the session it
-    ;; was refused on has closed.
-    [(unissued-vow? v) (settled-vow-value (session-vow-state v) who label)]
-    [else
-     (session-flush! c)
-     (pump-until c
-                 (lambda () (and (not (eq? (session-vow-state v) 'pending)) (session-vow-state v)))
-                 who
-                 #:closed-message (format "connection closed before ~a settled" label))
-     (settled-vow-value (session-vow-state v) who label)]))
+(define (wait-for-vow c v who label)
+  (unless (unissued-vow? v)
+    (session-flush! c)
+    (pump-until c
+                (lambda () (and (not (eq? (session-vow-state v) 'pending)) (session-vow-state v)))
+                who
+                #:closed-message (format "connection closed before ~a settled" label)))
+  (settled-vow-value (session-vow-state v) who label))
+
+(define (await-vow c v who label #:release? [release? #f])
+  (if release?
+      (dynamic-wind void
+                    (lambda () (wait-for-vow c v who label))
+                    (lambda () (release-vow! v)))
+      (wait-for-vow c v who label))
+  (cdr (observed-vow-outcome! v)))
 
 ;; Classify one settled vow outcome for the caller awaiting it.
 (define (settled-vow-value r who label)
@@ -296,29 +333,11 @@
         (check/host rc)
         (adopt-minted-vow!
          m c id (and track-gc? (session-gc-enabled? c)) #f))))
-  (dynamic-wind
-    void
-    (lambda ()
-      ;; Fetch/enliven mint outside `session-far-send`; flush before the await.
-      (session-flush! c)
-      (pump-until c
-                  (lambda () (and (not (eq? (session-vow-state v) 'pending)) (session-vow-state v)))
-                  who
-                  #:closed-message (format "connection closed before \"~a\" settled" label))
-      (define r (session-vow-state v))
-      (case (car r)
-        [(ok)
-         (define val (cdr r))
-         (unless (ref? val)
-           (raise-glowcap who ERR-UNSUPPORTED-VALUE
-                          "~a \"~a\" did not resolve to a capability: ~a" what label val))
-         val]
-        [(failed) (raise (cdr r))]
-        [(closed)
-         (raise-glowcap who ERR-CLOSED "connection closed before \"~a\" settled" label)]
-        [else
-         (raise-broken who (format "~a \"~a\"" what label) (cdr r))]))
-    (lambda () (release-vow! v))))
+  (define subject (format "~a \"~a\"" what label))
+  (dynamic-wind void
+                (lambda () (wait-for-vow c v who subject))
+                (lambda () (release-vow! v)))
+  (classify-vow-capability! v who subject))
 
 ;; Far-send / far-tell mint: encode args, call `glowcap_host_session_send` /
 ;; `glowcap_host_vow_send` / `glowcap_host_session_tell`, and register any answer
@@ -359,10 +378,7 @@
               (adopt-host-reference m (GlowcapReference-id reference))
               (adopt-minted-vow! m c vow 'owned #f))))))
   (if (session-vow? result)
-      (dynamic-wind
-        void
-        (lambda () (await-vow c result 'session-resolve "resolution"))
-        (lambda () (release-vow! result)))
+      (await-vow c result 'session-resolve "resolution" #:release? #t)
       result))
 
 ;; The far vow a pipelined send or a promise argument addresses in Host `m`.

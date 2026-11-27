@@ -38,7 +38,7 @@
  ["host/state.rkt" (host-record-callerless-failure!)]
  ["pump.rkt" (pump-until current-deliver-owner)]
  ["host/state.rkt" (host-retain! host-retire! call-with-host host-session-for-ptr)]
- ["promise.rkt" (await-vow release-vow! session-far-send)]
+ ["promise.rkt" (await-vow session-far-send)]
  ["gc.rkt" (track-arguments!)])
 
 (provide (all-defined-out))
@@ -244,10 +244,7 @@
     [(actor-ref? resolved) (session-send-local c resolved verb args)]
     [else
      (define vow (session-far-send c resolved verb args #t))
-     (dynamic-wind
-       void
-       (lambda () (await-vow c vow 'session-send verb))
-       (lambda () (release-vow! vow)))]))
+     (await-vow c vow 'session-send verb #:release? #t)]))
 
 ;; Near-hosted vs far send-promise dispatch: local runs `<-` + `drive` and
 ;; returns the vow; a far mint schedules immediate transport progress and

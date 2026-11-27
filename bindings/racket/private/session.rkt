@@ -487,15 +487,11 @@
            (define gen (host-progress-evt m))
            (when (eq? (session-vow-state v) 'pending) (sync gen))
            (loop)]
-          [(eq? (car s) 'ok)
-           (define val (cdr s))
-           (unless (ref? val)
-             (raise-glowcap who ERR-UNSUPPORTED-VALUE
-                            "~a did not resolve to a capability: ~a" subject val))
-           val]
+          [(eq? (car s) 'ok) (void)]
           [else
            (raise-broken who subject (cdr s))])))
-    (lambda () (release-vow-from-host! m v))))
+    (lambda () (release-vow-from-host! m v)))
+  (classify-vow-capability! v who subject))
 
 ;; Enliven a complete sturdyref against the host: select a live session this
 ;; host already dialed to the sturdyref's peer, or stage a dial and settle
