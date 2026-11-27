@@ -160,13 +160,20 @@ function PageSurface({ children, established = false }: { children: ReactNode; e
 
 async function showSessionSetup({ capability = "", error = "", recoveryError = "" } = {}): Promise<void> {
 	const { SessionSetup } = await loadSessionSetup();
+	const { RoomsBrowserData } = application.applicationModule();
 	let saved: string[] = [];
 	try {
-		saved = await application.applicationModule().RoomsBrowserData.savedWorkspaces();
+		saved = await RoomsBrowserData.savedWorkspaces();
 	} catch (error) {
-		// Setup still offers a new session or a link when storage is blocked.
-		saved = markedWorkspaces();
 		report(savedWorkspaceTitle, error);
+		saved = markedWorkspaces();
+		try {
+			const owners = await RoomsBrowserData.savedWorkspaceOwners();
+			saved = [...new Set([...saved, ...owners])].sort();
+		} catch (error) {
+			// Setup still offers marked workspaces when storage itself is blocked.
+			report(savedWorkspaceTitle, error);
+		}
 	}
 	const Recovery = saved.length || recoveryError ? (await loadSavedWorkspaces()).SavedWorkspaces : null;
 	root.render(

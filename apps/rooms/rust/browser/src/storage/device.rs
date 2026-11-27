@@ -3,6 +3,7 @@
 use super::{
 	Error,
 	erase::{Deletion, Effects},
+	session,
 };
 use std::{
 	cell::{Cell, RefCell},
@@ -23,7 +24,7 @@ struct Plan {
 }
 const SESSION_PREFIX: &str = "rooms-session-";
 
-async fn session_databases() -> Result<Vec<String>, Error> {
+async fn session_databases(limit: Option<usize>) -> Result<Vec<String>, Error> {
 	let factory = js_sys::Reflect::get(&js_sys::global(), &"indexedDB".into())?;
 	let enumerate = js_sys::Reflect::get(&factory, &"databases".into())?
 		.dyn_into::<js_sys::Function>()
@@ -38,11 +39,11 @@ async fn session_databases() -> Result<Vec<String>, Error> {
 		let Some(name) = js_sys::Reflect::get(&row, &"name".into())?.as_string() else {
 			continue;
 		};
-		if name.strip_prefix(SESSION_PREFIX).is_some_and(|tab| {
-			!tab.is_empty() && tab.len() <= 64 && tab.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
-		}) {
-			if selected.len() >= 512 {
-				return Err(Error::Platform("Rooms database inventory exceeds its limit".into()));
+		if name.strip_prefix(SESSION_PREFIX).is_some_and(session::valid_tab) {
+			if limit.is_some_and(|limit| selected.len() >= limit) {
+				return Err(Error::Platform(
+					"Rooms database inventory exceeds its deletion budget".into(),
+				));
 			}
 			selected.push(name);
 		}
@@ -54,7 +55,7 @@ impl Plan {
 	async fn erase(&self) -> Result<(), Error> {
 		let _serial = self.serial.lock().await;
 		if self.names.borrow().is_none() {
-			let mut selected = session_databases().await?;
+			let mut selected = session_databases(Some(512)).await?;
 			selected.push("rooms-history".into());
 			*self.names.borrow_mut() = Some(selected);
 		}
@@ -99,13 +100,22 @@ impl RoomsBrowserData {
 	/// List workspace IDs without opening their Stores or claiming their locks.
 	#[wasm_bindgen(js_name = savedWorkspaces)]
 	pub async fn saved_workspaces() -> Result<Vec<String>, JsValue> {
-		let names = session_databases()
+		let names = session_databases(None)
 			.await
 			.map_err(|e| js_sys::Error::new(&e.to_string()))?;
 		Ok(names
 			.into_iter()
 			.map(|name| name[SESSION_PREFIX.len()..].to_owned())
 			.collect())
+	}
+
+	/// Existing private owner keys can identify a workspace when the browser
+	/// refuses to enumerate databases, including old workspaces with no marker.
+	#[wasm_bindgen(js_name = savedWorkspaceOwners)]
+	pub async fn saved_workspace_owners() -> Result<Vec<String>, JsValue> {
+		session::saved_owners()
+			.await
+			.map_err(|e| js_sys::Error::new(&e.to_string()).into())
 	}
 
 	pub fn erase(&self) -> js_sys::Promise {

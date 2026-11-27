@@ -1,5 +1,6 @@
 import { proveRefusedAttachFocus, watchAttachHandoff } from "../page/attach_handoff.ts";
 import { proveColdWorkspace } from "../page/cold_workspace.ts";
+import { proveWorkspaceInventory } from "../page/workspace_inventory.ts";
 import { spawnWeb, webPort } from "../support/web_front.ts";
 import * as tcp from "@glowcap/tcp";
 import type { Argument } from "@glowcap/runtime";
@@ -136,6 +137,7 @@ try {
 		await control("join", { locator: [`127.0.0.1:${roomPort}`], nick: ["durable-member"], room: [room] });
 	}
 	browser = await chromium.launch({ args: ["--no-sandbox"] });
+	await proveWorkspaceInventory(browser, httpPort);
 	await proveColdWorkspace(browser, httpPort);
 	const firstContext = await browser.newContext();
 	const secondContext = await browser.newContext();

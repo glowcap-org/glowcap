@@ -272,7 +272,7 @@ impl RoomsManagedApplication {
 			.transpose()
 			.map_err(|e| js_error(&RuntimeError::invalid_by(e)))?;
 		let tab = scalar(tab, 64).map_err(|e| js_error(&e))?;
-		if tab.is_empty() || !tab.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'-') {
+		if !session::valid_tab(&tab) {
 			return Err(js_error(&RuntimeError::invalid("Invalid Rooms tab identity")));
 		}
 		Ok(Self {

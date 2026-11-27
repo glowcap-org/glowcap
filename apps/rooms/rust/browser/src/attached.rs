@@ -98,14 +98,14 @@ impl Environment {
 		admission: rooms_application::admission::Settings,
 		front: Option<transport::WebFront>,
 	) -> Result<Self> {
-		let host =
-			Host::from_seed_with_options(prepared.seed(), rooms_glowcap::host_options()).map_err(RuntimeError::from)?;
 		let managed_signaling = Rc::new(managed::signaling::Routes::default());
 		let routes = managed_signaling.clone();
 		let ice = match &front {
 			Some(front) => ice::Source::new(front.ice()),
 			None => ice::Source::stun_default().map_err(RuntimeError::platform)?,
 		};
+		let host =
+			Host::from_seed_with_options(prepared.seed(), rooms_glowcap::host_options()).map_err(RuntimeError::from)?;
 		let runtime = match transport::open(
 			&host,
 			front.clone(),

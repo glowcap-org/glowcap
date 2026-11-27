@@ -4,6 +4,7 @@ import type { Browser, Page } from "playwright";
 import { joinAs, ROOM } from "../support/join.ts";
 import { establishLocalSession } from "../support/session_setup.ts";
 import { fail } from "../support/fail.ts";
+import { refuseDatabaseEnumeration } from "./workspace_inventory.ts";
 import { namedRoomRow } from "../support/conversation_row.ts";
 
 export async function proveColdWorkspace(browser: Browser, port: number): Promise<void> {
@@ -25,6 +26,10 @@ export async function proveColdWorkspace(browser: Browser, port: number): Promis
 		const other = await context.newPage();
 		await other.goto(origin);
 		await other.getByRole("button", { name: "Resume workspace" }).waitFor();
+		const refusal = await other.locator("#savedWorkspaceFailure").innerText();
+		if (!refusal.includes("already open in another tab") || !refusal.includes("Close its other tab")) {
+			fail("workspace contention did not explain how to resume in this tab");
+		}
 		if (await other.locator("#line").count()) fail("two pages opened the same local workspace");
 		// Trying an occupied workspace is reversible. A separate workspace
 		// leaves the first writer's identity and its draft intact.
@@ -34,7 +39,8 @@ export async function proveColdWorkspace(browser: Browser, port: number): Promis
 			other.getByRole("button", { name: "Set up a separate workspace" }).click(),
 		]);
 		await establishLocalSession(other);
-		if (await other.evaluate(() => sessionStorage.getItem("rooms.managed-tab")) === id) {
+		const otherId = await other.evaluate(() => sessionStorage.getItem("rooms.managed-tab"));
+		if (!otherId || otherId === id) {
 			fail("the separate workspace reused the occupied identity");
 		}
 		await other.close();
@@ -55,6 +61,7 @@ export async function proveColdWorkspace(browser: Browser, port: number): Promis
 		}, id);
 		await cold.close();
 		const legacy = await context.newPage();
+		await refuseDatabaseEnumeration(legacy);
 		const roomAddress = new URL(`room/${encodeURIComponent(ROOM)}`, origin).href;
 		await legacy.goto(roomAddress);
 		await legacy.setViewportSize({ width: 390, height: 844 });
@@ -84,8 +91,15 @@ export async function proveColdWorkspace(browser: Browser, port: number): Promis
 				deletion.onerror = () => reject(deletion.error);
 			})
 		);
+		await missing.evaluate(({ id, otherId }) => {
+			sessionStorage.setItem("rooms.managed-tab", id);
+			localStorage.setItem("rooms.last-workspace", otherId);
+		}, { id, otherId });
 		await missing.goto(origin);
 		await missing.getByRole("button", { name: "Set up a separate workspace" }).waitFor();
+		if (await missing.getByRole("combobox", { name: "Saved on this device" }).inputValue() !== id) {
+			fail("the recovery picker replaced the refused workspace with the most recently opened one");
+		}
 		if (await missing.locator("#joinBtn").count()) fail("missing identity opened as a new workspace");
 	} finally {
 		await context.close();

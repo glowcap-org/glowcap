@@ -12,8 +12,41 @@ use rooms_runtime::{
 };
 use std::num::NonZeroUsize;
 use wasm_bindgen::{JsCast, JsValue};
-use web_sys::IdbTransactionMode;
+use web_sys::{IdbCursor, IdbKeyRange, IdbTransactionMode};
 const META: &str = "archive-meta";
+const OWNER_PREFIX: &str = "session-owner:";
+
+pub(crate) fn valid_tab(id: &str) -> bool {
+	!id.is_empty() && id.len() <= 64 && id.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+}
+
+/// Inventory the private bootstrap keys without reading the identities they hold.
+pub(super) async fn saved_owners() -> std::result::Result<Vec<String>, Error> {
+	let Some(database) = Database::existing().await? else {
+		return Ok(Vec::new());
+	};
+	let mut operation = Operation::start(&database, &[META], IdbTransactionMode::Readonly, Vec::new(), |steps| {
+		let range = IdbKeyRange::bound(&OWNER_PREFIX.into(), &format!("{OWNER_PREFIX}\u{ffff}").into())?;
+		let request = steps.store(META)?.open_key_cursor_with_range(&range)?;
+		steps.request(request, |steps, result| {
+			if result.is_null() {
+				return Ok(());
+			}
+			let cursor = result.dyn_into::<IdbCursor>().map_err(|_| Error::Schema)?;
+			if let Some(key) = cursor.key()?.as_string()
+				&& let Some(id) = key.strip_prefix(OWNER_PREFIX).filter(|id| valid_tab(id))
+			{
+				steps.data(|ids| {
+					ids.push(id.to_owned());
+					Ok(())
+				})?;
+			}
+			cursor.continue_()?;
+			Ok(())
+		})
+	})?;
+	operation.wait().await
+}
 
 /// The embedding supplies a reload-stable tab identity. Sharing a tab identity
 /// while its Store is open refuses through the existing Web Lock owner.
@@ -28,10 +61,10 @@ fn split_failure() -> glowcap::Error {
 }
 impl Prepared {
 	pub async fn open(database: Database, tab: &str, existing: bool, mut entropy: impl Entropy) -> Result<Self> {
-		if tab.is_empty() || tab.len() > 64 || !tab.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'-') {
+		if !valid_tab(tab) {
 			return Err(loam::refusal("invalid Rooms tab identity"));
 		}
-		let key = format!("session-owner:{tab}");
+		let key = format!("{OWNER_PREFIX}{tab}");
 		let name = format!("rooms-session-{tab}");
 		let mut random = [0; 64];
 		entropy
@@ -89,10 +122,17 @@ impl Prepared {
 		let reply_bytes =
 			NonZeroUsize::new(limits.forward_reply_bytes).ok_or_else(|| loam::refusal("Rooms reply budget is zero"))?;
 		let store = if self.bootstrap.anchor.is_none() {
-			Store::open_bootstrap(&self.name, self.bootstrap.store_identity, &schemas(), limits).await?
+			Store::open_bootstrap(&self.name, self.bootstrap.store_identity, &schemas(), limits).await
 		} else {
-			Store::open(&self.name, self.bootstrap.store_identity, false, &schemas(), limits).await?
-		};
+			Store::open(&self.name, self.bootstrap.store_identity, false, &schemas(), limits).await
+		}
+		.map_err(|error| {
+			if error.code() == loam::WOULD_BLOCK {
+				rooms_runtime::Error::coded(rooms_application::failure::FailureCode::WorkspaceAlreadyOpen, "")
+			} else {
+				rooms_runtime::Error::from(error)
+			}
+		})?;
 		let mut expected = self.bootstrap;
 		let credentials = super::Credentials::new(self.database.clone(), &self.bootstrap.owner_identity);
 		let mut opened = self
