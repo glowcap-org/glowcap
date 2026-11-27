@@ -14,6 +14,7 @@ Deno.test("a path a static host handed over opens inside the page base", () => {
 	);
 	assertEquals(pathOffer(handed("../../admin"), base)?.href, base.href);
 	assertEquals(pathOffer(handed("//evil.example/x"), base)?.href, "https://glowcap.org/rooms/app/evil.example/x");
+	assertEquals(pathOffer(handed("https://", "#attach=x"), base)?.href, base.href + "#attach=x");
 	assertEquals(pathOffer(new URL(base), base), null);
 });
 

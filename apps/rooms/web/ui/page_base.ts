@@ -46,9 +46,8 @@ export const PATH_OFFER = "path";
 export function pathOffer(page: URL, base: URL = pageBase()): URL | null {
 	const offered = page.searchParams.get(PATH_OFFER);
 	if (offered == null) return null;
-	const at = new URL(offered.replace(/^\/+/, ""), base);
-	const inside = at.origin === base.origin && at.pathname.startsWith(base.pathname);
-	const rest = inside ? at : new URL(base);
+	const at = URL.parse(offered.replace(/^\/+/, ""), base);
+	const rest = at?.origin === base.origin && at.pathname.startsWith(base.pathname) ? at : new URL(base);
 	rest.hash = page.hash;
 	return rest;
 }
