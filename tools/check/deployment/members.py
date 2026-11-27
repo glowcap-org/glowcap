@@ -10,6 +10,9 @@ def named_members(deploy):
     assert not root.exists()
     call("bots", "init", "scout", "scout", ok=False)
     assert not root.exists()
+    before = deploy.log.read_text()
+    call("bots", "init", "scout")
+    assert deploy.log.read_text() == before
     call("bots", "init", "--room", "workshop", "scout", "editor")
     original = {}
     for nick in ("scout", "editor"):
@@ -28,7 +31,10 @@ def named_members(deploy):
     call("bots", "up", "scout", "editor")
     scout = "glowcap-member-scout-" + original["scout"][0]
     statuses = f"{scout}\tbot\tUp 2 hours (unhealthy)\nforeign\tbot\tforeign-marker"
+    status_start = len(deploy.log.read_text())
     status = call("bots", "status", env={"MEMBER_ROWS": statuses}).stdout
+    status_calls = [json.loads(line) for line in deploy.log.read_text()[status_start:].splitlines()]
+    assert len(status_calls) == 1 and status_calls[0][0] == "ps"
     assert status.index("editor") < status.index("scout")
     assert status.count("stopped") == 3 and "(unhealthy)" in status and "foreign-marker" not in status
     call("bots", "down", "editor")
@@ -48,4 +54,19 @@ def named_members(deploy):
     register = next(args for args in calls if "--exact-nick" in args)
     assert "--locator=http://directory:8080/locator" in register
     assert all(not arg.startswith("--room") for arg in register)
+    before = len(deploy.log.read_text())
+    call("bots", "up", "--room", "garden", "scout")
+    calls = [json.loads(line) for line in deploy.log.read_text()[before:].splitlines()]
+    register = next(args for args in calls if "--exact-nick" in args)
+    assert "--room=garden" in register and all(not arg.startswith("--locator") for arg in register)
+    before = len(deploy.log.read_text())
+    call("bots", "init", "--room", "garden", "recovered", env={"MEMBER_HAS_HOME": "1"})
+    calls = [json.loads(line) for line in deploy.log.read_text()[before:].splitlines()]
+    register = next(args for args in calls if "--exact-nick" in args)
+    assert "--room=garden" in register and all(not arg.startswith("--locator") for arg in register)
     call("bots", "session", "scout", "--", "access", "list")
+    (root / "editor/project-id").unlink()
+    before = deploy.log.read_text()
+    recovery = call("bots", "up", "editor", ok=False)
+    assert "restore" in recovery.stderr and "project-id" in recovery.stderr
+    assert deploy.log.read_text() == before and not (root / "editor/project-id").exists()

@@ -153,19 +153,9 @@ fn perform(ctx: *Ctx, parsed: *types.Parsed, comptime verb: Verb) !void {
         }
     }
 
-    const show_versions = verb == .doctor;
-    versionProbe(docker, if (show_versions) &.{"version"} else &.{ "version", "--format", "{{.Server.Version}}" }, show_versions) catch |err| {
-        if (err == error.FileNotFound) {
-            log.err(ctx.io, "Docker was not found on PATH. Install Docker with Compose, then rerun this command.", .{});
-        } else {
-            log.err(ctx.io, "Check that the Docker daemon is running and that your user can reach it with `docker version`.", .{});
-        }
-        return err;
-    };
-    versionProbe(docker, &.{ "compose", "version" }, show_versions) catch |err| {
-        log.err(ctx.io, "Check that Docker Compose is installed with `docker compose version`.", .{});
-        return err;
-    };
+    // Named commands call Docker only for the operation they perform. File-only
+    // initialization can run offline and status needs one daemon snapshot.
+    if (comptime verb != .bots) try checkDocker(docker, verb == .doctor);
     if (verb == .doctor) return;
     const directory = if (starts)
         try Io.Dir.cwd().createDirPathOpen(ctx.io, absolute_dir, .{ .permissions = .fromMode(0o700) })
@@ -235,6 +225,21 @@ fn perform(ctx: *Ctx, parsed: *types.Parsed, comptime verb: Verb) !void {
         .reset => try operations.reset(docker, unit, parsed.flagBool("yes")),
         .bots, .doctor => unreachable, // answered above, before any configuration exists
     }
+}
+
+fn checkDocker(docker: Docker, show_versions: bool) !void {
+    versionProbe(docker, if (show_versions) &.{"version"} else &.{ "version", "--format", "{{.Server.Version}}" }, show_versions) catch |err| {
+        if (err == error.FileNotFound) {
+            log.err(docker.io, "Docker was not found on PATH. Install Docker with Compose, then rerun this command.", .{});
+        } else {
+            log.err(docker.io, "Check that the Docker daemon is running and that your user can reach it with `docker version`.", .{});
+        }
+        return err;
+    };
+    versionProbe(docker, &.{ "compose", "version" }, show_versions) catch |err| {
+        log.err(docker.io, "Check that Docker Compose is installed with `docker compose version`.", .{});
+        return err;
+    };
 }
 
 fn versionProbe(docker: Docker, operands: []const []const u8, show: bool) !void {

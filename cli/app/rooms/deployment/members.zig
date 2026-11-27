@@ -149,13 +149,18 @@ fn exists(member: Config, name: []const u8) !bool {
 }
 
 fn prepare(member: Config) !void {
+    const has_project = try exists(member, "project-id");
+    if (!has_project and try exists(member, "bot-link")) {
+        log.err(member.io, "restore the member's saved project-id before starting its session. The bot link belongs to the original project", .{});
+        return error.BotProjectMissing;
+    }
     const home = try member.dir.createDirPathOpen(member.io, "agent-home", .{ .permissions = .fromMode(0o700) });
     home.close(member.io);
     const instructions = try member.dir.createDirPathOpen(member.io, "instructions", .{ .permissions = .fromMode(0o700) });
     instructions.close(member.io);
     if (!try exists(member, "instructions/role.md")) try member.write("instructions/role.md", "", false);
     if (!try exists(member, "bot.env")) try member.write("bot.env", "GLOWCAP_ROOMS_BOT_HARNESS=claude\nGLOWCAP_ROOMS_BOT_PERMISSION=safe\n", false);
-    if (!try exists(member, "project-id")) {
+    if (!has_project) {
         var bytes: [16]u8 = undefined;
         try member.io.randomSecure(&bytes);
         try member.write("project-id", &std.fmt.bytesToHex(bytes, .lower), false);
@@ -189,9 +194,10 @@ fn provision(member: Config, compose: Compose, nick: []const u8, rooms: []const 
     try compose.run(&.{ "up", "-d", "--wait", "--wait-timeout", "120", "member-session" }, 150);
     var join: std.ArrayList([]const u8) = .empty;
     try join.appendSlice(member.gpa, &.{ "start", "--dir=/session-state", try member.gpa.print("--nick={s}", .{nick}), "--exact-nick" });
-    if (locator != null or !has_link or rooms.len != 0) {
-        try join.append(member.gpa, try member.gpa.print("--locator={s}", .{locator orelse "http://directory:8080/locator"}));
-    }
+    // A lost host grant is recoverable. Only a session with no saved home
+    // needs the deployment's default locator, even during first-setup retry.
+    const bootstrap: ?[]const u8 = if (locator) |url| url else if (!has_link and !try hasHome(member, compose)) "http://directory:8080/locator" else null;
+    if (bootstrap) |url| try join.append(member.gpa, try member.gpa.print("--locator={s}", .{url}));
     if (rooms.len != 0) {
         try join.append(member.gpa, "--existing-room");
         for (rooms) |room| try join.append(member.gpa, try member.gpa.print("--room={s}", .{room}));
@@ -210,4 +216,14 @@ fn provision(member: Config, compose: Compose, nick: []const u8, rooms: []const 
         if (!issued.value.ok or !std.mem.eql(u8, issued.value.id, "deployment-bot") or !std.mem.startsWith(u8, issued.value.link, "ocapn://")) return error.InvalidGrantResponse;
         try member.write("bot-link", issued.value.link, false);
     }
+}
+
+fn hasHome(member: Config, compose: Compose) !bool {
+    const Directory = struct { home: bool };
+    const Status = struct { ok: bool, workspace: struct { directories: []const Directory } };
+    const result = try compose.session(&.{ "status", "--dir=/session-state" });
+    const status = try std.json.parseFromSlice(Status, member.gpa, result, .{ .ignore_unknown_fields = true });
+    if (!status.value.ok) return error.InvalidSessionStatus;
+    for (status.value.workspace.directories) |directory| if (directory.home) return true;
+    return false;
 }

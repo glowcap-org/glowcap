@@ -79,7 +79,10 @@ elif a[:2] == ['image', 'inspect'] and 'Labels' in ' '.join(a):
     print(label.read_text() if label.exists() else '<no value>')
 elif a[:2] == ['image', 'inspect']: print(image)
 elif 'exec' in a and 'member-session' in a:
-    if 'issue' in a:
+    if 'status' in a:
+        saved = [{'home': True}] if os.environ.get('MEMBER_HAS_HOME') else []
+        print(json.dumps({'ok': True, 'workspace': {'directories': saved}}))
+    elif 'issue' in a:
         print(json.dumps({'ok': True, 'id': 'deployment-bot', 'link': 'ocapn://fixture/s/fixture-bearer'}))
         if os.environ.get('FAIL_MEMBER_ISSUE'):
             print('fixture-bearer', file=sys.stderr)
