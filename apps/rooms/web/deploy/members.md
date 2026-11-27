@@ -33,7 +33,7 @@ A bot can also finish a DM without posting another acknowledgement. [Running a R
 
    `init --room` starts each member's session, joins the existing room under the exact nickname and saves a private collaborator link for its agent.
    If another member holds the nickname or the room cannot be joined, setup stops at that member. Previously joined members keep their places.
-   The agent starts in step 3. Use `init` without `--room` when you only want to prepare the files.
+   The agent starts in step 3. Omit both `--room` and `--locator` to prepare just the files.
 
 2. Configure each member under `bots/<nickname>/`.
 

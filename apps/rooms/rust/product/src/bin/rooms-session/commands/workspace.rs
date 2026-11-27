@@ -74,9 +74,8 @@ pub async fn directory(options: &Options) -> Result<Value, Failure> {
 		let directories = rows(&status["workspace"], "directories")?;
 		// Re-evaluate the home after a conflicting write, before consulting even a
 		// previously resolved fallback. Only an explicit locator selects another directory.
-		let locator = options.get("locator").or_else(|| {
-			options.get("home-locator").filter(|_| !directories.iter().any(|row| row["home"] == true))
-		});
+		let home_locator = options.get("home-locator").filter(|_| !directories.iter().any(|row| row["home"] == true));
+		let locator = options.get("locator").or(home_locator);
 		let address = if let Some(locator) = locator {
 			if resolved.is_none() {
 				let locator = super::bootstrap::resolve(locator).await?;
@@ -98,11 +97,17 @@ pub async fn directory(options: &Options) -> Result<Value, Failure> {
 			}
 			if exact {
 				check_assignment(&entry)?;
-				if entry["nickAllocation"] != allocation.wire() {
-					let mut intent = status["workspace"].clone();
-					rows_mut(&mut intent, "directories")?[index]["nickAllocation"] = json!(allocation);
-					return Ok(Some(json!({"kind":"workspace","base":base,"imports":[],"releases":[],"intent":intent})));
+			}
+			if home_locator.is_some() || (exact && entry["nickAllocation"] != allocation.wire()) {
+				let mut intent = status["workspace"].clone();
+				let row = &mut rows_mut(&mut intent, "directories")?[index];
+				if home_locator.is_some() {
+					row["home"] = true.into();
 				}
+				if exact {
+					row["nickAllocation"] = json!(allocation);
+				}
+				return Ok(Some(json!({"kind":"workspace","base":base,"imports":[],"releases":[],"intent":intent})));
 			}
 			return Ok(None);
 		}
@@ -110,7 +115,7 @@ pub async fn directory(options: &Options) -> Result<Value, Failure> {
 		let nick = options.get("nick").ok_or_else(|| Failure::invalid("a new directory needs --nick"))?;
 		let access = fresh()?;
 		let source = fresh()?;
-		entry = json!({"id":address["id"],"access":access,"source":source,"home":directories.is_empty(),"nick":nick,"nickAllocation":allocation,"standing":null});
+		entry = json!({"id":address["id"],"access":access,"source":source,"home":directories.is_empty() || home_locator.is_some(),"nick":nick,"nickAllocation":allocation,"standing":null});
 		let mut intent = status["workspace"].clone();
 		rows_mut(&mut intent, "directories")?.push(entry.clone());
 		Ok(Some(json!({"kind":"workspace","base":base,"imports":[{"coordinate":coordinate("directoryAccess",&access),"uri":address["uri"]}],"source":source,"releases":[],"intent":intent})))
