@@ -246,6 +246,11 @@ target machines and recorded runs.
   completion-loop contract in full (`validateBackend` checks it), then live
   tests and release artifacts. It waits on Windows hardware for the checks
   ([plan to plan](planning/plan-to-plan.md)).
+- **Rooms on the iPhone Home Screen.** On a physical iPhone, enter a draft
+  in a room, close the installed app, then reopen it from the Home Screen.
+  Verify the same workspace, selected room and unsent text after a normal
+  close and after a force quit. Record the iOS version with the result
+  ([plan to plan](planning/plan-to-plan.md)).
 - **Public-certificate relay URLs.** Local WSS with a fixture authority is
   checked. A public certificate at a real relay hostname is unproven across
   every execution form outside the browser
