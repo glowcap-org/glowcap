@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import ctypes
+import weakref
 from dataclasses import dataclass
 from typing import Union
 
@@ -20,7 +21,7 @@ from ._abi_value import _args_to_c, _ref_to_c
 from ._errors import FetchFailed, GlowcapError, _check_host, _retain_cleanup_failure
 from ._ffi_host import _host, _selector_buf
 from ._ffi_ocapn import _byte_buf, _Reference
-from ._gc import release_ref
+from ._gc import VowRelease, release_ref
 from ._value import Ref, _ref_from_id
 
 _ERR_UNSUPPORTED_VALUE = _abi.ERR_UNSUPPORTED_VALUE
@@ -114,12 +115,12 @@ def _promise_for(session, vow: int, *, pipelineable: bool = True) -> RemotePromi
         promise = (
             RemotePromise.far(vow, session.host, begin, project) if pipelineable else RemotePromise.observer(vow, begin)
         )
-        promise._discard_result = session.gc.discard_argument
+        promise._vow_host = session.host
         session.serve()
         session.host.schedule_kick()
         # Last fallible adoption step: after this succeeds, returning the
         # wrapper transfers the FFI vow to its finalizer.
-        session.gc.track_vow(promise, vow)
+        promise._release = session.gc.track_vow(promise, vow)
         return promise
     except BaseException as failure:
         try:
@@ -181,6 +182,49 @@ class PromiseState:
         return PromiseState.Failed(error)
 
 
+class _ReplyDelivery:
+    """Keep the wrapper alive while a callback is listening, then deliver through its weak handle."""
+
+    __slots__ = ("wrapper", "interested", "release")
+
+    def __init__(self, wrapper: RemotePromise):
+        self.wrapper = weakref.ref(wrapper)
+        self.interested: RemotePromise | None = None
+        self.release = wrapper._release
+
+    def __call__(self, task: asyncio.Future) -> None:
+        wrapper = self.wrapper()
+        self.interested = None
+        if wrapper is None:
+            if not task.cancelled() and task.exception() is None and self.release is not None:
+                self.release.gc.discard_argument(task.result())
+        else:
+            wrapper._delivery = None
+            wrapper._begin_task = None
+            wrapper._chain(task)
+
+    async def follow(self, child: RemotePromise, schedule):
+        # A Forward minted this private child. Keep its release ticket and
+        # its original custody until the outer wrapper hands out the result.
+        wrapper = self.wrapper()
+        abandoned = None
+        if wrapper is None or wrapper.cancelled():
+            child.cancel()
+        else:
+            wrapper._forwarded = child
+            abandoned = weakref.finalize(wrapper, schedule, child.cancel)
+        del wrapper
+        try:
+            value = await child
+            release = child._reply_release()
+            if release is not None:
+                release.unread = value
+            return value
+        finally:
+            if abandoned is not None:
+                abandoned.detach()
+
+
 class RemotePromise(asyncio.Future):
     """The handle :meth:`Session.send` returns: the eventual result of one
     eventual-send, and -- the point of promise pipelining (ADR-0003) -- a target
@@ -225,7 +269,11 @@ class RemotePromise(asyncio.Future):
         # Issues a projection op (index/untag/get) at this vow; set only for far.
         self._project = project
         self._started = False
-        self._discard_result = None
+        self._vow_host = None
+        self._release: VowRelease | None = None
+        self._delivery: _ReplyDelivery | None = None
+        self._ready: asyncio.Future | None = None
+        self._forwarded: RemotePromise | None = None
         # The begin task, retained: the event loop holds tasks only weakly, so
         # an unreferenced begin could be collected mid-flight.
         self._begin_task: asyncio.Future | None = None
@@ -236,7 +284,7 @@ class RemotePromise(asyncio.Future):
 
     @classmethod
     def local(cls, begin) -> RemotePromise:
-        return cls(PromiseState.local(), begin, None)
+        return cls(PromiseState.local(), lambda _delivery: begin(), None)
 
     @classmethod
     def observer(cls, vow: int, begin) -> RemotePromise:
@@ -307,15 +355,44 @@ class RemotePromise(asyncio.Future):
         # ``await`` or a Future-protocol registration (``add_done_callback``,
         # below). An unobserved handle never starts ``begin``, so its answer
         # breaking never settles us.
-        if not self._started:
+        if not self._started and not self.cancelled():
             self._started = True
-            task = asyncio.ensure_future(self._begin())
+            self._delivery = _ReplyDelivery(self)
+            task = asyncio.ensure_future(
+                self._begin(self._delivery) if isinstance(self._kind, PromiseState.Local) else self._begin()
+            )
             self._begin_task = task
-            task.add_done_callback(self._chain)
+            task.add_done_callback(self._delivery)
+
+    def _reply_release(self) -> VowRelease | None:
+        source = self
+        while source._forwarded is not None:
+            source = source._forwarded
+        return source._release
+
+    def result(self):
+        value = super().result()
+        release = self._reply_release()
+        if release is not None:
+            release.unread = None
+        return value
 
     def __await__(self):
         self._ensure_started()
-        return super().__await__()
+        if not self.done():
+            # Task wakeup probes the awaited Future's result before delivering
+            # a competing cancellation. Wake on a plain signal so only a
+            # successfully resumed coroutine claims the capability occurrences.
+            if self._ready is None:
+                self._ready = self.get_loop().create_future()
+            if self._delivery is not None:
+                self._delivery.interested = self
+            try:
+                yield from self._ready.__await__()
+            except asyncio.CancelledError:
+                self.cancel()
+                raise
+        return self.result()
 
     __iter__ = __await__  # `yield from` compatibility, mirroring asyncio.Future
 
@@ -324,10 +401,37 @@ class RemotePromise(asyncio.Future):
         # ``shield`` never call ``__await__`` on a child, they register a done
         # callback: so registering interest is what starts the send.
         self._ensure_started()
+        if not self.done() and self._delivery is not None:
+            self._delivery.interested = self
         if context is None:
             super().add_done_callback(callback)
         else:
             super().add_done_callback(callback, context=context)
+
+    def remove_done_callback(self, callback) -> int:
+        removed = super().remove_done_callback(callback)
+        if self._delivery is not None and not self._callbacks and (self._ready is None or self._ready.done()):
+            self._delivery.interested = None
+        return removed
+
+    def cancel(self, msg=None) -> bool:
+        if not super().cancel(msg):
+            return False
+        self._wake_awaiters()
+        if self._delivery is not None:
+            self._delivery.interested = None
+        if self._forwarded is not None:
+            self._forwarded.cancel()
+        if self._vow_host is not None:
+            # Stop waiting for an answer that may never settle. The wrapper
+            # still owns its pipeline target until its normal finalizer runs.
+            self._vow_host.abandon_vow(self.vow)
+        return True
+
+    def _wake_awaiters(self):
+        ready, self._ready = self._ready, None
+        if ready is not None and not ready.done():
+            ready.set_result(None)
 
     def _chain(self, task: asyncio.Future) -> None:
         # Copy the begin task's outcome onto this future. Guard the states a
@@ -336,14 +440,18 @@ class RemotePromise(asyncio.Future):
             self.cancel()
             return
         exc = task.exception()
+        if exc is None and self._release is not None:
+            self._release.unread = task.result()
         if self.cancelled():
-            if exc is None and self._discard_result is not None:
-                self._discard_result(task.result())
+            release = self._reply_release()
+            if release is not None:
+                release.discard()
             return
         if exc is not None:
             self.set_exception(exc)
         else:
             self.set_result(task.result())
+        self._wake_awaiters()
 
 
 def _listen_far(session, target) -> RemotePromise:

@@ -74,6 +74,28 @@ def bind_host(gc: HostGc, host) -> None:
     gc.bind(_HostGcHandle(host))
 
 
+class VowRelease:
+    """The public wrapper's finalizer owns its vow and any unread successful reply."""
+
+    __slots__ = ("gc", "vow", "unread")
+
+    def __init__(self, gc: HostGc, vow: int):
+        self.gc = gc
+        self.vow = vow
+        self.unread: Argument = None
+
+    def discard(self) -> None:
+        value, self.unread = self.unread, None
+        if value is not None:
+            self.gc.discard_argument(value)
+
+    def __call__(self) -> None:
+        try:
+            self.discard()
+        finally:
+            self.gc.park_vow(self.vow)
+
+
 class HostGc:
     """Host-wide finalizer registry and release queue.
 
@@ -204,13 +226,10 @@ class HostGc:
             self.pending.append(token)
         h.schedule_drain(self._drain_scheduled)
 
-    def track_vow(self, handle, vow: int):
-        """Release one FFI Host vow when its public wrapper dies."""
-        weakref.finalize(handle, self._on_vow_dropped, vow)
-        return handle
-
-    def _on_vow_dropped(self, vow: int) -> None:
-        self.park_vow(vow)
+    def track_vow(self, handle, vow: int) -> VowRelease:
+        release = VowRelease(self, vow)
+        weakref.finalize(handle, release)
+        return release
 
     def park_vow(self, vow: int) -> None:
         """Transfer one callerless vow release to the Host owner loop."""

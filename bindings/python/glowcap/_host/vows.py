@@ -59,7 +59,11 @@ class VowTable:
     def abandon(self, vow: int) -> None:
         """Drop binding-side observation after the public wrapper dies."""
         row = self._rows.pop(vow, None)
-        if row is not None and isinstance(row.state, tuple):
+        if row is None:
+            return
+        if isinstance(row.state, asyncio.Future):
+            row.state.cancel()
+        elif isinstance(row.state, tuple):
             self._unobserved.pop(vow, None)
             ok, payload = row.state
             if ok:
