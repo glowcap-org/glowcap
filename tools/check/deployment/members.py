@@ -34,11 +34,13 @@ def named_members(deploy):
     scout = "glowcap-member-scout-" + original["scout"][0]
     statuses = f"{scout}\tbot\tUp 2 hours (unhealthy)\nforeign\tbot\tforeign-marker"
     status_start = len(deploy.log.read_text())
-    status = call("bots", "status", env={"MEMBER_ROWS": statuses}).stdout
+    oneoff = f"{scout}\tbot\tExited (0) 1 hour ago"
+    status = call("bots", "status", env={"MEMBER_ROWS": statuses, "MEMBER_ONEOFF_ROW": oneoff}).stdout
     status_calls = [json.loads(line) for line in deploy.log.read_text()[status_start:].splitlines()]
     assert len(status_calls) == 1 and status_calls[0][0] == "ps"
     assert status.index("editor") < status.index("scout")
-    assert status.count("stopped") == 3 and "(unhealthy)" in status and "foreign-marker" not in status
+    assert "bot: Up 2 hours (unhealthy)" in status and "Exited" not in status, status
+    assert status.count("stopped") == 3 and "foreign-marker" not in status
     call("bots", "down", "editor")
     inspect_start = len(deploy.log.read_text())
     report = json.loads(call("bots", "inspect", "scout").stdout)

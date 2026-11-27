@@ -143,9 +143,11 @@ fn handle(state: Config, docker: Docker, nick: []const u8, verb: Verb, rooms: []
     }
 }
 
+const service_container_filter = "label=com.docker.compose.oneoff=False";
+
 fn agentLogHint(state: Config, docker: Docker, project: []const u8, nick: []const u8) !void {
     const project_filter = try state.gpa.print("label=com.docker.compose.project={s}", .{project});
-    const id = try docker.query(&.{ "ps", "--all", "--quiet", "--no-trunc", "--filter", project_filter, "--filter", "label=com.docker.compose.service=bot", "--filter", "label=com.docker.compose.oneoff=False" });
+    const id = try docker.query(&.{ "ps", "--all", "--quiet", "--no-trunc", "--filter", project_filter, "--filter", "label=com.docker.compose.service=bot", "--filter", service_container_filter });
     if (id.len == 64 and isHex(id)) {
         log.writeMsg(state.io, try state.gpa.print("Read {s}'s saved agent log: docker cp {s}:/bot-state/bot.log - | tar -xOf - | tail -n 100\n", .{ nick, id }));
     } else {
@@ -179,7 +181,7 @@ fn showStatus(state: Config, docker: Docker, names: []const []const u8) !void {
     var projects: std.StringHashMapUnmanaged(usize) = .empty;
     for (names, 0..) |nick, index| try projects.put(state.gpa, try projectName(state, nick), index);
     const format = "{{.Label \"com.docker.compose.project\"}}\t{{.Label \"com.docker.compose.service\"}}\t{{.Status}}";
-    const result = try docker.query(&.{ "ps", "--all", "--filter", "label=org.glowcap.rooms.member=true", "--format", format });
+    const result = try docker.query(&.{ "ps", "--all", "--filter", "label=org.glowcap.rooms.member=true", "--filter", service_container_filter, "--format", format });
     var lines = std.mem.tokenizeScalar(u8, result, '\n');
     while (lines.next()) |line| {
         var fields = std.mem.splitScalar(u8, line, '\t');

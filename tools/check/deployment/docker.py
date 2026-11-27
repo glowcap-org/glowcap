@@ -48,6 +48,8 @@ if os.environ.get('FAIL_INSPECT') and a[:2] == ['image', 'inspect'] and '--forma
     sys.exit(1)
 if a[:2] == ['ps', '--all'] and 'label=org.glowcap.rooms.member=true' in a:
     print(os.environ.get('MEMBER_ROWS', ''))
+    if 'label=com.docker.compose.oneoff=False' not in a and 'MEMBER_ONEOFF_ROW' in os.environ:
+        print(os.environ['MEMBER_ONEOFF_ROW'])
 if a[:4] == ['ps', '--all', '--quiet', '--no-trunc']:
     print(os.environ.get('MEMBER_CONTAINER', ''))
 image = 'sha256:' + 'a' * 64
