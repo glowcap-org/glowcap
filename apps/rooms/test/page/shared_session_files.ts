@@ -42,6 +42,23 @@ export async function proveSharedImage(first: Page, second: Page, png: Uint8Arra
 	await first.click("#settingsBtn");
 	await first.click("#sessionTab");
 	await keepWorkspace(first);
+	await first.click("#holdingsTab");
+	const held = (await first.locator("#currentSessionCapability").innerText()).trim();
+	if (!held) fail("the attached session has no held link");
+	await first.click("#sessionTab");
+	await first.click("#sessionAttachOpen");
+	const field = first.locator("#sharedSessionCapability");
+	const other = "ocapn://127.0.0.1%3A1234.tcp/s/b3RoZXI";
+	await field.fill(other);
+	await first.click("#sessionAttachGo");
+	await first.click("#settingsUnsavedKeep");
+	if (await field.inputValue() !== other) fail("keeping the file discarded the proposed session link");
+	await field.fill(held);
+	await first.click("#sessionAttachGo");
+	await first.waitForFunction(() =>
+		document.querySelector<HTMLInputElement>("#sharedSessionCapability")?.value === ""
+	);
+	await first.locator(".session-attach-modal").getByRole("button", { name: "Close" }).click();
 	await first.click("#settingsClose");
 	await first.click("#sendBtn");
 	for (const [index, page] of [first, second].entries()) {

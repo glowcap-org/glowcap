@@ -4,10 +4,10 @@
 // and what saving leads to, and the form is the one the card holds in place.
 
 import { Submodal } from "../Submodal.tsx";
-import { ServerChoice } from "./ServerChoice.tsx";
+import { type RequestServerSave, ServerChoice } from "./ServerChoice.tsx";
 
 export function ServerDialog(
-	{ title, titleId, lead, saveLabel, open, onClose, onSaved }: {
+	{ title, titleId, lead, saveLabel, open, onClose, onSaved, requestSave }: {
 		title: string;
 		titleId: string;
 		lead: string;
@@ -16,12 +16,13 @@ export function ServerDialog(
 		onClose: () => void;
 		/** Runs once the choice is kept. By default the page reloads under it. */
 		onSaved?: () => void;
+		requestSave?: RequestServerSave;
 	},
 ) {
 	return (
 		<Submodal title={title} titleId={titleId} open={open} onClose={onClose}>
 			<p className="lead">{lead}</p>
-			<ServerChoice framed saveLabel={saveLabel} onSaved={onSaved} />
+			<ServerChoice framed saveLabel={saveLabel} onSaved={onSaved} requestSave={requestSave} />
 		</Submodal>
 	);
 }

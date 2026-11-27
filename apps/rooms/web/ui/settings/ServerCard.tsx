@@ -55,6 +55,7 @@ import { useRoomsState } from "../hooks.ts";
 import { servedByRooms } from "../page_base.ts";
 import { Confirm } from "../Confirm.tsx";
 import { relayAway, type RelayReach } from "../store/projection.ts";
+import { useRequestReload } from "./request_reload.ts";
 import { ServerChoice } from "./ServerChoice.tsx";
 import { ServerDialog } from "./ServerDialog.tsx";
 
@@ -73,6 +74,7 @@ export function ServerCard({ relay }: { relay: RelayReach | null }) {
 	// The server is fixed for this page's life: choosing another reloads it.
 	const server = useRoomsState((state) => state.server);
 	const directory = server?.directory ?? null;
+	const requestReload = useRequestReload();
 	const [changing, setChanging] = useState(false);
 	// Null until removal is asked. Then what the browser refused, empty until it does.
 	const [removeRefused, setRemoveRefused] = useState<string | null>(null);
@@ -156,7 +158,7 @@ export function ServerCard({ relay }: { relay: RelayReach | null }) {
 							: settingsRelayAway(serverName(server.base))}
 					</Said>
 				)}
-				{server == null ? <ServerChoice /> : (
+				{server == null ? <ServerChoice requestSave={requestReload} /> : (
 					<EntryActs>
 						<EntryAct
 							name={serverChangeName}
@@ -176,11 +178,12 @@ export function ServerCard({ relay }: { relay: RelayReach | null }) {
 										keepId="serverRemoveKeep"
 										commitId="serverRemoveCommit"
 										onKeep={() => setRemoveRefused(null)}
-										onCommit={() => {
-											const refused = chooseServer(null);
-											if (refused == null) reloadNow();
-											else setRemoveRefused(refusalText(refused));
-										}}
+										onCommit={() =>
+											requestReload(() => {
+												const refused = chooseServer(null);
+												if (refused == null) reloadNow();
+												else setRemoveRefused(refusalText(refused));
+											})}
 									/>
 									{removeRefused !== "" && (
 										<Said id="serverRemoveRefused" kind="failure">{removeRefused}</Said>
@@ -206,6 +209,7 @@ export function ServerCard({ relay }: { relay: RelayReach | null }) {
 					saveLabel={saveAndReload}
 					open={changing}
 					onClose={() => setChanging(false)}
+					requestSave={requestReload}
 				/>
 			)}
 		</>

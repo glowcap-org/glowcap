@@ -31,13 +31,16 @@ import { Said } from "../Said.tsx";
 import { refusalText } from "../../../lib/text/failure.ts";
 import { pageBase, servedByRooms } from "../page_base.ts";
 
+export type RequestServerSave = (save: () => void) => void;
+
 /** `framed` is the dialog's own well around the form, and focus on the field
  * the reader opened it for. In a card the card is the well already. `onSaved`
  * runs once the choice is kept, by default the covered reload every server
  * change takes, and `saveLabel` says what it leads to. */
 export function ServerChoice(
-	{ onSaved = reloadNow, saveLabel = saveAndReload, framed = false }: {
+	{ onSaved = reloadNow, saveLabel = saveAndReload, framed = false, requestSave = (save) => save() }: {
 		onSaved?: () => void;
+		requestSave?: RequestServerSave;
 		saveLabel?: string;
 		framed?: boolean;
 	},
@@ -84,12 +87,14 @@ export function ServerChoice(
 					return;
 				}
 				if (!changed) return;
-				const refused = chooseServer(read.base);
-				if (refused != null) {
-					setWhy(refusalText(refused));
-					return;
-				}
-				onSaved();
+				requestSave(() => {
+					const refused = chooseServer(read.base);
+					if (refused != null) {
+						setWhy(refusalText(refused));
+						return;
+					}
+					onSaved();
+				});
 			}}
 		>
 			<div className="field-row">
