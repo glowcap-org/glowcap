@@ -98,7 +98,9 @@ export async function proveColdWorkspace(browser: Browser, port: number): Promis
 		// The inventory can omit the broken Store. Keep the tab's actual
 		// recovery target even if another workspace is the only one listed.
 		await missing.addInitScript((other) => {
-			Object.defineProperty(indexedDB, "databases", { value: async () => [{ name: `rooms-session-${other}` }] });
+			Object.defineProperty(indexedDB, "databases", {
+				value: () => Promise.resolve([{ name: `rooms-session-${other}` }]),
+			});
 		}, otherId);
 		await missing.goto(origin);
 		await missing.getByRole("button", { name: "Set up a separate workspace" }).waitFor();
