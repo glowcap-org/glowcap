@@ -251,9 +251,10 @@ release itself is two commands and two workflows.
    its changelog section, has no such tag on origin, and passed full
    validation. Then it signs `v<version>` at that commit and pushes the tag,
    its one effect. Every refusal names what to land first.
-3. The [release workflow](../.github/workflows/release.yml) requires the
-   commit's successful validation on `main` and the version's changelog
-   section before it builds. Each host attests the build provenance of the
+3. The [release workflow](../.github/workflows/release.yml) verifies that the
+   signed tag names the pushed version and points to the checked-out commit.
+   It requires that commit's successful validation on `main` and the version's
+   changelog section before it builds. Each host attests the build provenance of the
    archives it builds, and each Linux host proves the Rooms image from its
    exact product archive. One job then publishes the image by digest with its
    provenance and software bill of materials, and fills a draft release that

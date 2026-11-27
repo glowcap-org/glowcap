@@ -59,6 +59,12 @@ jobs:
         if: github.event_name == 'push' && github.ref_type == 'tag'
         run: python3 ci/github_release.py version "$GITHUB_REF_NAME"
 
+      - name: Verify the pushed tag's signature and commit
+        if: github.event_name == 'push' && github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 ci/github_release.py verify-tag "$GITHUB_REF_NAME"
+
       - name: Require this commit's successful check workflow
         if: github.event_name == 'push' && github.ref_type == 'tag'
         env:

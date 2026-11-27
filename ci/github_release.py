@@ -38,6 +38,8 @@ gh, GH_TOKEN, GITHUB_REPOSITORY, and GITHUB_RUN_ID in the environment:
   version --newest        reads the version of the repository's newest published release
                           instead, for validate-release.yml. Both forms write
                           version to GITHUB_OUTPUT.
+  verify-tag TAG          requires the signed tag to name the pushed version and
+                          target the exact checkout and workflow commit.
   published TAG           is publish.yml's contract: the signed annotated tag
                           names a commit that passed full validation on main,
                           and its public release holds every asset. Writes
@@ -438,6 +440,7 @@ def signed_commit(repository, tag):
         signed["verification"]["verified"] is True and signed["object"]["type"] == "commit",
         "tag signature is unverified or tag does not point directly to a commit",
     )
+    require(signed["tag"] == tag, f"the signed tag names {signed['tag']} instead of {tag}")
     return signed["object"]["sha"]
 
 
@@ -509,6 +512,7 @@ def main(argv=None):
                 "seal-prepared",
                 "verify-prepared",
                 "publish-draft",
+                "verify-tag",
                 "published",
             )
         ),
@@ -522,6 +526,14 @@ def main(argv=None):
         version = newest_version(repository) if args.newest else tree_version(tag)
         write_output(version=version)
         print(f"Version {version}" + (" of the newest release" if args.newest else " stated by the tree"))
+        return
+    if args.mode == "verify-tag":
+        commit = signed_commit(repository, tag)
+        checkout = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True, timeout=30).strip()
+        require(
+            commit == checkout == os.environ.get("GITHUB_SHA"), f"signed tag {tag} must target the workflow checkout"
+        )
+        print(f"Verified signed tag {tag} at {commit}")
         return
     if args.mode == "published":
         commit = published(repository, tag)
