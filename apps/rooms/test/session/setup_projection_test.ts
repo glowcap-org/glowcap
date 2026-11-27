@@ -34,11 +34,27 @@ const browser = new Proxy({} as RoomsBrowserController, {
 	get: () => () => {},
 });
 
-function setupTree(projection: PageProjection | null): ReactNode {
+const { SavedWorkspaces } = await import("../../web/ui/panes/SavedWorkspaces.tsx");
+
+function setupTree(projection: PageProjection | null, choices?: string[]): ReactNode {
 	const inner = createElement(
 		RoomsBrowserProvider,
 		{ value: browser },
-		createElement(ModalProvider, null, createElement(SessionSetup, null)),
+		createElement(
+			ModalProvider,
+			null,
+			createElement(SessionSetup, {
+				renderSavedWorkspaces: choices &&
+					((disabled: boolean, primary: boolean) =>
+						createElement(SavedWorkspaces, {
+							choices,
+							pin: choices[0],
+							initialError: "",
+							disabled,
+							primary,
+						})),
+			}),
+		),
 	);
 	return projection == null ? inner : createElement(RoomsProjectionProvider, { value: projection }, inner);
 }
@@ -157,6 +173,21 @@ Deno.test("an unreadable saved session shuts every act that opens it, each descr
 		reset: shut,
 		delete: { disabled: false, describedBy: null },
 	});
+});
+
+Deno.test("a known unreadable workspace offers a fresh one before retrying", () => {
+	const projection = new Projection();
+	noteSessionOpenFailure(projection, browserFailure(-12, "unreadable", SESSION_STATE_UNREADABLE), "this-browser");
+	projection.api.getInitialState = projection.api.getState;
+	const html = renderToStaticMarkup(setupTree(projection, ["saved", "other"]));
+	const resume = html.match(/<button[^>]*>Resume workspace<\/button>/)?.[0];
+	const separate = html.match(/<button[^>]*id="sessionUnreadableSeparate"[^>]*>/)?.[0];
+	if (
+		!resume?.includes('disabled=""') || !resume.includes('data-variant="quiet"') ||
+		!separate?.includes('data-variant="primary"') || !html.includes('value="other"')
+	) {
+		throw new Error("setup led back into an unreadable workspace or hid the alternatives");
+	}
 });
 
 Deno.test("a readable saved session leaves the local door open and the attach door waiting for a link", () => {

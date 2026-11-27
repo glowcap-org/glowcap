@@ -346,7 +346,7 @@ export function SessionUnreadable({ busy, onSeparate }: { busy: boolean; onSepar
 			<div className="actions">
 				<Button
 					id="sessionUnreadableSeparate"
-					variant="quiet"
+					size="large"
 					disabled={busy}
 					aria-describedby="sessionUnreadableSay"
 					onClick={onSeparate}

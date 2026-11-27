@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useRoomsState } from "../hooks.ts";
 import { Select } from "../Select.tsx";
 import { Said } from "../Said.tsx";
 import { refusalText } from "../../../lib/text/failure.ts";
@@ -22,6 +23,7 @@ export function SavedWorkspaces({ choices, pin, initialError, disabled, primary 
 	primary: boolean;
 }) {
 	const [error, setError] = useState(initialError);
+	const unreadable = useRoomsState((state) => state.savedSessionUnreadable);
 	const options = savedWorkspaceOptions(choices, lastWorkspace());
 	const [selected, setSelected] = useState(pin ?? options[0]?.id);
 	const choose = (id: string | null) => {
@@ -54,8 +56,8 @@ export function SavedWorkspaces({ choices, pin, initialError, disabled, primary 
 				{selected && (
 					<Button
 						size="large"
-						variant={primary ? "primary" : "quiet"}
-						disabled={disabled}
+						variant={primary && !unreadable ? "primary" : "quiet"}
+						disabled={disabled || (unreadable && selected === pin)}
 						onClick={() => choose(selected)}
 					>
 						{resumeWorkspace}
