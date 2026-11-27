@@ -28,6 +28,15 @@ pub const Config = struct {
         if (replace) try file.replace(self.io) else try file.link(self.io);
     }
 
+    /// Persist names published inside a directory. Opening a read handle here
+    /// also works when the caller's directory handle was opened only for paths.
+    pub fn syncDirectory(self: Config, name: []const u8) !void {
+        errdefer log.err(self.io, "could not persist directory entries in {s}/{s}", .{ self.path, name });
+        const directory = try self.dir.openFile(self.io, name, .{ .allow_directory = true });
+        defer directory.close(self.io);
+        try directory.sync(self.io);
+    }
+
     pub fn template(self: Config, name: []const u8) ![]const u8 {
         const path = try std.Io.Dir.path.join(self.gpa, &.{ self.templates, name });
         return Io.Dir.cwd().readFileAlloc(self.io, path, self.gpa, .limited(1024 * 1024));

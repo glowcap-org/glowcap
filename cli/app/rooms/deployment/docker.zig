@@ -19,16 +19,23 @@ pub const Client = struct {
     const Output = struct { term: std.process.Child.Term, stdout: []const u8 };
 
     pub fn capture(self: Client, operands: []const []const u8) !Output {
-        return self.readOutput(operands, false) catch |err| {
+        return self.readOutput(operands, false, 15) catch |err| {
             log.err(self.io, "{s}: {f}", .{ @errorName(err), Command{ .operands = operands } });
             return err;
         };
     }
 
+    /// Compose configuration can expand credentials. Never print its output.
+    pub fn privateQuery(self: Client, operands: []const []const u8) ![]const u8 {
+        const result = try self.readOutput(operands, true, 15);
+        if (!result.term.success()) return error.DockerCommandFailed;
+        return result.stdout;
+    }
+
     /// Session operations can return bearer links even before an error. Keep
     /// both output streams private on every exit, including timeout.
-    pub fn sessionResult(self: Client, operands: []const []const u8) ![]const u8 {
-        const result = try self.readOutput(operands, true);
+    pub fn sessionResult(self: Client, operands: []const []const u8, seconds: i64) ![]const u8 {
+        const result = try self.readOutput(operands, true, seconds);
         if (!result.term.success()) {
             const Report = struct { @"error": struct { class: []const u8 } };
             const report = std.json.parseFromSlice(Report, self.gpa, result.stdout, .{ .ignore_unknown_fields = true }) catch return error.MemberSessionCommandFailed;
@@ -43,8 +50,8 @@ pub const Client = struct {
         return result.stdout;
     }
 
-    fn readOutput(self: Client, operands: []const []const u8, private: bool) !Output {
-        const expires = Io.Clock.awake.now(self.io).addDuration(.fromSeconds(if (private) 90 else 15));
+    fn readOutput(self: Client, operands: []const []const u8, private: bool, seconds: i64) !Output {
+        const expires = Io.Clock.awake.now(self.io).addDuration(.fromSeconds(seconds));
         var child = try std.process.spawn(self.io, .{
             .argv = try self.args(operands),
             .environ_map = self.environ,

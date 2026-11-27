@@ -14,6 +14,13 @@ import hashlib, json, os, pathlib, signal, sys, time
 a = sys.argv[1:]
 with open(os.environ['DOCKER_LOG'], 'a') as f:
     f.write(json.dumps(a) + '\\n')
+if os.environ.get('MEMBER_WAIT') and a[-2:] == ['120', 'member-session']:
+    marker = pathlib.Path(os.environ['MEMBER_WAIT'])
+    marker.touch()
+    deadline = time.monotonic() + 8
+    while marker.exists():
+        if time.monotonic() >= deadline: sys.exit(9)
+        time.sleep(0.01)
 if os.environ.get('HANG_PROBE') or (os.environ.get('HANG_BUILD') and a[:1] == ['build']):
     signal.signal(signal.SIGTERM, signal.SIG_IGN)
     pathlib.Path(os.environ['DOCKER_PID']).write_text(str(os.getpid()))
@@ -41,6 +48,8 @@ if os.environ.get('FAIL_INSPECT') and a[:2] == ['image', 'inspect'] and '--forma
     sys.exit(1)
 if a[:2] == ['ps', '--all'] and 'label=org.glowcap.rooms.member=true' in a:
     print(os.environ.get('MEMBER_ROWS', ''))
+if a[:4] == ['ps', '--all', '--quiet', '--no-trunc']:
+    print(os.environ.get('MEMBER_CONTAINER', ''))
 image = 'sha256:' + 'a' * 64
 if a[:2] == ['volume', 'ls'] and os.environ.get('EXISTING_VOLUME'):
     print('glowcap-rooms-session-state\\nglowcap-rooms-directory-state\\noperator-extra-volume')
@@ -78,7 +87,19 @@ elif a[:2] == ['image', 'inspect'] and 'Labels' in ' '.join(a):
     label = pathlib.Path(os.environ['DOCKER_LOG'] + '.label')
     print(label.read_text() if label.exists() else '<no value>')
 elif a[:2] == ['image', 'inspect']: print(image)
+elif 'exec' in a and a[-5:] == ['apps', 'rooms', 'bot', 'status', '--dir=/bot-state']:
+    if os.environ.get('MEMBER_BOT_STOPPED'):
+        print('service "bot" is not running', file=sys.stderr)
+        sys.exit(1)
+    print(json.dumps({'running': True, 'status': {'unanswered': {'kind': 'sign-in'}}}))
 elif 'exec' in a and 'member-session' in a:
+    if 'join' in a and os.environ.get('SLOW_MEMBER_JOIN'):
+        rooms = [arg for arg in a if arg.startswith('--room=')]
+        assert len(rooms) == 1
+        time.sleep(0.06)
+        if rooms[0] == os.environ.get('REFUSED_ROOM'):
+            print(json.dumps({'ok': False, 'error': {'class': 'no-such-room'}}))
+            sys.exit(9)
     if 'issue' in a:
         print(json.dumps({'ok': True, 'id': 'deployment-bot', 'link': 'ocapn://fixture/s/fixture-bearer'}))
         if os.environ.get('FAIL_MEMBER_ISSUE'):

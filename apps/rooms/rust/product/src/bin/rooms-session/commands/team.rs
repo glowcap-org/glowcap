@@ -1,6 +1,7 @@
 //! Roster composition only. Every member uses the ordinary peer lifecycle and
 //! application commands. Harness/model scheduling stays outside the product.
-use super::{Failure, Options, execute, supervise};
+use super::{Failure, Options, execute, request, supervise};
+use futures_util::{StreamExt, TryStreamExt, stream};
 use rooms_application::failure::Retry;
 use rooms_application::room::inbox::{nick_key, nick_refusal};
 use rooms_platform::storage::Directory;
@@ -30,45 +31,40 @@ pub async fn run(options: &Options) -> Result<Value, Failure> {
 			let members = roster["members"]
 				.as_array()
 				.ok_or_else(|| Failure::invalid("roster lacks members"))?;
-			let mut results = Vec::new();
-			let verb = if stopping { "stop" } else { "status" };
-			for member in members {
-				let nick = member
-					.as_str()
-					.ok_or_else(|| Failure::invalid("invalid roster nickname"))?;
-				let mut peer = options.clone();
-				peer.verb = verb.into();
-				peer.state = supervise::state_path(&options.state, nick)?;
-				let result = execute(&peer).await.and_then(|reply| {
-					if stopping {
-						Ok(json!({"nick":nick,"ok":true,"result":reply}))
-					} else {
-						member_status(nick, &reply)
-					}
-				});
-				results.push(result.unwrap_or_else(|error| json!({"nick":nick,"ok":false,"error":error})));
-			}
+			// Keep shutdown ordered. Independent status reads can overlap, with
+			// a bounded number of open control sockets and stable roster order.
+			let results: Vec<_> = stream::iter(members)
+				.map(|member| report(options, member, stopping))
+				.buffered(if stopping { 1 } else { 8 })
+				.try_collect()
+				.await?;
 			Ok(json!({"ok":results.iter().all(|r|r["ok"] == true),"members":results}))
 		}
 		_ => Err(Failure::invalid("unknown team operation")),
 	}
 }
 
-fn member_status(nick: &str, status: &Value) -> Result<Value, Failure> {
-	let conversations = status["workspace"]["conversations"]
-		.as_array()
-		.ok_or_else(|| Failure::invalid("session status lacks conversations"))?;
-	// A retained seat is the same membership evidence the session waits for on join.
-	let rooms: Vec<_> = conversations
-		.iter()
-		.filter(|row| row["kind"] == "room")
-		.map(|room| json!({"name":room["name"],"joined":room["seat"].is_string()}))
-		.collect();
-	let inbox = &status["inbox"];
-	let gap = inbox["gap"]
-		.as_object()
-		.map(|failure| json!({"class":failure.get("class"),"retry":failure.get("retry")}));
-	Ok(json!({"nick":nick,"ok":true,"rooms":rooms,"inbox":{"remaining":inbox["remaining"],"gap":gap}}))
+async fn report(options: &Options, member: &Value, stopping: bool) -> Result<Value, Failure> {
+	let nick = member
+		.as_str()
+		.ok_or_else(|| Failure::invalid("invalid roster nickname"))?;
+	let state = supervise::state_path(&options.state, nick)?;
+	let result = if stopping {
+		let mut peer = options.clone();
+		peer.state = state;
+		peer.verb = "stop".into();
+		execute(&peer)
+			.await
+			.map(|reply| json!({"nick":nick,"ok":true,"result":reply}))
+	} else {
+		request(&state, json!({"verb":"member-status"}))
+			.await
+			.map(|mut status| {
+				status["nick"] = json!(nick);
+				status
+			})
+	};
+	Ok(result.unwrap_or_else(|error| json!({"nick":nick,"ok":false,"error":error})))
 }
 
 async fn start(options: &Options) -> Result<Value, Failure> {
@@ -153,19 +149,6 @@ mod tests {
 	use super::*;
 	use rooms_testing::scratch::Scratch;
 
-	#[test]
-	fn team_status_distinguishes_a_room_request_from_a_seat_and_limits_gap_details() {
-		let status = json!({
-			"workspace":{"conversations":[{"kind":"room","name":"workshop","reconnect":"requested","draft":"private"}]},
-			"inbox":{"remaining":2,"gap":{"class":"uncertain","retry":"after-state-change","message":"private"}}
-		});
-		assert_eq!(
-			member_status("scout", &status).unwrap(),
-			json!({"nick":"scout","ok":true,"rooms":[{"name":"workshop","joined":false}],
-				"inbox":{"remaining":2,"gap":{"class":"uncertain","retry":"after-state-change"}}})
-		);
-	}
-
 	fn options(root: &std::path::Path, verb: &str) -> Options {
 		Options {
 			verb: verb.into(),
@@ -190,6 +173,43 @@ mod tests {
 			assert_eq!(run(&start).await.unwrap_err().message, reason);
 			assert!(!root.exists());
 		}
+	}
+
+	#[tokio::test]
+	async fn status_reads_independent_members_together_and_preserves_roster_order() {
+		use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+		let root = Scratch::new("team-status-fanout");
+		std::fs::create_dir_all(root.join("first")).unwrap();
+		std::fs::create_dir(root.join("second")).unwrap();
+		std::fs::write(root.join("roster.json"), br#"{"members":["first","second"]}"#).unwrap();
+		let first = tokio::net::UnixListener::bind(root.join("first/control.sock")).unwrap();
+		let second = tokio::net::UnixListener::bind(root.join("second/control.sock")).unwrap();
+		let accept = async |listener: tokio::net::UnixListener| {
+			let (peer, _) = listener.accept().await.unwrap();
+			let mut peer = BufReader::new(peer);
+			let mut line = String::new();
+			peer.read_line(&mut line).await.unwrap();
+			assert_eq!(
+				serde_json::from_str::<Value>(&line).unwrap(),
+				json!({"verb":"member-status"})
+			);
+			peer.into_inner()
+		};
+		let serve = async {
+			let (mut first, mut second) = tokio::join!(accept(first), accept(second));
+			let reply = b"{\"ok\":true,\"rooms\":[],\"inbox\":{\"remaining\":0,\"gap\":null}}\n";
+			second.write_all(reply).await.unwrap();
+			first.write_all(reply).await.unwrap();
+		};
+		let status = options(&root, "team-status");
+		let (result, ()) = tokio::time::timeout(std::time::Duration::from_secs(3), async {
+			tokio::join!(run(&status), serve)
+		})
+		.await
+		.unwrap();
+		let output = result.unwrap();
+		assert_eq!(output["members"][0]["nick"], "first");
+		assert_eq!(output["members"][1]["nick"], "second");
 	}
 
 	#[tokio::test]

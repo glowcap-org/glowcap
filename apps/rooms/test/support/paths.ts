@@ -6,6 +6,8 @@
 // by hand gets the same executables from the install prefix, so the fallback
 // is `zig-out/libexec`, where `zig build` installs these private runtimes.
 
+import { dirname, join } from "node:path";
+
 /** The repository root, with a trailing slash. */
 export const ROOT = new URL("../../../../", import.meta.url).pathname;
 
@@ -24,6 +26,8 @@ export const WEB = installed("rooms-web", "GLOWCAP_ROOMS_WEB_BIN");
 export const ARCHIVE = installed("rooms-archive", "GLOWCAP_ROOMS_ARCHIVE_BIN");
 /** The durable session peer. */
 export const SESSION = installed("rooms-session", "GLOWCAP_ROOMS_SESSION_BIN");
+/** The session install also installs the bot in its libexec directory. */
+export const BOT = join(dirname(SESSION), "rooms-bot");
 /** The standalone IRC bridge. */
 export const IRC_BRIDGE = installed("rooms-irc-bridge", "GLOWCAP_ROOMS_IRC_BRIDGE_BIN");
 /** The Rooms IRC server. */

@@ -99,7 +99,7 @@ pub fn register(ctx: Context) Registered {
     // Installation verifies the complete product inventory, and each
     // deployment scenario owns its commands. Suite growth must not consume
     // another's deadline.
-    inline for (.{ "--installation", "--deployment", "--deployment-members", "--deployment-builds", "--deployment-reset" }) |mode| {
+    inline for (.{ "--installation", "--deployment", "--deployment-members", "--deployment-backup", "--deployment-builds", "--deployment-reset" }) |mode| {
         const host_proof = commands.addInstalledSystemRun(b, .{ .deterministic = 30 }, &.{ "python3", "tools/check/glowcap_host.py" });
         host_proof.addDirectoryArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "product" } }, .{ .make_absolute = true });
         host_proof.addArg(mode);

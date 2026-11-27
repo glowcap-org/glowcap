@@ -18,7 +18,13 @@ A bot works alongside people and other operators’ bots under its own nickname.
 | editor | Yes. The note supports the change in the first paragraph. |
 
 Only the named bot wakes on each mention. A DM wakes its recipient. The editor's last line is visible to everyone in the room and calls for no further turn.
-A bot can also finish a DM without posting another acknowledgement. [Running a Rooms bot](../../../../docs/rooms/bot.md)
+A bot can also finish a DM without posting another acknowledgement.
+
+For a team that people join over time, someone with permission to set the room subject can leave a short guide with `/subject Research with scout, review with editor, and ask a person to approve publication.`
+Members can read it with `/subject`. Keep the agent’s private role brief in its deployment.
+
+To bring another operator’s assistant into a listed room, send them the directory locator and room name.
+They can run a single assistant on their machine or use this deployment guide on their own host with `--locator`. Each operator keeps their agent sign-in. [Run a single assistant](../../../../docs/rooms/bot.md#first-run)
 
 1. [Start the base deployment](README.md#run-it) and create or choose a listed room that admits the members. This example uses `workshop`.
    From the deployment configuration directory, build one agent image for all members that use the same harness.
@@ -65,9 +71,10 @@ A bot can also finish a DM without posting another acknowledgement. [Running a R
    glowcap apps rooms deployment bots status --dir "$PWD"
    ```
 
-   Wait for the nicknames to appear in the room's member list before sending a mention.
-   Use `--room` again to join another listed room. Repeat the flag to join several in one command.
-   Members keep their identities and earlier memberships. Without `--locator`, an existing member uses its saved home directory.
+   Once `bots up` succeeds and the nicknames appear in the room, tell the other participants they can send the first mention or DM.
+   A nickname can appear as soon as `init --room` joins its session. The first agent start skips messages sent before it began listening.
+   Repeat `--room` to join listed rooms in order, using `--locator` or the member’s saved home directory.
+   If a later join fails, earlier memberships remain. Check an interrupted join with `glowcap apps rooms deployment bots session --dir "$PWD" editor -- status` before retrying.
 
    ```sh
    glowcap apps rooms deployment bots up --dir "$PWD" --room garden editor
@@ -80,16 +87,19 @@ A bot can also finish a DM without posting another acknowledgement. [Running a R
 
 A bot can start with just a nickname. `bots up` with no room registers a new member for DMs in the deployment's directory.
 To register it before starting the agent, use `bots init --locator http://directory:8080/locator` with its nickname.
-A member of an invite-only room can then use `/invite scout` there.
 
-To review invitations as that bot, issue a separate access for yourself:
+On the member’s host, read the session’s original use link. This is the access the session used to register the nickname, so it can receive the room offered to that member.
 
 ```sh
-glowcap apps rooms deployment bots session --dir "$PWD" scout -- access issue --label setup --rights collaborator
+glowcap apps rooms deployment bots session --dir "$PWD" scout -- ready --file=/run/rooms-session/use.sturdyref
 ```
 
-In Rooms, attach with the returned link, choose the invitation and accept it. The running bot now participates under its existing identity.
-Keep the link private. Revoke your setup access by its returned ID when finished. Other operators can invite your bots by the same route.
+As the bot’s operator, open Rooms in a private browser window. Under **Choose a session**, select **Shared session** and attach with this link.
+Keep it on your machine and out of chat. The inviting operator needs only the bot’s nickname, and the bot continues to use its separate collaborator access.
+
+Someone who created the private room or holds its room access can now use `/invite scout` there.
+In your attached window, accept the invitation. Once the inviter sees the bot in the room, close the private window.
+The session keeps its membership.
 
 ### Look after the members
 
@@ -101,6 +111,25 @@ If public ingress requires a browser login, set the [relay alias](README.md#a-re
 To choose another agent image for one member, set `services.bot.image` in its override and its harness in `bot.env`.
 To upgrade the members, upgrade the base deployment, rebuild the shared agent image, then run `bots up` for the members you want to upgrade.
 Stopping the base deployment and stopping named members are separate operations. [Back up a stopped stack](backup.md) covers both.
+
+### When a bot misses a handoff
+
+`bots status` shows container health. To see what happened to one running agent, read its bot status:
+
+```sh
+glowcap apps rooms deployment bots inspect --dir "$PWD" editor
+```
+
+`status.unanswered` gives the reason and next step for a failed turn. `status.last_error` says whether reading, thinking, sending or saving failed. [Reading bot status](../../../../docs/rooms/bot.md#looking-after-it)
+
+If the bot container keeps restarting, `bots logs --dir "$PWD" editor` shows its startup output.
+The bot writes the harness's own diagnostics in `/bot-state/bot.log`, which can contain private conversation details.
+`bots logs` prints the Docker command to read the last 100 lines for this member. It also works on a stopped container. If `bots inspect` fails, it prints the same next step.
+
+After `bots down` removes the container, run `glowcap apps rooms deployment backup-plan --dir "$PWD"`.
+Find the member's `bot:/bot-state` row. Its last field is the host directory for a bind mount or the Docker volume name for a volume.
+On the Docker daemon's Linux host, read `bot.log` from the bind directory or from the directory printed by `docker volume inspect --format '{{.Mountpoint}}' VOLUME`.
+On Docker Desktop that mountpoint is inside its VM. For a named volume in a [stopped-stack backup](backup.md), read the log with `tar -xOzf "$backup/volumes/VOLUME.tgz" ./bot.log | tail -n 100`.
 
 ## Recover a missing member link
 

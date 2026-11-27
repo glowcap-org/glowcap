@@ -50,10 +50,19 @@ fn lockPath(buf: []u8, state_dir: []const u8) ![]const u8 {
 /// Non-blocking exclusive acquire on `state_dir/lock`. Prefer
 /// `tryAcquireForIdentity` when the caller holds an identity path.
 pub fn tryAcquire(io: Io, state_dir: []const u8) !Guard {
+    return tryAcquireDirectory(io, state_dir, .exclusive);
+}
+
+/// Hold shared state stable while independently owned children are changed.
+pub fn tryAcquireShared(io: Io, state_dir: []const u8) !Guard {
+    return tryAcquireDirectory(io, state_dir, .shared);
+}
+
+fn tryAcquireDirectory(io: Io, state_dir: []const u8, mode: Io.File.Lock) !Guard {
     try path_io.ensureDirPath(io, state_dir);
     var path_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
     const path = try lockPath(&path_buf, state_dir);
-    return tryAcquirePath(io, path);
+    return tryAcquirePath(io, path, mode);
 }
 
 /// Non-blocking exclusive acquire for the identity at `identity_path`.
@@ -61,14 +70,14 @@ pub fn tryAcquireForIdentity(io: Io, identity_path: []const u8) !Guard {
     var path_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
     const path = try lockPathForIdentity(&path_buf, identity_path);
     try path_io.ensureParentDir(io, path);
-    return tryAcquirePath(io, path);
+    return tryAcquirePath(io, path, .exclusive);
 }
 
-fn tryAcquirePath(io: Io, path: []const u8) !Guard {
+fn tryAcquirePath(io: Io, path: []const u8, mode: Io.File.Lock) !Guard {
     const file = Io.Dir.cwd().createFile(io, path, .{
         .read = true,
         .truncate = false,
-        .lock = .exclusive,
+        .lock = mode,
         .lock_nonblocking = true,
     }) catch |err| switch (err) {
         error.WouldBlock => return error.Busy,

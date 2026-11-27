@@ -25,11 +25,13 @@ pub const command: types.Command = .{ .name = "deployment", .short_help = "Run R
     .{ .name = "bots", .short_help = "Run individually named bot members alongside the deployment", .children = &.{
         .{ .name = "init", .short_help = "Prepare private member files. With --room or --locator also register and issue access before starting agents", .flags = &.{ dir, rooms, locator }, .positionals = nicks, .run = run(.{ .bots = .init }) },
         .{ .name = "session", .short_help = "Run a Rooms session command for one named member", .flags = &.{dir}, .positionals = &.{ .{ .name = "nick", .help = "Bot nickname" }, .{ .name = "command", .help = "Session command and arguments after --", .variadic = true } }, .run = run(.{ .bots = .session }) },
-        .{ .name = "logs", .short_help = "Show recent session and agent logs for the named bots", .flags = &.{dir}, .positionals = nicks, .run = run(.{ .bots = .logs }) },
+        .{ .name = "inspect", .short_help = "Read one running bot's access, turns and most recent failure as JSON", .flags = &.{dir}, .positionals = &.{.{ .name = "nick", .help = "Bot nickname" }}, .run = run(.{ .bots = .inspect }) },
+        .{ .name = "logs", .short_help = "Show recent container output for the named bots and their sessions", .flags = &.{dir}, .positionals = nicks, .run = run(.{ .bots = .logs }) },
         .{ .name = "up", .short_help = "Start these bots and join the named rooms, keeping their existing memberships", .flags = &.{ dir, rooms, locator }, .positionals = nicks, .run = run(.{ .bots = .up }) },
         .{ .name = "status", .short_help = "Inspect the sessions and agents of the named bots", .flags = &.{dir}, .positionals = optional_nicks, .run = run(.{ .bots = .status }) },
         .{ .name = "down", .short_help = "Stop the named bots and their sessions, retaining their identities and state", .flags = &.{dir}, .positionals = nicks, .run = run(.{ .bots = .down }) },
     } },
+    .{ .name = "backup-plan", .short_help = "List the selected services and mounts to archive before stopping the deployment", .flags = &.{ dir, .{ .long = "unstarted", .kind = .string_flag, .repeatable = true, .help = "Member whose agent has never started. Require its session store" }, .{ .long = "files-only", .kind = .string_flag, .repeatable = true, .help = "Member prepared only on disk. Its session and agent have never started" } }, .run = run(.backup_plan) },
     .{ .name = "doctor", .short_help = "Inspect configuration and Docker availability without changing them", .flags = &.{dir}, .run = run(.doctor) },
     .{ .name = "status", .short_help = "Show service health and persistent volumes", .flags = &.{dir}, .run = run(.status) },
     .{ .name = "links", .short_help = "Print the page link, operator capabilities, locators, and session links again", .flags = &.{dir}, .run = run(.links) },
@@ -42,6 +44,7 @@ pub const command: types.Command = .{ .name = "deployment", .short_help = "Run R
 
 const Verb = union(enum) {
     bots: members.Verb,
+    backup_plan,
     up,
     doctor,
     status,
@@ -56,18 +59,16 @@ const Verb = union(enum) {
     fn starts(verb: Verb) bool {
         return switch (verb) {
             .up, .reset => true,
-            .doctor, .status, .links, .logs, .trace, .down, .restart, .bots => false,
+            .backup_plan, .doctor, .status, .links, .logs, .trace, .down, .restart, .bots => false,
         };
     }
-    /// Whether the verb changes the deployment, and so holds its state lock.
-    fn mutating(verb: Verb) bool {
+    /// A member owns its own writer lock. Reading the selected base under a
+    /// shared lease keeps a base reset or image change out of its rollout.
+    fn lock(verb: Verb) Io.File.Lock {
         return switch (verb) {
-            .up, .down, .restart, .reset => true,
-            .doctor, .status, .links, .logs, .trace => false,
-            .bots => |member| switch (member) {
-                .init, .up, .down => true,
-                .session, .logs, .status => false,
-            },
+            .up, .down, .restart, .reset => .exclusive,
+            .bots => |member| if (member.mutating()) .shared else .none,
+            else => .none,
         };
     }
 };
@@ -170,9 +171,13 @@ fn perform(ctx: *Ctx, parsed: *types.Parsed, comptime verb: Verb) !void {
         };
     defer directory.close(ctx.io);
     const state: config.Config = .{ .io = ctx.io, .gpa = gpa, .dir = directory, .path = absolute_dir, .templates = templates };
-    const mutating = comptime verb.mutating();
+    const mode = comptime verb.lock();
     const state_lock = @import("../../operability/state_lock.zig");
-    var lock: ?state_lock.Guard = if (mutating) try state_lock.tryAcquire(ctx.io, absolute_dir) else null;
+    var lock: ?state_lock.Guard = switch (mode) {
+        .none => null,
+        .shared => try state_lock.tryAcquireShared(ctx.io, absolute_dir),
+        .exclusive => try state_lock.tryAcquire(ctx.io, absolute_dir),
+    };
     defer if (lock) |*guard| guard.deinit();
     if (starts) {
         try state.prepare();
@@ -195,6 +200,7 @@ fn perform(ctx: *Ctx, parsed: *types.Parsed, comptime verb: Verb) !void {
     };
     try environ.put("GLOWCAP_ROOMS_IMAGE", selected);
     if (comptime verb == .bots) return members.perform(state, docker, parsed, verb.bots);
+    if (comptime verb == .backup_plan) return @import("deployment/backup.zig").plan(state, docker, parsed);
     // Preflight includes the operator override before any stop or deletion.
     _ = try docker.query(try docker.composeArgs(&.{ "config", "--quiet" }));
     switch (verb) {
@@ -223,7 +229,7 @@ fn perform(ctx: *Ctx, parsed: *types.Parsed, comptime verb: Verb) !void {
             return std.process.replace(ctx.io, .{ .argv = try docker.args(try docker.composeArgs(operands)), .environ_map = &environ });
         },
         .reset => try operations.reset(docker, unit, parsed.flagBool("yes")),
-        .bots, .doctor => unreachable, // answered above, before any configuration exists
+        .backup_plan, .bots, .doctor => unreachable, // answered above, before any configuration exists
     }
 }
 

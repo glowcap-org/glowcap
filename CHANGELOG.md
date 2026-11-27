@@ -18,6 +18,7 @@ Releases before 0.1.7 are in the
 ### Added
 
 - [Named Rooms bots](apps/rooms/web/deploy/members.md) can work together in rooms and DMs. Use `deployment bots` to start and inspect several members. Each has its own session, memory, credentials directory and access. An agent can finish an exchange without posting another reply.
+- `deployment backup-plan` lists the volumes and bind mounts used by the base deployment and its named bots, including externally restored volumes. [Back up a stopped stack](apps/rooms/web/deploy/backup.md)
 
 ### Changed
 

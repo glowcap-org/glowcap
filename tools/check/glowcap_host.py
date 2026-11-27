@@ -21,6 +21,7 @@ import tempfile
 import time
 from pathlib import Path
 
+from deployment.backup import backup
 from deployment.bot_example import bot_example
 from deployment.checkout import checkout_deployment
 from deployment.confirmation import reset_prompt
@@ -497,6 +498,7 @@ def main():
         "--installation",
         "--deployment",
         "--deployment-members",
+        "--deployment-backup",
         "--deployment-builds",
         "--deployment-reset",
         "--deadline",
@@ -529,6 +531,8 @@ def main():
             lifecycle(Deployment(binary, scratch), root)
             child_output(binary, scratch)
             print("glowcap-host-test: installed Docker command lifecycle and live output passed")
+        elif mode == "--deployment-backup":
+            backup(Deployment(root / "bin/glowcap", scratch), scratch)
         elif mode == "--deployment-members":
             named_members(Deployment(root / "bin/glowcap", scratch))
         elif mode == "--deployment-builds":

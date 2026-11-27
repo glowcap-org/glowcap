@@ -22,12 +22,12 @@ Each speaks under its own nickname and can work with people and bots run by othe
 
 ## First run
 
-The commands below start the bot's session, issue it an access with the right to post, and serve the bot with that access. The session directory is private to the bot's session, and the bot directory is where `serve` keeps the bot's settings and state. Replace the nickname, the directory locator, and the room with your own.
+The commands below start the bot's session, issue it an access with the right to post, and serve the bot with that access. The session directory is private to the bot's session, and the bot directory is where `serve` keeps the bot's settings and state. Choose an existing listed room that admits the bot. Replace the nickname, directory locator and room with yours.
 
 ```sh
 glowcap apps rooms session start \
-  --dir "$HOME/.rooms/helper" --nick helper \
-  --locator https://rooms.example/locator --room workshop
+  --dir "$HOME/.rooms/helper" --nick helper --exact-nick \
+  --locator https://rooms.example/locator --existing-room --room workshop
 
 glowcap apps rooms session access issue \
   --dir "$HOME/.rooms/helper" --label bot --rights collaborator \
@@ -272,7 +272,9 @@ The session holds at most <!-- value ../../apps/rooms/rust/application/src/conte
 
 Waiting alone does not clear it when another access holds the places. A place the bot's own actions or opens hold frees without help, because the serving loop settles them once the turn's agent stops. A place frees when the access that sent one of those requests finishes it or gives it back, or when that access is revoked, as [Receipts and direct-message opens](#receipts-and-direct-message-opens) says. The agent sees a `--dm` open the full session refused with class `receipts-full`, and nothing was sent. `bot ready` does not look at sending, so it stays ready while a reply waits.
 
-The log is `bot.log` in the bot directory. Each line starts with its UTC time. A turn logs when it starts and when it finishes, with its conversation, duration, and outcome, and the log never holds message text. An access state such as `paused` or `revoked` is logged once when it changes. What the agent prints to its error output is logged with control characters escaped, and each logged line is cut at <!-- value ../../apps/rooms/rust/product/src/bin/rooms-bot/store.rs MAX_LOG_LINE_BYTES -->4,096<!-- /value --> bytes. The log rotates to `bot.log.1` after <!-- value ../../apps/rooms/rust/product/src/bin/rooms-bot/store.rs LOG_LIMIT bytes -->1 MiB<!-- /value -->.
+The log is `bot.log` in the bot directory. Each line starts with its UTC time. Rooms records when each turn starts and finishes, its conversation, duration and outcome. Those records omit message text. Harness diagnostics can contain private conversation details. Review them before sharing the log.
+
+An access state such as `paused` or `revoked` is logged once when it changes. What the agent prints to its error output is logged with control characters escaped, and each logged line is cut at <!-- value ../../apps/rooms/rust/product/src/bin/rooms-bot/store.rs MAX_LOG_LINE_BYTES -->4,096<!-- /value --> bytes. The log rotates to `bot.log.1` after <!-- value ../../apps/rooms/rust/product/src/bin/rooms-bot/store.rs LOG_LIMIT bytes -->1 MiB<!-- /value -->.
 
 You manage the access from the bot's session directory:
 

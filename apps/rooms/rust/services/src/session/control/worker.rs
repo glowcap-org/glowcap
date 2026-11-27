@@ -4,19 +4,24 @@ use serde_json::{Value, json};
 use std::path::PathBuf;
 use tokio::sync::{mpsc, oneshot, watch};
 
+pub(super) enum Read {
+	Health,
+	PageAfter(u64),
+}
+
 enum Work {
 	Event(Value, oneshot::Sender<Result<u64, Failure>>),
-	Pending(u64, oneshot::Sender<Result<Value, Failure>>),
+	Read(Read, oneshot::Sender<Result<Value, Failure>>),
 	Ack(Vec<u64>, oneshot::Sender<Result<Value, Failure>>),
 	Gap(Failure),
 	Resume(oneshot::Sender<Result<Value, Failure>>),
 	Close,
 }
 impl Work {
-	/// Reading the pending page and closing the journal observe without
+	/// Reading the inbox and closing the journal observe without
 	/// changing it. Every other request mutates the journal.
 	fn is_mutation(&self) -> bool {
-		!matches!(self, Work::Pending(..) | Work::Close)
+		!matches!(self, Work::Read(..) | Work::Close)
 	}
 }
 #[derive(Clone)]
@@ -60,8 +65,11 @@ impl Owner {
 						}
 						let _ = reply.send(result);
 					}
-					Work::Pending(after_id, reply) => {
-						let mut pending = inbox.pending(after_id);
+					Work::Read(view, reply) => {
+						let mut pending = match view {
+							Read::Health => inbox.health(),
+							Read::PageAfter(after_id) => inbox.pending(after_id),
+						};
 						pending["cursor"] = cursor.into();
 						let _ = reply.send(Ok(pending));
 					}
@@ -146,10 +154,10 @@ impl Worker {
 			.await
 			.map_err(|_| Failure::uncertain("inbox worker ended"))
 	}
-	pub async fn pending(&self, after_id: u64) -> Result<Value, Failure> {
+	pub(super) async fn read(&self, view: Read) -> Result<Value, Failure> {
 		let (reply, result) = oneshot::channel();
 		self.tx
-			.send(Work::Pending(after_id, reply))
+			.send(Work::Read(view, reply))
 			.await
 			.map_err(|_| Failure::uncertain("inbox worker ended"))?;
 		result.await.map_err(Failure::uncertain)?

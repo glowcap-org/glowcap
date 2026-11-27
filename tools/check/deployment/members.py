@@ -1,6 +1,8 @@
 """Exercise named member provisioning and isolation through the installed CLI."""
 
 import json
+import time
+from concurrent.futures import ThreadPoolExecutor
 
 
 def named_members(deploy):
@@ -38,6 +40,35 @@ def named_members(deploy):
     assert status.index("editor") < status.index("scout")
     assert status.count("stopped") == 3 and "(unhealthy)" in status and "foreign-marker" not in status
     call("bots", "down", "editor")
+    inspect_start = len(deploy.log.read_text())
+    report = json.loads(call("bots", "inspect", "scout").stdout)
+    assert report["status"]["unanswered"]["kind"] == "sign-in"
+    stopped_env = {"MEMBER_BOT_STOPPED": "1", "MEMBER_CONTAINER": "a" * 64}
+    stopped = call("bots", "inspect", "editor", env=stopped_env, ok=False)
+    assert 'service "bot" is not running' in stopped.stderr
+    assert f"docker cp {'a' * 64}:/bot-state/bot.log -" in stopped.stderr
+    inspected = [json.loads(line) for line in deploy.log.read_text()[inspect_start:].splitlines()]
+    assert len(inspected) == 3
+    for nick, operands in zip(("scout", "editor"), inspected[:2], strict=True):
+        assert operands[operands.index("--project-name") + 1] == f"glowcap-member-{nick}-{original[nick][0]}"
+        assert operands[operands.index("exec") :] == [
+            "exec",
+            "-T",
+            "bot",
+            "/runtime/bin/glowcap",
+            "apps",
+            "rooms",
+            "bot",
+            "status",
+            "--dir=/bot-state",
+        ]
+    lookup = inspected[-1]
+    assert lookup[:4] == ["ps", "--all", "--quiet", "--no-trunc"]
+    assert f"label=com.docker.compose.project=glowcap-member-editor-{original['editor'][0]}" in lookup
+    assert "label=com.docker.compose.service=bot" in lookup and "label=com.docker.compose.oneoff=False" in lookup
+    for container in ("", "x" * 64, "a" * 64 + "\n" + "b" * 64):
+        logs = call("bots", "logs", "editor", env={"MEMBER_CONTAINER": container})
+        assert "backup-plan" in logs.stderr and "docker cp" not in logs.stderr
     calls = [json.loads(line) for line in deploy.log.read_text()[before:].splitlines()]
     assert all("issue" not in args and "--volumes" not in args for args in calls)
     assert [args[args.index("--project-name") + 1] for args in calls if "down" in args] == [
@@ -78,8 +109,50 @@ def named_members(deploy):
     assert "join" in register and "--locator=http://custom/locator" in register
     assert all(not arg.startswith("--home-locator") for arg in register)
     call("bots", "session", "scout", "--", "access", "list")
+    multiple_rooms(deploy)
+    independent_member_changes(deploy)
     (root / "editor/project-id").unlink()
     before = deploy.log.read_text()
     recovery = call("bots", "up", "editor", ok=False)
     assert "restore" in recovery.stderr and "project-id" in recovery.stderr
     assert deploy.log.read_text() == before and not (root / "editor/project-id").exists()
+
+
+def independent_member_changes(deploy):
+    """A suspended rollout excludes that member and the base, while another member can stop."""
+    marker = deploy.scratch / "member-waiting"
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        started = executor.submit(deploy.call, "bots", "up", "scout", env={"MEMBER_WAIT": str(marker)})
+        try:
+            deadline = time.monotonic() + 5
+            while not marker.exists():
+                assert time.monotonic() < deadline and not started.done(), "rollout did not reach Docker"
+                time.sleep(0.01)
+            deploy.call("bots", "down", "editor")
+            assert "Busy" in deploy.call("bots", "down", "scout", ok=False).stderr
+            assert "Busy" in deploy.call("down", ok=False).stderr
+        finally:
+            marker.unlink(missing_ok=True)
+        started.result()
+
+
+def multiple_rooms(deploy):
+    rooms = ["one", "two", "three", "four", "five"]
+    room_options = [arg for room in rooms for arg in ("--room", room)]
+    args = ("bots", "init", "--locator", "http://custom/locator", *room_options, "planner")
+    before = len(deploy.log.read_text())
+    failed = deploy.call(*args, env={"SLOW_MEMBER_JOIN": "1", "REFUSED_ROOM": "--room=four"}, ok=False)
+    assert "confirmed room 3 of 5" in failed.stdout and "confirmed room 4" not in failed.stdout
+    assert "no-such-room" in failed.stderr and "issue" not in deploy.log.read_text()[before:]
+    assert not (deploy.workspace / "bots/planner/bot-link").exists()
+
+    before = len(deploy.log.read_text())
+    finished = deploy.call(*args, env={"SLOW_MEMBER_JOIN": "1"})
+    calls = [json.loads(line) for line in deploy.log.read_text()[before:].splitlines()]
+    joins = [parts for parts in calls if "join" in parts]
+    assert [[arg for arg in parts if arg.startswith("--room=")] for parts in joins] == [
+        [f"--room={room}"] for room in rooms
+    ]
+    assert all("--locator=http://custom/locator" in parts and "--exact-nick" in parts for parts in joins)
+    assert "confirmed room 5 of 5" in finished.stdout and "issue" in calls[-1]
+    assert (deploy.workspace / "bots/planner/bot-link").is_file()
