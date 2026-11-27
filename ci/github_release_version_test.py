@@ -50,24 +50,33 @@ class Version(unittest.TestCase):
 
     def test_the_newest_release_names_a_prerelease_version(self):
         for listed, accepted in [
-            ([{"tagName": "v0.1.6"}], True),
-            ([{"tagName": "v1.0.0"}], False),
-            ([{"tagName": None}], False),
-            ([], False),
+            ("v0.1.2\nv0.1.10\nv1.3.0\nv0.1.6\n", True),
+            ("v1.0.0\n", False),
+            ("unrelated\n", False),
+            ("", False),
         ]:
             with self.subTest(listed=listed), workdir() as root:
                 output = root / "output"
                 output.write_text("")
-                with mock.patch.object(RELEASE.subprocess, "check_output", return_value=json.dumps(listed)) as gh:
+                with mock.patch.object(RELEASE.subprocess, "check_output", return_value=listed) as gh:
                     if accepted:
                         run_main("version", "--newest", GITHUB_OUTPUT=str(output))
-                        self.assertEqual(output.read_text(), "version=0.1.6\n")
+                        self.assertEqual(output.read_text(), "version=0.1.10\n")
                     else:
                         with self.assertRaises(ValueError):
                             run_main("version", "--newest", GITHUB_OUTPUT=str(output))
                         self.assertEqual(output.read_text(), "")
-                self.assertEqual(gh.call_args.args[0][:4], ["gh", "release", "list", "--repo"])
-                self.assertIn(REPOSITORY, gh.call_args.args[0])
+                self.assertEqual(
+                    gh.call_args.args[0],
+                    [
+                        "gh",
+                        "api",
+                        f"repos/{REPOSITORY}/releases?per_page=100",
+                        "--paginate",
+                        "--jq",
+                        ".[] | select(.draft == false) | .tag_name",
+                    ],
+                )
 
     def test_every_workflow_reads_versions_through_the_one_rule(self):
         cases = [

@@ -21,3 +21,20 @@ def of_tag(tag):
     if isinstance(tag, str) and tag.startswith("v") and accepted(tag[1:]):
         return tag[1:]
     return None
+
+
+def version_key(version):
+    """Numeric comparison key for an accepted version."""
+    return tuple(map(int, version.split(".")))
+
+
+def highest_public_tag(repository, gh):
+    """Select the highest supported public version, including prereleases and every page."""
+    tags = gh(
+        "api",
+        f"repos/{repository}/releases?per_page=100",
+        "--paginate",
+        "--jq",
+        ".[] | select(.draft == false) | .tag_name",
+    )
+    return max((tag for tag in tags.splitlines() if of_tag(tag)), key=lambda tag: version_key(tag[1:]), default="")

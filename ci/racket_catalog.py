@@ -190,7 +190,7 @@ def publish(slug, tag, email, password, root=ROOT, clock=time.monotonic, sleep=t
     parts = previous_source.rsplit("/", 2)
     if len(parts) == 3 and previous_source == package_source(slug, parts[1]):
         previous_version = release_version.of_tag(parts[1])
-        if previous_version and tuple(map(int, previous_version.split("."))) > tuple(map(int, tag[1:].split("."))):
+        if previous_version and release_version.version_key(previous_version) > release_version.version_key(tag[1:]):
             raise Refused(f"the catalog already serves newer release {parts[1]}; refusing to replace it with {tag}")
     description, tags = metadata(root)
     save(found, source, description, tags, email, password)

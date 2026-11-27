@@ -55,7 +55,9 @@ class PublishWorkflow(unittest.TestCase):
     def test_the_racket_job_edits_the_catalog_with_its_environment_secrets_then_installs(self):
         job = jobs(PUBLISH)["racket"]
         self.assertNotIn("id-token", json.dumps(job))
-        self.assertEqual(job["concurrency"], {"group": "publish-racket-catalog", "cancel-in-progress": False})
+        self.assertEqual(
+            job["concurrency"], {"group": "publish-racket-catalog", "queue": "max", "cancel-in-progress": False}
+        )
         newest = step(job, "Read the newest public release for the catalog")
         self.assertEqual(newest["run"], "python3 ci/github_release.py version --newest")
         self.assertEqual(newest["id"], "newest")

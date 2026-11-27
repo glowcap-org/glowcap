@@ -64,6 +64,7 @@ import time
 import zipfile
 from pathlib import Path, PurePosixPath
 
+import release_signature
 import release_version
 
 TARGETS = ("aarch64-macos", "x86_64-macos", "aarch64-linux", "x86_64-linux")
@@ -441,7 +442,11 @@ def signed_commit(repository, tag):
         "tag signature is unverified or tag does not point directly to a commit",
     )
     require(signed["tag"] == tag, f"the signed tag names {signed['tag']} instead of {tag}")
-    return signed["object"]["sha"]
+    commit = signed["object"]["sha"]
+    login = release_signature.tagger_login(repository, ref["sha"])
+    proof = signed["verification"]
+    release_signature.verify(repository, login, tag, commit, proof["payload"].encode(), proof["signature"].encode())
+    return commit
 
 
 def published(repository, tag):
@@ -480,11 +485,14 @@ def tree_version(tag=None):
 
 
 def newest_version(repository):
-    """The version of the newest release GitHub lists for the repository."""
-    command = ["gh", "release", "list", "--repo", repository, "--exclude-drafts", "--limit", "1", "--json", "tagName"]
-    listed = json.loads(subprocess.check_output(command, timeout=60))
-    require(isinstance(listed, list) and len(listed) == 1, "the repository lists no release")
-    return version_of(listed[0].get("tagName"))
+    """The highest supported version across all published releases, including prereleases."""
+
+    def gh(*args):
+        return subprocess.check_output(["gh", *args], text=True, timeout=60)
+
+    tag = release_version.highest_public_tag(repository, gh)
+    require(tag, "the repository lists no supported public release")
+    return tag[1:]
 
 
 def write_output(**values):

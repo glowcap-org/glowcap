@@ -169,7 +169,7 @@ class Assemble(unittest.TestCase):
             (binding / "info.rkt").write_text("uncommitted change")
             (root / "artifacts").mkdir()
             (root / "ci").mkdir()
-            for program in (SCRIPT, SCRIPT.with_name("release_version.py")):
+            for program in (SCRIPT, SCRIPT.with_name("release_version.py"), SCRIPT.with_name("release_signature.py")):
                 shutil.copyfile(program, root / "ci" / program.name)
             script = run(jobs(".github/workflows/release.yml")["release"], "Package the Racket binding")
             subprocess.run(
@@ -450,7 +450,7 @@ class Published(unittest.TestCase):
             f"git/ref/tags/{TAG}": {"object": {"type": "tag", "sha": "c" * 40}},
             "git/tags/" + "c" * 40: {
                 "tag": TAG,
-                "verification": {"verified": True},
+                "verification": {"verified": True, "payload": "tag payload", "signature": "ssh signature"},
                 "object": {"type": "commit", "sha": COMMIT},
             },
             f"releases/tags/{TAG}": {"draft": False, "tag_name": TAG, "assets": assets},
@@ -465,9 +465,13 @@ class Published(unittest.TestCase):
 
         with (
             mock.patch.object(RELEASE, "api", side_effect=lookup),
+            mock.patch.object(RELEASE.release_signature, "tagger_login", return_value="release-admin"),
+            mock.patch.object(RELEASE.release_signature, "verify") as verify,
             mock.patch.object(RELEASE.subprocess, "run", side_effect=main_check) as run,
         ):
-            return RELEASE.published(REPOSITORY, TAG), run
+            commit = RELEASE.published(REPOSITORY, TAG)
+            verify.assert_called_once_with(REPOSITORY, "release-admin", TAG, COMMIT, b"tag payload", b"ssh signature")
+            return commit, run
 
     def test_a_signed_tag_on_checked_main_with_the_exact_public_assets_is_accepted(self):
         commit, run = self.check(self.answers())
@@ -489,6 +493,8 @@ class Published(unittest.TestCase):
         ]:
             with (
                 self.subTest(label),
+                mock.patch.object(RELEASE.release_signature, "tagger_login", return_value="release-admin"),
+                mock.patch.object(RELEASE.release_signature, "verify"),
                 mock.patch.object(RELEASE, "api", side_effect=[{"object": ref_object}, tag_object]),
                 mock.patch.object(RELEASE.subprocess, "check_output", return_value=checkout + "\n") as git,
                 mock.patch.object(RELEASE.subprocess, "run", side_effect=AssertionError("unexpected publication")),

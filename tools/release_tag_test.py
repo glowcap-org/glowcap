@@ -36,12 +36,24 @@ GH_STUB = r"""#!/usr/bin/env python3
 import os
 import sys
 import time
+import json
+from pathlib import Path
 
 args = " ".join(sys.argv[1:])
 if os.environ.get("GLOWCAP_TEST_GH_HANG"):
     time.sleep(60)
 if args == "repo view --json nameWithOwner -q .nameWithOwner":
     print("test-org/glowcap")
+elif args == "api user":
+    print('{"login":"maint","id":3}')
+elif "user/emails?" in args:
+    if os.environ.get("GLOWCAP_TEST_FORBID_EMAILS"):
+        sys.exit(1)
+    print('{"email":"test@glowcap.invalid","verified":true}')
+elif "/collaborators/maint/permission" in args:
+    print(json.dumps({"permission":os.environ.get("GLOWCAP_TEST_PERMISSION", "admin")}))
+elif "/ssh_signing_keys?" in args:
+    print(json.dumps({"key":Path(os.environ["GLOWCAP_TEST_SIGNER"]).read_text().strip()}))
 elif "/compare/" in args:
     sys.stdout.write('{"status":"identical"}')
 elif "check.yml/runs" in args:
@@ -113,6 +125,7 @@ class ReleaseTagTest(unittest.TestCase):
             **{key: value for key, value in os.environ.items() if key != "SSH_AUTH_SOCK"},
             "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
             "GLOWCAP_TEST_RUNS": str(self.runs),
+            "GLOWCAP_TEST_SIGNER": str(self.keys / "signing-key.pub"),
             "GIT_CONFIG_GLOBAL": os.devnull,
             "GIT_CONFIG_NOSYSTEM": "1",
             "GIT_TERMINAL_PROMPT": "0",
@@ -235,6 +248,39 @@ class ReleaseTagTest(unittest.TestCase):
         output = self.refuse("0.9.0", message="points at")
         self.assertIn(other, output)
         self.assertEqual(self.git("rev-parse", "v0.9.0^{commit}"), other)
+
+    def test_a_signed_annotation_for_another_name_or_an_indirect_target_is_refused(self):
+        self.git("tag", "-s", "other", "main", "-m", "other")
+        self.git("update-ref", "refs/tags/v0.9.0", self.git("rev-parse", "other"))
+        self.refuse("0.9.0", message="point directly")
+        self.git("tag", "-f", "-s", "v0.9.0", "other", "-m", "nested")
+        self.refuse("0.9.0", message="point directly")
+
+    def test_recover_from_a_wrong_tagger_email_with_an_id_based_noreply_address(self):
+        self.git("config", "user.email", "wrong@glowcap.invalid")
+        failure = self.refuse("0.9.0", message="configure the tagger email")
+        self.assertIn("git show v0.9.0", failure)
+        self.assertIn("git tag -d v0.9.0", failure)
+        rejected = self.git("rev-parse", "v0.9.0")
+
+        self.git("config", "user.email", "3+maint@users.noreply.github.com")
+        self.refuse("0.9.0", message="configure the tagger email")
+        self.assertEqual(self.git("rev-parse", "v0.9.0"), rejected)
+        self.git("tag", "-d", "v0.9.0")
+        self.env["GLOWCAP_TEST_FORBID_EMAILS"] = "1"
+        status, output = self.front("0.9.0")
+        self.assertEqual(status, 0, output)
+        self.assertNotEqual(self.origin_git("rev-parse", "v0.9.0"), rejected)
+        self.assertEqual(self.origin_git("rev-parse", "v0.9.0^{commit}"), self.commit)
+
+    def test_a_verified_foreign_key_or_a_non_admin_account_cannot_release(self):
+        self.env["GLOWCAP_TEST_PERMISSION"] = "write"
+        self.refuse("0.9.0", message="administrator")
+        self.env["GLOWCAP_TEST_PERMISSION"] = "admin"
+        foreign = self.scratch / "foreign"
+        subprocess.run(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", str(foreign)], check=True, timeout=TIMEOUT)
+        self.env["GLOWCAP_TEST_SIGNER"] = str(foreign.with_suffix(".pub"))
+        self.refuse("0.9.0", message="key registered")
 
     def test_the_ordinary_path_pushes_a_signed_tag(self):
         status, output = self.front("0.9.0")

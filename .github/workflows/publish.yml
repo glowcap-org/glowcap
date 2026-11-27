@@ -185,6 +185,7 @@ jobs:
     # consumer install, and re-read the newest release after acquiring it.
     concurrency:
       group: publish-racket-catalog
+      queue: max
       cancel-in-progress: false
     needs: contract
     # ci/racket_catalog.py waits up to an hour for the catalog's hourly sweep
