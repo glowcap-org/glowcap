@@ -16,7 +16,7 @@ import { useRoomsBrowser, useRoomsController } from "../controller/browser.ts";
 import { CopyField } from "../Copy.tsx";
 import { EntryAct, EntryActs } from "../EntryAct.tsx";
 import { managedSessionText } from "../../../lib/text/managed_session.ts";
-import { useRoomsState } from "../hooks.ts";
+import { useRoomsProjection, useRoomsState, useSessionPermission } from "../hooks.ts";
 import { Icon } from "../icons.tsx";
 import { useOpenModal } from "../modal.ts";
 import { HistorySettings } from "./History.tsx";
@@ -26,7 +26,8 @@ import { SessionAccessModal } from "./SessionAccess.tsx";
 import { SessionRecoveryModal } from "../panes/SessionRecovery.tsx";
 import { useManagedSession } from "../session/managed/context.tsx";
 import { useOpenChanges } from "../session/managed/open_changes.ts";
-import { useSessionPermission } from "../hooks.ts";
+import { useCommitments } from "../commitment.tsx";
+import { reloadLosesWork } from "../build_reload.ts";
 import { sharedRoomsSession } from "../../../lib/workspace_view.ts";
 import { sessionShareLinkCopy } from "../../../lib/text/settings.ts";
 import {
@@ -81,6 +82,13 @@ export function SessionSettings(
 	// The list's own rows decide whether it is offered, and a read that failed
 	// is offered too, so the card can say what it could not read.
 	const session = useManagedSession();
+	const projection = useRoomsProjection();
+	const commitments = useCommitments();
+	const browse = () =>
+		commitments.request(() => {
+			const refused = chooseWorkspace(null, true);
+			if (refused) browser.toast("failure", refusalText(refused));
+		}, { losesOnReload: () => reloadLosesWork({ projection, managedSession: session }) });
 	const open = useOpenChanges(session, canResolve);
 	const unfinished = open.changes.length > 0 || open.failure !== "";
 	// Read only is what the last arm here means, so a capability carrying nothing
@@ -146,10 +154,7 @@ export function SessionSettings(
 						name={savedWorkspaceTitle}
 						id="sessionBrowseWorkspaces"
 						act={browseWorkspaces}
-						onClick={() => {
-							const refused = chooseWorkspace(null);
-							if (refused) browser.toast("failure", refusalText(refused));
-						}}
+						onClick={browse}
 					/>
 					{canResolve && unfinished && (
 						<EntryAct

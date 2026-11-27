@@ -63,7 +63,7 @@ export function SessionSetup(
 	{ initialCapability = "", initialError = "", renderSavedWorkspaces }: {
 		initialCapability?: string;
 		initialError?: string;
-		renderSavedWorkspaces?: (disabled: boolean, onError: (text: string) => void) => ReactNode;
+		renderSavedWorkspaces?: (disabled: boolean) => ReactNode;
 	},
 ) {
 	const browser = useRoomsBrowser();
@@ -72,8 +72,8 @@ export function SessionSetup(
 	const [capability, setCapability] = useState(initialCapability);
 	const [busy, setBusy] = useState<SetupAct | null>(null);
 	// Two homes for a refusal: the attach field's own, and the card's.
-	const [attachError, setAttachError] = useState(initialError);
-	const [error, setError] = useState("");
+	const [attachError, setAttachError] = useState("");
+	const [error, setError] = useState(initialError);
 	const [confirmAction, setConfirmAction] = useState<SavedDataAct | null>(null);
 	const [advancedOpen, setAdvancedOpen] = useState(false);
 	// Every ask opens the disclosure that holds its confirmation.
@@ -192,7 +192,7 @@ export function SessionSetup(
 					<p>{sessionSetupLead}</p>
 				</div>
 				<div className="session-setup-choices">
-					{renderSavedWorkspaces?.(busy != null, setError)}
+					{renderSavedWorkspaces?.(busy != null)}
 					<section className="launch session-setup-choice" aria-labelledby="localSessionTitle">
 						<span className="launch-mark" aria-hidden="true">
 							<Icon name="session" size={20} />

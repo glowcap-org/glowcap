@@ -55,14 +55,20 @@ export async function proveColdWorkspace(browser: Browser, port: number): Promis
 		}, id);
 		await cold.close();
 		const legacy = await context.newPage();
-		await legacy.goto(origin);
+		const roomAddress = new URL(`room/${encodeURIComponent(ROOM)}`, origin).href;
+		await legacy.goto(roomAddress);
 		await legacy.setViewportSize({ width: 390, height: 844 });
-		const choices = legacy.getByRole("button", { name: /^Resume workspace/ });
-		await choices.first().waitFor();
-		if (await choices.count() !== 2) fail("setup lost one of the saved workspaces");
+		const choices = legacy.getByRole("combobox", { name: "Saved on this device" });
+		await choices.waitFor();
+		if (await choices.locator("option").count() !== 2) fail("setup lost one of the saved workspaces");
 		const copy = await legacy.locator("#savedWorkspaceTitle").boundingBox();
 		if (!copy || copy.width < 180 || copy.x + copy.width > 390) fail("the mobile recovery heading has no room");
-		await legacy.getByRole("button", { name: `Resume workspace · ${id.slice(0, 8)}` }).click();
+		await choices.selectOption({ label: `Workspace · ${id.slice(0, 8)}` });
+		const [resume] = await Promise.all([
+			legacy.waitForRequest((request) => request.isNavigationRequest()),
+			legacy.getByRole("button", { name: "Resume workspace" }).click(),
+		]);
+		if (resume.url() !== roomAddress) fail("resuming a saved workspace dropped the incoming room address");
 		await legacy.setViewportSize({ width: 1280, height: 720 });
 		await restored(legacy);
 		await legacy.close();

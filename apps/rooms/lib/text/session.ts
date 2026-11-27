@@ -105,7 +105,13 @@ export const sessionUnreadableSay =
 export const savedWorkspaceTitle = "Saved on this device";
 export const savedWorkspaceHint =
 	"Resume a workspace with its rooms, messages and access. Close its other tab first if it is open.";
-export const resumeWorkspace = (id: string, several: boolean) =>
-	several ? `Resume workspace · ${id.slice(0, 8)}` : "Resume workspace";
+export const savedWorkspacesHint =
+	"Each workspace keeps its own rooms and messages. You can try another from Settings → Session.";
+export const resumeWorkspace = "Resume workspace";
+export function savedWorkspaceOption(id: string, choices: readonly string[], last: string | null): string {
+	const short = id.slice(0, 8);
+	const label = id === last ? "Last opened" : "Workspace";
+	return `${label} · ${choices.some((other) => other !== id && other.startsWith(short)) ? id : short}`;
+}
 export const separateWorkspace = "Set up a separate workspace";
 export const browseWorkspaces = "Choose workspace…";

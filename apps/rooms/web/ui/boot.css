@@ -57,6 +57,17 @@
 :root[data-boot="leaving"] .boot {
 	transition: none;
 }
+/* The outgoing screen also covers native dialogs. Its own fixed layout
+   supplies the geometry; the dialog supplies focus and the top layer. */
+.boot-handoff {
+	padding: 0;
+	border: 0;
+	background: transparent;
+	color: inherit;
+}
+.boot-handoff::backdrop {
+	background: transparent;
+}
 .boot-wait {
 	display: flex;
 	flex-direction: column;

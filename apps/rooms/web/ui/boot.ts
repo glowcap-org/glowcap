@@ -70,16 +70,28 @@ function handedOver(): boolean {
 // Keep the parsed opening screen for moves that navigate to a new document.
 // Its fixed layout is the same on both sides of that navigation.
 let openingScreen: HTMLElement | null = null;
+let handoffDialog: HTMLDialogElement | null = null;
+let returnFocus: HTMLElement | null = null;
 
 export function coverForReload(): void {
 	const root = bootRoot();
 	if (root == null) return;
 	if (root.dataset.boot === LEAVING) return;
+	if (openingScreen) returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
 	root.dataset.boot = LEAVING;
 	if (openingScreen !== null) {
 		const note = openingScreen.querySelector(".boot-note");
 		if (note) note.textContent = bootOpeningSession;
-		if (!openingScreen.isConnected) document.body.append(openingScreen);
+		openingScreen.querySelector(".boot-why")?.remove();
+		// Attach may start inside Settings' modal. Only the top native dialog
+		// is exposed to assistive technology until that modal closes.
+		handoffDialog = document.createElement("dialog");
+		handoffDialog.className = "boot-handoff";
+		handoffDialog.setAttribute("aria-labelledby", "bootNote");
+		handoffDialog.addEventListener("cancel", (event) => event.preventDefault());
+		handoffDialog.append(openingScreen);
+		document.body.append(handoffDialog);
+		handoffDialog.showModal();
 		startOpeningMark();
 	}
 }
@@ -152,7 +164,17 @@ export function uncoverReload(): void {
 	if (root == null || root.dataset.boot !== LEAVING) return;
 	root.dataset.boot = HANDED_OVER;
 	stopOpeningMark();
-	openingScreen?.remove();
+	handoffDialog?.close();
+	handoffDialog?.remove();
+	handoffDialog = null;
+	// The invoking control may still be disabled until React renders the refusal.
+	const opener = returnFocus;
+	returnFocus = null;
+	if (opener) {
+		requestAnimationFrame(() => {
+			if (!coveringReload() && opener.isConnected) opener.focus({ preventScroll: true });
+		});
+	}
 }
 
 /** A required chunk or boot step failed while the opening screen was still

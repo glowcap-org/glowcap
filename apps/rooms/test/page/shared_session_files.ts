@@ -10,6 +10,7 @@
 import type { Page } from "playwright";
 import { Buffer } from "node:buffer";
 import { fail } from "../support/fail.ts";
+import { keepWorkspace } from "./shared_session_moves.ts";
 
 /** What a reloaded page shows when it did not come back, read where it stalled. */
 async function stalledState(page: Page): Promise<string> {
@@ -38,6 +39,10 @@ export async function proveSharedImage(first: Page, second: Page, png: Uint8Arra
 		buffer: Buffer.from(png),
 	});
 	await first.waitForSelector('.composer-file:has-text("shared-session.png")');
+	await first.click("#settingsBtn");
+	await first.click("#sessionTab");
+	await keepWorkspace(first);
+	await first.click("#settingsClose");
 	await first.click("#sendBtn");
 	for (const [index, page] of [first, second].entries()) {
 		await page.waitForFunction(

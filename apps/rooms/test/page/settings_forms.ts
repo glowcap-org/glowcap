@@ -7,7 +7,7 @@ import type { Browser } from "playwright";
 import { fail } from "../support/fail.ts";
 import { establishLocalSession } from "../support/session_setup.ts";
 import { namedRoomRow } from "../support/conversation_row.ts";
-import { proveReturnToSetupDoesNotFlashACrash } from "./shared_session_moves.ts";
+import { keepWorkspace, proveReturnToSetupDoesNotFlashACrash } from "./shared_session_moves.ts";
 
 export async function run(browser: Browser, httpPort: number): Promise<void> {
 	const context = await browser.newContext();
@@ -180,6 +180,7 @@ export async function run(browser: Browser, httpPort: number): Promise<void> {
 		await page.click("#connectionTab");
 		await page.click('input[name="dm"][value="relay"]');
 		await page.click("#sessionTab");
+		await keepWorkspace(page);
 		await page.click("#connectionTab");
 		if (!await page.isChecked('input[name="dm"][value="relay"]')) {
 			fail("a tab switch discarded the direct-message draft");

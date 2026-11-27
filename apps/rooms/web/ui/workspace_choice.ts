@@ -16,7 +16,7 @@ export function pinWorkspace(id: string): LocalRefusal | null {
 
 /** Switch the browser's view without detaching or resetting its current
  * session. A new tab identity takes setup to the chooser. */
-export function chooseWorkspace(id: string | null): LocalRefusal | null {
+export function chooseWorkspace(id: string | null, toFront = false): LocalRefusal | null {
 	const prior = sessionArea.read(TAB);
 	const refused = pinWorkspace(id ?? crypto.randomUUID());
 	if (refused) return refused;
@@ -28,7 +28,7 @@ export function chooseWorkspace(id: string | null): LocalRefusal | null {
 		}
 	}
 	coverForReload();
-	finishCoveredReload(true);
+	finishCoveredReload(toFront);
 	return null;
 }
 
@@ -63,10 +63,15 @@ export function markedWorkspaces(): string[] {
 		.map((key) => key.slice(PREFIX.length)).filter(validId).sort();
 }
 
+export function lastWorkspace(): string | null {
+	const last = localArea.read(LAST);
+	return last !== null && validId(last) ? last : null;
+}
+
 export function coldWorkspace(): string | null {
 	if (sessionArea.read(TAB) !== null) return null;
-	const last = localArea.read(LAST);
-	return last !== null && validId(last) && localArea.read(PREFIX + last) === "yes" ? last : null;
+	const last = lastWorkspace();
+	return last !== null && localArea.read(PREFIX + last) === "yes" ? last : null;
 }
 
 /** Remember only a workspace that actually opened, including its saved access. */

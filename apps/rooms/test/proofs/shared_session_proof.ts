@@ -1,4 +1,4 @@
-import { watchAttachHandoff } from "../page/attach_handoff.ts";
+import { proveRefusedAttachFocus, watchAttachHandoff } from "../page/attach_handoff.ts";
 import { proveColdWorkspace } from "../page/cold_workspace.ts";
 import { spawnWeb, webPort } from "../support/web_front.ts";
 import * as tcp from "@glowcap/tcp";
@@ -91,6 +91,7 @@ async function attach(page: Page, link: string, phone = false) {
 	await page.goto(`http://127.0.0.1:${httpPort}/`);
 	await page.waitForSelector("#sessionSetup");
 	await page.fill("#sessionSetupCapability", link);
+	if (phone) await proveRefusedAttachFocus(page);
 	const checkHandoff = await watchAttachHandoff(page);
 	await Promise.all([page.waitForNavigation(), page.click("#sessionAttach")]);
 	await checkHandoff();

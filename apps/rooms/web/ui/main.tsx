@@ -158,7 +158,7 @@ function PageSurface({ children, established = false }: { children: ReactNode; e
 	);
 }
 
-async function showSessionSetup(initialCapability = "", initialError = "", openFailed = false): Promise<void> {
+async function showSessionSetup({ capability = "", error = "", recoveryError = "" } = {}): Promise<void> {
 	const { SessionSetup } = await loadSessionSetup();
 	let saved: string[] = [];
 	try {
@@ -168,21 +168,20 @@ async function showSessionSetup(initialCapability = "", initialError = "", openF
 		saved = markedWorkspaces();
 		report(savedWorkspaceTitle, error);
 	}
-	const Recovery = saved.length || openFailed ? (await loadSavedWorkspaces()).SavedWorkspaces : null;
+	const Recovery = saved.length || recoveryError ? (await loadSavedWorkspaces()).SavedWorkspaces : null;
 	root.render(
 		<StrictMode>
 			<PageSurface>
 				<ModalProvider key="session-setup">
 					<SessionSetup
-						initialCapability={initialCapability}
-						initialError={initialError}
+						initialCapability={capability}
+						initialError={error}
 						renderSavedWorkspaces={Recovery
-							? (disabled, onError) => (
+							? (disabled) => (
 								<Recovery
 									choices={saved}
-									openFailed={openFailed}
+									initialError={recoveryError}
 									disabled={disabled}
-									onError={onError}
 								/>
 							)
 							: undefined}
@@ -281,7 +280,7 @@ async function start(): Promise<void> {
 	// when an obsolete schema refuses startup.
 	if (attach != null || deleted != null) {
 		standAtFrontOfPrivilegedAddress();
-		await showSessionSetup(attach?.capability ?? "", deleted ?? "");
+		await showSessionSetup({ capability: attach?.capability, error: deleted ?? "" });
 		return;
 	}
 	const cold = coldWorkspace();
@@ -299,7 +298,7 @@ async function start(): Promise<void> {
 		opened = await openWorkspace();
 	} catch (error) {
 		standAtFrontOfPrivilegedAddress();
-		await showSessionSetup("", setupRefusal(page.projection, error), true);
+		await showSessionSetup({ recoveryError: setupRefusal(page.projection, error) });
 		return;
 	}
 	const rememberFailure = rememberOpenWorkspace();
