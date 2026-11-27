@@ -233,7 +233,7 @@ The cursor, the turn counts, and the counts kept in `turns.json` show only what 
 | `running` | Whether a `serve` holds the directory now, including a first start still reaching its session. |
 | `status` | While running, the status published by this process, or `null` until it publishes. When stopped, the last saved status, or `null` if none exists. |
 | `status.pid` | The process id of the `serve` that wrote it. |
-| `status.harness`, `status.model`, `status.permission` | The harness, model override and permission selected by the process that wrote this status. A null model leaves selection to the harness. Older status files omit the model and permission. After upgrading, restart an older running bot so it can publish verifiable status. |
+| `status.harness`, `status.model`, `status.permission` | The harness, model override and permission selected by the process that wrote this status. A null model leaves selection to the harness. Restart a running bot after upgrading so it can publish its status. |
 | `status.cursor` | The bot's position in the session's activity, as `turns.json` holds it. |
 | `status.access` | `active`, `paused`, or `revoked`, as the session reported the bot's access, where `revoked` also covers an access the session dropped or no longer scopes to the bot, and `unknown` until the session first answers. No turn starts unless it is `active`. |
 | `status.queued` | Lines read but not yet given a turn, because <!-- value ../../apps/rooms/rust/product/src/bin/rooms-bot/ledger.rs MAX_OPEN -->16<!-- /value --> turns are already open. The bot reads them again after a restart. |

@@ -140,7 +140,7 @@ fn prepare(request: &Request, session: Session) -> Result<Prepared, Error> {
 		pid: std::process::id(),
 		harness: harness.name().to_owned(),
 		model: config.model.clone(),
-		permission: Some(config.permission),
+		permission: config.permission,
 		..Facts::default()
 	};
 	facts.claim(&store)?;
