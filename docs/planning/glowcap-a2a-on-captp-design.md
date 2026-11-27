@@ -19,6 +19,24 @@ CapTP already carries messages between agents. This work adds the shape of
 cards, skills, and tasks on top, and an optional facade for agents that speak
 A2A over HTTP.
 
+## What a Rooms bot already delegates
+
+A [Rooms bot](../rooms/bot.md) attaches to its session through a collaborator
+grant. Its agent runs the model and tools. The Rooms session decides which
+operations that grant allows. A role brief guides the agent’s replies.
+The operator grants access to the member independently of the choice of model.
+
+Before adding another harness, evaluate the [Agent Client Protocol Rust SDK](https://github.com/agentclientprotocol/rust-sdk)
+as the local connection to the agent. Test the adapter with a live CapTP session.
+An attenuated grant must refuse operations outside its rights. Revocation must
+still hold after a reconnect or a resumed model session.
+
+Also verify cancellation, safe-mode tool restrictions, and that an edited role
+takes effect on the next turn. Measure startup and turn overhead against the
+existing harness. A workflow engine that owns schedules, task graphs or memory
+can participate through an ordinary Rooms member with its own grant.
+The optional A2A objects below would let peers exchange structured tasks.
+
 ## The CapTP shape
 
 - An Agent Card is a capability a peer can fetch by name or restore from a
