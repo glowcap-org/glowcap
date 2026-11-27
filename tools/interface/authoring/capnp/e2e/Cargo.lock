@@ -80,7 +80,7 @@ dependencies = [
 
 [[package]]
 name = "glowcap"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "getrandom",
  "gloo-timers",
@@ -92,7 +92,7 @@ dependencies = [
 
 [[package]]
 name = "interface-capnp-e2e"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "glowcap",
  "tokio",

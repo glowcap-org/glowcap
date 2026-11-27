@@ -336,7 +336,7 @@ same verified cache as the desktop SDK. No Zig toolchain is needed.
 
 ```toml
 [dependencies]
-glowcap = { version = "0.1.8", default-features = false, features = ["browser"] }
+glowcap = { version = "0.1.9", default-features = false, features = ["browser"] }
 ```
 
 Install the Rust target with `rustup target add wasm32-unknown-unknown`, then

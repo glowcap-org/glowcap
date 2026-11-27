@@ -1080,7 +1080,7 @@ dependencies = [
 
 [[package]]
 name = "glowcap-iroh"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "glowcap-sidecar-runtime",
  "iroh",
@@ -1089,14 +1089,14 @@ dependencies = [
 
 [[package]]
 name = "glowcap-sidecar-runtime"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "tokio",
 ]
 
 [[package]]
 name = "glowcap-sidecars"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "glowcap-iroh",
  "glowcap-webrtc",
@@ -1104,7 +1104,7 @@ dependencies = [
 
 [[package]]
 name = "glowcap-webrtc"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "async-trait",
  "bytes",

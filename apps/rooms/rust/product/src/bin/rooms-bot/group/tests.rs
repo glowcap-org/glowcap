@@ -41,6 +41,51 @@ fn a_dropped_group_is_ended_and_its_record_removed() {
 	assert!(!dir.join("c1").exists());
 }
 
+#[tokio::test]
+async fn a_refused_group_is_gone_only_after_its_leader_exits_and_no_member_remains() {
+	for survivor in [false, true] {
+		let dir = Scratch::create("bot-group-refused");
+		let mut changes = child_signals().unwrap();
+		let mut command = tokio::process::Command::new("sh");
+		command
+			.args(["-c", "read line; exit 23"])
+			.stdin(std::process::Stdio::piped());
+		command.as_std_mut().process_group(0);
+		let mut child = command.spawn().unwrap();
+		let id = child.id().unwrap();
+		let mut group = Group::record(&dir, "c1", id).unwrap();
+		assert!(!group.gone_after_reap(&mut child).unwrap(), "the leader is running");
+		let mut member = survivor.then(|| {
+			Command::new("sleep")
+				.arg("10")
+				.process_group(i32::try_from(id).unwrap())
+				.spawn()
+				.unwrap()
+		});
+		drop(child.stdin.take());
+		tokio::time::timeout(Duration::from_secs(5), group.exited(&mut changes))
+			.await
+			.unwrap()
+			.unwrap();
+		assert_eq!(group.gone_after_reap(&mut child).unwrap(), !survivor);
+		assert_eq!(child.wait().await.unwrap().code(), Some(23));
+		assert!(group.target().is_err(), "the reaped leader no longer grants authority");
+		if let Some(member) = &mut member {
+			drop(group);
+			assert!(dir.join("c1").exists());
+			assert!(
+				member.try_wait().unwrap().is_none(),
+				"the probe must leave the member running"
+			);
+			member.kill().unwrap();
+			member.wait().unwrap();
+		} else {
+			group.end().unwrap();
+			assert!(!dir.join("c1").exists());
+		}
+	}
+}
+
 #[cfg(target_os = "linux")]
 #[test]
 fn a_confirmed_leader_left_by_a_killed_bot_is_ended() {

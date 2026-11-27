@@ -11,6 +11,8 @@ Releases before 0.1.7 are in the
 
 ## [Unreleased]
 
+## [0.1.9] - 2026-11-27
+
 ### Added
 
 - Every Rooms session activity event now carries `mentions`, which says whether the line names you or the whole room. The session decides it once from the line's Markdown, so every reader agrees.
@@ -50,6 +52,10 @@ Releases before 0.1.7 are in the
 - In the Rooms Rust libraries, releasing a session receipt answers a `Release` value, `Released`, `Running`, or `Kept`, where it returned nothing and refused while the session still held the operation's executor. `attached::View::release_line` and `release_open` return it. `Running` changes nothing, and neither does `Kept`, for a result the workspace already adopted. Releasing a stalled request ends it and keeps its receipt, settled as released. A program that releases a receipt reads the answer.
 
 ### Fixed
+
+- Linux release builds compress the CLI’s debugging information, keeping source-level backtraces available and the Rooms image within its 256 MiB limit.
+
+- The Rooms bot builds on macOS and preserves its agent’s exit status while it ends the agent’s process group. If cleanup cannot be confirmed, restart the bot to reconcile the group before another agent runs in that conversation.
 
 - Rooms receipt tests wait for both peers to establish a direct conversation before posting. The session finishing setup during a post could make release validation fail with a workspace revision conflict.
 
@@ -136,6 +142,7 @@ the [features and fixes](docs/history/0.1.7/changes/CHANGELOG.md), including
 the WebRTC reopen fix, and the [earlier changes](docs/history/0.1.7/CHANGELOG.md)
 in this release.
 
-[Unreleased]: https://github.com/glowcap-org/glowcap/compare/v0.1.8...HEAD
+[Unreleased]: https://github.com/glowcap-org/glowcap/compare/v0.1.9...HEAD
+[0.1.9]: https://github.com/glowcap-org/glowcap/compare/v0.1.8...v0.1.9
 [0.1.8]: https://github.com/glowcap-org/glowcap/compare/v0.1.7...v0.1.8
 [0.1.7]: https://github.com/glowcap-org/glowcap/compare/v0.1.6...v0.1.7

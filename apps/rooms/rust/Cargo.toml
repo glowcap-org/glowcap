@@ -9,7 +9,7 @@ resolver = "3"
 [workspace.package]
 repository = "https://github.com/glowcap-org/glowcap"
 homepage = "https://glowcap.org"
-version = "0.1.8"
+version = "0.1.9"
 edition = "2024"
 license = "Apache-2.0"
 publish = false
@@ -52,6 +52,8 @@ hyper = { version = "=1.12.0", default-features = false, features = ["http1"] }
 hyper-util = { version = "=0.1.21", default-features = false, features = ["tokio"] }
 # dep http-body-util: Request and response bodies for the HTTP server.
 http-body-util = { version = "=0.1.5", default-features = false }
+# dep rustix: Observes a harness process exiting before the bot ends its group and reaps it.
+rustix = { version = "=1.1.6", default-features = false, features = ["process", "std"] }
 # dep nix: Unix signals, file sync and polling for storage and the server process.
 nix = { version = "=0.32.0", default-features = false, features = ["signal", "fs", "poll"] }
 

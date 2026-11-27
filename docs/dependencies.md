@@ -150,6 +150,7 @@ Declared in [`apps/rooms/rust/Cargo.toml`](../apps/rooms/rust/Cargo.toml):
 - **hyper**: The Rooms HTTP server.
 - **hyper-util**: Connection helpers for the HTTP server.
 - **http-body-util**: Request and response bodies for the HTTP server.
+- **rustix**: Observes a harness process exiting before the bot ends its group and reaps it.
 - **nix**: Unix signals, file sync and polling for storage and the server process.
 
 Declared in [`apps/rooms/rust/application/Cargo.toml`](../apps/rooms/rust/application/Cargo.toml):

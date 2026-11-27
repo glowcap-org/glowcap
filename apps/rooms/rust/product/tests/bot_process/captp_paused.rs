@@ -9,7 +9,7 @@ use super::captp::{FRIEND, World};
 use super::captp_crashes::answered;
 use super::captp_direct::{say, turn};
 use super::rig::{Bot, eventually};
-use super::session_rig::{call, free_places, run_within};
+use super::session_rig::{free_places, run_within};
 use super::words;
 use glowcap::PendingWork;
 use rooms_application::content::session::custody::MAX_EFFECTS;
@@ -32,18 +32,7 @@ pub(super) async fn paused(
 	let (issuer, grants, terms) = world.issuer().await;
 	let issued = grants.issue("the bot", &terms).await.unwrap();
 	issuer.close(PendingWork::Cancel).await.unwrap();
-	let room = world.fixture.room_id(0);
-	world.fixture.peers[0].restart_at(Some(fault));
-	// The listening session can accept the bot before it has a seat to hear
-	// a room mention. Observe its return to the original room before posting.
-	eventually("the restarted session to regain its room seat", || {
-		let status = call(&world.fixture.peers[0].state, "status", json!({}));
-		status["workspace"]["conversations"]
-			.as_array()?
-			.iter()
-			.any(|row| row["id"] == room && row["seat"].is_string())
-			.then_some(())
-	});
+	world.restart_in_room(fault);
 	let (issuer, grants, _) = world.issuer().await;
 	let bot = world.rig.serve_linked_at(&issued.link, json!({}), bot_fault);
 	(issuer, grants, bot)
@@ -69,7 +58,7 @@ fn a_paused_line_is_given_back_and_the_next_message_is_answered() {
 	let mut world = World::new("bot-paused-line");
 	run_within(Duration::from_secs(90), async {
 		let (issuer, grants, bot) = paused(&mut world, LINE, None).await;
-		world.dm_again("reply:paused once");
+		world.dm("reply:paused once");
 		world.await_line("direct", "paused once");
 		eventually("the lane to free", || (sending(&world) == 0).then_some(()));
 		world.dm("reply:next");
@@ -160,10 +149,10 @@ fn a_replaced_line_whose_executor_is_paused_is_given_back_and_its_record_goes() 
 		let first = grants.issue("the first", &terms).await.unwrap();
 		let second = grants.issue("the second", &terms).await.unwrap();
 		issuer.close(PendingWork::Cancel).await.unwrap();
-		world.fixture.peers[0].restart_at(Some(LINE));
+		world.restart_in_room(LINE);
 		let (issuer, grants, _) = world.issuer().await;
 		let mut bot = world.rig.serve_linked_at(&first.link, json!({}), Some("after-send"));
-		world.dm_again(&format!("reply:{text}"));
+		world.dm(&format!("reply:{text}"));
 		assert!(!bot.process.wait().success(), "the bot was not killed after its send");
 		grants.pause(&first.name).await.unwrap();
 		let bot = world.rig.serve_replacing(&second.link);
@@ -204,10 +193,10 @@ fn a_revoked_accesss_paused_line_is_settled_by_its_echo_alone() {
 		let first = grants.issue("the first", &terms).await.unwrap();
 		let second = grants.issue("the second", &terms).await.unwrap();
 		issuer.close(PendingWork::Cancel).await.unwrap();
-		world.fixture.peers[0].restart_at(Some(LINE));
+		world.restart_in_room(LINE);
 		let (issuer, grants, _) = world.issuer().await;
 		let mut bot = world.rig.serve_linked_at(&first.link, json!({}), Some("after-send"));
-		world.dm_again(&format!("reply:{text}"));
+		world.dm(&format!("reply:{text}"));
 		assert!(!bot.process.wait().success(), "the bot was not killed after its send");
 		grants.revoke(&first.name).await.unwrap();
 		let bot = world.rig.serve_replacing(&second.link);
