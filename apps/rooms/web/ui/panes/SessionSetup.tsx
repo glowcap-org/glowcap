@@ -59,6 +59,8 @@ import { useRoomsBrowser } from "../controller/browser.ts";
 import { refusalText } from "../../../lib/text/failure.ts";
 import { Input } from "../Input.tsx";
 
+import { SavedWorkspaces } from "./SavedWorkspaces.tsx";
+
 export function SessionSetup(
 	{ initialCapability = "", initialError = "" }: {
 		initialCapability?: string;
@@ -191,6 +193,7 @@ export function SessionSetup(
 					<p>{sessionSetupLead}</p>
 				</div>
 				<div className="session-setup-choices">
+					<SavedWorkspaces disabled={busy != null} onError={setError} />
 					<section className="launch session-setup-choice" aria-labelledby="localSessionTitle">
 						<span className="launch-mark" aria-hidden="true">
 							<Icon name="session" size={20} />

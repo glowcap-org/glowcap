@@ -56,8 +56,7 @@ Every view attached to a session shares its network identity and its state:
 directories, archive choice, capabilities, peering, history, live files,
 operator actions, listener and IRC administration, and visualizer
 publication. Browser `File` handles and object URLs stay on the device that
-made them. A browser tab keeps its session in IndexedDB, and a reload
-restores the saved grants and links. A reference tied to a connection still
+made them. The browser keeps its workspace in IndexedDB. Reopening the page in the same browser profile restores its saved grants and links. A reference tied to a connection still
 needs the peer that issued it to be reachable.
 
 ## Bridge passwords
@@ -141,10 +140,7 @@ moderators.
 
 ## Two tabs on one local session
 
-Each tab writes the session to IndexedDB on its own. Import and clear tell
-the other tabs, but edits made at the same time are not merged. When several
-browsers or tabs must change the same session, attach them all to one
-shared session.
+One tab at a time can open a local workspace. Close its other tab and choose **Resume workspace** to use it here. To work together from several tabs, attach separate browser workspaces to one shared session.
 
 ## Links in a room subject
 

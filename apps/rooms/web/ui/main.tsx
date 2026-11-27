@@ -43,12 +43,14 @@ import { createManagedController } from "./session/managed/controller.ts";
 import { ManagedHistory } from "./session/managed/history.ts";
 import * as application from "./application.ts";
 import { RoomsBrowserProvider } from "./controller/browser.ts";
+import { createRoomsBrowserController, setupRefusal } from "./controller/create_browser.ts";
 import {
-	createRoomsBrowserController,
-	forgetWorkspaceChoice,
-	setupRefusal,
+	coldWorkspace,
+	pinWorkspace,
+	recordWorkspaceChoice,
+	rememberOpenWorkspace,
 	workspaceChosen,
-} from "./controller/create_browser.ts";
+} from "./workspace_choice.ts";
 import { finishBrowserDataDeletion, reloadWhenAnotherTabDeletes } from "./controller/browser_data.ts";
 import { ModalProvider } from "./modal.ts";
 import type { RoomsSessionController } from "./controller/session.ts";
@@ -250,6 +252,11 @@ async function start(): Promise<void> {
 		await showSessionSetup(attach?.capability ?? "", deleted ?? "");
 		return;
 	}
+	const cold = coldWorkspace();
+	if (cold !== null) {
+		const refused = pinWorkspace(cold);
+		if (refused) throw refused;
+	}
 	if (!workspaceChosen()) {
 		standAtFrontOfPrivilegedAddress();
 		await showSessionSetup();
@@ -260,9 +267,17 @@ async function start(): Promise<void> {
 		opened = await openWorkspace();
 	} catch (error) {
 		standAtFrontOfPrivilegedAddress();
+		// A fresh page may have tried a workspace another tab still owns.
+		// Leave its durable choice intact so setup can retry or start separately.
+		if (cold !== null) {
+			const refused = pinWorkspace(null);
+			if (refused) throw refused;
+		}
 		await showSessionSetup("", setupRefusal(page.projection, error));
 		return;
 	}
+	const rememberFailure = rememberOpenWorkspace();
+	if (rememberFailure) store.toast(page.projection, "failure", refusalText(rememberFailure));
 	const { session: managed, local } = opened;
 	// A page that does not open closes its session, so nothing dials behind it.
 	let stopOnFailure = () => {};
@@ -362,7 +377,7 @@ void start().catch((error) => {
 		reason,
 		workspaceChosen()
 			? () => {
-				const refused = forgetWorkspaceChoice();
+				const refused = recordWorkspaceChoice(false);
 				return refused == null ? null : refusalText(refused);
 			}
 			: null,
