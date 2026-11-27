@@ -14,7 +14,7 @@
 // each of those is shut and described by a notice under the card, which says
 // so and asks for the same deletion the advanced disclosure confirms.
 
-import { useRef, useState } from "react";
+import { type ReactNode, useRef, useState } from "react";
 import { reloadNow } from "../boot.ts";
 import { useOpenModal } from "../modal.ts";
 import { withSessionOffer } from "../session_offer.ts";
@@ -59,14 +59,11 @@ import { useRoomsBrowser } from "../controller/browser.ts";
 import { refusalText } from "../../../lib/text/failure.ts";
 import { Input } from "../Input.tsx";
 
-import { SavedWorkspaces } from "./SavedWorkspaces.tsx";
-
 export function SessionSetup(
-	{ initialCapability = "", initialError = "", saved = [], openFailed = false }: {
+	{ initialCapability = "", initialError = "", renderSavedWorkspaces }: {
 		initialCapability?: string;
 		initialError?: string;
-		saved?: string[];
-		openFailed?: boolean;
+		renderSavedWorkspaces?: (disabled: boolean, onError: (text: string) => void) => ReactNode;
 	},
 ) {
 	const browser = useRoomsBrowser();
@@ -195,12 +192,7 @@ export function SessionSetup(
 					<p>{sessionSetupLead}</p>
 				</div>
 				<div className="session-setup-choices">
-					<SavedWorkspaces
-						choices={saved}
-						openFailed={openFailed}
-						disabled={busy != null}
-						onError={setError}
-					/>
+					{renderSavedWorkspaces?.(busy != null, setError)}
 					<section className="launch session-setup-choice" aria-labelledby="localSessionTitle">
 						<span className="launch-mark" aria-hidden="true">
 							<Icon name="session" size={20} />

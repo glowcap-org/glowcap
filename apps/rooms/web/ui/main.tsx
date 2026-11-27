@@ -14,7 +14,14 @@ import { managedSessionText as managedText } from "../../lib/text/managed_sessio
 import { type ReactNode, StrictMode, useLayoutEffect } from "react";
 import { createRoot } from "react-dom/client";
 import { addressOfActive, navigateTo } from "./routing_api.ts";
-import { loadEstablished, loadOpsPage, loadServerOffer, loadSessionSetup, prefetch } from "./chunks.ts";
+import {
+	loadEstablished,
+	loadOpsPage,
+	loadSavedWorkspaces,
+	loadServerOffer,
+	loadSessionSetup,
+	prefetch,
+} from "./chunks.ts";
 import {
 	handOffNow,
 	handOffWhenReady,
@@ -161,6 +168,7 @@ async function showSessionSetup(initialCapability = "", initialError = "", openF
 		saved = markedWorkspaces();
 		report(savedWorkspaceTitle, error);
 	}
+	const Recovery = saved.length || openFailed ? (await loadSavedWorkspaces()).SavedWorkspaces : null;
 	root.render(
 		<StrictMode>
 			<PageSurface>
@@ -168,8 +176,16 @@ async function showSessionSetup(initialCapability = "", initialError = "", openF
 					<SessionSetup
 						initialCapability={initialCapability}
 						initialError={initialError}
-						saved={saved}
-						openFailed={openFailed}
+						renderSavedWorkspaces={Recovery
+							? (disabled, onError) => (
+								<Recovery
+									choices={saved}
+									openFailed={openFailed}
+									disabled={disabled}
+									onError={onError}
+								/>
+							)
+							: undefined}
 					/>
 				</ModalProvider>
 			</PageSurface>

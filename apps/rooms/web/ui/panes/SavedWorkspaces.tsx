@@ -15,7 +15,6 @@ export function SavedWorkspaces({ choices, openFailed, disabled, onError }: {
 	disabled: boolean;
 	onError: (text: string) => void;
 }) {
-	if (!choices.length && !openFailed) return null;
 	const choose = (id: string | null) => {
 		const refused = chooseWorkspace(id);
 		if (refused) onError(refusalText(refused));
