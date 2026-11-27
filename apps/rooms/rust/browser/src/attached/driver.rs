@@ -248,11 +248,13 @@ impl Driver {
 pub struct Startup {
 	/// This tab's identity, which names its storage.
 	pub tab: String,
+	pub existing: bool,
 	pub admission: rooms_application::admission::Settings,
 	/// The relay this browser dials through and is reached at, if its page
 	/// has a Rooms server.
 	pub front: Option<crate::transport::WebFront>,
 }
+
 async fn run(
 	mut incoming: mpsc::Receiver<Job>,
 	mut stop: watch::Receiver<bool>,
@@ -261,30 +263,23 @@ async fn run(
 	trouble: TroubleReporter,
 	retiring: Rc<RefCell<Option<Retirement>>>,
 ) -> Result<()> {
-	let (platform, prepared) = match Environment::prepare(&startup.tab).await {
-		Ok(prepared) => prepared,
-		Err(error) => {
-			// Storage preflight refused before any Host or session existed.
-			// Requests observe the startup cause; close observes clean retirement.
-			incoming.close();
-			while let Ok(job) = incoming.try_recv() {
-				if let Some(reply) = job.reply {
-					let _ = reply.send(Err(error.clone()));
-				}
-			}
-			return Ok(());
-		}
+	let opening = async {
+		let (platform, prepared) = Environment::prepare(&startup.tab, startup.existing).await?;
+		Environment::open(platform, prepared, trouble, startup.admission, startup.front).await
 	};
-	let environment = match Environment::open(platform, prepared, trouble, startup.admission, startup.front).await {
+	let environment = match opening.await {
 		Ok(environment) => Rc::new(environment),
 		Err(error) => {
+			// Waiting requests observe the open. Close observes the retirement
+			// of resources acquired on the way to that refusal.
+			let (opening, closed) = error.split_cleanup();
 			incoming.close();
 			while let Ok(job) = incoming.try_recv() {
 				if let Some(reply) = job.reply {
-					let _ = reply.send(Err(error.clone()));
+					let _ = reply.send(Err(opening.clone()));
 				}
 			}
-			return Err(error);
+			return closed;
 		}
 	};
 	let mut tasks = JoinSet::<Result<()>>::new();

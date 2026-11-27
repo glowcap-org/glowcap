@@ -6,6 +6,7 @@ export async function managedSharing({ moduleUrl = "/rooms_contract_proofs.js" }
 	await binding.default();
 	const first = new binding.RoomsManagedApplication(
 		crypto.randomUUID(),
+		false,
 		() => {},
 		undefined,
 		new URL(".", document.baseURI).href,
@@ -13,6 +14,7 @@ export async function managedSharing({ moduleUrl = "/rooms_contract_proofs.js" }
 	const receiverTab = crypto.randomUUID();
 	let second = new binding.RoomsManagedApplication(
 		receiverTab,
+		false,
 		() => {},
 		undefined,
 		new URL(".", document.baseURI).href,
@@ -96,6 +98,7 @@ export async function managedSharing({ moduleUrl = "/rooms_contract_proofs.js" }
 		second.free();
 		second = new binding.RoomsManagedApplication(
 			receiverTab,
+			true,
 			() => {},
 			undefined,
 			new URL(".", document.baseURI).href,

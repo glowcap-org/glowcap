@@ -79,6 +79,7 @@ codes! {
 	NotRoomMember => ("not-room-member", "membership", AfterRequestChange, "You're no longer in that room.", Some("Join it again to keep talking.")),
 	ReadOnlyMembership => ("read-only-membership", "membership", AfterStateChange, "You can read this room but not post in it.", None),
 	WorkspaceRevisionChanged => ("workspace-revision-changed", "workspace", AfterStateChange, "This session changed while you were saving.", Some("Nothing was applied. Reload this session, then try again.")),
+	WorkspaceAlreadyOpen => ("workspace-already-open", "workspace", AfterStateChange, "This workspace is already open in another tab.", Some("Close its other tab, then choose Resume workspace.")),
 	RoomRetired => ("room-retired", "room", Never, "That room is gone.", Some("A room with the same name now is a different room.")),
 	NickTooLong => ("nick-too-long", "nickname", AfterRequestChange, "That name is too long.", None),
 	NotYourLocator => ("not-your-locator", "directory-registration", AfterRequestChange, "That address isn't yours.", Some("Rooms only accepts an address that belongs to this connection.")),

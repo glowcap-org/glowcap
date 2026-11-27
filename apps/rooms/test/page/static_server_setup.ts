@@ -7,6 +7,7 @@ import { loopbackTcpDesignator } from "../../lib/locator.ts";
 import { formatRoomsSturdyref } from "../support/sturdyref.ts";
 import { saveAndReload } from "../../lib/text/controls.ts";
 import { joinNeedsAddress } from "../../lib/text/join.ts";
+import { SERVER_KEY } from "../../web/ui/server_choice.ts";
 import { PATH_OFFER } from "../../web/ui/page_base.ts";
 import {
 	serverAskFor,
@@ -80,6 +81,48 @@ export async function proveStaticServerSetup(browser: Browser, httpPort: number)
 		// under its own field rather than asking for a server again.
 		await open.waitForSelector("#sessionSetupCapability[aria-invalid='true']", { timeout: 45_000 })
 			.catch(() => fail("saving the server did not go on to attach"));
+		await bare.close();
+	}
+
+	// Saving a missing server for Settings > Attach will reload the established
+	// workspace. Keep leaves both the preference and the form where they were.
+	{
+		const bare = await browser.newContext();
+		const open = await bare.newPage();
+		await asStaticHost(open, httpPort);
+		const base = `http://127.0.0.1:${httpPort}/`;
+		await open.goto(base);
+		await establishLocalSession(open);
+		await open.click("#settingsBtn");
+		await open.click("#holdingsTab");
+		await open.click("#opsListenersToggle");
+		const capability = formatRoomsSturdyref(parseLocator("ocapn://offered.example.tcp"), "workspace");
+		await open.fill("#capabilityValueUri", capability);
+		await open.getByRole("button", { name: "Save", exact: true }).click();
+		await open.click("#sessionTab");
+		await open.click("#sessionAttachOpen");
+		await open.fill("#sharedSessionCapability", capability);
+		await open.click("#sessionAttachGo");
+		const serverForm = open.locator('dialog[aria-labelledby="serverAskTitle"]');
+		await serverForm.locator("#serverAddress").fill(base);
+		await serverForm.locator("#serverTest").click();
+		await serverForm.locator("#serverSave:enabled").click();
+		await open.click("#settingsUnsavedKeep");
+		if (await open.evaluate((key) => localStorage.getItem(key), SERVER_KEY) !== null) {
+			fail("Keep saved the server before accepting the reload");
+		}
+		if (await open.inputValue("#sharedSessionCapability") !== capability) {
+			fail("Keep lost the proposed session link");
+		}
+		await serverForm.locator("#serverSave").click();
+		await Promise.all([open.waitForNavigation(), open.click("#settingsUnsavedDiscard")]);
+		await open.locator("#sessionSetupCapability").waitFor();
+		if (await open.inputValue("#sessionSetupCapability") !== capability) {
+			fail("the reload lost the proposed session link");
+		}
+		if (await open.evaluate((key) => localStorage.getItem(key), SERVER_KEY) !== base) {
+			fail("the reload lost the server");
+		}
 		await bare.close();
 	}
 

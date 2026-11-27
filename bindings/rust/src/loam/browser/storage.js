@@ -19,13 +19,12 @@ export async function open(name, create) {
 		`glowcap-loam:${name}`,
 		{ mode: "exclusive", ifAvailable: true },
 		async (lock) => {
-			if (!lock) throw new Error("Loam store is already owned by another tab");
-			answer();
-			await held;
+			answer(lock);
+			if (lock !== null) await held;
 		},
 	);
 	ownership.catch(refusal);
-	await ready;
+	if ((await ready) === null) return null;
 	try {
 		const database = await new Promise((resolve, reject) => {
 			const request = indexedDB.open(name, 1);

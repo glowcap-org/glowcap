@@ -39,14 +39,17 @@ interface ReloadingPage {
 	readonly managedSession: ReloadingSession | null;
 }
 
+export function reloadLosesWork(page: ReloadingPage): boolean {
+	return page.managedSession?.reloadLoses === true ||
+		[...page.projection.get().drafts.values()].some((draft) => draft.files.length > 0);
+}
+
 /** What a reload of `page` would destroy: picked files, and what its session
  * says it would drop. The session is heard as it is now, including one opened
  * after the wait began. */
 export function pageReloadLoss(page: ReloadingPage): ReloadLoss {
 	return {
-		loses: () =>
-			page.managedSession?.reloadLoses === true ||
-			[...page.projection.get().drafts.values()].some((draft) => draft.files.length > 0),
+		loses: () => reloadLosesWork(page),
 		subscribe: (listener) => {
 			let session = page.managedSession;
 			let stopSession = session?.subscribe(listener) ?? null;

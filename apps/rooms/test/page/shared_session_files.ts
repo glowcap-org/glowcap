@@ -10,6 +10,7 @@
 import type { Page } from "playwright";
 import { Buffer } from "node:buffer";
 import { fail } from "../support/fail.ts";
+import { keepWorkspace } from "./shared_session_moves.ts";
 
 /** What a reloaded page shows when it did not come back, read where it stalled. */
 async function stalledState(page: Page): Promise<string> {
@@ -38,6 +39,33 @@ export async function proveSharedImage(first: Page, second: Page, png: Uint8Arra
 		buffer: Buffer.from(png),
 	});
 	await first.waitForSelector('.composer-file:has-text("shared-session.png")');
+	await first.click("#settingsBtn");
+	await first.click("#connectionTab");
+	const savedMode = await first.locator('input[name="dm"]:checked').inputValue();
+	await first.locator('input[name="dm"]:not(:checked)').first().check();
+	await first.click("#dmSave");
+	await first.click("#settingsUnsavedKeep");
+	await first.locator(`input[name="dm"][value="${savedMode}"]`).check();
+	await first.click("#sessionTab");
+	await keepWorkspace(first);
+	await first.click("#holdingsTab");
+	const held = (await first.locator("#currentSessionCapability").innerText()).trim();
+	if (!held) fail("the attached session has no held link");
+	await first.click("#sessionTab");
+	await first.click("#sessionAttachOpen");
+	const field = first.locator("#sharedSessionCapability");
+	const other = "ocapn://127.0.0.1%3A1234.tcp/s/b3RoZXI";
+	await field.fill(other);
+	await first.click("#sessionAttachGo");
+	await first.click("#settingsUnsavedKeep");
+	if (await field.inputValue() !== other) fail("keeping the file discarded the proposed session link");
+	await field.fill(held);
+	await first.click("#sessionAttachGo");
+	await first.waitForFunction(() =>
+		document.querySelector<HTMLInputElement>("#sharedSessionCapability")?.value === ""
+	);
+	await first.locator(".session-attach-modal").getByRole("button", { name: "Close" }).click();
+	await first.click("#settingsClose");
 	await first.click("#sendBtn");
 	for (const [index, page] of [first, second].entries()) {
 		await page.waitForFunction(

@@ -40,14 +40,24 @@ impl Drop for Connection {
 }
 impl Database {
 	pub async fn open() -> Result<Self, Error> {
+		Self::connect(true).await?.ok_or(Error::Unavailable)
+	}
+	/// Open for inventory only. IndexedDB also delivers an upgrade event
+	/// when a name does not exist; abort it before creating any schema.
+	pub(super) async fn existing() -> Result<Option<Self>, Error> {
+		Self::connect(false).await
+	}
+	async fn connect(create: bool) -> Result<Option<Self>, Error> {
 		let factory: IdbFactory = js_sys::Reflect::get(&js_sys::global(), &"indexedDB".into())
 			.map_err(Error::from)?
 			.dyn_into()
 			.map_err(|_| Error::Unavailable)?;
-		let request = factory
-			.open_with_u32("rooms-history", schema::VERSION)
-			.map_err(Error::from)?;
-		let opening = Opening::start(request);
+		let request = if create {
+			factory.open_with_u32("rooms-history", schema::VERSION)
+		} else {
+			factory.open("rooms-history")
+		}?;
+		let opening = Opening::start(request, create);
 		while !opening.answered.get() {
 			opening.changed.notified().await;
 		}
@@ -142,7 +152,8 @@ impl Database {
 }
 struct Opening {
 	request: IdbOpenDbRequest,
-	result: RefCell<Option<Result<Database, Error>>>,
+	result: RefCell<Option<Result<Option<Database>, Error>>>,
+	absent: Cell<bool>,
 	failure: RefCell<Option<Error>>,
 	answered: Cell<bool>,
 	changed: Notify,
@@ -150,10 +161,11 @@ struct Opening {
 	retained: RefCell<Option<Rc<Self>>>,
 }
 impl Opening {
-	fn start(request: IdbOpenDbRequest) -> Rc<Self> {
+	fn start(request: IdbOpenDbRequest, create: bool) -> Rc<Self> {
 		let state = Rc::new(Self {
 			request,
 			result: RefCell::new(None),
+			absent: Cell::new(false),
 			failure: RefCell::new(None),
 			answered: Cell::new(false),
 			changed: Notify::new(),
@@ -165,6 +177,14 @@ impl Opening {
 			let Some(state) = weak.upgrade() else {
 				return;
 			};
+			if !create {
+				// With no requested version, an upgrade means the database
+				// is absent. Settle the read only once the abort has landed.
+				if let Some(transaction) = state.request.transaction() {
+					state.absent.set(transaction.abort().is_ok());
+				}
+				return;
+			}
 			let result = state
 				.request
 				.result()
@@ -191,7 +211,7 @@ impl Opening {
 				.and_then(Database::adopt);
 			// A blocked request cannot be cancelled. Once it eventually opens,
 			// dropping this unobserved result closes the new connection.
-			state.answer(result);
+			state.answer(result.map(Some));
 			state.release();
 		}) as Box<dyn FnMut(Event)>);
 		let weak = Rc::downgrade(&state);
@@ -199,6 +219,11 @@ impl Opening {
 			let Some(state) = weak.upgrade() else {
 				return;
 			};
+			if state.absent.get() {
+				state.answer(Ok(None));
+				state.release();
+				return;
+			}
 			let error = state.failure.borrow_mut().take().unwrap_or_else(|| {
 				state
 					.request
@@ -227,7 +252,7 @@ impl Opening {
 		*state.retained.borrow_mut() = Some(state.clone());
 		state
 	}
-	fn answer(&self, result: Result<Database, Error>) {
+	fn answer(&self, result: Result<Option<Database>, Error>) {
 		if !self.answered.replace(true) {
 			*self.result.borrow_mut() = Some(result);
 			self.changed.notify_waiters();

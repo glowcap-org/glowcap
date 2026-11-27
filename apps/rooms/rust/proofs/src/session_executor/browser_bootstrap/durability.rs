@@ -31,7 +31,7 @@ pub async fn rooms_session_bootstrap_durability_contract(metadata: bool) {
 			limits.cache_slots = 3 * (limits.record_capacity + 2) + 5;
 			limits.resident_bytes = limits.cache_slots * limits.record_bytes;
 			let prepared =
-				rooms_browser::storage::session::Prepared::open(database.clone(), tab, platform.clone()).await;
+				rooms_browser::storage::session::Prepared::open(database.clone(), tab, false, platform.clone()).await;
 			let (failure, seed) = if metadata {
 				(
 					rooms_runtime::Error::from(prepared.err().expect("unsupported metadata durability must refuse")),
@@ -60,9 +60,10 @@ pub async fn rooms_session_bootstrap_durability_contract(metadata: bool) {
 			// The harness ignores exactly the first selected write. The real
 			// strict retry must preserve any already committed private identity,
 			// and the failed claim must release its Web Lock and physical owner.
-			let prepared = rooms_browser::storage::session::Prepared::open(database.clone(), tab, platform.clone())
-				.await
-				.unwrap();
+			let prepared =
+				rooms_browser::storage::session::Prepared::open(database.clone(), tab, false, platform.clone())
+					.await
+					.unwrap();
 			if let Some(seed) = seed {
 				assert_eq!(prepared.seed(), seed);
 			}

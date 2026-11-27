@@ -9,6 +9,7 @@ export async function managedRooms({ location, moduleUrl = "/rooms_contract_proo
 	await binding.default();
 	const app = new binding.RoomsManagedApplication(
 		crypto.randomUUID(),
+		false,
 		(source, reason) => console.error(source, reason),
 		undefined,
 		new URL(".", document.baseURI).href,
@@ -343,10 +344,11 @@ export async function managedRooms({ location, moduleUrl = "/rooms_contract_proo
 				clearTimeout(timer);
 			}
 		};
-		const openPeer = async () => {
+		const openPeer = async (existing) => {
 			peerStopped = false;
 			peerApp = new binding.RoomsManagedApplication(
 				peerTab,
+				existing,
 				(source, reason) => console.error(source, reason),
 				undefined,
 				new URL(".", document.baseURI).href,
@@ -398,7 +400,7 @@ export async function managedRooms({ location, moduleUrl = "/rooms_contract_proo
 			}
 			await peerApp.startRooms(() => {});
 		};
-		await openPeer();
+		await openPeer(false);
 		const peerDirectory = await peerSession.prepareDirectory("home", location, "managed-direct-peer", true, true);
 		held.push(peerDirectory);
 		await peerDirectory.submit();
@@ -476,7 +478,7 @@ export async function managedRooms({ location, moduleUrl = "/rooms_contract_proo
 		}
 		peerApp.free();
 		peerMessages.length = 0;
-		await openPeer();
+		await openPeer(true);
 		const restoredHistory = await peerSession.deviceHistory(false);
 		try {
 			const page = await restoredHistory.read(archiveFilter, "0", 100);

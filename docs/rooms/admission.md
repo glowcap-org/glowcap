@@ -95,7 +95,7 @@ Other callers set the profile where they start the application:
 
 - Checkout development accepts the same environment values through `rooms-dev`.
 - Library users pass `Settings` at initialization.
-- Browser embeddings pass a JSON string as the optional third
+- Browser embeddings pass a JSON string as the optional fourth
   `RoomsManagedApplication` constructor argument, for example
   `JSON.stringify({"admission-rates":"message=20/80"})`.
 - An attached session uses its server's profile. Page settings cannot change it.

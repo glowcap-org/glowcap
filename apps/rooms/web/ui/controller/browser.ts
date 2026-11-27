@@ -84,7 +84,6 @@ export interface RoomsBrowserController {
 		getSnapshot(): RoomsControllerSelection;
 		subscribe(changed: () => void): () => void;
 	};
-	resetBrowserWorkspace(): Promise<string>;
 	deleteBrowserData(): Promise<string>;
 }
 

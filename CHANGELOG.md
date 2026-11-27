@@ -13,7 +13,13 @@ Releases before 0.1.7 are in the
 
 ### Changed
 
-- Restart any running Rooms bot after upgrading from 0.1.9 or earlier. Until the restarted bot publishes its status, the new `bot status` command reports a null status and `bot ready` exits unsuccessfully.
+- Each Rooms bot turn receives the running agent’s harness, requested model, and permission. `bot status` shows those settings alongside the saved configuration. Restart the bot after upgrading so it can publish its live status and pass `bot ready`.
+- Rooms reopens the last workspace in the same browser profile after the browser closes. Setup lists saved workspaces, and Settings lets you choose another. Browser embeddings must pass a boolean after the workspace ID in `new RoomsManagedApplication(id, existing, trouble, admission, server)`. Pass `true` to require an existing committed workspace. To create a separate workspace, supply a fresh ID and `false`.
+
+### Fixed
+
+- The Rooms loading indicator stays centered through Attach and returns keyboard focus to the button if the link is refused. Settings asks before a reload would discard a picked file or a pending draft.
+- To reset one workspace, open it and choose **Settings** → **Session** → **Export or reset…**. The setup screen’s **Delete browser data…** applies to all Rooms workspaces in that browser profile.
 
 ## [0.1.9] - 2026-11-27
 

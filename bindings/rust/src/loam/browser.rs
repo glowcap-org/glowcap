@@ -297,6 +297,12 @@ impl Store {
 			let owner = settled(&statistics, js_open(&name, mode != 0).map_err(js_error)?)
 				.await
 				.map_err(js_error)?;
+			if owner.is_null() {
+				return Err(crate::Error::with_detail(
+					super::WOULD_BLOCK,
+					"Loam store is already owned by another tab".into(),
+				));
+			}
 			let backend = Storage {
 				owner,
 				closed: Cell::new(false),

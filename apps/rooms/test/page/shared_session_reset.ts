@@ -41,7 +41,10 @@ export async function proveSessionReplacement(page: Page, replacement: string): 
 	} finally {
 		page.off("pageerror", recordError);
 	}
-	await page.locator("#sessionSetupCapabilitySaid").waitFor();
+	await page.locator("#savedWorkspaceFailure").waitFor();
+	if (await page.locator("#sessionSetupCapability").getAttribute("aria-invalid") === "true") {
+		fail("an unavailable saved workspace marked an unused session link invalid");
+	}
 	const aligned = await page.evaluate(() => {
 		const input = document.getElementById("sessionSetupCapability")!.getBoundingClientRect();
 		const button = document.getElementById("sessionAttach")!.getBoundingClientRect();

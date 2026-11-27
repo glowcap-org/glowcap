@@ -1,3 +1,6 @@
+import { proveRefusedAttachFocus, watchAttachHandoff } from "../page/attach_handoff.ts";
+import { proveColdWorkspace } from "../page/cold_workspace.ts";
+import { proveWorkspaceInventory } from "../page/workspace_inventory.ts";
 import { spawnWeb, webPort } from "../support/web_front.ts";
 import * as tcp from "@glowcap/tcp";
 import type { Argument } from "@glowcap/runtime";
@@ -83,11 +86,17 @@ async function control(verb: string, named: Record<string, string[]>) {
 	if (!output.success) fail(`process ${verb} refused: ${new TextDecoder().decode(output.stderr)}`);
 	return JSON.parse(new TextDecoder().decode(output.stdout));
 }
-async function attach(page: Page, link: string) {
+async function attach(page: Page, link: string, phone = false) {
+	const originalSize = page.viewportSize();
+	if (phone) await page.setViewportSize({ width: 390, height: 844 });
 	await page.goto(`http://127.0.0.1:${httpPort}/`);
 	await page.waitForSelector("#sessionSetup");
 	await page.fill("#sessionSetupCapability", link);
+	if (phone) await proveRefusedAttachFocus(page);
+	const checkHandoff = await watchAttachHandoff(page);
 	await Promise.all([page.waitForNavigation(), page.click("#sessionAttach")]);
+	await checkHandoff();
+	if (phone && originalSize) await page.setViewportSize(originalSize);
 	await namedRoomRow(page, "mirror-one").waitFor();
 	await namedRoomRow(page, "mirror-one").click();
 	await page.waitForSelector("#line:not([disabled])", { timeout: 30_000 }).catch(async () => {
@@ -128,16 +137,20 @@ try {
 		await control("join", { locator: [`127.0.0.1:${roomPort}`], nick: ["durable-member"], room: [room] });
 	}
 	browser = await chromium.launch({ args: ["--no-sandbox"] });
+	await proveWorkspaceInventory(browser, httpPort);
+	await proveColdWorkspace(browser, httpPort);
 	const firstContext = await browser.newContext();
 	const secondContext = await browser.newContext();
-	const first = await firstContext.newPage();
+	let first = await firstContext.newPage();
 	const second = await secondContext.newPage();
 	const errors: string[] = [];
-	for (const page of [first, second]) {
+	const observe = (page: Page) => {
 		page.on("pageerror", (error) => errors.push(error.message));
 		page.on("console", (message) => console.error("SHARED-CONSOLE", message.text()));
-	}
-	await attach(first, link);
+	};
+	observe(first);
+	observe(second);
+	await attach(first, link, true);
 	const secondWire = new RelayWire();
 	await secondWire.install(second);
 	await attach(second, link);
@@ -166,6 +179,16 @@ try {
 		));
 		fail(`shared draft did not project: ${JSON.stringify({ views, errors, status: await control("status", {}) })}`);
 	});
+	// Closing the last page drops sessionStorage. A new page must find its
+	// saved access and reattach without anyone pasting that link again.
+	await first.close();
+	first = await firstContext.newPage();
+	observe(first);
+	await first.goto(`http://127.0.0.1:${httpPort}/`);
+	await namedRoomRow(first, "mirror-one").waitFor();
+	await first.waitForFunction(() =>
+		document.querySelector<HTMLTextAreaElement>("#line")?.value === "shared unfinished draft"
+	);
 	await say(second, "One managed member, two views");
 	for (const page of [first, second]) await bubble(page, "One managed member, two views");
 	await proveRoomPresence(browser, httpPort, [first, second]);

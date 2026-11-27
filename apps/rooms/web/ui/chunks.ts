@@ -12,6 +12,10 @@ export function loadSessionSetup(): Promise<typeof import("./panes/SessionSetup.
 	return import("./panes/SessionSetup.tsx");
 }
 
+export function loadSavedWorkspaces(): Promise<typeof import("./panes/SavedWorkspaces.tsx")> {
+	return import("./panes/SavedWorkspaces.tsx");
+}
+
 export function loadServerOffer(): Promise<typeof import("./panes/ServerOffer.tsx")> {
 	return import("./panes/ServerOffer.tsx");
 }

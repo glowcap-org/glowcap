@@ -6,6 +6,16 @@
 import type { Page } from "playwright";
 import { fail } from "../support/fail.ts";
 
+/** From the Session tab with unsaved work, keep editing the current workspace. */
+export async function keepWorkspace(page: Page): Promise<void> {
+	const pinned = () => page.evaluate(() => sessionStorage.getItem("rooms.managed-tab"));
+	const prior = await pinned();
+	await page.click("#sessionBrowseWorkspaces");
+	await page.click("#settingsUnsavedKeep");
+	await page.waitForSelector("#settingsUnsavedTitle", { state: "detached" });
+	if (!prior || await pinned() !== prior) fail("cancelling the switch changed the pinned workspace");
+}
+
 interface Row {
 	readonly acts: number;
 	readonly ruled: boolean;

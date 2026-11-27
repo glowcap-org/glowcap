@@ -31,7 +31,7 @@ Paths in this table are relative to `apps/rooms/`.
 | Declarations | `rust/application/src/content/session/` | Workspace, held-storage and effect codecs. Permission requirements, presets and generated browser metadata. |
 | Runtime | `rust/runtime/src/session/managed/` | Source admission, atomic storage acquisition and receipts, supervised workers and bounded readers. |
 | Process | `rust/platform/src/storage/session.rs`, `rust/services/src/session/`, `rust/product/src/bin/rooms-session/` | SQLite bootstrap, stable independent use/control publications and typed local-control operations. |
-| Browser | `rust/browser/src/attached/managed/`, `rust/browser/src/storage/` | Per-tab IndexedDB bootstrap, exact saved fields and retained Wasm handles. |
+| Browser | `rust/browser/src/attached/managed/`, `rust/browser/src/storage/` | Per-workspace IndexedDB bootstrap, exact saved fields and retained Wasm handles. |
 | Clients | `rust/glowcap/src/client/workspace/`, `rust/glowcap/src/client/access/` | Local and remote workspace calls, retained requests and independent management. |
 | Page | `web/ui/session/managed/`, `web/ui/main.tsx` | Projection of requests and activity, drafts, navigation, history, files and explicit recovery. |
 | Access editor | `web/ui/settings/` | Separately held controls, permission groups, revision-checked changes and descriptive inventory. |
@@ -64,8 +64,9 @@ the original branch derivation. Startup checks workspace and receipt metadata
 without restoring every held field.
 
 The server process uses SQLite, atomic replacement of metadata files and a
-directory lease. The browser uses per-tab IndexedDB metadata and the Store's
-exclusive Web Lock. Replacing metadata compares the previous bootstrap in the
+directory lease.
+
+The browser pins a workspace to each open tab and remembers the last one that opened on this device. Its IndexedDB bootstrap and the Store's exclusive Web Lock belong to the workspace. A saved workspace with missing owner metadata refuses recovery. Replacing metadata compares the previous bootstrap in the
 same transaction, so a slow preparation cannot overwrite a confirmed root.
 Browser metadata and Loam both require strict durability. Startup refuses
 when a confirmed root is missing or storage is uncertain.

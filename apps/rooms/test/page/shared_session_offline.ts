@@ -12,6 +12,7 @@ import { sessionOffline, sessionTryNow } from "../../lib/text/page.ts";
 import { managedAccessText } from "../../lib/text/managed_access.ts";
 import { composerUseSessionDraft } from "../../lib/text/controls.ts";
 import { holdControl } from "./shared_session_access.ts";
+import { keepWorkspace } from "./shared_session_moves.ts";
 import { keptItself, markKept } from "./harness.ts";
 import { until, within } from "../support/wait.ts";
 
@@ -158,6 +159,10 @@ export async function proveSharedDraftConflict(
 	}
 	const useSession = page.getByRole("button", { name: composerUseSessionDraft, exact: true });
 	await useSession.waitFor();
+	await page.click("#settingsBtn");
+	await page.click("#sessionTab");
+	await keepWorkspace(page);
+	await page.click("#settingsClose");
 	await page.press("#line", "Enter");
 	if (!await page.locator("#sendBtn").isDisabled() || await page.inputValue("#line") !== local) {
 		fail("the conflicting draft must stay local and available to copy");

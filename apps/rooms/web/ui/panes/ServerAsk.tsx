@@ -10,17 +10,21 @@ import { reloadNow } from "../boot.ts";
 import { useRoomsProjection, useRoomsState } from "../hooks.ts";
 import { pageBase } from "../page_base.ts";
 import { ServerDialog } from "../settings/ServerDialog.tsx";
+import { useRequestReload } from "../settings/request_reload.ts";
+import { sessionOffer } from "../session_offer.ts";
 import * as store from "../store.ts";
 
 export function ServerAsk() {
 	const projection = useRoomsProjection();
 	const ask = useRoomsState((state) => state.serverAsk);
+	const requestReload = useRequestReload();
+	const resume = ask?.resume == null ? null : new URL(ask.resume.replace(/^\//, ""), pageBase());
+	const carriesAttach = resume != null && sessionOffer(resume) != null;
 	const saved = () => {
 		// The act's address is a route under the page base, so the reload lands
 		// on it under whatever base this build has.
-		if (ask?.resume != null) {
-			const at = new URL(ask.resume.replace(/^\//, ""), pageBase());
-			globalThis.history.replaceState(globalThis.history.state, "", at);
+		if (resume != null) {
+			globalThis.history.replaceState(globalThis.history.state, "", resume);
 		}
 		reloadNow();
 	};
@@ -33,6 +37,8 @@ export function ServerAsk() {
 			open={ask != null}
 			onClose={() => store.dismissServerAsk(projection)}
 			onSaved={saved}
+			requestSave={(save) =>
+				requestReload(save, carriesAttach ? { except: ["settings-session-attach"] } : undefined)}
 		/>
 	);
 }

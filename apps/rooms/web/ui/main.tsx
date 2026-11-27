@@ -11,10 +11,17 @@
 import { invariant } from "../../lib/invariant.ts";
 import { errorMessage } from "../../lib/error_message.ts";
 import { managedSessionText as managedText } from "../../lib/text/managed_session.ts";
-import { type ReactNode, StrictMode } from "react";
+import { type ReactNode, StrictMode, useLayoutEffect } from "react";
 import { createRoot } from "react-dom/client";
 import { addressOfActive, navigateTo } from "./routing_api.ts";
-import { loadEstablished, loadOpsPage, loadServerOffer, loadSessionSetup, prefetch } from "./chunks.ts";
+import {
+	loadEstablished,
+	loadOpsPage,
+	loadSavedWorkspaces,
+	loadServerOffer,
+	loadSessionSetup,
+	prefetch,
+} from "./chunks.ts";
 import {
 	handOffNow,
 	handOffWhenReady,
@@ -43,12 +50,16 @@ import { createManagedController } from "./session/managed/controller.ts";
 import { ManagedHistory } from "./session/managed/history.ts";
 import * as application from "./application.ts";
 import { RoomsBrowserProvider } from "./controller/browser.ts";
+import { createRoomsBrowserController, setupRefusal } from "./controller/create_browser.ts";
 import {
-	createRoomsBrowserController,
-	forgetWorkspaceChoice,
-	setupRefusal,
+	coldWorkspace,
+	markedWorkspaces,
+	pinnedWorkspace,
+	pinWorkspace,
+	recordWorkspaceChoice,
+	rememberOpenWorkspace,
 	workspaceChosen,
-} from "./controller/create_browser.ts";
+} from "./workspace_choice.ts";
 import { finishBrowserDataDeletion, reloadWhenAnotherTabDeletes } from "./controller/browser_data.ts";
 import { ModalProvider } from "./modal.ts";
 import type { RoomsSessionController } from "./controller/session.ts";
@@ -63,7 +74,7 @@ import { chooseServer, serverOffer } from "./server_choice.ts";
 import { sessionOffer } from "./session_offer.ts";
 import { reachesLocalNetwork } from "./local_network.ts";
 import { openServedDirectory, showServedDirectory, startLocalRooms } from "./served_directory.ts";
-import { sessionDidNotOpen } from "../../lib/text/session.ts";
+import { savedWorkspaceTitle, sessionDidNotOpen } from "../../lib/text/session.ts";
 import { settingsServerOffer, settingsServerRefused } from "../../lib/text/settings.ts";
 import { roomsErrorIn } from "../../lib/error_codes.ts";
 
@@ -134,7 +145,11 @@ const root = createRoot(mount, {
 
 /** Providers that live as long as this page, including establishment.
  * A session controller is not one of these: it exists only after a choice. */
-function PageSurface({ children }: { children: ReactNode }) {
+function PageSurface({ children, established = false }: { children: ReactNode; established?: boolean }) {
+	useLayoutEffect(() => {
+		if (established) handOffWhenReady(page.projection, "controller-snapshot");
+		else handOffNow();
+	}, [established]);
 	return (
 		<RoomsProjectionProvider value={page.projection}>
 			<RoomsBrowserProvider value={browser}>
@@ -144,18 +159,49 @@ function PageSurface({ children }: { children: ReactNode }) {
 	);
 }
 
-async function showSessionSetup(initialCapability = "", initialError = ""): Promise<void> {
+async function showSessionSetup({ capability = "", error = "", recoveryError = "" } = {}): Promise<void> {
 	const { SessionSetup } = await loadSessionSetup();
+	const { RoomsBrowserData } = application.applicationModule();
+	let saved: string[] = [];
+	try {
+		saved = await RoomsBrowserData.savedWorkspaces();
+	} catch (error) {
+		report(savedWorkspaceTitle, error);
+		saved = markedWorkspaces();
+		try {
+			const owners = await RoomsBrowserData.savedWorkspaceOwners();
+			saved = [...new Set([...saved, ...owners])].sort();
+		} catch (error) {
+			// Setup still offers marked workspaces when storage itself is blocked.
+			report(savedWorkspaceTitle, error);
+		}
+	}
+	const pin = pinnedWorkspace();
+	if (pin && !saved.includes(pin)) saved = [pin, ...saved];
+	const Recovery = saved.length || recoveryError ? (await loadSavedWorkspaces()).SavedWorkspaces : null;
 	root.render(
 		<StrictMode>
 			<PageSurface>
 				<ModalProvider key="session-setup">
-					<SessionSetup initialCapability={initialCapability} initialError={initialError} />
+					<SessionSetup
+						initialCapability={capability}
+						initialError={error}
+						renderSavedWorkspaces={Recovery
+							? (disabled, primary) => (
+								<Recovery
+									choices={saved}
+									pin={pin}
+									initialError={recoveryError}
+									primary={primary}
+									disabled={disabled}
+								/>
+							)
+							: undefined}
+					/>
 				</ModalProvider>
 			</PageSurface>
 		</StrictMode>,
 	);
-	handOffNow();
 }
 
 /** Ask about a Rooms server this page's link offers, and take the offer out of
@@ -184,7 +230,6 @@ async function answerServerOffer(): Promise<void> {
 				</PageSurface>
 			</StrictMode>,
 		);
-		handOffNow();
 	});
 	// A choice this browser cannot keep would leave the page on another server.
 	const refused = use ? chooseServer(base) : null;
@@ -247,8 +292,13 @@ async function start(): Promise<void> {
 	// when an obsolete schema refuses startup.
 	if (attach != null || deleted != null) {
 		standAtFrontOfPrivilegedAddress();
-		await showSessionSetup(attach?.capability ?? "", deleted ?? "");
+		await showSessionSetup({ capability: attach?.capability, error: deleted ?? "" });
 		return;
+	}
+	const cold = coldWorkspace();
+	if (cold !== null) {
+		const refused = pinWorkspace(cold);
+		if (refused) throw refused;
 	}
 	if (!workspaceChosen()) {
 		standAtFrontOfPrivilegedAddress();
@@ -260,9 +310,11 @@ async function start(): Promise<void> {
 		opened = await openWorkspace();
 	} catch (error) {
 		standAtFrontOfPrivilegedAddress();
-		await showSessionSetup("", setupRefusal(page.projection, error));
+		await showSessionSetup({ recoveryError: setupRefusal(page.projection, error) });
 		return;
 	}
+	const rememberFailure = rememberOpenWorkspace();
+	if (rememberFailure) store.toast(page.projection, "failure", refusalText(rememberFailure));
 	const { session: managed, local } = opened;
 	// A page that does not open closes its session, so nothing dials behind it.
 	let stopOnFailure = () => {};
@@ -337,7 +389,7 @@ async function showEstablishedPage(
 	bindEstablishedRouting(page);
 	root.render(
 		<StrictMode>
-			<PageSurface>
+			<PageSurface established>
 				<ManagedSessionProvider value={managed}>
 					<ModalProvider key="established-session">
 						<EstablishedSession session={session} />
@@ -346,8 +398,6 @@ async function showEstablishedPage(
 			</PageSurface>
 		</StrictMode>,
 	);
-
-	handOffWhenReady(page.projection, "controller-snapshot");
 }
 
 void start().catch((error) => {
@@ -362,7 +412,7 @@ void start().catch((error) => {
 		reason,
 		workspaceChosen()
 			? () => {
-				const refused = forgetWorkspaceChoice();
+				const refused = recordWorkspaceChoice(false);
 				return refused == null ? null : refusalText(refused);
 			}
 			: null,

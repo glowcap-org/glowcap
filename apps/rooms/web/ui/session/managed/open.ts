@@ -8,39 +8,17 @@ import type { PageProjection } from "../../store/projection.ts";
 import { bindLinkToPage } from "./link_binding.ts";
 import { serverInUse } from "../../server_choice.ts";
 import { ManagedRoomsSession } from "./session.ts";
-import { type PageStorage, sessionArea } from "../../page_storage.ts";
+import { tabIdentity, workspaceChosen } from "../../workspace_choice.ts";
 import { ACTIVE_VIEW, type WorkspaceSnapshot } from "./model.ts";
 import type {
 	RoomsManagedApplication,
 	RoomsManagedWorkspace,
 } from "../../../../../../zig-out/wasm/rooms/rooms_browser.js";
 
-const TAB = "rooms.managed-tab";
-
 export class ManagedSessionStartupFailure extends LocalRefusal {
 	constructor(cause: unknown, readonly cleanup: unknown) {
 		super("session-startup-failed", { cause: [cause, cleanup] });
 	}
-}
-
-/** This tab's workspace identity, minted on first use and kept across the
- * tab's reloads. A browser that refuses to keep it is refused here: a session
- * opened under an identity nobody kept could never be found again. */
-export function tabIdentity(storage: PageStorage = sessionArea): string {
-	let id = storage.read(TAB);
-	if (id == null) {
-		id = crypto.randomUUID();
-		const refused = storage.write(TAB, id);
-		if (refused != null) throw refused;
-	}
-	if (!/^[a-zA-Z0-9-]{1,64}$/.test(id)) throw new LocalRefusal("tab-identity-invalid");
-	return id;
-}
-
-/** This tab's identity if it already has one, without minting one. Null on a
- * fresh tab, and on a tab whose browser refuses to read it. */
-export function keptTabIdentity(storage: PageStorage = sessionArea): string | null {
-	return storage.read(TAB);
 }
 
 /** Where opening a session failed: in this browser's own saved session, or
@@ -61,6 +39,7 @@ export function openManagedSession(
 	const admission = document.documentElement.dataset.roomsSessionAdmission;
 	const application = new (applicationModule().RoomsManagedApplication)(
 		tabIdentity(),
+		workspaceChosen(),
 		report,
 		admission,
 		serverInUse()?.base,

@@ -17,6 +17,18 @@ assert(
 );
 
 function contract(binding) {
+	const trouble = () => {};
+	for (const args of [[], [trouble], [undefined, trouble], [null, trouble], [0, trouble], ["false", trouble]]) {
+		let refusal;
+		try {
+			new binding.RoomsManagedApplication("workspace-mode", ...args);
+		} catch (error) {
+			refusal = error;
+		}
+		if (refusal?.reason !== "existing must be a boolean") {
+			throw new Error("opening a workspace requires an explicit boolean");
+		}
+	}
 	if (binding.directoryAuthority("127.0.0.1:1234") !== "ocapn://127.0.0.1%3A1234.tcp") {
 		throw new Error("TCP directory identity");
 	}
@@ -44,12 +56,14 @@ async function lifetime(binding) {
 	const reportTrouble = (source, reason) => trouble.push({ source, reason });
 	const first = new binding.RoomsManagedApplication(
 		crypto.randomUUID(),
+		false,
 		reportTrouble,
 		undefined,
 		new URL(".", document.baseURI).href,
 	);
 	const sibling = new binding.RoomsManagedApplication(
 		crypto.randomUUID(),
+		false,
 		reportTrouble,
 		undefined,
 		new URL(".", document.baseURI).href,
@@ -92,9 +106,10 @@ async function lifetime(binding) {
 	}
 	first.free();
 	sibling.free();
-	const standalone = new binding.RoomsManagedApplication(crypto.randomUUID(), reportTrouble);
+	const standalone = new binding.RoomsManagedApplication(crypto.randomUUID(), false, reportTrouble);
 	const forwarded = new binding.RoomsManagedApplication(
 		crypto.randomUUID(),
+		false,
 		reportTrouble,
 		undefined,
 		new URL(".", document.baseURI).href,
@@ -205,6 +220,7 @@ try {
 		await binding.default();
 		globalThis.openingApplication = new binding.RoomsManagedApplication(
 			crypto.randomUUID(),
+			false,
 			() => {},
 			undefined,
 			new URL(".", document.baseURI).href,

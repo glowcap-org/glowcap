@@ -23,7 +23,7 @@ import { stopBootAsides } from "./boot_note.ts";
 import type { MarkLive } from "../../../../ui/mark/live.ts";
 import type { PageProjection } from "./store/projection.ts";
 import { pageBase, pagePath, reloadPage } from "./page_base.ts";
-import { bootReload } from "../../lib/text/session.ts";
+import { bootOpeningSession, bootReload } from "../../lib/text/session.ts";
 
 /** The two states this module puts the document in. `running` closes the window
  * in which page.html's watcher may call the page lost; `done` is the last word
@@ -67,13 +67,36 @@ function handedOver(): boolean {
 	return boot === HANDED_OVER || boot === LEAVING;
 }
 
-/** Cover the running page for a reload that has already committed. The opening
- * screen was taken out at handover, so this stamps the document and the
- * stylesheet paints the same sheet over whatever React still has in the tree. */
+// Keep the parsed opening screen for moves that navigate to a new document.
+// Its fixed layout is the same on both sides of that navigation.
+let openingScreen: HTMLElement | null = null;
+let handoffDialog: HTMLDialogElement | null = null;
+let returnFocus: HTMLElement | null = null;
+let waitingForControl: MutationObserver | null = null;
+
 export function coverForReload(): void {
 	const root = bootRoot();
 	if (root == null) return;
+	if (root.dataset.boot === LEAVING) return;
+	waitingForControl?.disconnect();
+	waitingForControl = null;
+	if (openingScreen) returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
 	root.dataset.boot = LEAVING;
+	if (openingScreen !== null) {
+		const note = openingScreen.querySelector(".boot-note");
+		if (note) note.textContent = bootOpeningSession;
+		openingScreen.querySelector(".boot-why")?.remove();
+		// Attach may start inside Settings' modal. Only the top native dialog
+		// is exposed to assistive technology until that modal closes.
+		handoffDialog = document.createElement("dialog");
+		handoffDialog.className = "boot-handoff";
+		handoffDialog.setAttribute("aria-labelledby", "bootNote");
+		handoffDialog.addEventListener("cancel", (event) => event.preventDefault());
+		handoffDialog.append(openingScreen);
+		document.body.append(handoffDialog);
+		handoffDialog.showModal();
+		startOpeningMark();
+	}
 }
 
 /** Whether a committed reload's cover is up. A crash surface must not paint a
@@ -143,6 +166,33 @@ export function uncoverReload(): void {
 	const root = bootRoot();
 	if (root == null || root.dataset.boot !== LEAVING) return;
 	root.dataset.boot = HANDED_OVER;
+	stopOpeningMark();
+	handoffDialog?.close();
+	handoffDialog?.remove();
+	handoffDialog = null;
+	// React can commit the enabled control after the next paint. Only return
+	// focus while the user has not moved it elsewhere.
+	const opener = returnFocus;
+	if (opener) {
+		const restore = () => {
+			if (returnFocus !== opener) return;
+			waitingForControl?.disconnect();
+			waitingForControl = null;
+			if (coveringReload()) return;
+			returnFocus = null;
+			if (!opener.isConnected) return;
+			const focused = document.activeElement;
+			if (focused !== document.body && focused !== opener && focused !== opener.closest("dialog")) return;
+			if (opener.matches(":disabled")) {
+				returnFocus = opener;
+				waitingForControl = new MutationObserver(restore);
+				waitingForControl.observe(opener, { attributes: true, attributeFilter: ["disabled"] });
+				return;
+			}
+			opener.focus({ preventScroll: true });
+		};
+		requestAnimationFrame(restore);
+	}
 }
 
 /** A required chunk or boot step failed while the opening screen was still
@@ -206,7 +256,7 @@ export function startOpeningMark(): void {
 	if (box === null) return;
 	openingMark = import("../../../../ui/mark/live.ts").then((m) => m.start(box, "loop")).then((mark) => {
 		// The screen may already be gone by the time a device arrives.
-		if (mark !== null && (!box.isConnected || handedOver())) {
+		if (mark !== null && (!box.isConnected || bootRoot()?.dataset.boot === HANDED_OVER)) {
 			mark.stop();
 			return null;
 		}
@@ -219,14 +269,19 @@ export function startOpeningMark(): void {
 	});
 }
 
-export function handOffNow(): void {
-	if (handedOver()) return;
+function stopOpeningMark(): void {
 	void openingMark.then((mark) => mark?.stop());
 	openingMark = Promise.resolve(null);
+}
+
+export function handOffNow(): void {
+	if (handedOver()) return;
+	stopOpeningMark();
 	stopBootAsides();
 	document.documentElement.dataset.boot = HANDED_OVER;
 	const boot = document.getElementById("boot");
 	if (boot === null) return;
+	openingScreen = boot;
 	// The fade is the stylesheet's, and so is how long it lasts for a reader who
 	// has asked for less motion: one place decides. It does depend on the event
 	// being the screen's own. A transition ending anywhere inside it bubbles up
@@ -244,7 +299,7 @@ export function handOffNow(): void {
 		if (event !== undefined && event.target !== boot) return;
 		clearTimeout(floor);
 		boot.removeEventListener("transitionend", gone);
-		boot.remove();
+		if (!coveringReload()) boot.remove();
 	};
 	boot.addEventListener("transitionend", gone);
 	// Declared after the handler that clears it, which is safe because nothing
