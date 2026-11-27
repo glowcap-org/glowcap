@@ -65,7 +65,7 @@ export function SessionSetup(
 	{ initialCapability = "", initialError = "", renderSavedWorkspaces }: {
 		initialCapability?: string;
 		initialError?: string;
-		renderSavedWorkspaces?: (disabled: boolean) => ReactNode;
+		renderSavedWorkspaces?: (disabled: boolean, primary: boolean) => ReactNode;
 	},
 ) {
 	const browser = useRoomsBrowser();
@@ -198,7 +198,7 @@ export function SessionSetup(
 					/>
 				)}
 				<div className="session-setup-choices">
-					{renderSavedWorkspaces?.(busy != null)}
+					{renderSavedWorkspaces?.(busy != null, capability.trim() === "")}
 					<section className="launch session-setup-choice" aria-labelledby="localSessionTitle">
 						<span className="launch-mark" aria-hidden="true">
 							<Icon name="session" size={20} />
@@ -210,9 +210,7 @@ export function SessionSetup(
 						<Button
 							id="sessionUseLocal"
 							size="large"
-							// One door leads: a session link, offered or typed, makes
-							// Attach the next step.
-							variant={capability.trim() === "" ? "primary" : "quiet"}
+							variant={!renderSavedWorkspaces && capability.trim() === "" ? "primary" : "quiet"}
 							busy={busy === "local"}
 							disabled={busy != null || shut(unreadable, "local")}
 							aria-describedby={shutBy(unreadable, "local")}

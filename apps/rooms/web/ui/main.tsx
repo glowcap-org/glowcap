@@ -187,11 +187,12 @@ async function showSessionSetup({ capability = "", error = "", recoveryError = "
 						initialCapability={capability}
 						initialError={error}
 						renderSavedWorkspaces={Recovery
-							? (disabled) => (
+							? (disabled, primary) => (
 								<Recovery
 									choices={saved}
 									pin={pin}
 									initialError={recoveryError}
+									primary={primary}
 									disabled={disabled}
 								/>
 							)

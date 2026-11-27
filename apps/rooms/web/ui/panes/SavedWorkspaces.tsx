@@ -14,11 +14,12 @@ import { Button } from "../Button.tsx";
 import { Icon } from "../icons.tsx";
 import { chooseWorkspace, lastWorkspace } from "../workspace_choice.ts";
 
-export function SavedWorkspaces({ choices, pin, initialError, disabled }: {
+export function SavedWorkspaces({ choices, pin, initialError, disabled, primary }: {
 	choices: readonly string[];
 	pin: string | null;
 	initialError: string;
 	disabled: boolean;
+	primary: boolean;
 }) {
 	const [error, setError] = useState(initialError);
 	const options = savedWorkspaceOptions(choices, lastWorkspace());
@@ -50,7 +51,16 @@ export function SavedWorkspaces({ choices, pin, initialError, disabled }: {
 						{options.map(({ id, label }) => <option key={id} value={id}>{label}</option>)}
 					</Select>
 				)}
-				{selected && <Button disabled={disabled} onClick={() => choose(selected)}>{resumeWorkspace}</Button>}
+				{selected && (
+					<Button
+						size="large"
+						variant={primary ? "primary" : "quiet"}
+						disabled={disabled}
+						onClick={() => choose(selected)}
+					>
+						{resumeWorkspace}
+					</Button>
+				)}
 				{initialError && (
 					<Button disabled={disabled} variant="quiet" onClick={() => choose(null)}>
 						{separateWorkspace}

@@ -62,11 +62,36 @@ export async function proveColdWorkspace(browser: Browser, port: number): Promis
 		await cold.close();
 		const legacy = await context.newPage();
 		await refuseDatabaseEnumeration(legacy);
+		await legacy.addInitScript(() => {
+			const frame = () => {
+				const boot = document.querySelector("#boot");
+				const root = document.querySelector("#root");
+				if (
+					boot && root && document.documentElement.dataset.boot === "done" &&
+					Number(getComputedStyle(boot).opacity) > 0.02 && Number(getComputedStyle(root).opacity) > 0.02
+				) {
+					document.documentElement.dataset.proofLayerOverlap = "yes";
+				}
+				if (boot || document.documentElement?.dataset.boot !== "done") requestAnimationFrame(frame);
+			};
+			requestAnimationFrame(frame);
+		});
 		const roomAddress = new URL(`room/${encodeURIComponent(ROOM)}`, origin).href;
 		await legacy.goto(roomAddress);
 		await legacy.setViewportSize({ width: 390, height: 844 });
 		const choices = legacy.getByRole("combobox", { name: "Saved on this device" });
 		await choices.waitFor();
+		await legacy.locator("#boot").waitFor({ state: "detached" });
+		if (await legacy.locator("html").getAttribute("data-proof-layer-overlap")) {
+			fail("the opening status and recovery controls were visible in the same frame");
+		}
+		const resumeButton = legacy.getByRole("button", { name: "Resume workspace" });
+		if (
+			await resumeButton.getAttribute("data-variant") !== "primary" ||
+			await legacy.locator("#sessionUseLocal").getAttribute("data-variant") === "primary"
+		) {
+			fail("the recovery picker gave a new local session equal priority to the saved workspace");
+		}
 		if (await choices.locator("option").count() !== 2) fail("setup lost one of the saved workspaces");
 		const copy = await legacy.locator("#savedWorkspaceTitle").boundingBox();
 		if (!copy || copy.width < 180 || copy.x + copy.width > 390) fail("the mobile recovery heading has no room");

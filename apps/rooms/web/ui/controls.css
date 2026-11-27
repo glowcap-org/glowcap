@@ -465,7 +465,7 @@ summary:focus-visible,
 	   and `visibility` already steps it in and out, so a near-zero duration lands
 	   it in place rather than losing it. */
 	.boot {
-		transition-duration: 150ms !important;
+		transition-duration: var(--boot-fade-time) !important;
 	}
 	.toasts {
 		/* Keep the half of the transform that centers the stack and give up only
