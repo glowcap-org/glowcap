@@ -1,18 +1,10 @@
 // The first screen: where this browser's session lives, decided before a
 // workspace opens.
 //
-// Two doors, each a launch row in one card: keep everything on this device, or
-// attach to a session another device or a server keeps. Under the card, the
-// Rooms server the page reaches through what it cannot open on its own
-// (SessionServer). Attach to a link that needs one, with none, asks for it
-// first, and saving it attaches, so the link typed or offered is never lost
-// on the way. The advanced disclosure under the card holds the two acts that
-// take saved state away, each behind the ordinary confirm. A refusal lands
-// beside what asked for it: a capability the session would not take stays
-// under its own field, and anything else stands under the card. Saved data
-// this version can't read refuses every act that opens it (`opensSaved`), so
-// each of those is shut and described by a notice under the card, which says
-// so and offers a separate workspace.
+// A saved workspace can be resumed here. Otherwise the browser keeps a local
+// session or attaches to a shared one. A link needing a Rooms server stays
+// filled while that server is chosen. Advanced confirms deletion of all the
+// data this page keeps in this browser profile.
 
 import { type ReactNode, useRef, useState } from "react";
 import { chooseWorkspace } from "../workspace_choice.ts";
@@ -40,9 +32,6 @@ import {
 	sessionLocalCommit,
 	sessionLocalHint,
 	sessionLocalTitle,
-	sessionResetAsk,
-	sessionResetCommit,
-	sessionResetSay,
 	sessionSetupLead,
 	sessionSetupTitle,
 	sessionSharedCommit,
@@ -76,8 +65,7 @@ export function SessionSetup(
 	// Two homes for a refusal: the attach field's own, and the card's.
 	const [attachError, setAttachError] = useState("");
 	const [error, setError] = useState(initialError);
-	const [confirmAction, setConfirmAction] = useState<SavedDataAct | null>(null);
-	const [advancedOpen, setAdvancedOpen] = useState(false);
+	const [confirmDelete, setConfirmDelete] = useState(false);
 	const running = useRef<SetupAct | null>(null);
 	// The server the opening session takes: the kept choice at load, and the
 	// one saved here after.
@@ -147,22 +135,6 @@ export function SessionSetup(
 		setChoosing(null);
 		if (then === "attach") void attach();
 	};
-	const forgetWorkspace = async () => {
-		if (running.current !== null) return;
-		running.current = "reset";
-		setError("");
-		setBusy("reset");
-		try {
-			const why = await actionRefusal(() => browser.resetBrowserWorkspace());
-			if (why !== "") {
-				setError(why);
-				setConfirmAction(null);
-			}
-		} finally {
-			running.current = null;
-			setBusy(null);
-		}
-	};
 	const deleteBrowserData = async () => {
 		if (running.current !== null) return;
 		running.current = "delete";
@@ -171,7 +143,7 @@ export function SessionSetup(
 		try {
 			const why = await actionRefusal(() => browser.deleteBrowserData());
 			setError(why);
-			if (why !== "") setConfirmAction(null);
+			if (why !== "") setConfirmDelete(false);
 		} finally {
 			running.current = null;
 			setBusy(null);
@@ -212,8 +184,8 @@ export function SessionSetup(
 							size="large"
 							variant={!renderSavedWorkspaces && capability.trim() === "" ? "primary" : "quiet"}
 							busy={busy === "local"}
-							disabled={busy != null || shut(unreadable, "local")}
-							aria-describedby={shutBy(unreadable, "local")}
+							disabled={busy != null || unreadable}
+							aria-describedby={unreadable ? "sessionUnreadableSay" : undefined}
 							onClick={useLocal}
 						>
 							{sessionLocalCommit}
@@ -263,8 +235,8 @@ export function SessionSetup(
 								type="submit"
 								size="large"
 								busy={busy === "attach"}
-								disabled={busy != null || shut(unreadable, "attach") || capability.trim() === ""}
-								aria-describedby={shutBy(unreadable, "attach")}
+								disabled={busy != null || unreadable || capability.trim() === ""}
+								aria-describedby={unreadable ? "sessionUnreadableSay" : undefined}
 							>
 								{sessionSharedCommit}
 							</Button>
@@ -304,14 +276,11 @@ export function SessionSetup(
 				{error !== "" && <Said kind="failure">{error}</Said>}
 
 				<SetupAdvanced
-					open={advancedOpen}
-					asking={confirmAction}
-					busy={busy}
-					unreadable={unreadable}
-					onToggle={setAdvancedOpen}
-					onAsk={setConfirmAction}
-					onKeep={() => setConfirmAction(null)}
-					onCommit={(act) => void (act === "reset" ? forgetWorkspace() : deleteBrowserData())}
+					asking={confirmDelete}
+					busy={busy != null}
+					onAsk={() => setConfirmDelete(true)}
+					onKeep={() => setConfirmDelete(false)}
+					onCommit={() => void deleteBrowserData()}
 				/>
 			</div>
 			<ErrorDetail
@@ -323,19 +292,7 @@ export function SessionSetup(
 }
 
 /** The acts setup offers. */
-type SetupAct = "local" | "attach" | "reset" | "delete";
-/** The two acts that take saved state away. */
-export type SavedDataAct = "reset" | "delete";
-/** Whether each act opens this browser's saved session: both doors select a
- * session in it, and forgetting rooms and settings clears it. Deleting this
- * browser's data reloads without opening it. */
-const opensSaved: Record<SetupAct, boolean> = { local: true, attach: true, reset: true, delete: false };
-/** Whether `act` is shut because saved data is `unreadable`: every act that
- * opens it would meet the same refusal. */
-const shut = (unreadable: boolean, act: SetupAct): boolean => unreadable && opensSaved[act];
-/** What describes `act`: the notice that says why it is shut, when it is. */
-const shutBy = (unreadable: boolean, act: SetupAct): string | undefined =>
-	shut(unreadable, act) ? "sessionUnreadableSay" : undefined;
+type SetupAct = "local" | "attach" | "delete";
 
 /** What setup says while this browser's saved session can't be read, over the
  * option to open a separate workspace. */
@@ -358,59 +315,34 @@ export function SessionUnreadable({ busy, onSeparate }: { busy: boolean; onSepar
 	);
 }
 
-/** The disclosure under the card: each act that takes saved state away, and
- * the ordinary confirm for the one `asking`, unless saved data `unreadable`
- * shuts it. */
+/** Device-wide deletion is available even when no workspace can be opened. */
 export function SetupAdvanced(
-	{ open, asking, busy, unreadable, onToggle, onAsk, onKeep, onCommit }: {
-		open: boolean;
-		asking: SavedDataAct | null;
-		busy: string | null;
-		unreadable: boolean;
-		onToggle: (open: boolean) => void;
-		onAsk: (act: SavedDataAct) => void;
-		onKeep: () => void;
-		onCommit: (act: SavedDataAct) => void;
+	{ asking, busy, onAsk, onKeep, onCommit }: {
+		asking: boolean;
+		busy: boolean;
+		onAsk(): void;
+		onKeep(): void;
+		onCommit(): void;
 	},
 ) {
 	return (
-		<details
-			className="disclosure session-setup-advanced"
-			data-align="center"
-			open={open}
-			onToggle={(event) => onToggle(event.currentTarget.open)}
-		>
+		<details className="disclosure session-setup-advanced" data-align="center">
 			<summary>{sessionAdvanced}</summary>
-			{asking != null && !shut(unreadable, asking)
+			{asking
 				? (
 					<Confirm
 						label={sessionChangeLabel}
-						say={asking === "reset" ? sessionResetSay : sessionDeleteSay}
+						say={sessionDeleteSay}
 						keep={sessionConfirmKeep}
-						commit={asking === "reset" ? sessionResetCommit : sessionDeleteCommit}
-						busy={busy === asking}
+						commit={sessionDeleteCommit}
+						busy={busy}
 						onKeep={onKeep}
-						onCommit={() => onCommit(asking)}
+						onCommit={onCommit}
 					/>
 				)
 				: (
 					<div className="actions">
-						<Button
-							id="sessionResetAsk"
-							variant="quiet"
-							disabled={busy != null || shut(unreadable, "reset")}
-							aria-describedby={shutBy(unreadable, "reset")}
-							onClick={() => onAsk("reset")}
-						>
-							{sessionResetAsk}
-						</Button>
-						<Button
-							id="sessionDeleteAsk"
-							variant="quiet"
-							disabled={busy != null || shut(unreadable, "delete")}
-							aria-describedby={shutBy(unreadable, "delete")}
-							onClick={() => onAsk("delete")}
-						>
+						<Button id="sessionDeleteAsk" variant="quiet" disabled={busy} onClick={onAsk}>
 							{sessionDeleteAsk}
 						</Button>
 					</div>

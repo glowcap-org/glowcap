@@ -1,4 +1,4 @@
-// Session moves which unload the page can lose picked files and unpersisted drafts.
+// Settings changes that reload the page can lose picked files and unpersisted drafts.
 import { type CommitmentSelection, useCommitments } from "../commitment.tsx";
 import { reloadLosesWork } from "../build_reload.ts";
 import { useRoomsProjection } from "../hooks.ts";

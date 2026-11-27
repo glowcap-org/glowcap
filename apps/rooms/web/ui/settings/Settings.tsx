@@ -55,6 +55,7 @@ import type { ArchiveTargetView } from "../archive_model.ts";
 import { SessionSettings } from "./Session.tsx";
 import { Holdings } from "./Holdings.tsx";
 import { Said } from "../Said.tsx";
+import { useRequestReload } from "./request_reload.ts";
 import { ServerCard } from "./ServerCard.tsx";
 import { useSessionPermission } from "../hooks.ts";
 import { useChangeGroup, useCommitments } from "../commitment.tsx";
@@ -126,6 +127,7 @@ function SettingsDialog(
 ) {
 	const browser = useRoomsBrowser();
 	const commitments = useCommitments();
+	const requestReload = useRequestReload();
 	const session = useRoomsSession();
 	const canInteract = useSessionPermission("interactWorkspace");
 	const canAdminister = useSessionPermission("manageCustody");
@@ -226,6 +228,8 @@ function SettingsDialog(
 			setDmBusy(false);
 		}
 	};
+
+	const requestDmChange = (next: DmMode) => requestReload(() => save(next), { except: ["settings-direct-message"] });
 
 	// One panel is in the document at a time, rather than two that take turns
 	// being `display: none`.
@@ -374,9 +378,7 @@ function SettingsDialog(
 												aria-labelledby="dmLegend"
 												onSubmit={(event) => {
 													event.preventDefault();
-													commitments.request(() => save(dm), {
-														except: ["settings-direct-message"],
-													});
+													requestDmChange(dm);
 												}}
 											>
 												<Choices labelledBy="dmLegend">
@@ -433,12 +435,7 @@ function SettingsDialog(
 																<Button
 																	id="dmUseFastest"
 																	busy={dmBusy}
-																	onClick={() => {
-																		setDm("fastest");
-																		commitments.request(() => save("fastest"), {
-																			except: ["settings-direct-message"],
-																		});
-																	}}
+																	onClick={() => requestDmChange("fastest")}
 																>
 																	{settingsDmUseFastest}
 																</Button>

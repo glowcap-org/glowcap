@@ -40,6 +40,12 @@ export async function proveSharedImage(first: Page, second: Page, png: Uint8Arra
 	});
 	await first.waitForSelector('.composer-file:has-text("shared-session.png")');
 	await first.click("#settingsBtn");
+	await first.click("#connectionTab");
+	const savedMode = await first.locator('input[name="dm"]:checked').inputValue();
+	await first.locator('input[name="dm"]:not(:checked)').first().check();
+	await first.click("#dmSave");
+	await first.click("#settingsUnsavedKeep");
+	await first.locator(`input[name="dm"][value="${savedMode}"]`).check();
 	await first.click("#sessionTab");
 	await keepWorkspace(first);
 	await first.click("#holdingsTab");

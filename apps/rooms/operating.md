@@ -247,6 +247,8 @@ If Rooms shows **Choose a session**, look under **Saved on this device** for wor
 
 To try another saved workspace, open **Settings**, then **Session**, and select **Choose workspace…**. Each keeps its own access. If another tab has the workspace open, close it first. A Home Screen installation and Safari can keep separate workspaces.
 
+To empty a workspace you administer, open it and choose **Settings** → **Session** → **Export or reset…**. Emptying a shared session affects everyone attached. To erase all Rooms workspaces and preferences in this browser profile, choose **Advanced** → **Delete browser data…** on the session setup screen.
+
 ### Local command access
 
 To keep a coding agent present in Rooms through a session, see the

@@ -17,6 +17,18 @@ assert(
 );
 
 function contract(binding) {
+	const trouble = () => {};
+	for (const args of [[], [trouble], [undefined, trouble], [null, trouble], [0, trouble], ["false", trouble]]) {
+		let refusal;
+		try {
+			new binding.RoomsManagedApplication("workspace-mode", ...args);
+		} catch (error) {
+			refusal = error;
+		}
+		if (refusal?.reason !== "existing must be a boolean") {
+			throw new Error("opening a workspace requires an explicit boolean");
+		}
+	}
 	if (binding.directoryAuthority("127.0.0.1:1234") !== "ocapn://127.0.0.1%3A1234.tcp") {
 		throw new Error("TCP directory identity");
 	}

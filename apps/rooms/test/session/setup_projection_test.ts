@@ -18,7 +18,6 @@ import {
 	separateWorkspace,
 	sessionDeleteCommit,
 	sessionDeleteSay,
-	sessionResetSay,
 	sessionUnreadableSay,
 } from "../../lib/text/session.ts";
 import type { PageProjection } from "../../web/ui/store/projection.ts";
@@ -159,7 +158,6 @@ function doors(unreadable: boolean) {
 		notice,
 		local: door("sessionUseLocal"),
 		attach: door("sessionAttach"),
-		reset: door("sessionResetAsk"),
 		delete: door("sessionDeleteAsk"),
 	};
 }
@@ -170,7 +168,6 @@ Deno.test("an unreadable saved session shuts every act that opens it, each descr
 		notice: true,
 		local: shut,
 		attach: shut,
-		reset: shut,
 		delete: { disabled: false, describedBy: null },
 	});
 });
@@ -196,31 +193,8 @@ Deno.test("a readable saved session leaves the local door open and the attach do
 		notice: false,
 		local: open,
 		attach: { disabled: true, describedBy: null },
-		reset: open,
 		delete: open,
 	});
-});
-
-Deno.test("a confirmation to forget rooms and settings asked before saved data proved unreadable is not drawn", () => {
-	const draw = (unreadable: boolean) =>
-		withDocument(() =>
-			renderToStaticMarkup(createElement(SetupAdvanced, {
-				open: true,
-				asking: "reset",
-				busy: null,
-				unreadable,
-				onToggle() {},
-				onAsk() {},
-				onKeep() {},
-				onCommit() {},
-			}))
-		);
-	const asks = (html: string) => html.includes(renderToStaticMarkup(createElement("p", null, sessionResetSay)));
-	if (!asks(draw(false))) throw new Error("a readable session's reset asked nothing");
-	const html = draw(true);
-	if (asks(html)) throw new Error("the reset's confirmation stayed open");
-	const reset = /<button[^>]* id="sessionResetAsk"[^>]*>/.exec(html)?.[0] ?? "";
-	if (!/\sdisabled=""/.test(reset)) throw new Error("the reset stayed open");
 });
 
 Deno.test("other open failures do not show the unreadable notice", () => {
@@ -236,36 +210,28 @@ Deno.test("other open failures do not show the unreadable notice", () => {
 });
 
 Deno.test("deleting all browser data still requires the advanced disclosure's confirmation", () => {
-	const asked: string[] = [];
-	const closed = SetupAdvanced({
-		open: false,
-		asking: null,
-		busy: null,
-		unreadable: false,
-		onToggle() {},
-		onAsk: (act) => asked.push(act),
+	let asked = false;
+	const initial = SetupAdvanced({
+		asking: false,
+		busy: false,
+		onAsk: () => asked = true,
 		onKeep() {},
-		onCommit() {},
+		onCommit() {
+			throw new Error("deletion ran before confirmation");
+		},
 	});
-	pressOf(closed, "sessionDeleteAsk")?.();
-	const act = asked[0];
-	if (act !== "delete") throw new Error(`the notice asked ${act}`);
+	pressOf(initial, "sessionDeleteAsk")?.();
+	if (!asked) throw new Error("deletion skipped its confirmation");
 	const html = withDocument(() =>
 		renderToStaticMarkup(createElement(SetupAdvanced, {
-			open: true,
-			asking: act,
-			busy: null,
-			unreadable: false,
-			onToggle() {},
+			asking: true,
+			busy: false,
 			onAsk() {},
 			onKeep() {},
 			onCommit() {},
 		}))
 	);
 	const say = renderToStaticMarkup(createElement("p", null, sessionDeleteSay));
-	if (!html.startsWith("<details") || !/^<details[^>]* open=""/.test(html)) {
-		throw new Error("the disclosure holding the confirmation stayed shut");
-	}
 	if (!html.includes(say) || !html.includes(sessionDeleteCommit)) {
 		throw new Error("the disclosure did not show the deletion's confirmation");
 	}

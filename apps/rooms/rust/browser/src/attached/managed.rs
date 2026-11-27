@@ -258,11 +258,14 @@ impl RoomsManagedApplication {
 	#[wasm_bindgen(constructor)]
 	pub fn new(
 		tab: js_sys::JsString,
-		existing: bool,
+		#[wasm_bindgen(unchecked_param_type = "boolean")] existing: JsValue,
 		trouble: js_sys::Function,
 		admission: Option<String>,
 		server: Option<String>,
 	) -> std::result::Result<Self, JsValue> {
+		let existing = existing
+			.as_bool()
+			.ok_or_else(|| js_error(&RuntimeError::invalid("existing must be a boolean")))?;
 		let admission = admission::settings(admission.as_deref()).map_err(|e| js_error(&e))?;
 		// The Rooms server this page uses, as a page base URL, or none. A
 		// malformed one refuses here, before anything opens.

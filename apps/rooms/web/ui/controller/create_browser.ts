@@ -159,14 +159,6 @@ export function createRoomsBrowserController(
 		serverHeld: () => page.managedSession != null,
 		leaveRoomsSession: () => selectLocal(false),
 		controllerSelection: page.controllerSelection,
-		resetBrowserWorkspace: async () => {
-			try {
-				await (await managed()).actions.clear();
-				return await selectLocal(false);
-			} catch (error) {
-				return setupRefusal(projection, error);
-			}
-		},
 		deleteBrowserData: () => {
 			const refused = requestBrowserDataDeletion();
 			if (refused != null) return Promise.resolve(refusalText(refused));

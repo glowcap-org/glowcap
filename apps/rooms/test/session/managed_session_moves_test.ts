@@ -144,7 +144,6 @@ const unreadable = () => browserFailure(-12, "unreadable", SESSION_STATE_UNREADA
 const opening: Record<string, (browser: RoomsBrowserController) => Promise<string>> = {
 	"Use this browser": (browser) => browser.useLocalRoomsSession(),
 	"Attach": (browser) => browser.attachRoomsSession("ocapn://other"),
-	"Forget rooms and settings": (browser) => browser.resetBrowserWorkspace(),
 };
 for (const [press, run] of Object.entries(opening)) {
 	Deno.test(`${press}, the first to meet saved data this version can't read, leaves it to setup's notice`, async () => {

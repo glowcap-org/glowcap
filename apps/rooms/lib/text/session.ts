@@ -80,22 +80,13 @@ export const serverAskAfterDoor = (door: string) => `${door} A Rooms server can 
 export const serverAskAfterDirect = (peer: string) =>
 	`No direct route to ${peer} opened. A Rooms server gives this browser another way to reach them. ${serverAskHow}`;
 
-/** The advanced section and the two confirmations under it. Each
- * confirmation names what survives as well as what goes, since "delete" alone
- * reads as "delete everything, everywhere". */
+/** Device-wide deletion on session setup. */
 export const sessionAdvanced = "Advanced";
-export const sessionResetAsk = "Forget rooms and settings…";
 export const sessionDeleteAsk = "Delete browser data…";
 export const sessionChangeLabel = "Change saved browser data";
-/** Both name their contents instead of a collective noun the reader has
- * never been given. They differ in one way: the first keeps your messages
- * and the second does not. They read as a pair of questions. */
-export const sessionResetSay =
-	"Forget the rooms and settings saved in this browser and start again from this screen? Your saved messages stay.";
 export const sessionDeleteSay =
 	"Delete everything this page saved in this browser: sessions, messages, saved links, your preferences, and the theme this site's pages share? Anything kept on another device or server stays.";
 export const sessionConfirmKeep = "Keep it";
-export const sessionResetCommit = "Forget rooms and settings";
 export const sessionDeleteCommit = "Delete browser data";
 /** Said on session setup when this browser's saved session can't be read, over
  * the option to start a separate workspace. */
