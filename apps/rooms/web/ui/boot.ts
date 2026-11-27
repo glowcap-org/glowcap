@@ -72,11 +72,14 @@ function handedOver(): boolean {
 let openingScreen: HTMLElement | null = null;
 let handoffDialog: HTMLDialogElement | null = null;
 let returnFocus: HTMLElement | null = null;
+let waitingForControl: MutationObserver | null = null;
 
 export function coverForReload(): void {
 	const root = bootRoot();
 	if (root == null) return;
 	if (root.dataset.boot === LEAVING) return;
+	waitingForControl?.disconnect();
+	waitingForControl = null;
 	if (openingScreen) returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
 	root.dataset.boot = LEAVING;
 	if (openingScreen !== null) {
@@ -167,13 +170,28 @@ export function uncoverReload(): void {
 	handoffDialog?.close();
 	handoffDialog?.remove();
 	handoffDialog = null;
-	// The invoking control may still be disabled until React renders the refusal.
+	// React can commit the enabled control after the next paint. Only return
+	// focus while the user has not moved it elsewhere.
 	const opener = returnFocus;
-	returnFocus = null;
 	if (opener) {
-		requestAnimationFrame(() => {
-			if (!coveringReload() && opener.isConnected) opener.focus({ preventScroll: true });
-		});
+		const restore = () => {
+			if (returnFocus !== opener) return;
+			waitingForControl?.disconnect();
+			waitingForControl = null;
+			if (coveringReload()) return;
+			returnFocus = null;
+			if (!opener.isConnected) return;
+			const focused = document.activeElement;
+			if (focused !== document.body && focused !== opener && focused !== opener.closest("dialog")) return;
+			if (opener.matches(":disabled")) {
+				returnFocus = opener;
+				waitingForControl = new MutationObserver(restore);
+				waitingForControl.observe(opener, { attributes: true, attributeFilter: ["disabled"] });
+				return;
+			}
+			opener.focus({ preventScroll: true });
+		};
+		requestAnimationFrame(restore);
 	}
 }
 
