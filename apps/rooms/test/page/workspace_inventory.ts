@@ -25,7 +25,7 @@ export async function proveWorkspaceInventory(browser: Browser, port: number): P
 
 		const large = await context.newPage();
 		await large.addInitScript(() => {
-			const names = Array.from({ length: 513 }, (_, i) => ({ name: `rooms-session-legacy-${i}`, version: 1 }));
+			const names = Array.from({ length: 513 }, (_, i) => ({ name: `rooms-session-inventory-${i}`, version: 1 }));
 			Object.defineProperty(indexedDB, "databases", { value: () => Promise.resolve(names) });
 		});
 		await large.goto(origin);

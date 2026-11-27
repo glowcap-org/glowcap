@@ -258,10 +258,10 @@ impl RoomsManagedApplication {
 	#[wasm_bindgen(constructor)]
 	pub fn new(
 		tab: js_sys::JsString,
+		existing: bool,
 		trouble: js_sys::Function,
 		admission: Option<String>,
 		server: Option<String>,
-		existing: Option<bool>,
 	) -> std::result::Result<Self, JsValue> {
 		let admission = admission::settings(admission.as_deref()).map_err(|e| js_error(&e))?;
 		// The Rooms server this page uses, as a page base URL, or none. A
@@ -281,7 +281,7 @@ impl RoomsManagedApplication {
 					tab,
 					admission,
 					front,
-					existing: existing.unwrap_or(false),
+					existing,
 				},
 				trouble,
 			),

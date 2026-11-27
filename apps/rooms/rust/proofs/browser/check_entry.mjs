@@ -44,12 +44,14 @@ async function lifetime(binding) {
 	const reportTrouble = (source, reason) => trouble.push({ source, reason });
 	const first = new binding.RoomsManagedApplication(
 		crypto.randomUUID(),
+		false,
 		reportTrouble,
 		undefined,
 		new URL(".", document.baseURI).href,
 	);
 	const sibling = new binding.RoomsManagedApplication(
 		crypto.randomUUID(),
+		false,
 		reportTrouble,
 		undefined,
 		new URL(".", document.baseURI).href,
@@ -92,9 +94,10 @@ async function lifetime(binding) {
 	}
 	first.free();
 	sibling.free();
-	const standalone = new binding.RoomsManagedApplication(crypto.randomUUID(), reportTrouble);
+	const standalone = new binding.RoomsManagedApplication(crypto.randomUUID(), false, reportTrouble);
 	const forwarded = new binding.RoomsManagedApplication(
 		crypto.randomUUID(),
+		false,
 		reportTrouble,
 		undefined,
 		new URL(".", document.baseURI).href,
@@ -205,6 +208,7 @@ try {
 		await binding.default();
 		globalThis.openingApplication = new binding.RoomsManagedApplication(
 			crypto.randomUUID(),
+			false,
 			() => {},
 			undefined,
 			new URL(".", document.baseURI).href,

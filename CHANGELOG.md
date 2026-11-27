@@ -11,6 +11,10 @@ Releases before 0.1.7 are in the
 
 ## [Unreleased]
 
+### Changed
+
+- Rooms reopens the last workspace on this device after the browser closes. Browser embeddings must pass a boolean after the workspace ID in `new RoomsManagedApplication(id, existing, trouble, admission, server)`. Pass `true` to reopen a saved workspace and `false` to start a new one.
+
 ## [0.1.9] - 2026-11-27
 
 ### Added

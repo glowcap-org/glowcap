@@ -39,10 +39,10 @@ export function openManagedSession(
 	const admission = document.documentElement.dataset.roomsSessionAdmission;
 	const application = new (applicationModule().RoomsManagedApplication)(
 		tabIdentity(),
+		workspaceChosen(),
 		report,
 		admission,
 		serverInUse()?.base,
-		workspaceChosen(),
 	);
 	return openOn(application, report, selection, failed);
 }

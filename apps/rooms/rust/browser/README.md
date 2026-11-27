@@ -25,7 +25,9 @@ commands and atomic acquisitions. Local, published and remotely attached
 workspaces share the same typed application contract. React shows what the
 application reports and submits reader actions through these handles.
 
-The constructor accepts an optional third argument: a JSON string containing
+Pass the workspace ID and a required boolean before the trouble callback. Use
+`true` to reopen a saved workspace and `false` to start a new one. The
+optional fourth argument is a JSON string containing
 an object of string values for the four admission settings in the
 [admission guide](../../../../docs/rooms/admission.md). It validates policy before
 opening the application. For example, `JSON.stringify({"admission-rates":"message=20/80"})`

@@ -1,5 +1,5 @@
 // A new document in the same browser profile has no tab identity. Exercise
-// that boundary with the real Store, including the previous release's marker.
+// reopening the real Store with and without a saved workspace choice.
 import type { Browser, Page } from "playwright";
 import { joinAs, ROOM } from "../support/join.ts";
 import { establishLocalSession } from "../support/session_setup.ts";
@@ -53,16 +53,16 @@ export async function proveColdWorkspace(browser: Browser, port: number): Promis
 		if (await cold.evaluate(() => sessionStorage.getItem("rooms.managed-tab")) !== id) {
 			fail("cold startup replaced the local identity");
 		}
-		// A legacy workspace the tab left has neither an automatic choice
-		// nor the previous release's per-tab "yes" marker.
+		// The workspace remains in IndexedDB after both its choice marker
+		// and the browser's last-opened preference are removed.
 		await cold.evaluate((id) => {
 			localStorage.removeItem("rooms.last-workspace");
 			localStorage.removeItem(`rooms.workspace-choice.${id}`);
 		}, id);
 		await cold.close();
-		const legacy = await context.newPage();
-		await refuseDatabaseEnumeration(legacy);
-		await legacy.addInitScript(() => {
+		const unmarked = await context.newPage();
+		await refuseDatabaseEnumeration(unmarked);
+		await unmarked.addInitScript(() => {
 			const frame = () => {
 				const boot = document.querySelector("#boot");
 				const root = document.querySelector("#root");
@@ -77,33 +77,33 @@ export async function proveColdWorkspace(browser: Browser, port: number): Promis
 			requestAnimationFrame(frame);
 		});
 		const roomAddress = new URL(`room/${encodeURIComponent(ROOM)}`, origin).href;
-		await legacy.goto(roomAddress);
-		await legacy.setViewportSize({ width: 390, height: 844 });
-		const choices = legacy.getByRole("combobox", { name: "Saved on this device" });
+		await unmarked.goto(roomAddress);
+		await unmarked.setViewportSize({ width: 390, height: 844 });
+		const choices = unmarked.getByRole("combobox", { name: "Saved on this device" });
 		await choices.waitFor();
-		await legacy.locator("#boot").waitFor({ state: "detached" });
-		if (await legacy.locator("html").getAttribute("data-proof-layer-overlap")) {
+		await unmarked.locator("#boot").waitFor({ state: "detached" });
+		if (await unmarked.locator("html").getAttribute("data-proof-layer-overlap")) {
 			fail("the opening status and recovery controls were visible in the same frame");
 		}
-		const resumeButton = legacy.getByRole("button", { name: "Resume workspace" });
+		const resumeButton = unmarked.getByRole("button", { name: "Resume workspace" });
 		if (
 			await resumeButton.getAttribute("data-variant") !== "primary" ||
-			await legacy.locator("#sessionUseLocal").getAttribute("data-variant") === "primary"
+			await unmarked.locator("#sessionUseLocal").getAttribute("data-variant") === "primary"
 		) {
 			fail("the recovery picker gave a new local session equal priority to the saved workspace");
 		}
 		if (await choices.locator("option").count() !== 2) fail("setup lost one of the saved workspaces");
-		const copy = await legacy.locator("#savedWorkspaceTitle").boundingBox();
+		const copy = await unmarked.locator("#savedWorkspaceTitle").boundingBox();
 		if (!copy || copy.width < 180 || copy.x + copy.width > 390) fail("the mobile recovery heading has no room");
 		await choices.selectOption({ label: `Workspace · ${id.slice(0, 8)}` });
 		const [resume] = await Promise.all([
-			legacy.waitForRequest((request) => request.isNavigationRequest()),
-			legacy.getByRole("button", { name: "Resume workspace" }).click(),
+			unmarked.waitForRequest((request) => request.isNavigationRequest()),
+			unmarked.getByRole("button", { name: "Resume workspace" }).click(),
 		]);
 		if (resume.url() !== roomAddress) fail("resuming a saved workspace dropped the incoming room address");
-		await legacy.setViewportSize({ width: 1280, height: 720 });
-		await restored(legacy);
-		await legacy.close();
+		await unmarked.setViewportSize({ width: 1280, height: 720 });
+		await restored(unmarked);
+		await unmarked.close();
 
 		// Losing the private owner metadata must not mint a replacement
 		// identity under the saved workspace name.
