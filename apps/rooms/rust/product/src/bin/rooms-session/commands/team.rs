@@ -39,18 +39,38 @@ pub async fn run(options: &Options) -> Result<Value, Failure> {
 				let mut peer = options.clone();
 				peer.verb = verb.into();
 				peer.state = supervise::state_path(&options.state, nick)?;
-				match execute(&peer).await {
-                    Ok(status) if verb == "status" => results.push(json!({"nick":nick,"ok":true,"rooms":status["rooms"],
-                        "issues":status["issues"],"inbox":status["inbox"],"pending_effects":status["pending_effects"].as_array().map(Vec::len)})),
-                    Ok(result) => results.push(json!({"nick":nick,"ok":true,"result":result})),
-                    Err(error) => results.push(json!({"nick":nick,"ok":false,"error":error})),
-                }
+				let result = execute(&peer).await.and_then(|reply| {
+					if stopping {
+						Ok(json!({"nick":nick,"ok":true,"result":reply}))
+					} else {
+						member_status(nick, &reply)
+					}
+				});
+				results.push(result.unwrap_or_else(|error| json!({"nick":nick,"ok":false,"error":error})));
 			}
 			Ok(json!({"ok":results.iter().all(|r|r["ok"] == true),"members":results}))
 		}
 		_ => Err(Failure::invalid("unknown team operation")),
 	}
 }
+
+fn member_status(nick: &str, status: &Value) -> Result<Value, Failure> {
+	let conversations = status["workspace"]["conversations"]
+		.as_array()
+		.ok_or_else(|| Failure::invalid("session status lacks conversations"))?;
+	// A retained seat is the same membership evidence the session waits for on join.
+	let rooms: Vec<_> = conversations
+		.iter()
+		.filter(|row| row["kind"] == "room")
+		.map(|room| json!({"name":room["name"],"joined":room["seat"].is_string()}))
+		.collect();
+	let inbox = &status["inbox"];
+	let gap = inbox["gap"]
+		.as_object()
+		.map(|failure| json!({"class":failure.get("class"),"retry":failure.get("retry")}));
+	Ok(json!({"nick":nick,"ok":true,"rooms":rooms,"inbox":{"remaining":inbox["remaining"],"gap":gap}}))
+}
+
 async fn start(options: &Options) -> Result<Value, Failure> {
 	let lead = options
 		.get("lead")
@@ -132,6 +152,19 @@ async fn start(options: &Options) -> Result<Value, Failure> {
 mod tests {
 	use super::*;
 	use rooms_testing::scratch::Scratch;
+
+	#[test]
+	fn team_status_distinguishes_a_room_request_from_a_seat_and_limits_gap_details() {
+		let status = json!({
+			"workspace":{"conversations":[{"kind":"room","name":"workshop","reconnect":"requested","draft":"private"}]},
+			"inbox":{"remaining":2,"gap":{"class":"uncertain","retry":"after-state-change","message":"private"}}
+		});
+		assert_eq!(
+			member_status("scout", &status).unwrap(),
+			json!({"nick":"scout","ok":true,"rooms":[{"name":"workshop","joined":false}],
+				"inbox":{"remaining":2,"gap":{"class":"uncertain","retry":"after-state-change"}}})
+		);
+	}
 
 	fn options(root: &std::path::Path, verb: &str) -> Options {
 		Options {

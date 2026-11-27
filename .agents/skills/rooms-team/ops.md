@@ -7,8 +7,8 @@ Session presence and model presence are separate. Use the shared
 
 Run `glowcap apps rooms team status --dir <team-dir>` after starting, when an
 assignment goes unanswered, and periodically during active work. It reports
-each member's rooms, application issues, pending effects, and inbox health.
-Inspect a member directly with `status --dir <member-dir>`.
+which rooms each peer has joined, its unread count, and any inbox gap.
+Inspect one peer's workspace with `glowcap apps rooms session status --dir <member-dir>`.
 
 An unread inbox does not show a dead model. Check whether its harness wait is
 still active, then ask for progress before restarting anything. If the model
