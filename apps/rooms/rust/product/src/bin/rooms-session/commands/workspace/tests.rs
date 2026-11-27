@@ -65,3 +65,63 @@ async fn named_contact_fences_lookup_before_reusing_route() {
 			.unwrap();
 	}
 }
+
+#[tokio::test]
+async fn concurrent_listed_room_join_adopts_the_conversation_installed_at_the_next_revision() {
+	let state = rooms_testing::scratch::Scratch::create("concurrent-join");
+	let listener = UnixListener::bind(state.join("control.sock")).unwrap();
+	let options = Options {
+		verb: "join".into(),
+		state: state.to_path_buf(),
+		named: Default::default(),
+		arguments: Vec::new(),
+	};
+	let room = |directory, publication, id| json!({"kind":"room","directory":directory,"publication":publication,"id":id,"name":"workshop"});
+	let other_rows = [
+		room("other", "listed", "other-room"),
+		room("directory", "old-edition", "old-room"),
+	];
+	let mut joined = other_rows.to_vec();
+	joined.push(room("directory", "listed", "winning-conversation"));
+	let server = async {
+		let steps = [
+			(
+				"status",
+				json!({"ok":true,"revision":"1","workspace":{"conversations":other_rows}}),
+			),
+			(
+				"acquire",
+				Failure::conflict("another join installed the publication").response(),
+			),
+			("release-acquisition", json!({"ok":true})),
+			(
+				"status",
+				json!({"ok":true,"revision":"2","workspace":{"conversations":joined}}),
+			),
+		];
+		for (verb, response) in steps {
+			let (stream, _) = listener.accept().await.unwrap();
+			let mut stream = BufReader::new(stream);
+			let mut line = String::new();
+			stream.read_line(&mut line).await.unwrap();
+			let request: Value = serde_json::from_str(&line).unwrap();
+			assert_eq!(request["verb"], verb);
+			if verb == "acquire" {
+				assert_eq!(request["request"]["selection"]["publication"], "listed");
+				assert_eq!(request["request"]["base"], 1);
+			}
+			stream
+				.get_mut()
+				.write_all(format!("{response}\n").as_bytes())
+				.await
+				.unwrap();
+		}
+	};
+	let directory = json!({"id":"directory"});
+	let listing = json!({"name":"workshop","id":"listed"});
+	let joining = join_listed_room(&options, &directory, &listing);
+	let (result, ()) = tokio::time::timeout(Duration::from_secs(2), async { tokio::join!(joining, server) })
+		.await
+		.unwrap();
+	assert_eq!(result.unwrap()["id"], "winning-conversation");
+}

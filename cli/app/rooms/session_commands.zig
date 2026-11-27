@@ -22,7 +22,8 @@ pub const operation = value("operation", "Stable operation identifier for inspec
 pub const base = value("base", "Original workspace revision, required with --operation for exact replay");
 const exact_nick: Flag = .{ .long = "exact-nick", .help = "Require the exact --nick on every registration" };
 const existing_room: Flag = .{ .long = "existing-room", .help = "Join only existing rooms" };
-const join = [_]Flag{ dir, nick, locator, rooms, existing_room, exact_nick };
+const selection = [_]Flag{ dir, nick, locator, rooms, existing_room, exact_nick };
+const join = selection ++ [_]Flag{value("home-locator", "Use this directory locator or bootstrap URL only when the workspace has no home directory")};
 const access_id = value("id", "The access's id, as session access list shows it");
 /// How a session dials the peers it reaches.
 const dialing = [_]Flag{
@@ -31,7 +32,7 @@ const dialing = [_]Flag{
     value("dial-transports", "Outgoing dial transports, comma separated: noise-tcp, iroh, onion, webrtc, and the cleartext tcp and keyed-tcp"),
     value("ice-servers", "STUN servers for webrtc dials (comma separated), or a JSON list of ICE server records"),
 };
-const start = join ++ @import("commands.zig").transport ++ dialing;
+const start = selection ++ @import("commands.zig").transport ++ dialing;
 /// Every option a served session reads besides where it keeps its state.
 /// `rooms serve` offers the same set under `--session-` for the session it
 /// serves beside its directory.
@@ -68,7 +69,7 @@ pub const commands = [_]types.Command{
         .{ .long = "quiet", .help = "Report readiness through the exit status alone" },
     }, .run = @import("mod.zig").run("rooms-session", .session_ready) },
     .{ .name = "start", .short_help = "Start or restore a durable Rooms workspace", .flags = &start, .run = run("start") },
-    .{ .name = "join", .short_help = "Join rooms without leaving existing conversations", .flags = &join, .run = run("join") },
+    .{ .name = "join", .short_help = "Register a directory nickname or join rooms, keeping existing conversations", .flags = &join, .run = run("join") },
     .{ .name = "recover", .short_help = "Resume an acquisition from its saved original request", .flags = &.{ dir, value("acquisition", "Exact acquisition identifier from the interrupted command") }, .run = run("recover") },
     .{ .name = "status", .short_help = "Show workspace, memberships, effects, and inbox health", .flags = &.{dir}, .run = run("status") },
     .{ .name = "tick", .short_help = "Read pending events without acknowledging them", .flags = &.{ dir, value("wait", "Wait 0..30 seconds (default 30)"), value("after-id", "Read the next page after this event identifier") }, .run = run("tick") },

@@ -193,11 +193,12 @@ fn provision(member: Config, compose: Compose, nick: []const u8, rooms: []const 
     const has_link = try exists(member, "bot-link");
     try compose.run(&.{ "up", "-d", "--wait", "--wait-timeout", "120", "member-session" }, 150);
     var join: std.ArrayList([]const u8) = .empty;
-    try join.appendSlice(member.gpa, &.{ "start", "--dir=/session-state", try member.gpa.print("--nick={s}", .{nick}), "--exact-nick" });
-    // A lost host grant is recoverable. Only a session with no saved home
-    // needs the deployment's default locator, even during first-setup retry.
-    const bootstrap: ?[]const u8 = if (locator) |url| url else if (!has_link and !try hasHome(member, compose)) "http://directory:8080/locator" else null;
-    if (bootstrap) |url| try join.append(member.gpa, try member.gpa.print("--locator={s}", .{url}));
+    try join.appendSlice(member.gpa, &.{ "join", "--dir=/session-state", try member.gpa.print("--nick={s}", .{nick}), "--exact-nick" });
+    if (locator) |url| {
+        try join.append(member.gpa, try member.gpa.print("--locator={s}", .{url}));
+    } else if (!has_link) {
+        try join.append(member.gpa, "--home-locator=http://directory:8080/locator");
+    }
     if (rooms.len != 0) {
         try join.append(member.gpa, "--existing-room");
         for (rooms) |room| try join.append(member.gpa, try member.gpa.print("--room={s}", .{room}));
@@ -216,14 +217,4 @@ fn provision(member: Config, compose: Compose, nick: []const u8, rooms: []const 
         if (!issued.value.ok or !std.mem.eql(u8, issued.value.id, "deployment-bot") or !std.mem.startsWith(u8, issued.value.link, "ocapn://")) return error.InvalidGrantResponse;
         try member.write("bot-link", issued.value.link, false);
     }
-}
-
-fn hasHome(member: Config, compose: Compose) !bool {
-    const Directory = struct { home: bool };
-    const Status = struct { ok: bool, workspace: struct { directories: []const Directory } };
-    const result = try compose.session(&.{ "status", "--dir=/session-state" });
-    const status = try std.json.parseFromSlice(Status, member.gpa, result, .{ .ignore_unknown_fields = true });
-    if (!status.value.ok) return error.InvalidSessionStatus;
-    for (status.value.workspace.directories) |directory| if (directory.home) return true;
-    return false;
 }

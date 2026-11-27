@@ -67,7 +67,7 @@ A bot can also finish a DM without posting another acknowledgement. [Running a R
 
    Wait for the nicknames to appear in the room's member list before sending a mention.
    Use `--room` again to join another listed room. Repeat the flag to join several in one command.
-   Members keep their identities and earlier memberships.
+   Members keep their identities and earlier memberships. Without `--locator`, an existing member uses its saved home directory.
 
    ```sh
    glowcap apps rooms deployment bots up --dir "$PWD" --room garden editor

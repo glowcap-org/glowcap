@@ -68,16 +68,25 @@ pub async fn directory(options: &Options) -> Result<Value, Failure> {
 	} else {
 		NicknameAllocation::Automatic
 	};
-	let address = if let Some(locator) = options.get("locator") {
-		let locator = super::bootstrap::resolve(locator).await?;
-		Some(request(&options.state, json!({"verb":"locate","locator":locator})).await?)
-	} else {
-		None
-	};
+	let mut resolved = None;
 	let mut entry = Value::Null;
 	at_current(options, async |status, base| {
 		let directories = rows(&status["workspace"], "directories")?;
-		if let Some(index) = directories.iter().position(|row| match &address {
+		// Re-evaluate the home after a conflicting write, before consulting even a
+		// previously resolved fallback. Only an explicit locator selects another directory.
+		let locator = options.get("locator").or_else(|| {
+			options.get("home-locator").filter(|_| !directories.iter().any(|row| row["home"] == true))
+		});
+		let address = if let Some(locator) = locator {
+			if resolved.is_none() {
+				let locator = super::bootstrap::resolve(locator).await?;
+				resolved = Some(request(&options.state, json!({"verb":"locate","locator":locator})).await?);
+			}
+			resolved.as_ref()
+		} else {
+			None
+		};
+		if let Some(index) = directories.iter().position(|row| match address {
 			Some(address) => row["id"] == address["id"],
 			None => row["home"] == true,
 		}) {
@@ -97,7 +106,7 @@ pub async fn directory(options: &Options) -> Result<Value, Failure> {
 			}
 			return Ok(None);
 		}
-		let address = address.as_ref().ok_or_else(|| Failure::invalid("name a directory with --locator and --nick"))?;
+		let address = address.ok_or_else(|| Failure::invalid("name a directory with --locator and --nick"))?;
 		let nick = options.get("nick").ok_or_else(|| Failure::invalid("a new directory needs --nick"))?;
 		let access = fresh()?;
 		let source = fresh()?;
@@ -183,15 +192,7 @@ pub async fn join(options: &Options) -> Result<Value, Failure> {
 				return Err(Failure::invalid("room name is ambiguous; use an exact room access"));
 			}
 			if let Some(room) = listed.first() {
-				let id = super::operation()?;
-				let selection = json!({
-					"id":id,"directory":directory["id"],"name":name,"publication":room["id"],"source":fresh()?
-				});
-				at_current(options, async |_, base| {
-					Ok(Some(json!({"kind":"public-room", "base":base, "selection":selection})))
-				})
-				.await?;
-				json!({"id":id})
+				join_listed_room(options, &directory, room).await?
 			} else if options.get("existing-room") == Some("true") {
 				return Err(Failure::new(
 					"no-such-room",
@@ -270,6 +271,28 @@ pub async fn join(options: &Options) -> Result<Value, Failure> {
 	}
 	Ok(json!({"ok":true,"joined":joined}))
 }
+/// A directory and publication identify the room. If another join installs it
+/// before this acquisition, the revision retry adopts that conversation.
+async fn join_listed_room(options: &Options, directory: &Value, listing: &Value) -> Result<Value, Failure> {
+	let directory = id_text(directory)?;
+	let publication = id_text(listing)?;
+	let mut id = super::operation()?;
+	let selection =
+		json!({"id":id,"directory":directory,"name":listing["name"],"publication":publication,"source":fresh()?});
+	at_current(options, async |status, base| {
+		if let Some(joined) = rows(&status["workspace"], "conversations")?
+			.iter()
+			.find(|row| row["kind"] == "room" && row["directory"] == directory && row["publication"] == publication)
+		{
+			id = id_text(joined)?;
+			return Ok(None);
+		}
+		Ok(Some(json!({"kind":"public-room", "base":base, "selection":selection})))
+	})
+	.await?;
+	Ok(json!({"id":id}))
+}
+
 pub async fn target(options: &Options) -> Result<String, Failure> {
 	let status = request(&options.state, json!({"verb":"status"})).await?;
 	let conversations = rows(&status["workspace"], "conversations")?;

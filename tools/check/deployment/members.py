@@ -52,18 +52,31 @@ def named_members(deploy):
     call("bots", "up", "direct-only")
     calls = [json.loads(line) for line in deploy.log.read_text()[before:].splitlines()]
     register = next(args for args in calls if "--exact-nick" in args)
-    assert "--locator=http://directory:8080/locator" in register
+    assert "join" in register and "--home-locator=http://directory:8080/locator" in register
+    assert all("status" not in args and "start" not in args for args in calls)
     assert all(not arg.startswith("--room") for arg in register)
     before = len(deploy.log.read_text())
     call("bots", "up", "--room", "garden", "scout")
     calls = [json.loads(line) for line in deploy.log.read_text()[before:].splitlines()]
     register = next(args for args in calls if "--exact-nick" in args)
-    assert "--room=garden" in register and all(not arg.startswith("--locator") for arg in register)
+    assert "join" in register and "--room=garden" in register
+    assert all(not arg.startswith(("--locator", "--home-locator")) for arg in register)
     before = len(deploy.log.read_text())
-    call("bots", "init", "--room", "garden", "recovered", env={"MEMBER_HAS_HOME": "1"})
+    call("bots", "init", "--room", "garden", "recovered")
     calls = [json.loads(line) for line in deploy.log.read_text()[before:].splitlines()]
     register = next(args for args in calls if "--exact-nick" in args)
-    assert "--room=garden" in register and all(not arg.startswith("--locator") for arg in register)
+    assert (
+        "join" in register
+        and "--room=garden" in register
+        and "--home-locator=http://directory:8080/locator" in register
+    )
+    assert all("status" not in args and "start" not in args for args in calls)
+    before = len(deploy.log.read_text())
+    call("bots", "init", "--locator", "http://custom/locator", "custom")
+    calls = [json.loads(line) for line in deploy.log.read_text()[before:].splitlines()]
+    register = next(args for args in calls if "--exact-nick" in args)
+    assert "join" in register and "--locator=http://custom/locator" in register
+    assert all(not arg.startswith("--home-locator") for arg in register)
     call("bots", "session", "scout", "--", "access", "list")
     (root / "editor/project-id").unlink()
     before = deploy.log.read_text()

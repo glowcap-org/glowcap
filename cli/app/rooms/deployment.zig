@@ -19,7 +19,7 @@ const dir: types.Flag = .{ .long = "dir", .help = "Deployment configuration dire
 const image_flag: types.Flag = .{ .long = "image", .help = "Published image tag, digest, or existing local image ID", .kind = .string_flag };
 const build_flag: types.Flag = .{ .long = "build", .help = "Build an image from a prepared Linux product directory", .kind = .string_flag };
 const rooms: types.Flag = .{ .long = "room", .kind = .string_flag, .repeatable = true, .help = "Existing room to join (repeatable). With no rooms a new bot can receive direct messages and invitations" };
-const locator: types.Flag = .{ .long = "locator", .kind = .string_flag, .help = "Directory bootstrap URL or locator (default http://directory:8080/locator)" };
+const locator: types.Flag = .{ .long = "locator", .kind = .string_flag, .help = "Directory bootstrap URL or locator. Defaults to the saved home, or http://directory:8080/locator for a new member" };
 pub const command: types.Command = .{ .name = "deployment", .short_help = "Run Rooms as a persistent Docker deployment", .children = &.{
     .{ .name = "up", .short_help = "Select an image, start the stack, wait for health, and print capabilities", .flags = &.{ dir, image_flag, build_flag }, .run = run(.up) },
     .{ .name = "bots", .short_help = "Run individually named bot members alongside the deployment", .children = &.{

@@ -13,6 +13,8 @@ mod access;
 mod attached;
 #[path = "session_process/client.rs"]
 mod client;
+#[path = "session_process/fallback.rs"]
+mod fallback;
 #[path = "session_process/journey.rs"]
 mod journey;
 #[path = "session_process/paused.rs"]
