@@ -39,7 +39,7 @@ BEND_REQUIREMENT="${BEND_VERSION}-lean-${LEAN_VERSION}"
 
 # --- Rust ---
 # dep Rust and rustup: The Rust binding, the iroh and WebRTC transports, and Rooms.
-RUST_VERSION="1.100.0"
+RUST_VERSION="1.100.1"
 RUSTUP_INIT_VERSION="1.29.3"
 
 # --- JavaScript / TypeScript ---
