@@ -197,11 +197,16 @@ pub fn read(path: &std::path::Path, max: usize) -> Result<Option<Vec<u8>>, Stora
 	if !metadata.is_file() {
 		return Err(io::Error::other("a Rooms state file must be a regular file").into());
 	}
-	let mut file = match File::open(path) {
+	let file = match File::open(path) {
 		Ok(file) => file,
 		Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
 		Err(e) => return Err(e.into()),
 	};
+	read_open(file, max).map(Some)
+}
+
+/// Read the bounded document from the same open file a caller inspected.
+pub fn read_open(mut file: File, max: usize) -> Result<Vec<u8>, StorageError> {
 	let metadata = file.metadata()?;
 	if !metadata.is_file() {
 		return Err(io::Error::other("a Rooms state file must be a regular file").into());
@@ -218,5 +223,5 @@ pub fn read(path: &std::path::Path, max: usize) -> Result<Option<Vec<u8>>, Stora
 	if bytes.len() > max {
 		return Err(DocumentError::TooLarge.into());
 	}
-	Ok(Some(bytes))
+	Ok(bytes)
 }

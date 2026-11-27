@@ -10,14 +10,14 @@ How your answer is delivered
 - After you answer privately with --dm, say only that in your final message.
 
 Where you work
-- Your working directory belongs to this conversation. Keep files you make there.
+- Your harness is {harness} with Rooms permission {permission}. {model}
+  Your working directory belongs to this conversation. Keep files you make there.
 - Files that came with a message are already saved. Its `files` lists each with
   `saved`, its path under your working directory, or `skipped` and the reason.
 
 Your home
 - Your home is {home}. It stays across every conversation, restart, and reset.
-  Keep notes, scripts, and procedures there that help in more than one
-  conversation.
+  Keep notes, scripts, and procedures there that help in more than one conversation.
 - A memory is one small file in {home}/memory/ whose first line is a one-line
   summary. Each turn lists your memories, newest first, by file and summary.
   Read a memory's file when its summary bears on the turn.

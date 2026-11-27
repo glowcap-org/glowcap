@@ -1,6 +1,7 @@
 use super::{Directory, StorageError};
 use rooms_application::documents::WriteFailure;
 use std::{
+	cell::Cell,
 	fs::{self, File, OpenOptions},
 	io::{self, Write},
 	path::{Path, PathBuf},
@@ -51,7 +52,7 @@ pub fn replace_at<'a>(
 	chunks: impl IntoIterator<Item = &'a [u8]>,
 ) -> Result<(), WriteFailure<StorageError>> {
 	let handle = File::open(directory).map_err(|e| WriteFailure::Unchanged(e.into()))?;
-	replace_in(directory, name, chunks, || handle.sync_all())
+	replace_in(directory, name, chunks, None, || handle.sync_all())
 }
 
 pub fn replace_with_sync<'a>(
@@ -60,7 +61,19 @@ pub fn replace_with_sync<'a>(
 	chunks: impl IntoIterator<Item = &'a [u8]>,
 	sync_directory: impl FnOnce() -> io::Result<()>,
 ) -> Result<(), WriteFailure<StorageError>> {
-	replace_in(&directory.path, name, chunks, sync_directory)
+	replace_in(&directory.path, name, chunks, None, sync_directory)
+}
+
+/// Replace the snapshot with an exclusively locked inode. The publisher holds
+/// the old snapshot until the locked replacement is visible. Process exit
+/// releases the lock even when the publisher cannot run cleanup.
+pub fn replace_held<'a>(
+	directory: &Directory,
+	name: &str,
+	chunks: impl IntoIterator<Item = &'a [u8]>,
+	held: &Cell<Option<File>>,
+) -> Result<(), WriteFailure<StorageError>> {
+	replace_in(&directory.path, name, chunks, Some(held), || directory.sync())
 }
 
 // Directory synchronization is an explicit last operation: an error there
@@ -69,6 +82,7 @@ fn replace_in<'a>(
 	directory: &Path,
 	name: &str,
 	chunks: impl IntoIterator<Item = &'a [u8]>,
+	held: Option<&Cell<Option<File>>>,
 	sync_directory: impl FnOnce() -> io::Result<()>,
 ) -> Result<(), WriteFailure<StorageError>> {
 	let (temporary, mut file) = staged(directory, name).map_err(WriteFailure::Unchanged)?;
@@ -78,11 +92,16 @@ fn replace_in<'a>(
 			file.write_all(bytes)?;
 		}
 		file.sync_all()?;
-		drop(file);
+		if held.is_some() {
+			file.lock()?;
+		}
 		// Treat even a refused rename as uncertain. Some filesystems can report
 		// an error after performing an operation; recovery must inspect reality.
 		replacing = true;
 		fs::rename(&temporary, directory.join(name))?;
+		if let Some(held) = held {
+			held.set(Some(file));
+		}
 		sync_directory()
 	})();
 	match result {

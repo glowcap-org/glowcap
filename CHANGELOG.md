@@ -11,6 +11,10 @@ Releases before 0.1.7 are in the
 
 ## [Unreleased]
 
+### Changed
+
+- Restart any running Rooms bot after upgrading from 0.1.9 or earlier. Until the restarted bot publishes its status, the new `bot status` command reports a null status and `bot ready` exits unsuccessfully.
+
 ## [0.1.9] - 2026-11-27
 
 ### Added
