@@ -65,6 +65,8 @@ import { serverNeedAddress, serverNeedLink } from "../../../lib/text/session.ts"
 import { Said } from "../Said.tsx";
 import { useRoomsBrowser } from "../controller/browser.ts";
 import { Submodal } from "../Submodal.tsx";
+import { sharedRoomsSession } from "../../../lib/workspace_view.ts";
+import { useRequestReload } from "./request_reload.ts";
 import { useChangeGroup, useCommitments } from "../commitment.tsx";
 import { useAsyncAction } from "../async_action.ts";
 import { sturdyrefPlaceholder } from "../../../lib/text/controls.ts";
@@ -77,6 +79,7 @@ export function SessionMoves(
 	const browser = useRoomsBrowser();
 	const serverGate = useServerGate();
 	const commitments = useCommitments();
+	const requestReload = useRequestReload();
 	const [open, setOpen] = useState(false);
 	const [asking, setAsking] = useState<"leave" | "local-copy" | "share" | null>(null);
 	const [leaveError, setLeaveError] = useState("");
@@ -118,7 +121,7 @@ export function SessionMoves(
 							commit={sessionContinueLocally}
 							busy={move.busy}
 							onKeep={() => setAsking(null)}
-							onCommit={() => commitments.request(() => move.run(() => browser.useLocalRoomsSession()))}
+							onCommit={() => requestReload(() => move.run(() => browser.useLocalRoomsSession()))}
 						/>
 					)
 					: asking === "leave"
@@ -138,7 +141,7 @@ export function SessionMoves(
 								: sessionLeaveWorkspace}
 							busy={move.busy}
 							onKeep={() => setAsking(null)}
-							onCommit={() => commitments.request(() => move.run(() => browser.leaveRoomsSession()))}
+							onCommit={() => requestReload(() => move.run(() => browser.leaveRoomsSession()))}
 						/>
 					)
 					: (
@@ -203,6 +206,7 @@ function AttachModal(
 	const browser = useRoomsBrowser();
 	const serverGate = useServerGate();
 	const commitments = useCommitments();
+	const requestReload = useRequestReload();
 	const [link, setLink] = useState("");
 	const [busy, setBusy] = useState(false);
 	const [why, setWhy] = useState("");
@@ -218,12 +222,30 @@ function AttachModal(
 	// before React has redrawn the button that the flag disables, and attaching
 	// twice is two attempts to move this browser at once.
 	const running = useRef(false);
-	const attach = async () => {
+	const attach = async (candidate: string) => {
+		running.current = true;
+		setBusy(true);
+		setWhy("");
+		try {
+			const refusal = await actionRefusal(() => browser.attachRoomsSession(candidate));
+			setWhy(refusal);
+			if (refusal === "") setLink("");
+		} finally {
+			running.current = false;
+			setBusy(false);
+		}
+	};
+	const submit = () => {
 		if (running.current) return;
 		const candidate = link.trim();
 		const shape = sessionCapabilityRefusal(candidate);
 		if (shape !== "") {
 			setWhy(shape);
+			return;
+		}
+		// Reusing the session's own link leaves the page and its drafts in place.
+		if (sharedRoomsSession(browser.controllerSelection.getSnapshot())?.sturdyref === candidate) {
+			void attach(candidate);
 			return;
 		}
 		// The session is reached at the address its link names, so a link this
@@ -236,24 +258,7 @@ function AttachModal(
 		) {
 			return;
 		}
-		running.current = true;
-		setBusy(true);
-		setWhy("");
-		try {
-			const refusal = await actionRefusal(() => browser.attachRoomsSession(candidate));
-			setWhy(refusal);
-			// Emptied once it has been used, because a filled field is a pending
-			// change and this one is spent. A capability that moves this browser
-			// reloads the page and takes the form with it, so this is invisible
-			// there; one that names the session already in hand changes nothing and
-			// deliberately does not reload, and left filled it is a form that looks
-			// unsubmitted and stops the reader on the way out to ask about work that
-			// is already done.
-			if (refusal === "") setLink("");
-		} finally {
-			running.current = false;
-			setBusy(false);
-		}
+		requestReload(() => attach(candidate), { except: ["settings-session-attach"] });
 	};
 	return (
 		<Submodal
@@ -270,7 +275,7 @@ function AttachModal(
 				className="group well"
 				onSubmit={(event) => {
 					event.preventDefault();
-					commitments.request(attach, { except: ["settings-session-attach"] });
+					submit();
 				}}
 			>
 				<Field

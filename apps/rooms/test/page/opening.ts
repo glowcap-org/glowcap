@@ -20,6 +20,7 @@ import { helpAboutCredit } from "../../lib/text/help.ts";
 import * as linked from "./linked.ts";
 import { proveLockupSurvivesHandoff, proveOpeningWithoutGpu, withoutOpeningGpu } from "./opening_mark.ts";
 import { proveOpeningWithoutMotion } from "./opening_motion.ts";
+import { watchAttachHandoff } from "./attach_handoff.ts";
 import { proveSessionOpenFailure, proveUnavailablePage } from "./opening_failures.ts";
 import { proveServerConnection, proveServerOffers } from "./server_selection.ts";
 import { proveStaticServerSetup } from "./static_server_setup.ts";
@@ -182,7 +183,9 @@ export async function run(tab: Page, httpPort: number, browser: Browser): Promis
 		await recovering.waitForSelector("#boot", { state: "detached", timeout: 60_000 })
 			.catch(() => fail("the recovered runtime left the opening screen over the page"));
 		if (hostRequests !== 0) fail("session setup opened a TS Host before selecting a live controller");
+		const checkHandoff = await watchAttachHandoff(recovering);
 		await establishLocalSession(recovering);
+		await checkHandoff();
 		await recovering.waitForSelector("#joinBtn", { timeout: 20_000 });
 		if (attempts < 2) fail("the page never retried the unavailable Wasm runtime");
 		await delayed.close();

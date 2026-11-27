@@ -21,6 +21,7 @@ export const sessionLocalCommit = "Use this browser";
  * what to do. */
 export const sessionDidNotOpen = "Something stopped this session from starting. The browser console has the details.";
 /** The act under that notice on a page that has chosen no session. */
+export const bootOpeningSession = "Opening Rooms…";
 export const bootReload = "Reload";
 
 export const sessionSharedTitle = "Shared session";
@@ -79,24 +80,39 @@ export const serverAskAfterDoor = (door: string) => `${door} A Rooms server can 
 export const serverAskAfterDirect = (peer: string) =>
 	`No direct route to ${peer} opened. A Rooms server gives this browser another way to reach them. ${serverAskHow}`;
 
-/** The advanced section and the two confirmations under it. Each
- * confirmation names what survives as well as what goes, since "delete" alone
- * reads as "delete everything, everywhere". */
+/** Device-wide deletion on session setup. */
 export const sessionAdvanced = "Advanced";
-export const sessionResetAsk = "Forget rooms and settings…";
 export const sessionDeleteAsk = "Delete browser data…";
 export const sessionChangeLabel = "Change saved browser data";
-/** Both name their contents instead of a collective noun the reader has
- * never been given. They differ in one way: the first keeps your messages
- * and the second does not. They read as a pair of questions. */
-export const sessionResetSay =
-	"Forget the rooms and settings saved in this browser and start again from this screen? Your saved messages stay.";
 export const sessionDeleteSay =
 	"Delete everything this page saved in this browser: sessions, messages, saved links, your preferences, and the theme this site's pages share? Anything kept on another device or server stays.";
 export const sessionConfirmKeep = "Keep it";
-export const sessionResetCommit = "Forget rooms and settings";
 export const sessionDeleteCommit = "Delete browser data";
 /** Said on session setup when this browser's saved session can't be read, over
- * the act that asks to delete this browser's data. */
+ * the option to start a separate workspace. */
 export const sessionUnreadableSay =
-	"This version of Rooms can't read the session saved in this browser, so it can't open. To start a new one, delete this browser's data. That erases the saved session and everything else this page keeps in this browser.";
+	"This version of Rooms can't read this saved workspace. You can set up a separate workspace and keep the original on this device.";
+
+export const savedWorkspaceTitle = "Saved on this device";
+export const savedWorkspaceHint =
+	"Resume a workspace with its rooms, messages and access. Close its other tab first if it is open.";
+export const savedWorkspacesHint =
+	"Each workspace keeps its own rooms and messages. You can try another from Settings → Session.";
+export const resumeWorkspace = "Resume workspace";
+export function savedWorkspaceOptions(choices: readonly string[], last: string | null) {
+	const prefixes = new Set<string>();
+	const shared = new Set<string>();
+	for (const id of choices) {
+		const prefix = id.slice(0, 8);
+		if (prefixes.has(prefix)) shared.add(prefix);
+		prefixes.add(prefix);
+	}
+	const recentFirst = last && choices.includes(last) ? [last, ...choices.filter((id) => id !== last)] : choices;
+	return recentFirst.map((id) => {
+		const prefix = id.slice(0, 8);
+		const label = id === last ? "Last opened" : "Workspace";
+		return { id, label: `${label} · ${shared.has(prefix) ? id : prefix}` };
+	});
+}
+export const separateWorkspace = "Set up a separate workspace";
+export const browseWorkspaces = "Choose workspace…";

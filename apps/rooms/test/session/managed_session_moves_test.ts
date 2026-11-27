@@ -21,7 +21,8 @@ import { ACTIVE_VIEW } from "../../web/ui/session/managed/model.ts";
 import type { RoomsManagedApplication, RoomsManagedWorkspace } from "../../../../zig-out/wasm/rooms/rooms_browser.js";
 import type { OpenOrigin } from "../../web/ui/session/managed/open.ts";
 const { RoomsPage } = await import("../../web/ui/page.ts");
-const { createRoomsBrowserController, workspaceChosen } = await import("../../web/ui/controller/create_browser.ts");
+const { workspaceChosen } = await import("../../web/ui/workspace_choice.ts");
+const { createRoomsBrowserController } = await import("../../web/ui/controller/create_browser.ts");
 const { managedWorkspaceActions } = await import("../../web/ui/session/managed/workspace.ts");
 const { noteSessionOpenFailure } = await import("../../web/ui/store/chrome.ts");
 const { openOn } = await import("../../web/ui/session/managed/open.ts");
@@ -143,7 +144,6 @@ const unreadable = () => browserFailure(-12, "unreadable", SESSION_STATE_UNREADA
 const opening: Record<string, (browser: RoomsBrowserController) => Promise<string>> = {
 	"Use this browser": (browser) => browser.useLocalRoomsSession(),
 	"Attach": (browser) => browser.attachRoomsSession("ocapn://other"),
-	"Forget rooms and settings": (browser) => browser.resetBrowserWorkspace(),
 };
 for (const [press, run] of Object.entries(opening)) {
 	Deno.test(`${press}, the first to meet saved data this version can't read, leaves it to setup's notice`, async () => {

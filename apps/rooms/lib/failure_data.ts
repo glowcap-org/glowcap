@@ -84,6 +84,7 @@ export const NOT_REGISTERED = "not-registered";
 export const NOT_ROOM_MEMBER = "not-room-member";
 export const READ_ONLY_MEMBERSHIP = "read-only-membership";
 export const WORKSPACE_REVISION_CHANGED = "workspace-revision-changed";
+export const WORKSPACE_ALREADY_OPEN = "workspace-already-open";
 export const ROOM_RETIRED = "room-retired";
 export const NICK_TOO_LONG = "nick-too-long";
 export const NOT_YOUR_LOCATOR = "not-your-locator";
@@ -313,6 +314,13 @@ export const ROOMS_FAILURES = {
 		reach: false,
 		summary: "This session changed while you were saving.",
 		action: "Nothing was applied. Reload this session, then try again.",
+	},
+	"workspace-already-open": {
+		subject: "workspace",
+		retry: "after-state-change",
+		reach: false,
+		summary: "This workspace is already open in another tab.",
+		action: "Close its other tab, then choose Resume workspace.",
 	},
 	"room-retired": {
 		subject: "room",

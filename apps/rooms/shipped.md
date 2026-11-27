@@ -20,7 +20,7 @@ the way in, and [operating Rooms](operating.md) covers its grants, services, and
   unknown outcome, reloads, and receipt replay. The [foreign trace](rust/proofs/src/session_foreign/mod.rs) fills
   the store to its page limit, restores it cold, and survives a full reload of the source page while the peer that
   exported it stays up. The [session guide](../../docs/rooms/session.md) describes production ownership and recovery.
-- *Browser workspace.* The exported `RoomsManagedApplication` opens the tab's IndexedDB workspace with separate
+- *Browser workspace.* The exported `RoomsManagedApplication` reopens the browser's saved IndexedDB workspace after tab closure with separate
   use and management handles. It keeps commands, uploads and management edits until they settle, acquires storage
   atomically, and mediates readers and observations. Prepared lifecycle edits recover their exact mutation receipts on retry.
   The main chat page and Rust session process use this managed owner, with the same codecs, admission and receipt recovery.

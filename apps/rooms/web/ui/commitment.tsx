@@ -48,6 +48,8 @@ export interface CommitmentSelection {
 	readonly only?: readonly string[];
 	/** A save flow excludes the draft it is about to commit. */
 	readonly except?: readonly string[];
+	/** Page-only work this action would discard when it unloads the document. */
+	readonly losesOnReload?: () => boolean;
 }
 
 interface PendingCommitment {
@@ -133,7 +135,7 @@ export function CommitmentProvider({ children }: { children: ReactNode }) {
 			}
 			const dirty = selected.filter(([, group]) => group.dirty());
 			const request = { proceed, selection };
-			if (dirty.length === 0) {
+			if (dirty.length === 0 && !selection.losesOnReload?.()) {
 				void run(proceed);
 				return;
 			}

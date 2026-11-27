@@ -92,7 +92,12 @@ export async function run(browser: Browser, at: (part: string) => void): Promise
 		at("re-routing the held directory through its bare relay door");
 		await reroutesHeldDirectory(open, host.origin, address);
 		at("naming a relay door nothing answers at");
-		await deadDoorsAreNamed(await bare.newPage(), host.origin, address);
+		const newcomer = await browser.newPage();
+		try {
+			await deadDoorsAreNamed(newcomer, host.origin, address);
+		} finally {
+			await newcomer.close();
+		}
 		at("attaching to a shared session through its relay door");
 		await attachesThroughRelayDoor(browser, `http://127.0.0.1:${port}`, host.origin);
 	} finally {

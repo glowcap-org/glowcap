@@ -241,6 +241,24 @@ impl Error {
 			cleanup: Box::new(cleanup),
 		}
 	}
+	/// Separate the failed operation from the outcome of retiring its resources.
+	/// Nested owners may each have retained a cleanup error on the way out.
+	pub fn split_cleanup(self) -> (Self, Result<(), Self>) {
+		match self {
+			Self::Cleanup { primary, cleanup } => {
+				let (failure, prior) = primary.split_cleanup();
+				(failure, crate::cleanup::combine(prior, Err(*cleanup)))
+			}
+			Self::Context { operation, source } => {
+				let (failure, closed) = source.split_cleanup();
+				(
+					failure.with_context(operation.clone()),
+					closed.map_err(|error| error.with_context(operation)),
+				)
+			}
+			failure => (failure, Ok(())),
+		}
+	}
 }
 
 #[derive(Debug)]
@@ -351,6 +369,24 @@ mod tests {
 		};
 		assert!(matches!(*primary, Error::Closed(_)));
 		assert!(matches!(*cleanup, Error::Storage(_)));
+	}
+
+	#[test]
+	fn close_observes_only_retained_cleanup_failures() {
+		let (refused, closed) = Error::busy("workspace occupied").split_cleanup();
+		assert!(matches!(refused, Error::Busy(_)));
+		assert!(closed.is_ok());
+
+		let (refused, closed) = refused
+			.retain(Error::closed("store close failed"))
+			.with_context("opening the store")
+			.retain(Error::closed("host close failed"))
+			.split_cleanup();
+		assert_eq!(refused.to_string(), "opening the store: workspace occupied");
+		assert_eq!(
+			closed.unwrap_err().to_string(),
+			"opening the store: store close failed; cleanup also failed: host close failed"
+		);
 	}
 
 	/// A refusal crosses a broken promise to a partner, and a retained chain

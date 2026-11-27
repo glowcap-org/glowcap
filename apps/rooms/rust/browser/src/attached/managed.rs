@@ -48,9 +48,9 @@ pub(super) struct Prepared {
 	database: Database,
 }
 impl Prepared {
-	pub async fn open(tab: &str, platform: Platform) -> Result<Self> {
+	pub async fn open(tab: &str, existing: bool, platform: Platform) -> Result<Self> {
 		let database = Database::open().await.map_err(RuntimeError::from)?;
-		let startup = session::Prepared::open(database.clone(), tab, platform)
+		let startup = session::Prepared::open(database.clone(), tab, existing, platform)
 			.await
 			.map_err(RuntimeError::from)?;
 		Ok(Self { startup, database })
@@ -258,10 +258,14 @@ impl RoomsManagedApplication {
 	#[wasm_bindgen(constructor)]
 	pub fn new(
 		tab: js_sys::JsString,
+		#[wasm_bindgen(unchecked_param_type = "boolean")] existing: JsValue,
 		trouble: js_sys::Function,
 		admission: Option<String>,
 		server: Option<String>,
 	) -> std::result::Result<Self, JsValue> {
+		let existing = existing
+			.as_bool()
+			.ok_or_else(|| js_error(&RuntimeError::invalid("existing must be a boolean")))?;
 		let admission = admission::settings(admission.as_deref()).map_err(|e| js_error(&e))?;
 		// The Rooms server this page uses, as a page base URL, or none. A
 		// malformed one refuses here, before anything opens.
@@ -271,11 +275,19 @@ impl RoomsManagedApplication {
 			.transpose()
 			.map_err(|e| js_error(&RuntimeError::invalid_by(e)))?;
 		let tab = scalar(tab, 64).map_err(|e| js_error(&e))?;
-		if tab.is_empty() || !tab.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'-') {
+		if !session::valid_tab(&tab) {
 			return Err(js_error(&RuntimeError::invalid("Invalid Rooms tab identity")));
 		}
 		Ok(Self {
-			driver: Driver::start_managed(Startup { tab, admission, front }, trouble),
+			driver: Driver::start_managed(
+				Startup {
+					tab,
+					admission,
+					front,
+					existing,
+				},
+				trouble,
+			),
 		})
 	}
 	pub fn workspace(&self) -> js_sys::Promise {

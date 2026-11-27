@@ -71,10 +71,10 @@ Deno.test("a page in a blocked browser chooses no session, forgets nothing, and 
 	);
 	for (const [name] of descriptors) Object.defineProperty(globalThis, name, { configurable: true, get: blocked });
 	try {
-		const { forgetWorkspaceChoice, workspaceChosen } = await import("../web/ui/controller/create_browser.ts");
-		const { tabIdentity } = await import("../web/ui/session/managed/open.ts");
+		const { recordWorkspaceChoice, workspaceChosen } = await import("../web/ui/workspace_choice.ts");
+		const { tabIdentity } = await import("../web/ui/workspace_choice.ts");
 		assertEquals(workspaceChosen(), false, "startup shows session setup instead of throwing");
-		assertEquals(forgetWorkspaceChoice(), null, "the failure screen has no choice to forget");
+		assertEquals(recordWorkspaceChoice(false), null, "the failure screen has no choice to forget");
 		let minted: unknown = null;
 		try {
 			tabIdentity();
@@ -92,7 +92,7 @@ Deno.test("a page in a blocked browser chooses no session, forgets nothing, and 
 });
 
 Deno.test("an invalid persisted tab identity asks for a new tab and retains the stored value", async () => {
-	const { tabIdentity } = await import("../web/ui/session/managed/open.ts");
+	const { tabIdentity } = await import("../web/ui/workspace_choice.ts");
 	const { area, kept } = memoryArea();
 	kept.set("rooms.managed-tab", "invalid identity");
 	let error: unknown;

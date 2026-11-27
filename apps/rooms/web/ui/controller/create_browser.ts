@@ -1,10 +1,10 @@
 // Construct the browser-owned controller: presentation, navigation, and which
 // session this tab answers to.
 
-import { type LocalRefusal, refusalText } from "../../../lib/text/failure.ts";
+import { refusalText } from "../../../lib/text/failure.ts";
 import * as store from "../store.ts";
 import * as net from "../page_navigation.ts";
-import { keptTabIdentity, tabIdentity } from "../session/managed/open.ts";
+import { recordWorkspaceChoice, workspaceChosen } from "../workspace_choice.ts";
 import { attachedSessionFailureText } from "../session/attached_failure.ts";
 import type { openManagedSession } from "../session/managed/open.ts";
 import type { RoomsPageContext } from "../page.ts";
@@ -15,7 +15,6 @@ import { requestBrowserDataDeletion } from "./browser_data.ts";
 import { pagePath } from "../page_base.ts";
 import { addressAt } from "../route_address.ts";
 import { serverInUse } from "../server_choice.ts";
-import { localArea } from "../page_storage.ts";
 import type { PageProjection } from "../store/projection.ts";
 import { roomsErrorIn, SESSION_STATE_UNREADABLE } from "../../../lib/error_codes.ts";
 
@@ -160,14 +159,6 @@ export function createRoomsBrowserController(
 		serverHeld: () => page.managedSession != null,
 		leaveRoomsSession: () => selectLocal(false),
 		controllerSelection: page.controllerSelection,
-		resetBrowserWorkspace: async () => {
-			try {
-				await (await managed()).actions.clear();
-				return await selectLocal(false);
-			} catch (error) {
-				return setupRefusal(projection, error);
-			}
-		},
 		deleteBrowserData: () => {
 			const refused = requestBrowserDataDeletion();
 			if (refused != null) return Promise.resolve(refusalText(refused));
@@ -184,25 +175,4 @@ export function createRoomsBrowserController(
 export function setupRefusal(projection: PageProjection, error: unknown, link: string | null = null): string {
 	if (projection.get().savedSessionUnreadable && roomsErrorIn(error)?.code === SESSION_STATE_UNREADABLE) return "";
 	return attachedSessionFailureText(error, serverInUse(), link);
-}
-const choiceKey = (tab: string) => `rooms.workspace-choice.${tab}`;
-
-/** Whether this tab chose a session, so startup opens it rather than session
- * setup. False on a fresh tab, and wherever the browser refuses to say. */
-export function workspaceChosen(): boolean {
-	const tab = keptTabIdentity();
-	return tab != null && localArea.read(choiceKey(tab)) === "yes";
-}
-
-/** Record whether this tab chose a session. Null once kept, and otherwise the
- * browser's refusal. */
-function recordWorkspaceChoice(chosen: boolean): LocalRefusal | null {
-	return chosen ? localArea.write(choiceKey(tabIdentity()), "yes") : forgetWorkspaceChoice();
-}
-
-/** Forget this tab's session choice, so the next load shows setup. Null once
- * forgotten or when there was none, and otherwise the browser's refusal. */
-export function forgetWorkspaceChoice(): LocalRefusal | null {
-	const tab = keptTabIdentity();
-	return tab == null ? null : localArea.remove(choiceKey(tab));
 }

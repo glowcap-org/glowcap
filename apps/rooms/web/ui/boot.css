@@ -16,6 +16,9 @@
    answer rather than for the bundle to start: a page whose peer has not
    answered has no rooms to list and no room to enter. The interface is drawn
    underneath meanwhile, so the screen leaves a finished page behind it. */
+:root {
+	--boot-fade-time: 150ms;
+}
 .boot {
 	position: fixed;
 	inset: 0;
@@ -33,7 +36,7 @@
 	   document, so a transition removed from here is a screen left behind. It
 	   would be an invisible, untouchable one, which is why nothing breaks, but
 	   the browser proof asks for the element to be gone and would say so. */
-	transition: opacity .3s ease;
+	transition: opacity var(--boot-fade-time) ease;
 }
 /* Handed over: transparent, and out of the way of the interface underneath.
    boot.ts takes the element out of the document once the fade has run. */
@@ -41,22 +44,35 @@
 	opacity: 0;
 	pointer-events: none;
 }
-/* The interface is drawn under the opening screen and stays unseen until the
-   handover, then rises through the same fade the screen leaves by. */
+/* The loader and the controls can occupy the same spot on a phone. Let
+   the loader finish fading before any of the control text appears. */
 #root {
-	transition: opacity .3s ease;
+	transition: opacity var(--boot-fade-time) ease;
+}
+:root[data-boot="done"] #root {
+	transition-delay: var(--boot-fade-time);
 }
 :root:not([data-boot="done"]):not([data-boot="leaving"]) #root {
 	opacity: 0;
 }
-/* A reload that has already committed. The opening element is gone, so the
-   body itself wears the sheet until the next parse puts a real one up. */
-:root[data-boot="leaving"] body::before {
-	content: "";
-	position: fixed;
-	inset: 0;
-	z-index: 100;
-	background: var(--page-bg);
+/* Cover immediately, including when a press interrupts the opening fade.
+   Hiding the outgoing form also keeps its heading out of the handoff. */
+:root[data-boot="leaving"] #root {
+	visibility: hidden;
+}
+:root[data-boot="leaving"] .boot {
+	transition: none;
+}
+/* The outgoing screen also covers native dialogs. Its own fixed layout
+   supplies the geometry; the dialog supplies focus and the top layer. */
+.boot-handoff {
+	padding: 0;
+	border: 0;
+	background: transparent;
+	color: inherit;
+}
+.boot-handoff::backdrop {
+	background: transparent;
 }
 .boot-wait {
 	display: flex;

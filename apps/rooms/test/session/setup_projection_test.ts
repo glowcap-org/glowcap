@@ -3,7 +3,7 @@
 // must wrap it. Omitting the provider crashes first paint and detach. The
 // projection also says when this browser's saved session can't be read, and
 // setup then shuts every act that opens it, each described by a notice that
-// offers the deletion its advanced disclosure confirms.
+// offers a separate workspace and preserves the original.
 
 /// <reference lib="dom" />
 
@@ -15,10 +15,9 @@ import { browserFailure } from "../support/browser_failure.ts";
 import { SESSION_STATE_UNREADABLE, SESSION_UNREACHABLE } from "../../lib/error_codes.ts";
 import { LocalRefusal } from "../../lib/text/failure.ts";
 import {
-	sessionDeleteAsk,
+	separateWorkspace,
 	sessionDeleteCommit,
 	sessionDeleteSay,
-	sessionResetSay,
 	sessionUnreadableSay,
 } from "../../lib/text/session.ts";
 import type { PageProjection } from "../../web/ui/store/projection.ts";
@@ -34,11 +33,27 @@ const browser = new Proxy({} as RoomsBrowserController, {
 	get: () => () => {},
 });
 
-function setupTree(projection: PageProjection | null): ReactNode {
+const { SavedWorkspaces } = await import("../../web/ui/panes/SavedWorkspaces.tsx");
+
+function setupTree(projection: PageProjection | null, choices?: string[]): ReactNode {
 	const inner = createElement(
 		RoomsBrowserProvider,
 		{ value: browser },
-		createElement(ModalProvider, null, createElement(SessionSetup, null)),
+		createElement(
+			ModalProvider,
+			null,
+			createElement(SessionSetup, {
+				renderSavedWorkspaces: choices &&
+					((disabled: boolean, primary: boolean) =>
+						createElement(SavedWorkspaces, {
+							choices,
+							pin: choices[0],
+							initialError: "",
+							disabled,
+							primary,
+						})),
+			}),
+		),
 	);
 	return projection == null ? inner : createElement(RoomsProjectionProvider, { value: projection }, inner);
 }
@@ -60,7 +75,7 @@ Deno.test("session setup refuses to render without the page projection", () => {
 	throw new Error("session setup rendered without the page projection");
 });
 
-/** Whether setup offers deletion after opening this browser's saved session
+/** Whether setup offers a separate workspace after opening this browser's saved session
  * failed with `error`. Setup draws its notice from this fact, and a static
  * render reads a store's first state, so the fact is read from the page. */
 function offeredAfter(error: unknown): boolean {
@@ -102,18 +117,18 @@ function withDocument<T>(draw: () => T): T {
 	}
 }
 
-Deno.test("saved data this version can't read offers to delete this browser's data", () => {
+Deno.test("unreadable saved data offers a separate workspace", () => {
 	if (!offeredAfter(browserFailure(-12, "unreadable", SESSION_STATE_UNREADABLE))) {
-		throw new Error("setup offered no deletion for saved data it can't read");
+		throw new Error("setup offered no separate workspace for saved data it can't read");
 	}
-	const html = renderToStaticMarkup(createElement(SessionUnreadable, { busy: false, onAsk() {} }));
+	const html = renderToStaticMarkup(createElement(SessionUnreadable, { busy: false, onSeparate() {} }));
 	const say = renderToStaticMarkup(createElement("p", { id: "sessionUnreadableSay" }, sessionUnreadableSay));
 	if (!html.includes(say)) throw new Error("the notice does not say what happened");
-	if (!/<button[^>]* id="sessionUnreadableDelete"[^>]* aria-describedby="sessionUnreadableSay"/.test(html)) {
-		throw new Error("the deletion is not described by what happened");
+	if (!/<button[^>]* id="sessionUnreadableSeparate"[^>]* aria-describedby="sessionUnreadableSay"/.test(html)) {
+		throw new Error("the workspace choice is not described by what happened");
 	}
-	if (!html.includes(`>${sessionDeleteAsk}</button>`)) {
-		throw new Error("the deletion is not the advanced act's own label");
+	if (!html.includes(`>${separateWorkspace}</button>`)) {
+		throw new Error("the notice does not name the separate workspace");
 	}
 });
 
@@ -143,7 +158,6 @@ function doors(unreadable: boolean) {
 		notice,
 		local: door("sessionUseLocal"),
 		attach: door("sessionAttach"),
-		reset: door("sessionResetAsk"),
 		delete: door("sessionDeleteAsk"),
 	};
 }
@@ -154,9 +168,23 @@ Deno.test("an unreadable saved session shuts every act that opens it, each descr
 		notice: true,
 		local: shut,
 		attach: shut,
-		reset: shut,
 		delete: { disabled: false, describedBy: null },
 	});
+});
+
+Deno.test("a known unreadable workspace offers a fresh one before retrying", () => {
+	const projection = new Projection();
+	noteSessionOpenFailure(projection, browserFailure(-12, "unreadable", SESSION_STATE_UNREADABLE), "this-browser");
+	projection.api.getInitialState = projection.api.getState;
+	const html = renderToStaticMarkup(setupTree(projection, ["saved", "other"]));
+	const resume = html.match(/<button[^>]*>Resume workspace<\/button>/)?.[0];
+	const separate = html.match(/<button[^>]*id="sessionUnreadableSeparate"[^>]*>/)?.[0];
+	if (
+		!resume?.includes('disabled=""') || !resume.includes('data-variant="quiet"') ||
+		!separate?.includes('data-variant="primary"') || !html.includes('value="other"')
+	) {
+		throw new Error("setup led back into an unreadable workspace or hid the alternatives");
+	}
 });
 
 Deno.test("a readable saved session leaves the local door open and the attach door waiting for a link", () => {
@@ -165,34 +193,11 @@ Deno.test("a readable saved session leaves the local door open and the attach do
 		notice: false,
 		local: open,
 		attach: { disabled: true, describedBy: null },
-		reset: open,
 		delete: open,
 	});
 });
 
-Deno.test("a confirmation to forget rooms and settings asked before saved data proved unreadable is not drawn", () => {
-	const draw = (unreadable: boolean) =>
-		withDocument(() =>
-			renderToStaticMarkup(createElement(SetupAdvanced, {
-				open: true,
-				asking: "reset",
-				busy: null,
-				unreadable,
-				onToggle() {},
-				onAsk() {},
-				onKeep() {},
-				onCommit() {},
-			}))
-		);
-	const asks = (html: string) => html.includes(renderToStaticMarkup(createElement("p", null, sessionResetSay)));
-	if (!asks(draw(false))) throw new Error("a readable session's reset asked nothing");
-	const html = draw(true);
-	if (asks(html)) throw new Error("the reset's confirmation stayed open");
-	const reset = /<button[^>]* id="sessionResetAsk"[^>]*>/.exec(html)?.[0] ?? "";
-	if (!/\sdisabled=""/.test(reset)) throw new Error("the reset stayed open");
-});
-
-Deno.test("any other failure to open offers no deletion", () => {
+Deno.test("other open failures do not show the unreadable notice", () => {
 	for (
 		const error of [
 			browserFailure(-12, "unreachable", SESSION_UNREACHABLE),
@@ -200,50 +205,33 @@ Deno.test("any other failure to open offers no deletion", () => {
 			new Error("the session's saved data is in a form this version of Rooms can't read"),
 		]
 	) {
-		if (offeredAfter(error)) throw new Error(`setup offered a deletion for ${String(error)}`);
+		if (offeredAfter(error)) throw new Error(`setup showed the unreadable notice for ${String(error)}`);
 	}
 });
 
-Deno.test("pressing the offered deletion opens the advanced disclosure's own confirmation", () => {
-	const asked: string[] = [];
-	const press = pressOf(
-		SessionUnreadable({ busy: false, onAsk: (act) => asked.push(act) }),
-		"sessionUnreadableDelete",
-	);
-	if (press == null) throw new Error("the notice drew no deletion");
-	press();
-	const closed = SetupAdvanced({
-		open: false,
-		asking: null,
-		busy: null,
-		unreadable: false,
-		onToggle() {},
-		onAsk: (act) => asked.push(act),
+Deno.test("deleting all browser data still requires the advanced disclosure's confirmation", () => {
+	let asked = false;
+	const initial = SetupAdvanced({
+		asking: false,
+		busy: false,
+		onAsk: () => asked = true,
 		onKeep() {},
-		onCommit() {},
+		onCommit() {
+			throw new Error("deletion ran before confirmation");
+		},
 	});
-	pressOf(closed, "sessionDeleteAsk")?.();
-	if (asked.length !== 2 || asked[0] !== asked[1]) {
-		throw new Error(`the notice asked ${asked[0]}, the disclosure's own act asked ${asked[1]}`);
-	}
-	const act = asked[0];
-	if (act !== "delete") throw new Error(`the notice asked ${act}`);
+	pressOf(initial, "sessionDeleteAsk")?.();
+	if (!asked) throw new Error("deletion skipped its confirmation");
 	const html = withDocument(() =>
 		renderToStaticMarkup(createElement(SetupAdvanced, {
-			open: true,
-			asking: act,
-			busy: null,
-			unreadable: false,
-			onToggle() {},
+			asking: true,
+			busy: false,
 			onAsk() {},
 			onKeep() {},
 			onCommit() {},
 		}))
 	);
 	const say = renderToStaticMarkup(createElement("p", null, sessionDeleteSay));
-	if (!html.startsWith("<details") || !/^<details[^>]* open=""/.test(html)) {
-		throw new Error("the disclosure holding the confirmation stayed shut");
-	}
 	if (!html.includes(say) || !html.includes(sessionDeleteCommit)) {
 		throw new Error("the disclosure did not show the deletion's confirmation");
 	}

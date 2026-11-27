@@ -12,11 +12,11 @@
 
 import { useState } from "react";
 import type { ArchiveTargetView } from "../archive_model.ts";
-import { useRoomsController } from "../controller/browser.ts";
+import { useRoomsBrowser, useRoomsController } from "../controller/browser.ts";
 import { CopyField } from "../Copy.tsx";
 import { EntryAct, EntryActs } from "../EntryAct.tsx";
 import { managedSessionText } from "../../../lib/text/managed_session.ts";
-import { useRoomsState } from "../hooks.ts";
+import { useRoomsState, useSessionPermission } from "../hooks.ts";
 import { Icon } from "../icons.tsx";
 import { useOpenModal } from "../modal.ts";
 import { HistorySettings } from "./History.tsx";
@@ -26,7 +26,7 @@ import { SessionAccessModal } from "./SessionAccess.tsx";
 import { SessionRecoveryModal } from "../panes/SessionRecovery.tsx";
 import { useManagedSession } from "../session/managed/context.tsx";
 import { useOpenChanges } from "../session/managed/open_changes.ts";
-import { useSessionPermission } from "../hooks.ts";
+import { useRequestReload } from "./request_reload.ts";
 import { sharedRoomsSession } from "../../../lib/workspace_view.ts";
 import { sessionShareLinkCopy } from "../../../lib/text/settings.ts";
 import {
@@ -53,6 +53,10 @@ import {
 	sessionDataName,
 } from "../../../lib/text/session_settings.ts";
 
+import { chooseWorkspace } from "../workspace_choice.ts";
+import { refusalText } from "../../../lib/text/failure.ts";
+import { browseWorkspaces, savedWorkspaceTitle } from "../../../lib/text/session.ts";
+
 export function SessionSettings(
 	{ keepHistory, archiveTarget }: { keepHistory: boolean; archiveTarget: ArchiveTargetView },
 ) {
@@ -62,6 +66,7 @@ export function SessionSettings(
 	const canManageCustody = useSessionPermission("manageCustody");
 	const accessStatus = useRoomsState((state) => state.managedAccess.status);
 	const controller = useRoomsController();
+	const browser = useRoomsBrowser();
 	const hosting = controller.kind === "hosted";
 	const shared = sharedRoomsSession(controller);
 	const sharedSession = shared != null;
@@ -76,6 +81,12 @@ export function SessionSettings(
 	// The list's own rows decide whether it is offered, and a read that failed
 	// is offered too, so the card can say what it could not read.
 	const session = useManagedSession();
+	const requestReload = useRequestReload();
+	const browse = () =>
+		requestReload(() => {
+			const refused = chooseWorkspace(null, true);
+			if (refused) browser.toast("failure", refusalText(refused));
+		});
 	const open = useOpenChanges(session, canResolve);
 	const unfinished = open.changes.length > 0 || open.failure !== "";
 	// Read only is what the last arm here means, so a capability carrying nothing
@@ -137,6 +148,12 @@ export function SessionSettings(
 					/>
 				)}
 				<EntryActs busy={canResolve && open.rows == null && open.failure === ""}>
+					<EntryAct
+						name={savedWorkspaceTitle}
+						id="sessionBrowseWorkspaces"
+						act={browseWorkspaces}
+						onClick={browse}
+					/>
 					{canResolve && unfinished && (
 						<EntryAct
 							name={sessionChangesName}
