@@ -1,6 +1,7 @@
 // A tab pins the workspace it has open. The choice on this browser survives
 // the tab and selects the next cold launch. Neither record contains access.
 import { LocalRefusal } from "../../lib/text/failure.ts";
+import { coverForReload, finishCoveredReload } from "./boot.ts";
 import { localArea, type PageStorage, sessionArea } from "./page_storage.ts";
 
 const TAB = "rooms.managed-tab";
@@ -8,10 +9,27 @@ const LAST = "rooms.last-workspace";
 const PREFIX = "rooms.workspace-choice.";
 const validId = (id: string) => /^[a-zA-Z0-9-]{1,64}$/.test(id);
 
-export function pinWorkspace(id: string | null): LocalRefusal | null {
-	if (id === null) return sessionArea.remove(TAB);
+export function pinWorkspace(id: string): LocalRefusal | null {
 	if (!validId(id)) return new LocalRefusal("tab-identity-invalid");
 	return sessionArea.write(TAB, id);
+}
+
+/** Switch the browser's view without detaching or resetting its current
+ * session. A new tab identity takes setup to the chooser. */
+export function chooseWorkspace(id: string | null): LocalRefusal | null {
+	const prior = sessionArea.read(TAB);
+	const refused = pinWorkspace(id ?? crypto.randomUUID());
+	if (refused) return refused;
+	if (id !== null) {
+		const choice = recordWorkspaceChoice(true);
+		if (choice) {
+			const rollback = prior === null ? sessionArea.remove(TAB) : pinWorkspace(prior);
+			return rollback ?? choice;
+		}
+	}
+	coverForReload();
+	finishCoveredReload(true);
+	return null;
 }
 
 export function tabIdentity(storage: PageStorage = sessionArea): string {
@@ -36,11 +54,6 @@ export function recordWorkspaceChoice(chosen: boolean): LocalRefusal | null {
 	if (chosen) return localArea.write(PREFIX + tabIdentity(), "yes");
 	const id = sessionArea.read(TAB);
 	return id === null ? null : localArea.remove(PREFIX + id);
-}
-
-export function savedWorkspaces(): string[] {
-	return localArea.keys().filter((key) => key.startsWith(PREFIX) && localArea.read(key) === "yes")
-		.map((key) => key.slice(PREFIX.length)).filter(validId).sort();
 }
 
 export function coldWorkspace(): string | null {

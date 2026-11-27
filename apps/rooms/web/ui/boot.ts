@@ -23,7 +23,7 @@ import { stopBootAsides } from "./boot_note.ts";
 import type { MarkLive } from "../../../../ui/mark/live.ts";
 import type { PageProjection } from "./store/projection.ts";
 import { pageBase, pagePath, reloadPage } from "./page_base.ts";
-import { bootReload } from "../../lib/text/session.ts";
+import { bootOpeningSession, bootReload } from "../../lib/text/session.ts";
 
 /** The two states this module puts the document in. `running` closes the window
  * in which page.html's watcher may call the page lost; `done` is the last word
@@ -67,13 +67,19 @@ function handedOver(): boolean {
 	return boot === HANDED_OVER || boot === LEAVING;
 }
 
-/** Cover the running page for a reload that has already committed. The opening
- * screen was taken out at handover, so this stamps the document and the
- * stylesheet paints the same sheet over whatever React still has in the tree. */
+// Keep the parsed opening screen for moves that navigate to a new document.
+// Its fixed layout is the same on both sides of that navigation.
+let openingScreen: HTMLElement | null = null;
+
 export function coverForReload(): void {
 	const root = bootRoot();
 	if (root == null) return;
 	root.dataset.boot = LEAVING;
+	if (openingScreen !== null) {
+		const note = openingScreen.querySelector(".boot-note");
+		if (note) note.textContent = bootOpeningSession;
+		if (!openingScreen.isConnected) document.body.append(openingScreen);
+	}
 }
 
 /** Whether a committed reload's cover is up. A crash surface must not paint a
@@ -143,6 +149,7 @@ export function uncoverReload(): void {
 	const root = bootRoot();
 	if (root == null || root.dataset.boot !== LEAVING) return;
 	root.dataset.boot = HANDED_OVER;
+	openingScreen?.remove();
 }
 
 /** A required chunk or boot step failed while the opening screen was still
@@ -227,6 +234,7 @@ export function handOffNow(): void {
 	document.documentElement.dataset.boot = HANDED_OVER;
 	const boot = document.getElementById("boot");
 	if (boot === null) return;
+	openingScreen = boot;
 	// The fade is the stylesheet's, and so is how long it lasts for a reader who
 	// has asked for less motion: one place decides. It does depend on the event
 	// being the screen's own. A transition ending anywhere inside it bubbles up
@@ -244,7 +252,7 @@ export function handOffNow(): void {
 		if (event !== undefined && event.target !== boot) return;
 		clearTimeout(floor);
 		boot.removeEventListener("transitionend", gone);
-		boot.remove();
+		if (!coveringReload()) boot.remove();
 	};
 	boot.addEventListener("transitionend", gone);
 	// Declared after the handler that clears it, which is safe because nothing

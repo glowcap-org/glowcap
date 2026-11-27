@@ -27,7 +27,7 @@ fn split_failure() -> glowcap::Error {
 	loam::refusal("Rooms identity entropy has an unexpected length")
 }
 impl Prepared {
-	pub async fn open(database: Database, tab: &str, mut entropy: impl Entropy) -> Result<Self> {
+	pub async fn open(database: Database, tab: &str, existing: bool, mut entropy: impl Entropy) -> Result<Self> {
 		if tab.is_empty() || tab.len() > 64 || !tab.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'-') {
 			return Err(loam::refusal("invalid Rooms tab identity"));
 		}
@@ -50,6 +50,9 @@ impl Prepared {
 				move |steps, value| {
 					steps.data(|bootstrap| {
 						if value.is_undefined() {
+							if existing {
+								return Err(Error::Invalid("The saved workspace identity is missing on this device"));
+							}
 							steps.store(META)?.put(&row(&selected, *bootstrap)?)?;
 						} else {
 							*bootstrap = decode(&selected, value)?;
@@ -61,6 +64,9 @@ impl Prepared {
 		})
 		.map_err(storage)?;
 		let bootstrap = operation.wait().await.map_err(storage)?;
+		if existing && bootstrap.anchor.is_none() {
+			return Err(loam::refusal("The saved workspace has no committed session"));
+		}
 		Ok(Self {
 			database,
 			key,

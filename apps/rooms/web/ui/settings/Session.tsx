@@ -12,7 +12,7 @@
 
 import { useState } from "react";
 import type { ArchiveTargetView } from "../archive_model.ts";
-import { useRoomsController } from "../controller/browser.ts";
+import { useRoomsBrowser, useRoomsController } from "../controller/browser.ts";
 import { CopyField } from "../Copy.tsx";
 import { EntryAct, EntryActs } from "../EntryAct.tsx";
 import { managedSessionText } from "../../../lib/text/managed_session.ts";
@@ -53,6 +53,10 @@ import {
 	sessionDataName,
 } from "../../../lib/text/session_settings.ts";
 
+import { chooseWorkspace } from "../workspace_choice.ts";
+import { refusalText } from "../../../lib/text/failure.ts";
+import { browseWorkspaces, savedWorkspaceTitle } from "../../../lib/text/session.ts";
+
 export function SessionSettings(
 	{ keepHistory, archiveTarget }: { keepHistory: boolean; archiveTarget: ArchiveTargetView },
 ) {
@@ -62,6 +66,7 @@ export function SessionSettings(
 	const canManageCustody = useSessionPermission("manageCustody");
 	const accessStatus = useRoomsState((state) => state.managedAccess.status);
 	const controller = useRoomsController();
+	const browser = useRoomsBrowser();
 	const hosting = controller.kind === "hosted";
 	const shared = sharedRoomsSession(controller);
 	const sharedSession = shared != null;
@@ -137,6 +142,15 @@ export function SessionSettings(
 					/>
 				)}
 				<EntryActs busy={canResolve && open.rows == null && open.failure === ""}>
+					<EntryAct
+						name={savedWorkspaceTitle}
+						id="sessionBrowseWorkspaces"
+						act={browseWorkspaces}
+						onClick={() => {
+							const refused = chooseWorkspace(null);
+							if (refused) browser.toast("failure", refusalText(refused));
+						}}
+					/>
 					{canResolve && unfinished && (
 						<EntryAct
 							name={sessionChangesName}

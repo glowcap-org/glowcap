@@ -156,3 +156,8 @@
 		padding: 20px;
 	}
 }
+.saved-workspace-actions {
+	display: grid;
+	grid-column: 1 / -1;
+	gap: var(--gap-group);
+}

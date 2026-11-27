@@ -62,9 +62,11 @@ import { Input } from "../Input.tsx";
 import { SavedWorkspaces } from "./SavedWorkspaces.tsx";
 
 export function SessionSetup(
-	{ initialCapability = "", initialError = "" }: {
+	{ initialCapability = "", initialError = "", saved = [], openFailed = false }: {
 		initialCapability?: string;
 		initialError?: string;
+		saved?: string[];
+		openFailed?: boolean;
 	},
 ) {
 	const browser = useRoomsBrowser();
@@ -193,7 +195,12 @@ export function SessionSetup(
 					<p>{sessionSetupLead}</p>
 				</div>
 				<div className="session-setup-choices">
-					<SavedWorkspaces disabled={busy != null} onError={setError} />
+					<SavedWorkspaces
+						choices={saved}
+						openFailed={openFailed}
+						disabled={busy != null}
+						onError={setError}
+					/>
 					<section className="launch session-setup-choice" aria-labelledby="localSessionTitle">
 						<span className="launch-mark" aria-hidden="true">
 							<Icon name="session" size={20} />

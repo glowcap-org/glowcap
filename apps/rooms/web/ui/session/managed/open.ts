@@ -8,7 +8,7 @@ import type { PageProjection } from "../../store/projection.ts";
 import { bindLinkToPage } from "./link_binding.ts";
 import { serverInUse } from "../../server_choice.ts";
 import { ManagedRoomsSession } from "./session.ts";
-import { tabIdentity } from "../../workspace_choice.ts";
+import { tabIdentity, workspaceChosen } from "../../workspace_choice.ts";
 import { ACTIVE_VIEW, type WorkspaceSnapshot } from "./model.ts";
 import type {
 	RoomsManagedApplication,
@@ -42,6 +42,7 @@ export function openManagedSession(
 		report,
 		admission,
 		serverInUse()?.base,
+		workspaceChosen(),
 	);
 	return openOn(application, report, selection, failed);
 }

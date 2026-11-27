@@ -1,37 +1,45 @@
-// Existing workspace choices survive older tabs that lost their startup ID.
-import { useState } from "react";
 import { refusalText } from "../../../lib/text/failure.ts";
+import {
+	resumeWorkspace,
+	savedWorkspaceHint,
+	savedWorkspaceTitle,
+	separateWorkspace,
+} from "../../../lib/text/session.ts";
 import { Button } from "../Button.tsx";
-import { reloadPage } from "../page_base.ts";
-import { pinWorkspace, savedWorkspaces } from "../workspace_choice.ts";
+import { Icon } from "../icons.tsx";
+import { chooseWorkspace } from "../workspace_choice.ts";
 
-export function SavedWorkspaces({ disabled, onError }: {
+export function SavedWorkspaces({ choices, openFailed, disabled, onError }: {
+	choices: readonly string[];
+	openFailed: boolean;
 	disabled: boolean;
 	onError: (text: string) => void;
 }) {
-	const [choices] = useState(savedWorkspaces);
-	if (!choices.length) return null;
+	if (!choices.length && !openFailed) return null;
+	const choose = (id: string | null) => {
+		const refused = chooseWorkspace(id);
+		if (refused) onError(refusalText(refused));
+	};
 	return (
 		<section className="launch session-setup-choice" aria-labelledby="savedWorkspaceTitle">
+			<span className="launch-mark" aria-hidden="true">
+				<Icon name="session" size={20} />
+			</span>
 			<div className="launch-copy">
-				<h2 id="savedWorkspaceTitle">Saved on this device</h2>
-				<p className="hint">
-					Resume a workspace with its rooms, messages and access. If it is open in another tab, close that tab
-					first.
-				</p>
+				<h2 className="launch-title" id="savedWorkspaceTitle">{savedWorkspaceTitle}</h2>
+				{choices.length > 0 && <p className="hint">{savedWorkspaceHint}</p>}
+			</div>
+			<div className="field-row saved-workspace-actions">
 				{choices.map((id) => (
-					<Button
-						key={id}
-						disabled={disabled}
-						onClick={() => {
-							const refused = pinWorkspace(id);
-							if (refused) onError(refusalText(refused));
-							else reloadPage();
-						}}
-					>
-						{choices.length === 1 ? "Resume workspace" : `Resume workspace · ${id.slice(0, 8)}`}
+					<Button key={id} disabled={disabled} onClick={() => choose(id)}>
+						{resumeWorkspace(id, choices.length > 1)}
 					</Button>
 				))}
+				{openFailed && (
+					<Button disabled={disabled} variant="quiet" onClick={() => choose(null)}>
+						{separateWorkspace}
+					</Button>
+				)}
 			</div>
 		</section>
 	);

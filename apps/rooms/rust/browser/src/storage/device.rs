@@ -21,38 +21,40 @@ struct Plan {
 	pending: RefCell<Option<Rc<Deletion>>>,
 	serial: tokio::sync::Mutex<()>,
 }
+const SESSION_PREFIX: &str = "rooms-session-";
+
+async fn session_databases() -> Result<Vec<String>, Error> {
+	let factory = js_sys::Reflect::get(&js_sys::global(), &"indexedDB".into())?;
+	let enumerate = js_sys::Reflect::get(&factory, &"databases".into())?
+		.dyn_into::<js_sys::Function>()
+		.map_err(|_| Error::Unavailable)?;
+	let promise = enumerate
+		.call0(&factory)?
+		.dyn_into::<js_sys::Promise>()
+		.map_err(|_| Error::Unavailable)?;
+	let names = js_sys::Array::from(&JsFuture::from(promise).await?);
+	let mut selected = Vec::new();
+	for row in names.iter() {
+		let Some(name) = js_sys::Reflect::get(&row, &"name".into())?.as_string() else {
+			continue;
+		};
+		if name.strip_prefix(SESSION_PREFIX).is_some_and(|tab| {
+			!tab.is_empty() && tab.len() <= 64 && tab.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+		}) {
+			if selected.len() >= 512 {
+				return Err(Error::Platform("Rooms database inventory exceeds its limit".into()));
+			}
+			selected.push(name);
+		}
+	}
+	selected.sort();
+	Ok(selected)
+}
 impl Plan {
 	async fn erase(&self) -> Result<(), Error> {
 		let _serial = self.serial.lock().await;
 		if self.names.borrow().is_none() {
-			let factory = js_sys::Reflect::get(&js_sys::global(), &"indexedDB".into())?;
-			let enumerate = js_sys::Reflect::get(&factory, &"databases".into())?
-				.dyn_into::<js_sys::Function>()
-				.map_err(|_| Error::Unavailable)?;
-			let promise = enumerate
-				.call0(&factory)?
-				.dyn_into::<js_sys::Promise>()
-				.map_err(|_| Error::Unavailable)?;
-			let names = js_sys::Array::from(&JsFuture::from(promise).await?);
-			let mut selected = Vec::new();
-			for row in names.iter() {
-				let Some(name) = js_sys::Reflect::get(&row, &"name".into())?.as_string() else {
-					continue;
-				};
-				if name.strip_prefix("rooms-session-").is_some_and(|tab| {
-					!tab.is_empty()
-						&& tab.len() <= 64
-						&& tab.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
-				}) {
-					if selected.len() >= 512 {
-						return Err(Error::Platform(
-							"Rooms database inventory exceeds its deletion budget".into(),
-						));
-					}
-					selected.push(name);
-				}
-			}
-			selected.sort();
+			let mut selected = session_databases().await?;
 			selected.push("rooms-history".into());
 			*self.names.borrow_mut() = Some(selected);
 		}
@@ -94,6 +96,18 @@ impl RoomsBrowserData {
 			}),
 		}
 	}
+	/// List workspace IDs without opening their Stores or claiming their locks.
+	#[wasm_bindgen(js_name = savedWorkspaces)]
+	pub async fn saved_workspaces() -> Result<Vec<String>, JsValue> {
+		let names = session_databases()
+			.await
+			.map_err(|e| js_sys::Error::new(&e.to_string()))?;
+		Ok(names
+			.into_iter()
+			.map(|name| name[SESSION_PREFIX.len()..].to_owned())
+			.collect())
+	}
+
 	pub fn erase(&self) -> js_sys::Promise {
 		let plan = self.plan.clone();
 		wasm_bindgen_futures::future_to_promise(async move {

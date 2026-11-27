@@ -86,9 +86,9 @@ impl Environment {
 		}
 	}
 
-	async fn prepare(tab: &str) -> Result<(Platform, managed::Prepared)> {
+	async fn prepare(tab: &str, existing: bool) -> Result<(Platform, managed::Prepared)> {
 		let platform = Platform::new().map_err(RuntimeError::platform)?;
-		let prepared = managed::Prepared::open(tab, platform.clone()).await?;
+		let prepared = managed::Prepared::open(tab, existing, platform.clone()).await?;
 		Ok((platform, prepared))
 	}
 	async fn open(

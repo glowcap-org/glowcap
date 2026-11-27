@@ -243,7 +243,7 @@ directory can already act as the session using the identity seed beside it.
 A local browser session persists in IndexedDB. When you share access, its use
 or management link lets the recipient connect to this tab. Live connections end when the tab closes. Open Rooms again at the same address in the same browser profile to resume the last workspace, including its shared-session access.
 
-If an earlier release left you at **Choose a session**, look under **Saved on this device**. Choose **Resume workspace** to reopen its rooms and drafts. If another tab has the workspace open, close it first. A Home Screen installation and Safari can keep separate workspaces.
+If an earlier release left you at **Choose a session**, look under **Saved on this device**. Choose **Resume workspace** to reopen its rooms and drafts. To try another saved workspace, open **Settings**, then **Session**, and select **Choose workspace…**. Each keeps its own access. If another tab has the workspace open, close it first. A Home Screen installation and Safari can keep separate workspaces.
 
 ### Local command access
 

@@ -1,3 +1,4 @@
+import { watchAttachHandoff } from "../page/attach_handoff.ts";
 import { proveColdWorkspace } from "../page/cold_workspace.ts";
 import { spawnWeb, webPort } from "../support/web_front.ts";
 import * as tcp from "@glowcap/tcp";
@@ -84,11 +85,16 @@ async function control(verb: string, named: Record<string, string[]>) {
 	if (!output.success) fail(`process ${verb} refused: ${new TextDecoder().decode(output.stderr)}`);
 	return JSON.parse(new TextDecoder().decode(output.stdout));
 }
-async function attach(page: Page, link: string) {
+async function attach(page: Page, link: string, phone = false) {
+	const originalSize = page.viewportSize();
+	if (phone) await page.setViewportSize({ width: 390, height: 844 });
 	await page.goto(`http://127.0.0.1:${httpPort}/`);
 	await page.waitForSelector("#sessionSetup");
 	await page.fill("#sessionSetupCapability", link);
+	const checkHandoff = await watchAttachHandoff(page);
 	await Promise.all([page.waitForNavigation(), page.click("#sessionAttach")]);
+	await checkHandoff();
+	if (phone && originalSize) await page.setViewportSize(originalSize);
 	await namedRoomRow(page, "mirror-one").waitFor();
 	await namedRoomRow(page, "mirror-one").click();
 	await page.waitForSelector("#line:not([disabled])", { timeout: 30_000 }).catch(async () => {
@@ -141,7 +147,7 @@ try {
 	};
 	observe(first);
 	observe(second);
-	await attach(first, link);
+	await attach(first, link, true);
 	const secondWire = new RelayWire();
 	await secondWire.install(second);
 	await attach(second, link);

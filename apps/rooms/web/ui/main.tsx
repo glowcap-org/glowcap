@@ -11,7 +11,7 @@
 import { invariant } from "../../lib/invariant.ts";
 import { errorMessage } from "../../lib/error_message.ts";
 import { managedSessionText as managedText } from "../../lib/text/managed_session.ts";
-import { type ReactNode, StrictMode } from "react";
+import { type ReactNode, StrictMode, useLayoutEffect } from "react";
 import { createRoot } from "react-dom/client";
 import { addressOfActive, navigateTo } from "./routing_api.ts";
 import { loadEstablished, loadOpsPage, loadServerOffer, loadSessionSetup, prefetch } from "./chunks.ts";
@@ -136,7 +136,11 @@ const root = createRoot(mount, {
 
 /** Providers that live as long as this page, including establishment.
  * A session controller is not one of these: it exists only after a choice. */
-function PageSurface({ children }: { children: ReactNode }) {
+function PageSurface({ children, established = false }: { children: ReactNode; established?: boolean }) {
+	useLayoutEffect(() => {
+		if (established) handOffWhenReady(page.projection, "controller-snapshot");
+		else handOffNow();
+	}, [established]);
 	return (
 		<RoomsProjectionProvider value={page.projection}>
 			<RoomsBrowserProvider value={browser}>
@@ -146,18 +150,29 @@ function PageSurface({ children }: { children: ReactNode }) {
 	);
 }
 
-async function showSessionSetup(initialCapability = "", initialError = ""): Promise<void> {
+async function showSessionSetup(initialCapability = "", initialError = "", openFailed = false): Promise<void> {
 	const { SessionSetup } = await loadSessionSetup();
+	let saved: string[] = [];
+	try {
+		saved = await application.applicationModule().RoomsBrowserData.savedWorkspaces();
+	} catch (error) {
+		// Setup still offers a new session or a link when storage is blocked.
+		report("Listing saved workspaces", error);
+	}
 	root.render(
 		<StrictMode>
 			<PageSurface>
 				<ModalProvider key="session-setup">
-					<SessionSetup initialCapability={initialCapability} initialError={initialError} />
+					<SessionSetup
+						initialCapability={initialCapability}
+						initialError={initialError}
+						saved={saved}
+						openFailed={openFailed}
+					/>
 				</ModalProvider>
 			</PageSurface>
 		</StrictMode>,
 	);
-	handOffNow();
 }
 
 /** Ask about a Rooms server this page's link offers, and take the offer out of
@@ -186,7 +201,6 @@ async function answerServerOffer(): Promise<void> {
 				</PageSurface>
 			</StrictMode>,
 		);
-		handOffNow();
 	});
 	// A choice this browser cannot keep would leave the page on another server.
 	const refused = use ? chooseServer(base) : null;
@@ -267,13 +281,7 @@ async function start(): Promise<void> {
 		opened = await openWorkspace();
 	} catch (error) {
 		standAtFrontOfPrivilegedAddress();
-		// A fresh page may have tried a workspace another tab still owns.
-		// Leave its durable choice intact so setup can retry or start separately.
-		if (cold !== null) {
-			const refused = pinWorkspace(null);
-			if (refused) throw refused;
-		}
-		await showSessionSetup("", setupRefusal(page.projection, error));
+		await showSessionSetup("", setupRefusal(page.projection, error), true);
 		return;
 	}
 	const rememberFailure = rememberOpenWorkspace();
@@ -352,7 +360,7 @@ async function showEstablishedPage(
 	bindEstablishedRouting(page);
 	root.render(
 		<StrictMode>
-			<PageSurface>
+			<PageSurface established>
 				<ManagedSessionProvider value={managed}>
 					<ModalProvider key="established-session">
 						<EstablishedSession session={session} />
@@ -361,8 +369,6 @@ async function showEstablishedPage(
 			</PageSurface>
 		</StrictMode>,
 	);
-
-	handOffWhenReady(page.projection, "controller-snapshot");
 }
 
 void start().catch((error) => {

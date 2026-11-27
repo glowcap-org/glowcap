@@ -21,6 +21,7 @@ export const sessionLocalCommit = "Use this browser";
  * what to do. */
 export const sessionDidNotOpen = "Something stopped this session from starting. The browser console has the details.";
 /** The act under that notice on a page that has chosen no session. */
+export const bootOpeningSession = "Opening Rooms…";
 export const bootReload = "Reload";
 
 export const sessionSharedTitle = "Shared session";
@@ -100,3 +101,11 @@ export const sessionDeleteCommit = "Delete browser data";
  * the act that asks to delete this browser's data. */
 export const sessionUnreadableSay =
 	"This version of Rooms can't read the session saved in this browser, so it can't open. To start a new one, delete this browser's data. That erases the saved session and everything else this page keeps in this browser.";
+
+export const savedWorkspaceTitle = "Saved on this device";
+export const savedWorkspaceHint =
+	"Resume a workspace with its rooms, messages and access. Close its other tab first if it is open.";
+export const resumeWorkspace = (id: string, several: boolean) =>
+	several ? `Resume workspace · ${id.slice(0, 8)}` : "Resume workspace";
+export const separateWorkspace = "Set up a separate workspace";
+export const browseWorkspaces = "Choose workspace…";

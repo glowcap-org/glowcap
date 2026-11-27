@@ -248,6 +248,7 @@ impl Driver {
 pub struct Startup {
 	/// This tab's identity, which names its storage.
 	pub tab: String,
+	pub existing: bool,
 	pub admission: rooms_application::admission::Settings,
 	/// The relay this browser dials through and is reached at, if its page
 	/// has a Rooms server.
@@ -261,7 +262,7 @@ async fn run(
 	trouble: TroubleReporter,
 	retiring: Rc<RefCell<Option<Retirement>>>,
 ) -> Result<()> {
-	let (platform, prepared) = match Environment::prepare(&startup.tab).await {
+	let (platform, prepared) = match Environment::prepare(&startup.tab, startup.existing).await {
 		Ok(prepared) => prepared,
 		Err(error) => {
 			// Storage preflight refused before any Host or session existed.

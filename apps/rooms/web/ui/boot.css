@@ -49,14 +49,13 @@
 :root:not([data-boot="done"]):not([data-boot="leaving"]) #root {
 	opacity: 0;
 }
-/* A reload that has already committed. The opening element is gone, so the
-   body itself wears the sheet until the next parse puts a real one up. */
-:root[data-boot="leaving"] body::before {
-	content: "";
-	position: fixed;
-	inset: 0;
-	z-index: 100;
-	background: var(--page-bg);
+/* Cover immediately, including when a press interrupts the opening fade.
+   Hiding the outgoing form also keeps its heading out of the handoff. */
+:root[data-boot="leaving"] #root {
+	visibility: hidden;
+}
+:root[data-boot="leaving"] .boot {
+	transition: none;
 }
 .boot-wait {
 	display: flex;

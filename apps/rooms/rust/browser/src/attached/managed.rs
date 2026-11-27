@@ -48,9 +48,9 @@ pub(super) struct Prepared {
 	database: Database,
 }
 impl Prepared {
-	pub async fn open(tab: &str, platform: Platform) -> Result<Self> {
+	pub async fn open(tab: &str, existing: bool, platform: Platform) -> Result<Self> {
 		let database = Database::open().await.map_err(RuntimeError::from)?;
-		let startup = session::Prepared::open(database.clone(), tab, platform)
+		let startup = session::Prepared::open(database.clone(), tab, existing, platform)
 			.await
 			.map_err(RuntimeError::from)?;
 		Ok(Self { startup, database })
@@ -261,6 +261,7 @@ impl RoomsManagedApplication {
 		trouble: js_sys::Function,
 		admission: Option<String>,
 		server: Option<String>,
+		existing: Option<bool>,
 	) -> std::result::Result<Self, JsValue> {
 		let admission = admission::settings(admission.as_deref()).map_err(|e| js_error(&e))?;
 		// The Rooms server this page uses, as a page base URL, or none. A
@@ -275,7 +276,15 @@ impl RoomsManagedApplication {
 			return Err(js_error(&RuntimeError::invalid("Invalid Rooms tab identity")));
 		}
 		Ok(Self {
-			driver: Driver::start_managed(Startup { tab, admission, front }, trouble),
+			driver: Driver::start_managed(
+				Startup {
+					tab,
+					admission,
+					front,
+					existing: existing.unwrap_or(false),
+				},
+				trouble,
+			),
 		})
 	}
 	pub fn workspace(&self) -> js_sys::Promise {
