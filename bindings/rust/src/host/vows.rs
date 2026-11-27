@@ -59,6 +59,7 @@ pub(super) struct VowTable {
 	rows: RefCell<HashMap<u64, VowState>>,
 	/// FIFO of settled-but-unobserved vow ids, for the eviction cap.
 	unobserved: RefCell<VecDeque<u64>>,
+	live_outcomes: Cell<usize>,
 	/// Exact terminal projection failure for late observers after teardown has
 	/// cleared per-vow rows. Protocol authority remains in the FFI Host or
 	/// driver loop. This only preserves the binding-side observation cause.
@@ -70,6 +71,7 @@ impl VowTable {
 		Self {
 			rows: RefCell::new(HashMap::new()),
 			unobserved: RefCell::new(VecDeque::new()),
+			live_outcomes: Cell::new(0),
 			terminal_failure: RefCell::new(None),
 		}
 	}
@@ -79,7 +81,9 @@ impl VowTable {
 	}
 
 	fn abandon(&self, vow: u64) {
-		self.rows.borrow_mut().remove(&vow);
+		if matches!(self.rows.borrow_mut().remove(&vow), Some(VowState::Settled(_))) {
+			self.live_outcomes.set(self.live_outcomes.get() - 1);
+		}
 	}
 
 	fn own_outcome(&self, vow: u64) {
@@ -109,6 +113,7 @@ impl VowTable {
 			Some(row) => match std::mem::replace(row, VowState::Minted { owned: false }) {
 				VowState::Settled(outcome) => {
 					rows.remove(&vow);
+					self.live_outcomes.set(self.live_outcomes.get() - 1);
 					Waiting::Now(outcome)
 				}
 				// Minted, or re-awaited: (re)park a waiter. A prior
@@ -150,22 +155,30 @@ impl VowTable {
 					if previous.discard_host.is_none() {
 						outcome.own();
 					}
+					*row = VowState::Settled(outcome);
+					return;
 				}
 			}
 			*row = VowState::Settled(outcome);
 		}
 		let mut unobserved = self.unobserved.borrow_mut();
 		unobserved.push_back(vow);
-		while unobserved.len() > MAX_UNOBSERVED_OUTCOMES {
-			let Some(oldest) = unobserved.pop_front() else {
-				break;
-			};
-			let mut rows = self.rows.borrow_mut();
-			// Only evict a row still parked unobserved; an observed one is gone.
-			let evict = matches!(rows.get(&oldest), Some(VowState::Settled(_)));
-			if evict {
-				rows.remove(&oldest);
+		let mut rows = self.rows.borrow_mut();
+		if self.live_outcomes.get() == MAX_UNOBSERVED_OUTCOMES {
+			// Host vow ids are never reused. Skip entries whose observations
+			// already left the table until the oldest live outcome is retired.
+			while let Some(oldest) = unobserved.pop_front() {
+				if rows.remove(&oldest).is_some() {
+					break;
+				}
 			}
+		} else {
+			self.live_outcomes.set(self.live_outcomes.get() + 1);
+		}
+		// Bound history even with a long-lived first outcome and continual
+		// later observations. At least a full window separates these scans.
+		if unobserved.len() >= 2 * MAX_UNOBSERVED_OUTCOMES {
+			unobserved.retain(|id| rows.contains_key(id));
 		}
 	}
 
@@ -192,6 +205,7 @@ impl VowTable {
 	pub(super) fn clear(&self) {
 		self.rows.borrow_mut().clear();
 		self.unobserved.borrow_mut().clear();
+		self.live_outcomes.set(0);
 	}
 }
 
@@ -371,7 +385,19 @@ mod tests {
 		}
 
 		assert_eq!(now(&table, 0).unwrap_err().code(), sys::ERR_CLOSED);
+		for vow in 2..=(MAX_UNOBSERVED_OUTCOMES as u64 * 4) {
+			if vow > MAX_UNOBSERVED_OUTCOMES as u64 {
+				table.insert(vow, row());
+				table.settle(vow, err(sys::ERR_BROKEN, "later outcome"));
+			}
+			if vow % 2 == 0 {
+				table.abandon(vow);
+			} else {
+				assert_eq!(now(&table, vow).unwrap_err().code(), sys::ERR_BROKEN);
+			}
+		}
 		assert_eq!(now(&table, 1).unwrap_err().code(), sys::ERR_BROKEN);
+		assert!(table.unobserved.borrow().len() < 2 * MAX_UNOBSERVED_OUTCOMES);
 	}
 
 	#[test]

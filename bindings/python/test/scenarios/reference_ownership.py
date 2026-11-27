@@ -5,7 +5,8 @@ import gc
 import weakref
 from unittest.mock import patch
 
-from glowcap import GlowcapError, Host, Ref, tcp
+from glowcap import GlowcapError, Host, Ref, Tagged, tcp
+from glowcap._constants import BINDING_UNOBSERVED_OUTCOME_CAP, ERR_NOT_FOUND
 from glowcap._value import _ref_from_id
 
 from scenarios.runtime import tcp_connect
@@ -13,10 +14,17 @@ from scenarios.runtime import tcp_connect
 
 async def run() -> None:
     host = Host()
+    child = host.spawn(lambda _verb, _args: "child")
     completion = None
 
     def echo(verb, args):
         nonlocal completion
+        if verb == "anchor":
+            return child
+        if verb == "compound":
+            return [child, Tagged("nested", [child])]
+        if verb == "barrier":
+            return None
         if verb == "pending":
             future = asyncio.get_running_loop().create_future()
 
@@ -71,6 +79,7 @@ async def run() -> None:
                 owner.gc.drain_gc()
                 assert await session.send(resolved, "ping", []) == "alive"
                 remote = await session.fetch("echo")
+                await _unexposed_replies(session, remote)
                 remote_resolved = await session.resolve(remote)
                 assert isinstance(remote_resolved, Ref)
                 pending = session.send(remote, "pending", [remote])
@@ -121,3 +130,41 @@ async def run() -> None:
         await server.close()
         await serving
         await host.close()
+
+
+async def _unexposed_replies(session, remote):
+    for case in ("abandoned", "evicted", "cancelled", "observed"):
+        anchor = await session.send(remote, "anchor")
+        token = anchor.id
+        pending = session.send(remote, "compound")
+        if case == "cancelled":
+            pending.add_done_callback(lambda _: None)
+            pending.cancel()
+        await session.send(remote, "barrier")
+        if case == "evicted":
+            # The native compound result is real. Only the pressure is synthesized.
+            for offset in range(BINDING_UNOBSERVED_OUTCOME_CAP):
+                vow = (1 << 64) - 1 - offset
+                session.host.vow_minted(vow)
+                session.host.settle_vow(vow, True, None)
+        elif case == "observed":
+            first, tagged = await pending
+            assert first.id == tagged.value[0].id == token
+            session.release(first)
+            session.release(tagged.value[0])
+        elif case == "cancelled":
+            await pending._begin_task
+            await asyncio.sleep(0)
+        del pending
+        gc.collect()
+        session.host.gc.drain_gc()
+        await session.send(remote, "barrier")
+        session.host.gc.drain_gc()
+        session.release(anchor)
+        try:
+            extra = session.host.retain(_ref_from_id(token))
+        except GlowcapError as error:
+            assert error.code == ERR_NOT_FOUND, error
+        else:
+            session.release(extra)
+            raise AssertionError(f"{case}: unexposed native reply retained its child")

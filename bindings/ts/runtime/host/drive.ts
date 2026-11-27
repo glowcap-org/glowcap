@@ -103,6 +103,7 @@ export abstract class HostDrive extends HostApplication {
 			});
 		}
 		this._vows.delete(vow);
+		this._unobserved.delete(vow);
 		const outcome = row.state.outcome;
 		return "ok" in outcome ? Promise.resolve(outcome.ok) : Promise.reject(outcome.err);
 	}
@@ -127,21 +128,9 @@ export abstract class HostDrive extends HostApplication {
 		}
 		// Minted, or an already-settled row re-settled: hold for a late observation.
 		row.state = { tag: "settled", outcome };
-		this._unobserved.push(vow);
-		while (this._unobserved.length - this._unobservedHead > MAX_UNOBSERVED_OUTCOMES) {
-			const oldest = this._unobserved[this._unobservedHead++]!;
-			const stale = this._vows.get(oldest);
-			// Only evict a row still parked unobserved; an observed one is gone.
-			if (stale !== undefined && stale.state.tag === "settled") {
-				this.abandonVow(oldest);
-			}
-		}
-		if (this._unobservedHead !== 0 && this._unobservedHead === this._unobserved.length) {
-			this._unobserved.length = 0;
-			this._unobservedHead = 0;
-		} else if (this._unobservedHead >= MAX_UNOBSERVED_OUTCOMES) {
-			this._unobserved.splice(0, this._unobservedHead);
-			this._unobservedHead = 0;
+		this._unobserved.add(vow);
+		if (this._unobserved.size > MAX_UNOBSERVED_OUTCOMES) {
+			this.abandonVow(this._unobserved.values().next().value!);
 		}
 		// A replacement also retires the stored, unexposed projection after the
 		// table relinquishes it, before scheduling any cleanup progress.
@@ -154,6 +143,7 @@ export abstract class HostDrive extends HostApplication {
 	abandonVow(vow: bigint): void {
 		const row = this._vows.get(vow);
 		this._vows.delete(vow);
+		this._unobserved.delete(vow);
 		if (row?.state.tag === "settled" && "ok" in row.state.outcome) {
 			this._gc.discardArgument(row.state.outcome.ok);
 		}

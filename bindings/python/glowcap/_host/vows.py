@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections import deque
+from collections import OrderedDict
 
 from .. import _constants as _abi
 from .._errors import GlowcapError
@@ -40,13 +40,12 @@ class VowTable:
         self._gc = gc
         self._rows: dict[int, _VowRow] = {}
         self._terminal_failure: GlowcapError | None = None
-        # FIFO of settled-but-unobserved vow ids, for the eviction cap (a deque:
-        # the eviction pops from the head).
-        self._unobserved: deque[int] = deque()
+        self._unobserved: OrderedDict[int, None] = OrderedDict()
 
     def clear(self) -> None:
+        for vow in tuple(self._unobserved):
+            self.abandon(vow)
         self._rows.clear()
-        self._unobserved.clear()
 
     def fail_all(self, error: GlowcapError) -> None:
         self._terminal_failure = error
@@ -59,7 +58,12 @@ class VowTable:
 
     def abandon(self, vow: int) -> None:
         """Drop binding-side observation after the public wrapper dies."""
-        self._rows.pop(vow, None)
+        row = self._rows.pop(vow, None)
+        if row is not None and isinstance(row.state, tuple):
+            self._unobserved.pop(vow, None)
+            ok, payload = row.state
+            if ok:
+                self._gc.discard_argument(payload)
 
     def await_vow(self, vow: int) -> asyncio.Future:
         """Return a future for the vow's eventual outcome."""
@@ -78,6 +82,7 @@ class VowTable:
             row.state = future
             return future
         del self._rows[vow]
+        del self._unobserved[vow]
         ok, payload = row.state
         if ok:
             future.set_result(payload)
@@ -91,26 +96,30 @@ class VowTable:
         # evicted at the cap).
         row = self._rows.get(vow)
         if row is None:
-            return  # an outcome nobody registered for
-        if ok and row.track_gc:
-            payload = self._gc.track_argument(payload)
-        if isinstance(row.state, asyncio.Future):
-            waiter = row.state
-            del self._rows[vow]
-            if not waiter.done():
-                if ok:
-                    waiter.set_result(payload)
-                else:
-                    waiter.set_exception(payload)
+            if ok:
+                self._gc.discard_argument(payload)
             return
-        # Minted, or an already-settled row re-settled: record for a late
-        # observation.
+        if ok and row.track_gc:
+            try:
+                self._gc.track_argument(payload)
+            except BaseException as failure:
+                self._gc.discard_after_failure(payload, failure)
+                raise
+        previous = row.state
+        if isinstance(previous, asyncio.Future):
+            del self._rows[vow]
+            if previous.done():
+                if ok:
+                    self._gc.discard_argument(payload)
+            elif ok:
+                previous.set_result(payload)
+            else:
+                previous.set_exception(payload)
+            return
         row.state = (ok, payload)
-        self._unobserved.append(vow)
-        while len(self._unobserved) > _MAX_UNOBSERVED_OUTCOMES:
-            oldest = self._unobserved.popleft()
-            stale = self._rows.get(oldest)
-            # Only evict a settled row still parked unobserved; an observed one
-            # is gone.
-            if stale is not None and isinstance(stale.state, tuple):
-                del self._rows[oldest]
+        self._unobserved[vow] = None
+        if len(self._unobserved) > _MAX_UNOBSERVED_OUTCOMES:
+            oldest, _ = self._unobserved.popitem(last=False)
+            self.abandon(oldest)
+        if isinstance(previous, tuple) and previous[0]:
+            self._gc.discard_argument(previous[1])

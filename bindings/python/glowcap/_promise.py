@@ -27,31 +27,50 @@ _ERR_UNSUPPORTED_VALUE = _abi.ERR_UNSUPPORTED_VALUE
 _ERR_INVALID_ARGUMENT = _abi.ERR_INVALID_ARGUMENT
 
 
-async def _await_minted(session, vow: int, *, track_gc: bool):
+async def _observe_vow(host, vow: int):
+    """Keep a waiter registered while driving. Reclaim undelivered results if the drive or await exits."""
+    settled = host.await_vow(vow)
+    try:
+        await host.kick_actions()
+        return await settled
+    except BaseException as failure:
+        if not settled.done():
+            settled.cancel()
+        elif not settled.cancelled() and settled.exception() is None:
+            host.gc.discard_after_failure(settled.result(), failure)
+        raise
+
+
+async def _await_minted(host, vow: int, *, track_gc: bool, session=None):
     # The shared fetch/enliven wait: register the vow, keep the inbound
     # loop running (the completion's bytes arrive on it), kick the drain so
     # the deliver leaves now, and await the drain-routed outcome.
     try:
-        session.host.vow_minted(vow, track_gc=track_gc)
-        session.serve()
-        settled = session.host.await_vow(vow)
-        await session.host.kick_actions()
-        result = await settled
-        session.gc.park_vow(vow)
-        return result
+        host.vow_minted(vow, track_gc=track_gc)
+        if session is not None:
+            session.serve()
+        result = await _observe_vow(host, vow)
     except BaseException as failure:
         try:
-            session.gc.park_vow(vow)
+            host.gc.park_vow(vow)
         except BaseException as cleanup:
             _retain_cleanup_failure(failure, cleanup)
         raise
+    try:
+        host.gc.park_vow(vow)
+    except BaseException as failure:
+        host.gc.discard_after_failure(result, failure)
+        raise
+    return result
 
 
-def _classify_live_ref(result, label: str) -> Ref:
+def _classify_live_ref(gc, result, label: str) -> Ref:
     """Classify a settled mint as an opaque Host capability -- the shared
     verdict under ``_fetch_like`` and the host-level select-or-dial enliven."""
     if not isinstance(result, Ref):
-        raise FetchFailed(label)
+        failure = FetchFailed(label)
+        gc.discard_after_failure(result, failure)
+        raise failure
     return result
 
 
@@ -67,10 +86,8 @@ async def _fetch_like(session, swiss: bytes, label: str, mint, track: bool) -> R
     buf, ptr = _byte_buf(swiss)
     out = ctypes.c_uint64()
     _check_host(mint(session.raw, ptr, len(swiss), ctypes.byref(out)))
-    result = await _await_minted(session, out.value, track_gc=track and session.gc_enabled)
-    if not isinstance(result, Ref):
-        raise FetchFailed(label)
-    return result
+    result = await _await_minted(session.host, out.value, track_gc=track and session.gc_enabled, session=session)
+    return _classify_live_ref(session.gc, result, label)
 
 
 def _promise_for(session, vow: int, *, pipelineable: bool = True) -> RemotePromise:
@@ -78,9 +95,7 @@ def _promise_for(session, vow: int, *, pipelineable: bool = True) -> RemotePromi
     # setup step either acquires its owner or parks FFI release.
     async def begin():
         session.serve()  # the settle's bytes arrive on the inbound loop
-        settled = session.host.await_vow(vow)
-        await session.host.kick_actions()
-        return await settled
+        return await _observe_vow(session.host, vow)
 
     def project(op: str, key) -> RemotePromise:
         out = ctypes.c_uint64()
@@ -99,6 +114,7 @@ def _promise_for(session, vow: int, *, pipelineable: bool = True) -> RemotePromi
         promise = (
             RemotePromise.far(vow, session.host, begin, project) if pipelineable else RemotePromise.observer(vow, begin)
         )
+        promise._discard_result = session.gc.discard_argument
         session.serve()
         session.host.schedule_kick()
         # Last fallible adoption step: after this succeeds, returning the
@@ -209,6 +225,7 @@ class RemotePromise(asyncio.Future):
         # Issues a projection op (index/untag/get) at this vow; set only for far.
         self._project = project
         self._started = False
+        self._discard_result = None
         # The begin task, retained: the event loop holds tasks only weakly, so
         # an unreferenced begin could be collected mid-flight.
         self._begin_task: asyncio.Future | None = None
@@ -315,12 +332,14 @@ class RemotePromise(asyncio.Future):
     def _chain(self, task: asyncio.Future) -> None:
         # Copy the begin task's outcome onto this future. Guard the states a
         # future can already be in so a late settlement never raises.
-        if self.cancelled():
-            return
         if task.cancelled():
             self.cancel()
             return
         exc = task.exception()
+        if self.cancelled():
+            if exc is None and self._discard_result is not None:
+                self._discard_result(task.result())
+            return
         if exc is not None:
             self.set_exception(exc)
         else:

@@ -177,7 +177,7 @@ class _VerbsMixin:
             _host.glowcap_host_session_resolve(self._ptr, ctypes.byref(ref), ctypes.byref(reference), ctypes.byref(vow))
         )
         if vow.value:
-            return await _await_minted(self, vow.value, track_gc=True)
+            return await _await_minted(self._host, vow.value, track_gc=True, session=self)
         return self._host.gc.adopt_ref(reference.id)
 
     async def send_redeeming(

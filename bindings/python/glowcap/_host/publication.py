@@ -119,15 +119,10 @@ class _PublicationMixin(HostMixinBase):
         return await self._await_host_capability(out.value, name)
 
     async def _await_host_capability(self, vow: int, subject: str) -> Ref:
-        from .._promise import _classify_live_ref
+        from .._promise import _await_minted, _classify_live_ref
 
-        self.vow_minted(vow)
-        settled = self.await_vow(vow)
-        try:
-            await self.kick_actions()
-            return _classify_live_ref(await settled, subject)
-        finally:
-            self._gc.park_vow(vow)
+        result = await _await_minted(self, vow, track_gc=False)
+        return _classify_live_ref(self._gc, result, subject)
 
     def set_advertised_locator(self, locator) -> None:
         """Retain a validated clone of this Host's complete location."""
