@@ -132,8 +132,11 @@ export abstract class HostDrive extends HostApplication {
 		if (this._unobserved.size > MAX_UNOBSERVED_OUTCOMES) {
 			// Advance one iterator across consecutive evictions. Restarting from
 			// the beginning scans the deleted prefix of the set on every reply.
-			const oldest = this._oldestUnobserved ??= this._unobserved.values();
-			this.abandonVow(oldest.next().value!);
+			const oldest = this._oldestUnobserved ??= {
+				iterator: this._unobserved.values(),
+				remaining: MAX_UNOBSERVED_OUTCOMES,
+			};
+			this.abandonVow(oldest.iterator.next().value!);
 		}
 		// A replacement also retires the stored, unexposed projection after the
 		// table relinquishes it, before scheduling any cleanup progress.
@@ -142,11 +145,15 @@ export abstract class HostDrive extends HostApplication {
 		}
 	}
 
-	/** Release the iterator when the backlog falls below the eviction threshold.
-	 * An idle Host need not hold a previously full set's backing storage. */
+	/** Keep the cursor across small dips below capacity. Retire it after a
+	 * window of removals or when the backlog drains, so it cannot pin old
+	 * set storage through arbitrary insert/delete churn. */
 	private forgetUnobserved(vow: bigint): void {
-		this._unobserved.delete(vow);
-		if (this._unobserved.size < MAX_UNOBSERVED_OUTCOMES) this._oldestUnobserved = undefined;
+		if (!this._unobserved.delete(vow)) return;
+		const oldest = this._oldestUnobserved;
+		if (oldest && (--oldest.remaining === 0 || this._unobserved.size <= MAX_UNOBSERVED_OUTCOMES / 2)) {
+			this._oldestUnobserved = undefined;
+		}
 	}
 
 	/** Drop completion state after the last public promise wrapper dies. */
