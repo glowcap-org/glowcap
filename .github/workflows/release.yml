@@ -131,6 +131,17 @@ jobs:
       - name: Build the release archives
         run: python3 ci/release_build.py archives "$RELEASE_TARGET"
 
+      - name: Prove harness exit observation on macOS
+        if: runner.os == 'macOS'
+        timeout-minutes: 10
+        env:
+          GLOWCAP_LIB_DIR: ${{ github.workspace }}/zig-out/lib
+          DYLD_LIBRARY_PATH: ${{ github.workspace }}/zig-out/lib
+        run: >-
+          cargo test --locked --manifest-path apps/rooms/rust/Cargo.toml -p rooms-product
+          --features test-support --bin rooms-bot --
+          --exact bot::runner::tests::observing_a_harness_exit_leaves_its_status_for_the_reaper
+
       - name: Build and verify the browser bundle and WebAssembly libraries
         if: matrix.runner == 'ubuntu-24.04'
         run: python3 ci/release_build.py browser-bundle

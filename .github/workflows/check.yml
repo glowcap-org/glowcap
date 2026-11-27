@@ -244,6 +244,11 @@ jobs:
         with:
           deno-version: ${{ steps.pins.outputs.deno }}
 
+      - uses: ./.github/actions/rust
+
+      - name: Check the Rooms bot on macOS
+        run: cargo check --locked --manifest-path apps/rooms/rust/Cargo.toml -p rooms-product --bin rooms-bot
+
       - name: Check host-side infrastructure on macOS
         run: zig build infrastructure-check --test-timeout 30s --summary all
 

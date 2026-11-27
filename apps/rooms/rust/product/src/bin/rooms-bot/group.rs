@@ -22,7 +22,7 @@
 use super::{error::Error, store::Store, words::ENDED_GROUP};
 use nix::{
 	errno::Errno,
-	sys::signal::{Signal, killpg},
+	sys::signal::{SigSet, Signal, killpg},
 	unistd::{Pid, getpgrp},
 };
 use rooms_platform::storage::{self, atomic};
@@ -209,6 +209,31 @@ pub fn forget(record: &Path) -> Result<(), Error> {
 	}
 }
 
+/// The serving bot alone holds the store lease, and runs one turn per
+/// conversation. From this check through recording the child, launch never
+/// yields. Keep a previous group's evidence until startup reconciles it.
+pub fn require_vacant(directory: &Path, name: &str) -> Result<(), Error> {
+	match std::fs::symlink_metadata(directory.join(name)) {
+		Ok(_) => Err(Error::state(
+			"groups",
+			format!("a harness group record remains for {name}; restart the bot to reconcile it"),
+		)),
+		Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+		Err(error) => Err(Error::io("checking the previous harness group record")(error)),
+	}
+}
+
+/// Before spawning, replace any inherited auto-reaping disposition and
+/// let this runtime thread receive child notifications, even when the bot's
+/// parent blocked SIGCHLD. Every runner keeps its own subscription.
+pub fn child_signals() -> std::io::Result<tokio::signal::unix::Signal> {
+	let changes = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::child())?;
+	let mut signals = SigSet::empty();
+	signals.add(Signal::SIGCHLD);
+	signals.thread_unblock()?;
+	Ok(changes)
+}
+
 /// A running harness group and its record. Dropping it ends the group, so a
 /// turn that is abandoned mid-run never leaves its harness behind.
 pub struct Group {
@@ -237,8 +262,51 @@ impl Group {
 		Ok(group)
 	}
 
-	/// Signal the whole group. The record stays until [`Group::end`].
-	pub fn kill(&self) -> Result<(), Error> {
+	/// Observe this child without reaping it, including before a group signal.
+	/// ECHILD means the pid no longer identifies our child. Disarm even the
+	/// drop guard immediately, because the number can be reused.
+	fn leader_exited(&mut self) -> rustix::io::Result<bool> {
+		use rustix::process::{Pid, WaitId, WaitIdOptions, waitid};
+		if !self.live {
+			return Err(rustix::io::Errno::CHILD);
+		}
+		let pid = i32::try_from(self.leader)
+			.ok()
+			.and_then(Pid::from_raw)
+			.ok_or(rustix::io::Errno::INVAL)?;
+		let flags = WaitIdOptions::EXITED | WaitIdOptions::NOHANG | WaitIdOptions::NOWAIT;
+		loop {
+			match waitid(WaitId::Pid(pid), flags) {
+				Err(rustix::io::Errno::INTR) => continue,
+				Err(error) => {
+					if error == rustix::io::Errno::CHILD {
+						self.live = false;
+					}
+					return Err(error);
+				}
+				Ok(status) => return Ok(status.is_some()),
+			}
+		}
+	}
+
+	/// Each SIGCHLD can cover several children. Check this leader before
+	/// waiting and after each notification, including one delivered before
+	/// the caller started waiting.
+	pub async fn exited(&mut self, changes: &mut tokio::signal::unix::Signal) -> std::io::Result<()> {
+		while !self.leader_exited()? {
+			changes
+				.recv()
+				.await
+				.ok_or_else(|| std::io::Error::other("the child signal stream closed"))?;
+		}
+		Ok(())
+	}
+
+	/// Signal the whole group while we still own its leader. The record stays
+	/// until [`Group::end`].
+	pub fn kill(&mut self) -> Result<(), Error> {
+		self.leader_exited()
+			.map_err(|error| Error::io("checking the harness group leader")(error.into()))?;
 		kill(self.leader)
 	}
 
@@ -253,13 +321,11 @@ impl Group {
 
 impl Drop for Group {
 	fn drop(&mut self) {
-		// best-effort: abandoned early, a group that cannot be signalled is
-		// ended by the next start.
-		if self.live {
-			let _ = kill(self.leader);
+		// best-effort: preserve the record for startup reconciliation when
+		// ownership was lost or signalling failed.
+		if self.live && self.kill().is_ok() {
+			let _ = forget(&self.record);
 		}
-		// best-effort: a record that stays is discarded by the next start.
-		let _ = forget(&self.record);
 	}
 }
 

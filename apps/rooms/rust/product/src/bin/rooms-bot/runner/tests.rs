@@ -115,6 +115,102 @@ fn gone(pid: i32) -> bool {
 	false
 }
 
+/// A fresh bot inherits SIGCHLD ignored and blocked. Its own subscription must make
+/// children waitable before spawn, even when Tokio can use pidfds itself.
+#[tokio::test]
+async fn observing_a_harness_exit_leaves_its_status_for_the_reaper() {
+	const ISOLATED: &str = "GLOWCAP_TEST_IGNORED_SIGCHLD";
+	let Some(observed) = std::env::var_os(ISOLATED) else {
+		let scratch = Scratch::create("child-observer-proof");
+		let observed = scratch.join("observed");
+		let test = std::thread::current().name().unwrap().to_owned();
+		let mut isolated = std::process::Command::new("python3");
+		isolated
+			.args([
+				"-c",
+				r#"import os, signal, sys
+signal.signal(signal.SIGCHLD, signal.SIG_IGN)
+signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGCHLD})
+os.execv(sys.argv[1], sys.argv[1:])"#,
+			])
+			.arg(std::env::current_exe().unwrap())
+			.args(["--exact", &test])
+			.env(ISOLATED, &observed);
+		let mut process = rooms_testing::child_process::Process::new(isolated.spawn().unwrap(), "ignored SIGCHLD")
+			.within(Duration::from_secs(15));
+		assert!(process.wait().success());
+		assert!(observed.exists(), "the isolated process must run the ownership check");
+		return;
+	};
+
+	#[cfg(target_os = "linux")]
+	{
+		let mut probe = std::process::Command::new("true").spawn().unwrap();
+		assert_eq!(
+			probe.wait().unwrap_err().raw_os_error(),
+			Some(Errno::ECHILD as i32),
+			"the inherited signal handler should auto-reap before the runner starts"
+		);
+	}
+
+	let dirs = Dirs::new("bot-ignored-sigchld");
+	let store = crate::bot::store::Store::open(&dirs.groups).unwrap();
+	let groups = store.groups().unwrap();
+	let place = Place {
+		groups: &groups,
+		..dirs.place()
+	};
+	let harness = Script("while [ ! -f release ]; do sleep 0.1; done; exit 23");
+	let mut invocation = harness.invocation(&dummy_turn(&dirs.work));
+	let (_keep, mut shutdown) = watch::channel(false);
+	let Launched {
+		mut watched,
+		mut child_signal,
+		..
+	} = launch(&mut invocation, &place, &shutdown).unwrap().unwrap();
+	let group = &mut watched.group;
+	// A sibling's exit wakes our subscription while our own harness is still running.
+	assert!(std::process::Command::new("true").status().unwrap().success());
+	assert!(
+		timeout(Duration::from_millis(50), group.exited(&mut child_signal))
+			.await
+			.is_err()
+	);
+	std::fs::write(dirs.work.join("release"), "").unwrap();
+	timeout(Duration::from_secs(5), group.exited(&mut child_signal))
+		.await
+		.unwrap()
+		.unwrap();
+	timeout(Duration::from_secs(1), group.exited(&mut child_signal))
+		.await
+		.unwrap()
+		.unwrap();
+	group.kill().unwrap();
+	assert_eq!(watched.child.wait().await.unwrap().code(), Some(23));
+	assert_eq!(
+		group.exited(&mut child_signal).await.unwrap_err().raw_os_error(),
+		Some(Errno::ECHILD as i32)
+	);
+	assert!(group.kill().is_err());
+	drop(watched);
+	let record = groups.join(place.record);
+	let retained = std::fs::read(&record).unwrap();
+	let next = Script("echo F:recovered");
+	let mut invocation = next.invocation(&dummy_turn(&dirs.work));
+	let Err(refused) = launch(&mut invocation, &place, &shutdown) else {
+		panic!("another harness started over an unconfirmed group");
+	};
+	assert!(refused.to_string().contains("restart the bot"), "{refused}");
+	assert_eq!(std::fs::read(&record).unwrap(), retained);
+	group::reap_all(&store).unwrap();
+	let ran = run(&next, invocation, &place, Duration::from_secs(5), &mut shutdown)
+		.await
+		.unwrap();
+	assert_eq!(ran.finish, Finish::Answered("recovered".into()));
+	assert!(!record.exists());
+	std::fs::write(observed, "").unwrap();
+}
+
 #[tokio::test]
 async fn a_final_answer_wins_over_a_failing_exit() {
 	let (ran, _dir) = run_script("echo S:abc; echo F:done; exit 1", Duration::from_secs(10)).await;

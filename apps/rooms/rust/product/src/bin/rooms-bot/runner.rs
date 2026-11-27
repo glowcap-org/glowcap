@@ -8,13 +8,9 @@
 use super::{
 	engine::stopping,
 	error::Error,
-	group::Group,
+	group::{self, Group, child_signals},
 	harness::{FailureKind, Harness, Invocation, Prepare, Signal},
 	reply::MAX_PARTS,
-};
-use nix::{
-	sys::wait::{Id, WaitPidFlag, WaitStatus, waitid},
-	unistd::Pid,
 };
 use rooms_application::room::line::MAX_LINE_BYTES as MAX_REPLY_LINE_BYTES;
 use std::{
@@ -26,9 +22,10 @@ use std::{
 use tokio::{
 	io::{AsyncBufRead, AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader},
 	process::{Child, ChildStdout, Command},
+	signal::unix::Signal as ChildSignal,
 	sync::watch,
 	task::JoinHandle,
-	time::{Instant, sleep, sleep_until, timeout},
+	time::{Instant, sleep_until, timeout},
 };
 
 /// Starts the failure for an agent program that did not start.
@@ -294,46 +291,25 @@ fn decide(harness: &dyn Harness, fold: Fold, code: Option<i32>, tail: &str, aske
 	Finish::Failed(FailureKind::Crash, detail)
 }
 
-/// Wait up to `grace` for the leader to exit, without reaping it, so its group
-/// id stays reserved until the group has been signalled. Returns whether it
-/// exited.
-async fn exited(leader: u32, grace: Duration) -> bool {
-	let Ok(raw) = i32::try_from(leader) else {
-		return true;
-	};
-	let until = Instant::now() + grace;
-	loop {
-		let flags = WaitPidFlag::WEXITED | WaitPidFlag::WNOHANG | WaitPidFlag::WNOWAIT;
-		// Any error means there is nothing left to wait for, such as a leader
-		// already reaped.
-		if !matches!(waitid(Id::Pid(Pid::from_raw(raw)), flags), Ok(WaitStatus::StillAlive)) {
-			return true;
-		}
-		if Instant::now() >= until {
-			return false;
-		}
-		sleep(Duration::from_millis(20)).await;
-	}
-}
-
 /// A harness started in its own recorded group, with its stdout and its
 /// stderr tail being read.
 struct Launched {
+	child_signal: ChildSignal,
 	stdout: ChildStdout,
 	watched: Watched,
 }
 
 /// What ends with the invocation: the process, its group, and the stderr tail.
 struct Watched {
-	child: Child,
-	leader: u32,
+	// The group must be signalled before dropping the child can reap it.
 	group: Group,
+	child: Child,
 	tail: JoinHandle<String>,
 }
 
 /// Start the harness, or the finished [`Ran`] that says it could not start or
-/// was never to. The one error is a group that cannot be recorded, and the
-/// harness has not been given its prompt by then.
+/// was never to. A failure to watch or record the group returns an error
+/// before the harness receives its prompt.
 fn launch(
 	invocation: &mut Invocation,
 	place: &Place<'_>,
@@ -353,6 +329,7 @@ fn launch(
 			notes: Vec::new(),
 		}));
 	}
+	group::require_vacant(place.groups, place.record)?;
 	if let Err(reason) = prepare(&invocation.prepare) {
 		return Ok(Err(failed(format!(
 			"could not prepare {}: {reason}",
@@ -366,9 +343,9 @@ fn launch(
 		.current_dir(place.workdir)
 		.stdin(Stdio::piped())
 		.stdout(Stdio::piped())
-		.stderr(Stdio::piped())
-		.kill_on_drop(true);
+		.stderr(Stdio::piped());
 	command.as_std_mut().process_group(0);
+	let child_signal = child_signals().map_err(Error::io("subscribing to harness exits"))?;
 	let mut child = match command.spawn() {
 		Ok(child) => child,
 		Err(error) => {
@@ -381,14 +358,13 @@ fn launch(
 	let Some(leader) = child.id() else {
 		return Ok(Err(failed("the harness exited before it could be watched".into())));
 	};
+	// From here the group is ended when this future ends or is dropped. A
+	// group that cannot be recorded has not been given its prompt by then.
+	let group = Group::record(place.groups, place.record, leader)?;
 	let stdout = child
 		.stdout
 		.take()
 		.ok_or_else(|| Error::Usage("harness stdout was not piped".into()))?;
-	// From here the group is ended when this future ends or is dropped. A
-	// group that cannot be recorded is the one error this function returns,
-	// and the harness has not been given its prompt by then.
-	let group = Group::record(place.groups, place.record, leader)?;
 	let stdin = child.stdin.take();
 	if let (Some(mut stdin), Some(prompt)) = (stdin, invocation.stdin.take()) {
 		tokio::spawn(async move {
@@ -417,13 +393,9 @@ fn launch(
 		String::from_utf8_lossy(&kept).into_owned()
 	});
 	Ok(Ok(Launched {
+		child_signal,
 		stdout,
-		watched: Watched {
-			child,
-			leader,
-			group,
-			tail,
-		},
+		watched: Watched { child, group, tail },
 	}))
 }
 
@@ -434,7 +406,11 @@ pub async fn run(
 	deadline: Duration,
 	shutdown: &mut watch::Receiver<bool>,
 ) -> Result<Ran, Error> {
-	let Launched { stdout, watched } = match launch(&mut invocation, place, shutdown)? {
+	let Launched {
+		stdout,
+		mut child_signal,
+		mut watched,
+	} = match launch(&mut invocation, place, shutdown)? {
 		Ok(launched) => launched,
 		Err(ran) => return Ok(ran),
 	};
@@ -454,34 +430,46 @@ pub async fn run(
 	let mut grace: Option<Instant> = None;
 	// When the leader exited, the output it left may still drain until then.
 	let mut drained: Option<Instant> = None;
-	let leader = watched.leader;
 	let mut read_error = None;
-	let stop = loop {
-		tokio::select! {
-			biased;
-			() = stopping(shutdown) => break Stop::Shutdown,
-			() = sleep_until(ends) => break Stop::Deadline,
-			() = sleep_until(grace.unwrap_or(ends)), if grace.is_some() => break Stop::Answered,
-			() = sleep_until(drained.unwrap_or(ends)), if drained.is_some() && grace.is_none() => break Stop::Exited,
-			exited = exited(leader, deadline), if drained.is_none() => {
-				if exited {
-					drained = Some(Instant::now() + EXIT_GRACE);
-				}
-			}
-			read = lines.next(&mut stdout) => match read {
-				Ok(Some(text)) => {
-					harness.read(&text).into_iter().for_each(|signal| fold.apply(signal));
-					if fold.answer.is_some() && grace.is_none() {
-						grace = Some(Instant::now() + ANSWER_GRACE);
+	let stop = {
+		let mut exit = std::pin::pin!(watched.group.exited(&mut child_signal));
+		let mut observing_exit = true;
+		let stop = loop {
+			tokio::select! {
+				biased;
+				() = stopping(shutdown) => break Stop::Shutdown,
+				() = sleep_until(ends) => break Stop::Deadline,
+				() = sleep_until(grace.unwrap_or(ends)), if grace.is_some() => break Stop::Answered,
+				() = sleep_until(drained.unwrap_or(ends)), if drained.is_some() && grace.is_none() => break Stop::Exited,
+				result = &mut exit, if observing_exit => {
+					observing_exit = false;
+					match result {
+						Ok(()) => drained = Some(Instant::now() + EXIT_GRACE),
+						Err(error) => fold.note(&format!("observing the harness's exit failed: {error}")),
 					}
 				}
-				Ok(None) => break Stop::Eof,
-				Err(error) => {
-					read_error = Some(format!("reading the harness's output failed: {error}"));
-					break Stop::Eof;
-				}
-			},
+				read = lines.next(&mut stdout) => match read {
+					Ok(Some(text)) => {
+						harness.read(&text).into_iter().for_each(|signal| fold.apply(signal));
+						if fold.answer.is_some() && grace.is_none() {
+							grace = Some(Instant::now() + ANSWER_GRACE);
+						}
+					}
+					Ok(None) => break Stop::Eof,
+					Err(error) => {
+						read_error = Some(format!("reading the harness's output failed: {error}"));
+						break Stop::Eof;
+					}
+				},
+			}
+		};
+		if matches!(stop, Stop::Eof)
+			&& observing_exit
+			&& let Ok(Err(error)) = timeout(EXIT_GRACE, exit).await
+		{
+			fold.note(&format!("observing the harness's exit failed: {error}"));
 		}
+		stop
 	};
 	Ok(conclude(
 		harness,
@@ -517,8 +505,7 @@ async fn conclude(
 	let Heardout { long_line, read_error } = heard_out;
 	let Watched {
 		mut child,
-		leader,
-		group,
+		mut group,
 		mut tail,
 	} = watched;
 	if long_line {
@@ -527,25 +514,31 @@ async fn conclude(
 	if let Some(error) = &read_error {
 		fold.note(error);
 	}
-	if matches!(stop, Stop::Eof | Stop::Exited) {
-		exited(leader, EXIT_GRACE).await;
-	}
 	// The group is ended before the leader is reaped, so its id cannot have
 	// been reused by then.
-	if let Err(error) = group.kill() {
-		fold.note(&format!("the harness group could not be ended: {error}"));
-	}
-	let code = match child.wait().await {
-		Ok(status) if matches!(stop, Stop::Eof | Stop::Exited) => status.code(),
-		Ok(_) => None,
+	let code = match group.kill() {
+		Ok(()) => {
+			let code = match child.wait().await {
+				Ok(status) if matches!(stop, Stop::Eof | Stop::Exited) => status.code(),
+				Ok(_) => None,
+				Err(error) => {
+					fold.note(&format!("waiting for the harness failed: {error}"));
+					None
+				}
+			};
+			if let Err(error) = group.end() {
+				fold.note(&format!("the harness group record could not be removed: {error}"));
+			}
+			code
+		}
 		Err(error) => {
-			fold.note(&format!("waiting for the harness failed: {error}"));
+			// The leader may still run if signalling failed. Waiting here
+			// would make even a cancelled turn wait for the harness.
+			fold.note(&format!("the harness group could not be ended: {error}"));
+			drop(group);
 			None
 		}
 	};
-	if let Err(error) = group.end() {
-		fold.note(&format!("the harness group record could not be removed: {error}"));
-	}
 	let tail = match timeout(STDERR_GRACE, &mut tail).await {
 		Ok(Ok(text)) => text,
 		Ok(Err(error)) => {
