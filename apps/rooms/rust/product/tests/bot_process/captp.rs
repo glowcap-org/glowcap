@@ -65,6 +65,27 @@ impl World {
 		}
 	}
 
+	/// A restarted listener serves control calls before its directory has
+	/// registered its name and it can hear a mention in its original room.
+	pub(super) fn restart_in_room(&mut self, fault: &str) {
+		let room = self.fixture.room_id(0);
+		let peer = &mut self.fixture.peers[0];
+		peer.restart_at(Some(fault));
+		eventually("the restarted bot session to register and regain its room seat", || {
+			let status = call(&peer.state, "status", json!({}));
+			let workspace = &status["workspace"];
+			let seated = workspace["conversations"]
+				.as_array()?
+				.iter()
+				.find(|row| row["id"] == room && row["seat"].is_string())?;
+			workspace["directories"]
+				.as_array()?
+				.iter()
+				.any(|row| row["id"] == seated["directory"] && row["assignedNick"] == BOT && row["inbox"].is_string())
+				.then_some(())
+		});
+	}
+
 	pub(super) fn friend(&self) -> &Path {
 		&self.fixture.peers[1].state
 	}

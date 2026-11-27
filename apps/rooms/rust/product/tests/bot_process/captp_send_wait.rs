@@ -14,7 +14,7 @@ const SAY_WAIT: Duration = Duration::from_secs(15);
 #[test]
 fn send_waits_for_a_slow_fill_and_the_files_arrive() {
 	let mut world = World::new("bot-slow-send");
-	world.fixture.peers[0].restart_at(Some("slow-upload-writes"));
+	world.restart_in_room("slow-upload-writes");
 	let bot = world.serve();
 	world.dm("reply:ready");
 	world.await_line("direct", "ready");
@@ -112,7 +112,7 @@ fn record_of_send(prompt: &str) -> &str {
 #[test]
 fn a_bot_stopped_while_a_send_waits_tells_the_rerun_what_it_sent() {
 	let mut world = World::new("bot-stop-send");
-	world.fixture.peers[0].restart_at(Some("slow-upload-writes"));
+	world.restart_in_room("slow-upload-writes");
 	let bot = world.serve();
 	world.dm("reply:ready");
 	world.await_line("direct", "ready");
@@ -143,7 +143,7 @@ fn a_bot_stopped_while_a_send_waits_tells_the_rerun_what_it_sent() {
 #[test]
 fn a_first_turn_killed_during_a_send_tells_the_rerun_without_a_history() {
 	let mut world = World::new("bot-kill-first-send");
-	world.fixture.peers[0].restart_at(Some("slow-upload-writes"));
+	world.restart_in_room("slow-upload-writes");
 	let mut bot = world.serve();
 	// A line sent before the bot reads the head of activity is never asked.
 	world.dm("reply:ready");

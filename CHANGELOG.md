@@ -53,6 +53,8 @@ Releases before 0.1.7 are in the
 
 ### Fixed
 
+- Linux release builds compress the CLI’s debugging information, keeping source-level backtraces available and the Rooms image within its 256 MiB limit.
+
 - The Rooms bot builds on macOS and preserves its agent’s exit status while it ends the agent’s process group. If cleanup cannot be confirmed, restart the bot to reconcile the group before another agent runs in that conversation.
 
 - Rooms receipt tests wait for both peers to establish a direct conversation before posting. The session finishing setup during a post could make release validation fail with a workspace revision conflict.

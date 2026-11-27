@@ -35,6 +35,8 @@ pub fn add(b: *std.Build, in: Inputs) void {
 
     const product = cliModule(b, in, vaxis, options, "cli/main.zig", true, in.relay_tls);
     const exe = b.addExecutable(.{ .name = "glowcap", .root_module = product });
+    // Keep source-level backtraces in the shipped ELF without carrying uncompressed DWARF.
+    if (in.target.result.os.tag == .linux and in.optimize == .safe) exe.compress_debug_sections = .zlib;
     b.installArtifact(exe);
     const run = commands.addInstalledSystemRun(b, .service, &.{"env"});
     run.addFileArg(.{ .relative = .{ .base = .install_prefix, .sub_path = "bin/glowcap" } });
