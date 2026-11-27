@@ -246,23 +246,25 @@ release itself is two commands and two workflows.
    the `Unreleased` entries as the version's changelog section.
    `source-check` and the locked builds refuse a tree where one disagrees.
    Land the bump on `dev` and let promotion move `main`.
-2. Run `tools/release-tag.py <version>` on the host that
-   holds the signing key. It requires that `main` states the version, carries
-   its changelog section, has no such tag on origin, and passed full
-   validation. It signs `v<version>` at that commit or reuses the local tag
-   after a failed push. Before pushing, it verifies the signed name and direct
-   commit target with an SSH signing key registered to the authenticated
-   repository administrator. Use the account's ID-based GitHub address
-   (`ID+USERNAME@users.noreply.github.com`) or grant `gh` access to read its
-   verified email addresses. If you change the tagger email or signing key
-   after a refusal, inspect the local tag with `git show v<version>`. Remove
-   it with `git tag -d v<version>` and rerun the helper to sign it again.
-3. The [release workflow](../.github/workflows/release.yml) verifies that the
-   SSH signature against the tagger's registered signing keys and requires
-   repository administrator access for that account. The signed name must
-   match the pushed tag and the target must be the checked-out commit.
-   It requires that commit's successful validation on `main` and the version's
-   changelog section before it builds.
+2. Run `tools/release-tag.py <version>` on the host with the signing key.
+   The helper requires a validated `main` commit that states the version and
+   carries its changelog section. It signs `v<version>` there if the tag is
+   absent on origin, reusing the local annotation after a failed push.
+
+   Before pushing, the helper verifies the signed name and commit against
+   the authenticated administrator’s GitHub signing keys. Use the account’s
+   ID-based address (`ID+USERNAME@users.noreply.github.com`) or grant `gh`
+   access to read its verified email addresses.
+
+   If verification fails, inspect the local annotation with
+   `git show v<version>`. After correcting the tagger email or signing key,
+   remove the local tag with `git tag -d v<version>` and rerun the helper.
+3. The [release workflow](../.github/workflows/release.yml) verifies the SSH
+   signature against the tagger’s registered signing keys and checks that the
+   account administers the repository. The signed name must match the pushed
+   tag and point directly to the checked-out commit. Before building, the
+   workflow verifies that commit passed validation on `main` and contains the
+   version’s changelog section.
 
    Each host attests the build provenance of its archives, and each Linux
    host proves the Rooms image from its
