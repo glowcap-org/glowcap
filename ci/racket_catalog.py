@@ -10,7 +10,8 @@ entry's source to that archive through the catalog's own API (the call its
 website makes when a person saves the edit form), then waits until the public
 catalog has read the archive and states its checksum. An entry that already
 names the release is left alone, so a rerun finishes an interrupted
-publication. An unknown package is created; a known one is modified.
+publication. A newer release already in the catalog refuses a downgrade.
+An unknown package is created; a known one is modified.
 
 Inputs: GITHUB_REPOSITORY (owner/name), and RACKET_CATALOG_EMAIL and
 RACKET_CATALOG_PASSWORD, the catalog account that owns the entry, which the
@@ -185,6 +186,12 @@ def publish(slug, tag, email, password, root=ROOT, clock=time.monotonic, sleep=t
     if states(found, source, checksum):
         print(f"racket-catalog: {PACKAGE} already names {source}")
         return
+    previous_source = (found or {}).get("source", "")
+    parts = previous_source.rsplit("/", 2)
+    if len(parts) == 3 and previous_source == package_source(slug, parts[1]):
+        previous_version = release_version.of_tag(parts[1])
+        if previous_version and tuple(map(int, previous_version.split("."))) > tuple(map(int, tag[1:].split("."))):
+            raise Refused(f"the catalog already serves newer release {parts[1]}; refusing to replace it with {tag}")
     description, tags = metadata(root)
     save(found, source, description, tags, email, password)
     print(f"racket-catalog: {'created' if found is None else 'updated'} {PACKAGE} with source {source}", flush=True)

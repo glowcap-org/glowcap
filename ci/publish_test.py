@@ -55,6 +55,10 @@ class PublishWorkflow(unittest.TestCase):
     def test_the_racket_job_edits_the_catalog_with_its_environment_secrets_then_installs(self):
         job = jobs(PUBLISH)["racket"]
         self.assertNotIn("id-token", json.dumps(job))
+        self.assertEqual(job["concurrency"], {"group": "publish-racket-catalog", "cancel-in-progress": False})
+        newest = step(job, "Read the newest public release for the catalog")
+        self.assertEqual(newest["run"], "python3 ci/github_release.py version --newest")
+        self.assertEqual(newest["id"], "newest")
         publish = step(job, "Point the catalog at the release's binding archive")
         self.assertEqual(publish["run"], 'python3 ci/racket_catalog.py publish "$RELEASE_TAG"')
         self.assertEqual(
@@ -66,7 +70,11 @@ class PublishWorkflow(unittest.TestCase):
             },
         )
         names = [item.get("name") for item in job["steps"]]
-        self.assertLess(names.index(publish["name"]), names.index("Install the published version in a fresh consumer"))
+        install = step(job, "Install the published version in a fresh consumer")
+        self.assertLess(names.index(newest["name"]), names.index(publish["name"]))
+        self.assertLess(names.index(publish["name"]), names.index(install["name"]))
+        self.assertEqual(publish["if"], "steps.newest.outputs.version == needs.contract.outputs.version")
+        self.assertEqual(install["if"], publish["if"])
         self.assertEqual(
             run(job, "Install the published version in a fresh consumer"),
             'python3 tools/check/binding_packages.py --registry "$VERSION" racket',

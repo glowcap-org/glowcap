@@ -280,6 +280,12 @@ tag, because every registry step skips a version its registry already holds:
 gh workflow run publish.yml --ref v0.1.1 -f tag=v0.1.1
 ```
 
+The Racket catalog has one entry across releases. The publisher serializes
+catalog jobs and checks the newest public release once each job starts. An
+older run skips the catalog update and catalog install. For a rerun from a
+tag that predates this guard, decline its Racket environment approval if a
+newer release is public.
+
 To rehearse the archive builds and Linux image proofs before choosing a version,
 run `gh workflow run release.yml --ref dev`. Changes can stay under
 `Unreleased`. Use the current `dev` branch for this command. GitHub runs the

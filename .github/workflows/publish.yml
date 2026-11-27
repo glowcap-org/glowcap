@@ -181,6 +181,11 @@ jobs:
         run: python3 tools/check/binding_packages.py --registry "$VERSION" typescript
 
   racket:
+    # All versions share one mutable catalog entry. Hold it through the
+    # consumer install, and re-read the newest release after acquiring it.
+    concurrency:
+      group: publish-racket-catalog
+      cancel-in-progress: false
     needs: contract
     # ci/racket_catalog.py waits up to an hour for the catalog's hourly sweep
     # to release the update lock and the public pages to follow; the consumer
@@ -209,7 +214,14 @@ jobs:
           variant: CS
           distribution: minimal
 
+      - name: Read the newest public release for the catalog
+        id: newest
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 ci/github_release.py version --newest
+
       - name: Point the catalog at the release's binding archive
+        if: steps.newest.outputs.version == needs.contract.outputs.version
         # The entry names one archive, so a rerun that finds the release's
         # archive already there writes nothing.
         env:
@@ -219,6 +231,7 @@ jobs:
         run: python3 ci/racket_catalog.py publish "$RELEASE_TAG"
 
       - name: Install the published version in a fresh consumer
+        if: steps.newest.outputs.version == needs.contract.outputs.version
         env:
           VERSION: ${{ needs.contract.outputs.version }}
         run: python3 tools/check/binding_packages.py --registry "$VERSION" racket
