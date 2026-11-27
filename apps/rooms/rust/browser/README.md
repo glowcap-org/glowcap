@@ -27,8 +27,9 @@ application reports and submits reader actions through these handles.
 
 Pass the workspace ID and a required boolean before the trouble callback. Use
 `true` to require an existing committed workspace. With `false`, the constructor
-opens the supplied ID and may create it if missing. Use a fresh ID for a separate workspace. The
-optional fourth argument is a JSON string containing
+opens the supplied ID and may create it if missing. Use a fresh ID for a separate workspace.
+
+The optional fourth argument is a JSON string containing
 an object of string values for the four admission settings in the
 [admission guide](../../../../docs/rooms/admission.md). It validates policy before
 opening the application. For example, `JSON.stringify({"admission-rates":"message=20/80"})`
