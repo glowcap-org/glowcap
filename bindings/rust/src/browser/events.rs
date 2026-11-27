@@ -1,13 +1,9 @@
 use super::{Shared, Socket};
-use crate::abi_constants::TRANSPORT_WEBRTC_MAX_PACKET_BYTES;
+use crate::abi_constants::{BINDING_BROWSER_CHANNEL_MAX_QUEUED_MESSAGES, TRANSPORT_WEBRTC_MAX_PACKET_BYTES};
 use js_sys::{ArrayBuffer, Uint8Array};
 use std::{io, rc::Rc};
 use wasm_bindgen::{JsCast, closure::Closure};
 use web_sys::{CloseEvent, Event, MessageEvent};
-
-// Bytes alone do not bound empty messages or queue-node overhead. A stalled
-// consumer may retain at most this many event payloads on either browser API.
-const MAX_QUEUED_MESSAGES: usize = 256;
 
 pub(super) struct Events {
 	message: Closure<dyn FnMut(Event)>,
@@ -42,7 +38,9 @@ impl Events {
 				return;
 			}
 			let mut state = shared.state.borrow_mut();
-			if state.queue.len() >= MAX_QUEUED_MESSAGES || length > shared.inbound_limit() - state.queued_bytes {
+			if state.queue.len() >= BINDING_BROWSER_CHANNEL_MAX_QUEUED_MESSAGES
+				|| length > shared.inbound_limit() - state.queued_bytes
+			{
 				drop(state);
 				shared.fail(io::ErrorKind::OutOfMemory, "browser channel inbound queue exceeded");
 				return;

@@ -327,6 +327,7 @@ const constants = [_]Const{
     policy("BINDING_WEBSOCKET_CLOSE_TIMEOUT_MS", binding_policy.websocket_close_timeout_ms.value, .usize),
     policy("BINDING_BROWSER_CHANNEL_CLOSE_TIMEOUT_MS", binding_policy.browser_channel_close_timeout_ms.value, .usize),
     policy("BINDING_WEBSOCKET_INBOUND_HIGH_WATER_BYTES", binding_policy.websocket_inbound_high_water_bytes.value, .usize),
+    policy("BINDING_BROWSER_CHANNEL_MAX_QUEUED_MESSAGES", binding_policy.browser_channel_max_queued_messages.value, .usize),
 };
 
 comptime {

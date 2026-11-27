@@ -1,3 +1,4 @@
+import { BINDING_BROWSER_CHANNEL_MAX_QUEUED_MESSAGES as queueLimit } from "@glowcap/abi";
 import { takeRuntimeFailures } from "../context.ts";
 import { secondaryFailures } from "../errors.ts";
 import { openWebSocketChannel, webSocketChannel } from "../websocket.ts";
@@ -53,6 +54,9 @@ class FakeWebSocket {
 	}
 
 	close(code?: number, reason?: string): void {
+		if (code !== undefined && code !== 1000 && (code < 3000 || code > 4999)) {
+			throw new DOMException("invalid application close code", "InvalidAccessError");
+		}
 		this.closeCalls++;
 		this.closeCode = code;
 		this.closeReason = reason;
@@ -90,7 +94,7 @@ Deno.test("webSocketChannel bounds unpausable browser inbound queue", async () =
 		await channel.read();
 	} catch (err) {
 		assertIncludes(String(err), "WebSocket inbound queue exceeded");
-		assertEquals(ws.closeCode, 1009);
+		assertEquals(ws.closeCode, 4009);
 		assertEquals(ws.closeReason, "inbound queue exceeded");
 		return;
 	}
@@ -109,6 +113,32 @@ Deno.test("webSocketChannel debits inbound queue after each read", async () => {
 	const second = await channel.read();
 	assertEquals(second?.byteLength, 5);
 	assertEquals(ws.closeCode, undefined);
+});
+
+Deno.test("webSocketChannel releases message capacity as a reader drains the queue", async () => {
+	const ws = new FakeWebSocket();
+	const channel = webSocketChannel(ws as unknown as WebSocket);
+	for (let i = 0; i < queueLimit; i++) ws.message(1);
+	assertEquals((await channel.read())?.byteLength, 1);
+	ws.message(0);
+	for (let i = 1; i < queueLimit; i++) await channel.read();
+	assertEquals((await channel.read())?.byteLength, 0);
+	assertEquals(ws.closeCalls, 0);
+	for (let i = 0; i <= queueLimit; i++) ws.message(1);
+	assertEquals(ws.closeCode, 4009);
+	await channel.close();
+});
+
+Deno.test("webSocketChannel releases write slots after delivery", async () => {
+	const ws = new FakeWebSocket();
+	const channel = webSocketChannel(ws as unknown as WebSocket);
+	const packet = new Uint8Array([1]);
+	const writes = Array.from({ length: queueLimit }, () => channel.write(packet));
+	const extra = await Promise.allSettled([channel.write(packet)]);
+	assertEquals(extra[0].status, "rejected");
+	await Promise.all(writes);
+	await channel.write(packet);
+	assertEquals(ws.sendCount, queueLimit + 1);
 });
 
 Deno.test("webSocketChannel does not confuse coalesced transport chunks with CapTP frames", async () => {
@@ -130,7 +160,7 @@ Deno.test("webSocketChannel rejects text instead of reinterpreting it as CapTP b
 		await channel.read();
 	} catch (err) {
 		assertIncludes(String(err), "text messages are not CapTP bytes");
-		assertEquals(ws.closeCode, 1003);
+		assertEquals(ws.closeCode, 4003);
 		assertEquals(ws.closeReason, "binary messages required");
 		return;
 	}
@@ -202,13 +232,13 @@ Deno.test("webSocketChannel does not read the echo of its own Close as the peer'
 	const ws = new FakeWebSocket();
 	ws.autoClose = false;
 	const channel = webSocketChannel(ws as unknown as WebSocket);
-	const closed = channel.close(1001, "relay stopped");
-	ws.finishClose(true, 1001, "relay stopped");
+	const closed = channel.close(4001, "relay stopped");
+	ws.finishClose(true, 4001, "relay stopped");
 	await closed;
 	const answered = new FakeWebSocket();
 	answered.autoClose = false;
 	const answering = webSocketChannel(answered as unknown as WebSocket);
-	const closing = answering.close(1001, "relay stopped");
+	const closing = answering.close(4001, "relay stopped");
 	answered.finishClose(true, 1011, "rendezvous peer is not registered");
 	let failure = "";
 	await closing.catch((error) => failure = String(error));

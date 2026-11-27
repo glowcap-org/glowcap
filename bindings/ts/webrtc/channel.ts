@@ -8,14 +8,17 @@
  */
 
 import type { Channel } from "@glowcap/runtime";
-import { TRANSPORT_WEBRTC_MAX_PACKET_BYTES, WEBRTC_DATA_CHANNEL_QUEUE_BYTES } from "@glowcap/abi";
+import {
+	BINDING_BROWSER_CHANNEL_MAX_QUEUED_MESSAGES,
+	TRANSPORT_WEBRTC_MAX_PACKET_BYTES,
+	WEBRTC_DATA_CHANNEL_QUEUE_BYTES,
+} from "@glowcap/abi";
 
 // An RTCDataChannel exposes `bufferedAmount` and a `bufferedamountlow` event, so
 // `write` gates outbound flow without timer polling: hold the next write until
 // the send buffer drains below the high-water, so a fast producer is
 // backpressured rather than growing memory. SCTP's own flow control backs this.
 const rtcSendHighWaterBytes = WEBRTC_DATA_CHANNEL_QUEUE_BYTES;
-const rtcReceiveMaxMessages = 256;
 const rtcReceiveMaxQueuedBytes = WEBRTC_DATA_CHANNEL_QUEUE_BYTES;
 
 function waitForDrain(dc: RTCDataChannel): Promise<void> {
@@ -71,6 +74,7 @@ export function rtcChannel(dc: RTCDataChannel, release: () => void = () => {}): 
 	let pending: PendingRead | null = null;
 	let writing: Promise<void> = Promise.resolve();
 	let pendingWriteBytes = 0;
+	let pendingWrites = 0;
 	let closed = false;
 	let failure: unknown = null;
 
@@ -101,7 +105,7 @@ export function rtcChannel(dc: RTCDataChannel, release: () => void = () => {}): 
 			return;
 		}
 		if (
-			queue.length >= rtcReceiveMaxMessages ||
+			queue.length >= BINDING_BROWSER_CHANNEL_MAX_QUEUED_MESSAGES ||
 			queuedBytes + packet.byteLength > rtcReceiveMaxQueuedBytes
 		) {
 			fail(new Error("webrtc: inbound packet queue overflow"));
@@ -137,15 +141,20 @@ export function rtcChannel(dc: RTCDataChannel, release: () => void = () => {}): 
 			if (data.byteLength > TRANSPORT_WEBRTC_MAX_PACKET_BYTES) {
 				throw new Error("webrtc: packet exceeds transport cap");
 			}
-			if (pendingWriteBytes + data.byteLength > rtcSendHighWaterBytes) {
+			if (
+				pendingWrites >= BINDING_BROWSER_CHANNEL_MAX_QUEUED_MESSAGES ||
+				pendingWriteBytes + data.byteLength > rtcSendHighWaterBytes
+			) {
 				throw new Error("webrtc: outbound queue exceeded");
 			}
+			pendingWrites++;
 			pendingWriteBytes += data.byteLength;
 			const current = writing.then(async () => {
 				if (dc.readyState !== "open") throw new Error("webrtc: data channel closed");
 				dc.send(data as Uint8Array<ArrayBuffer>);
 				await waitForDrain(dc);
 			}).finally(() => {
+				pendingWrites--;
 				pendingWriteBytes -= data.byteLength;
 			});
 			writing = current;

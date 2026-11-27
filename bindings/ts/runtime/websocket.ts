@@ -13,6 +13,7 @@ import { recordProcessBindingFailure } from "./context.ts";
 import { retainSecondaryFailure } from "./errors.ts";
 import { cancellationError } from "./internal/cancellation.ts";
 import {
+	BINDING_BROWSER_CHANNEL_MAX_QUEUED_MESSAGES,
 	BINDING_WEBSOCKET_CLOSE_TIMEOUT_MS,
 	BINDING_WEBSOCKET_DRAIN_POLL_MS,
 	BINDING_WEBSOCKET_INBOUND_HIGH_WATER_BYTES,
@@ -35,7 +36,7 @@ const defaultWsInboundHighWaterBytes = BINDING_WEBSOCKET_INBOUND_HIGH_WATER_BYTE
  * long a close waits. */
 export interface WebSocketChannelOptions {
 	/** Maximum bytes retained while the consumer is behind. Browser WebSockets
-	 * cannot be paused, so overflow closes with 1009. This is a transport-message
+	 * cannot be paused, so overflow closes with application code 4009. This is a transport-message
 	 * budget, independent from the CapTP frame cap. */
 	inboundHighWaterBytes?: number;
 	/** Maximum time to wait for the browser's close event after requesting a
@@ -151,7 +152,7 @@ function peerCause(event: CloseEvent): Error | null {
  * socket's send buffer is at or below the high-water, so a fast producer is
  * backpressured rather than growing tab memory unbounded. Since browser
  * WebSockets cannot be paused, inbound messages are admitted only while this
- * adapter's own byte budget has room. */
+ * adapter's message and byte budgets have room. */
 export function webSocketChannel(
 	ws: WebSocket,
 	options?: WebSocketChannelOptions,
@@ -226,23 +227,25 @@ export function webSocketChannel(
 	// uses the same one-producer-may-cross waterline as the browser send buffer.
 	let writing: Promise<void> = Promise.resolve();
 	let pendingWriteBytes = 0;
+	let pendingWrites = 0;
 	const reader = new ReadableStream<Uint8Array>({
 		start(controller) {
 			ws.onmessage = (event: MessageEvent) => {
 				try {
+					if (closeRequested) return;
 					if (!(event.data instanceof ArrayBuffer)) {
 						controller.error(new Error("WebSocket text messages are not CapTP bytes"));
-						void requestClose(1003, "binary messages required");
+						void requestClose(4003, "binary messages required");
 						return;
 					}
 					const chunk = new Uint8Array(event.data);
-					if (queuedBytes + chunk.byteLength > inboundLimit) {
+					if (controller.desiredSize === 0 || queuedBytes + chunk.byteLength > inboundLimit) {
 						controller.error(new Error("WebSocket inbound queue exceeded"));
-						void requestClose(1009, "inbound queue exceeded");
+						void requestClose(4009, "inbound queue exceeded");
 						return;
 					}
-					queuedBytes += chunk.byteLength;
 					controller.enqueue(chunk);
+					queuedBytes += chunk.byteLength;
 				} catch { /* stream already closed */ }
 			};
 			ws.onclose = (event: CloseEvent) => {
@@ -274,7 +277,10 @@ export function webSocketChannel(
 				} catch { /* already closed */ }
 			}
 		},
-	}).getReader();
+		cancel() {
+			ws.onmessage = null;
+		},
+	}, { highWaterMark: BINDING_BROWSER_CHANNEL_MAX_QUEUED_MESSAGES }).getReader();
 	return {
 		async read(): Promise<Uint8Array | null> {
 			// A clean close arrives as `done` via `controller.close()` (onclose); a
@@ -293,9 +299,13 @@ export function webSocketChannel(
 			// Session pump serializes writes and never reaches this refusal; it
 			// protects direct concurrent Channel callers from building an
 			// unbounded closure-and-buffer backlog.
-			if (pendingWriteBytes >= wsSendHighWaterBytes) {
+			if (
+				pendingWrites >= BINDING_BROWSER_CHANNEL_MAX_QUEUED_MESSAGES ||
+				pendingWriteBytes >= wsSendHighWaterBytes
+			) {
 				return Promise.reject(new Error("WebSocket outbound queue exceeded"));
 			}
+			pendingWrites++;
 			pendingWriteBytes += data.byteLength;
 			const current = writing.then(async () => {
 				if (ws.readyState === WebSocket.CONNECTING) await waitForOpen(ws);
@@ -311,6 +321,7 @@ export function webSocketChannel(
 					await waitForBufferedLow(ws);
 				}
 			}).finally(() => {
+				pendingWrites--;
 				pendingWriteBytes -= data.byteLength;
 			});
 			writing = current;

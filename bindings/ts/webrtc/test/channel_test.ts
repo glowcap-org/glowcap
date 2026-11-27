@@ -1,7 +1,11 @@
 /// <reference lib="dom" />
 
 import { rtcChannel } from "../channel.ts";
-import { TRANSPORT_WEBRTC_MAX_PACKET_BYTES, WEBRTC_DATA_CHANNEL_QUEUE_BYTES } from "@glowcap/abi";
+import {
+	BINDING_BROWSER_CHANNEL_MAX_QUEUED_MESSAGES as queueLimit,
+	TRANSPORT_WEBRTC_MAX_PACKET_BYTES,
+	WEBRTC_DATA_CHANNEL_QUEUE_BYTES,
+} from "@glowcap/abi";
 import { assertDeepEquals } from "../../test/assert.ts";
 
 class FakeDataChannel extends EventTarget {
@@ -67,6 +71,18 @@ Deno.test("rtcChannel bounds concurrent outbound writes", async () => {
 	if (!String(error).includes("outbound queue exceeded")) throw error;
 	dc.drain();
 	await Promise.all(queued);
+});
+
+Deno.test("rtcChannel releases write slots after delivery", async () => {
+	const dc = new FakeDataChannel();
+	const channel = rtcChannel(dc as unknown as RTCDataChannel);
+	const packet = new Uint8Array([1]);
+	const writes = Array.from({ length: queueLimit }, () => channel.write(packet));
+	const error = await rejectionOf(channel.write(packet));
+	if (!String(error).includes("outbound queue exceeded")) throw error;
+	await Promise.all(writes);
+	await channel.write(packet);
+	assertDeepEquals(dc.sent.length, queueLimit + 1);
 });
 
 Deno.test("rtcChannel rejects outbound packets over the WebRTC transport cap", async () => {

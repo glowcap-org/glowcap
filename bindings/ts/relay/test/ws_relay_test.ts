@@ -223,7 +223,7 @@ Deno.test("relay webSocketChannel bounds early inbound queue", async () => {
 		await channel.read();
 	} catch (err) {
 		assertIncludes(String(err), "WebSocket inbound queue exceeded");
-		assertEquals(ws.closeCode, 1009);
+		assertEquals(ws.closeCode, 4009);
 		assertEquals(ws.closeReason, "inbound queue exceeded");
 		return;
 	}
@@ -255,7 +255,7 @@ Deno.test("relay webSocketChannel accepts binary and rejects text", async () => 
 		await channel.read();
 	} catch (err) {
 		assertIncludes(String(err), "text messages are not CapTP bytes");
-		assertEquals(ws.closeCode, 1003);
+		assertEquals(ws.closeCode, 4003);
 		return;
 	}
 	throw new Error("expected text WebSocket messages to be rejected");
