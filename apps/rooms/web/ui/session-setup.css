@@ -117,8 +117,7 @@
 .session-setup-server > .button[data-variant="link"] {
 	font-size: inherit;
 }
-/* Saved data this version can't read: what happened, then the act that asks
-   to delete it, standing above the disclosure whose confirm that act opens. */
+/* Keep the separate workspace action next to the reason this one cannot open. */
 .session-setup-unreadable {
 	justify-self: center;
 	display: grid;

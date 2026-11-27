@@ -45,8 +45,12 @@ export function tabIdentity(storage: PageStorage = sessionArea): string {
 
 // The previous release already recorded these choices. They are an index
 // into IndexedDB, where the session identity and its access actually live.
+export function pinnedWorkspace(): string | null {
+	return sessionArea.read(TAB);
+}
+
 export function workspaceChosen(): boolean {
-	const id = sessionArea.read(TAB);
+	const id = pinnedWorkspace();
 	return id !== null && localArea.read(PREFIX + id) === "yes";
 }
 

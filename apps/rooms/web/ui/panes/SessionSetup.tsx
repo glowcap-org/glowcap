@@ -12,9 +12,10 @@
 // under its own field, and anything else stands under the card. Saved data
 // this version can't read refuses every act that opens it (`opensSaved`), so
 // each of those is shut and described by a notice under the card, which says
-// so and asks for the same deletion the advanced disclosure confirms.
+// so and offers a separate workspace.
 
 import { type ReactNode, useRef, useState } from "react";
+import { chooseWorkspace } from "../workspace_choice.ts";
 import { reloadNow } from "../boot.ts";
 import { useOpenModal } from "../modal.ts";
 import { withSessionOffer } from "../session_offer.ts";
@@ -29,6 +30,7 @@ import { ErrorDetail } from "./ErrorDetail.tsx";
 import { actionRefusal, sessionCapabilityRefusal } from "../error_text.ts";
 import { linkNeedsServer } from "../application.ts";
 import {
+	separateWorkspace,
 	sessionAdvanced,
 	sessionChangeLabel,
 	sessionConfirmKeep,
@@ -76,11 +78,6 @@ export function SessionSetup(
 	const [error, setError] = useState(initialError);
 	const [confirmAction, setConfirmAction] = useState<SavedDataAct | null>(null);
 	const [advancedOpen, setAdvancedOpen] = useState(false);
-	// Every ask opens the disclosure that holds its confirmation.
-	const ask = (act: SavedDataAct) => {
-		setAdvancedOpen(true);
-		setConfirmAction(act);
-	};
 	const running = useRef<SetupAct | null>(null);
 	// The server the opening session takes: the kept choice at load, and the
 	// one saved here after.
@@ -191,6 +188,15 @@ export function SessionSetup(
 					<h1>{sessionSetupTitle}</h1>
 					<p>{sessionSetupLead}</p>
 				</div>
+				{unreadable && (
+					<SessionUnreadable
+						busy={busy != null}
+						onSeparate={() => {
+							const refused = chooseWorkspace(null);
+							if (refused) setError(refusalText(refused));
+						}}
+					/>
+				)}
 				<div className="session-setup-choices">
 					{renderSavedWorkspaces?.(busy != null)}
 					<section className="launch session-setup-choice" aria-labelledby="localSessionTitle">
@@ -298,14 +304,14 @@ export function SessionSetup(
 					onSaved={serverSaved}
 				/>
 				{error !== "" && <Said kind="failure">{error}</Said>}
-				{unreadable && <SessionUnreadable busy={busy != null} onAsk={ask} />}
+
 				<SetupAdvanced
 					open={advancedOpen}
 					asking={confirmAction}
 					busy={busy}
 					unreadable={unreadable}
 					onToggle={setAdvancedOpen}
-					onAsk={ask}
+					onAsk={setConfirmAction}
 					onKeep={() => setConfirmAction(null)}
 					onCommit={(act) => void (act === "reset" ? forgetWorkspace() : deleteBrowserData())}
 				/>
@@ -334,20 +340,20 @@ const shutBy = (unreadable: boolean, act: SetupAct): string | undefined =>
 	shut(unreadable, act) ? "sessionUnreadableSay" : undefined;
 
 /** What setup says while this browser's saved session can't be read, over the
- * act that asks to delete this browser's data. */
-export function SessionUnreadable({ busy, onAsk }: { busy: boolean; onAsk: (act: SavedDataAct) => void }) {
+ * option to open a separate workspace. */
+export function SessionUnreadable({ busy, onSeparate }: { busy: boolean; onSeparate: () => void }) {
 	return (
 		<div className="session-setup-unreadable">
 			<p id="sessionUnreadableSay">{sessionUnreadableSay}</p>
 			<div className="actions">
 				<Button
-					id="sessionUnreadableDelete"
+					id="sessionUnreadableSeparate"
 					variant="quiet"
 					disabled={busy}
 					aria-describedby="sessionUnreadableSay"
-					onClick={() => onAsk("delete")}
+					onClick={onSeparate}
 				>
-					{sessionDeleteAsk}
+					{separateWorkspace}
 				</Button>
 			</div>
 		</div>

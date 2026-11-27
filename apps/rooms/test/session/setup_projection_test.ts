@@ -3,7 +3,7 @@
 // must wrap it. Omitting the provider crashes first paint and detach. The
 // projection also says when this browser's saved session can't be read, and
 // setup then shuts every act that opens it, each described by a notice that
-// offers the deletion its advanced disclosure confirms.
+// offers a separate workspace and preserves the original.
 
 /// <reference lib="dom" />
 
@@ -15,7 +15,7 @@ import { browserFailure } from "../support/browser_failure.ts";
 import { SESSION_STATE_UNREADABLE, SESSION_UNREACHABLE } from "../../lib/error_codes.ts";
 import { LocalRefusal } from "../../lib/text/failure.ts";
 import {
-	sessionDeleteAsk,
+	separateWorkspace,
 	sessionDeleteCommit,
 	sessionDeleteSay,
 	sessionResetSay,
@@ -60,7 +60,7 @@ Deno.test("session setup refuses to render without the page projection", () => {
 	throw new Error("session setup rendered without the page projection");
 });
 
-/** Whether setup offers deletion after opening this browser's saved session
+/** Whether setup offers a separate workspace after opening this browser's saved session
  * failed with `error`. Setup draws its notice from this fact, and a static
  * render reads a store's first state, so the fact is read from the page. */
 function offeredAfter(error: unknown): boolean {
@@ -102,18 +102,18 @@ function withDocument<T>(draw: () => T): T {
 	}
 }
 
-Deno.test("saved data this version can't read offers to delete this browser's data", () => {
+Deno.test("unreadable saved data offers a separate workspace", () => {
 	if (!offeredAfter(browserFailure(-12, "unreadable", SESSION_STATE_UNREADABLE))) {
-		throw new Error("setup offered no deletion for saved data it can't read");
+		throw new Error("setup offered no separate workspace for saved data it can't read");
 	}
-	const html = renderToStaticMarkup(createElement(SessionUnreadable, { busy: false, onAsk() {} }));
+	const html = renderToStaticMarkup(createElement(SessionUnreadable, { busy: false, onSeparate() {} }));
 	const say = renderToStaticMarkup(createElement("p", { id: "sessionUnreadableSay" }, sessionUnreadableSay));
 	if (!html.includes(say)) throw new Error("the notice does not say what happened");
-	if (!/<button[^>]* id="sessionUnreadableDelete"[^>]* aria-describedby="sessionUnreadableSay"/.test(html)) {
-		throw new Error("the deletion is not described by what happened");
+	if (!/<button[^>]* id="sessionUnreadableSeparate"[^>]* aria-describedby="sessionUnreadableSay"/.test(html)) {
+		throw new Error("the workspace choice is not described by what happened");
 	}
-	if (!html.includes(`>${sessionDeleteAsk}</button>`)) {
-		throw new Error("the deletion is not the advanced act's own label");
+	if (!html.includes(`>${separateWorkspace}</button>`)) {
+		throw new Error("the notice does not name the separate workspace");
 	}
 });
 
@@ -192,7 +192,7 @@ Deno.test("a confirmation to forget rooms and settings asked before saved data p
 	if (!/\sdisabled=""/.test(reset)) throw new Error("the reset stayed open");
 });
 
-Deno.test("any other failure to open offers no deletion", () => {
+Deno.test("other open failures do not show the unreadable notice", () => {
 	for (
 		const error of [
 			browserFailure(-12, "unreachable", SESSION_UNREACHABLE),
@@ -200,18 +200,12 @@ Deno.test("any other failure to open offers no deletion", () => {
 			new Error("the session's saved data is in a form this version of Rooms can't read"),
 		]
 	) {
-		if (offeredAfter(error)) throw new Error(`setup offered a deletion for ${String(error)}`);
+		if (offeredAfter(error)) throw new Error(`setup showed the unreadable notice for ${String(error)}`);
 	}
 });
 
-Deno.test("pressing the offered deletion opens the advanced disclosure's own confirmation", () => {
+Deno.test("deleting all browser data still requires the advanced disclosure's confirmation", () => {
 	const asked: string[] = [];
-	const press = pressOf(
-		SessionUnreadable({ busy: false, onAsk: (act) => asked.push(act) }),
-		"sessionUnreadableDelete",
-	);
-	if (press == null) throw new Error("the notice drew no deletion");
-	press();
 	const closed = SetupAdvanced({
 		open: false,
 		asking: null,
@@ -223,9 +217,6 @@ Deno.test("pressing the offered deletion opens the advanced disclosure's own con
 		onCommit() {},
 	});
 	pressOf(closed, "sessionDeleteAsk")?.();
-	if (asked.length !== 2 || asked[0] !== asked[1]) {
-		throw new Error(`the notice asked ${asked[0]}, the disclosure's own act asked ${asked[1]}`);
-	}
 	const act = asked[0];
 	if (act !== "delete") throw new Error(`the notice asked ${act}`);
 	const html = withDocument(() =>

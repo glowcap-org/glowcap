@@ -5,14 +5,14 @@ import { refusalText } from "../../../lib/text/failure.ts";
 import {
 	resumeWorkspace,
 	savedWorkspaceHint,
-	savedWorkspaceOption,
+	savedWorkspaceOptions,
 	savedWorkspacesHint,
 	savedWorkspaceTitle,
 	separateWorkspace,
 } from "../../../lib/text/session.ts";
 import { Button } from "../Button.tsx";
 import { Icon } from "../icons.tsx";
-import { chooseWorkspace, lastWorkspace } from "../workspace_choice.ts";
+import { chooseWorkspace, lastWorkspace, pinnedWorkspace } from "../workspace_choice.ts";
 
 export function SavedWorkspaces({ choices, initialError, disabled }: {
 	choices: readonly string[];
@@ -20,9 +20,11 @@ export function SavedWorkspaces({ choices, initialError, disabled }: {
 	disabled: boolean;
 }) {
 	const [error, setError] = useState(initialError);
-	const last = lastWorkspace();
-	const recentFirst = last && choices.includes(last) ? [last, ...choices.filter((id) => id !== last)] : choices;
-	const [selected, setSelected] = useState(recentFirst[0]);
+	const options = savedWorkspaceOptions(choices, lastWorkspace());
+	const [selected, setSelected] = useState(() => {
+		const pin = pinnedWorkspace();
+		return pin && choices.includes(pin) ? pin : options[0]?.id;
+	});
 	const choose = (id: string | null) => {
 		const refused = chooseWorkspace(id);
 		if (refused) setError(refusalText(refused));
@@ -47,9 +49,7 @@ export function SavedWorkspaces({ choices, initialError, disabled }: {
 						disabled={disabled}
 						onChange={(event) => setSelected(event.currentTarget.value)}
 					>
-						{recentFirst.map((id) => (
-							<option key={id} value={id}>{savedWorkspaceOption(id, choices, last)}</option>
-						))}
+						{options.map(({ id, label }) => <option key={id} value={id}>{label}</option>)}
 					</Select>
 				)}
 				{selected && <Button disabled={disabled} onClick={() => choose(selected)}>{resumeWorkspace}</Button>}

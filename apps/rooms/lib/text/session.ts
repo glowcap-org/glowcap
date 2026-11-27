@@ -98,9 +98,9 @@ export const sessionConfirmKeep = "Keep it";
 export const sessionResetCommit = "Forget rooms and settings";
 export const sessionDeleteCommit = "Delete browser data";
 /** Said on session setup when this browser's saved session can't be read, over
- * the act that asks to delete this browser's data. */
+ * the option to start a separate workspace. */
 export const sessionUnreadableSay =
-	"This version of Rooms can't read the session saved in this browser, so it can't open. To start a new one, delete this browser's data. That erases the saved session and everything else this page keeps in this browser.";
+	"This version of Rooms can't read this saved workspace. You can set up a separate workspace and keep the original on this device.";
 
 export const savedWorkspaceTitle = "Saved on this device";
 export const savedWorkspaceHint =
@@ -108,10 +108,20 @@ export const savedWorkspaceHint =
 export const savedWorkspacesHint =
 	"Each workspace keeps its own rooms and messages. You can try another from Settings → Session.";
 export const resumeWorkspace = "Resume workspace";
-export function savedWorkspaceOption(id: string, choices: readonly string[], last: string | null): string {
-	const short = id.slice(0, 8);
-	const label = id === last ? "Last opened" : "Workspace";
-	return `${label} · ${choices.some((other) => other !== id && other.startsWith(short)) ? id : short}`;
+export function savedWorkspaceOptions(choices: readonly string[], last: string | null) {
+	const prefixes = new Set<string>();
+	const shared = new Set<string>();
+	for (const id of choices) {
+		const prefix = id.slice(0, 8);
+		if (prefixes.has(prefix)) shared.add(prefix);
+		prefixes.add(prefix);
+	}
+	const recentFirst = last && choices.includes(last) ? [last, ...choices.filter((id) => id !== last)] : choices;
+	return recentFirst.map((id) => {
+		const prefix = id.slice(0, 8);
+		const label = id === last ? "Last opened" : "Workspace";
+		return { id, label: `${label} · ${shared.has(prefix) ? id : prefix}` };
+	});
 }
 export const separateWorkspace = "Set up a separate workspace";
 export const browseWorkspaces = "Choose workspace…";
