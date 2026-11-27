@@ -88,6 +88,11 @@ chooses belongs in `docker-compose.override.yml`, which `up` copies once from th
 some, list the ones you want in the override, such as
 `GLOWCAP_ROOMS_CAPABILITIES: "admin-listeners,diagnostics,operator,peering,trace"`, which leaves IRC out.
 
+The directory and session run as container user 0 so they can reopen their existing state volumes. Compose drops all
+Linux capabilities, prevents the processes from gaining privileges on exec, and makes the container root filesystem
+read-only. The state volumes and the session's readiness tmpfs remain writable. If you supply your own mounts,
+give the container user write access to its state and mount any additional output directories writable.
+
 ### Host it publicly
 
 The example override publishes the page on this host's loopback port only. That keeps the page local but not the
@@ -199,7 +204,8 @@ glowcap apps rooms deployment status --dir "$PWD"
 ```
 
 Upgrade the host CLI as well as the image. The CLI writes the managed Compose file on each `up`. If your
-override defines a bot session, copy its health check from the updated override example before running `up`.
+override defines a bot session, copy its `healthcheck`, `cap_drop`, `security_opt`, and `read_only` settings from the
+updated bot-session example before running `up`.
 Both checks should invoke `/runtime/libexec/rooms-session --check-ready=/run/rooms-session/use.sturdyref`.
 
 With the updated image these probes report readiness by exit status. An older template calls a command that prints

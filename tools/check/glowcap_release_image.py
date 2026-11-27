@@ -25,6 +25,7 @@ from pathlib import Path, PurePosixPath
 # Compose the inventory export and two service journeys under one deadline.
 LIMIT_SECONDS = 60
 MAX_IMAGE_BYTES = 256 * 1024 * 1024
+SERVICE_RESTRICTIONS = ("--cap-drop=ALL", "--security-opt=no-new-privileges:true", "--read-only")
 FORBIDDEN_BASE_PROGRAMS = {
     "apk",
     "apt",
@@ -241,6 +242,9 @@ def check_web_and_directory(deadline, image):
             "docker",
             "run",
             "--detach",
+            *SERVICE_RESTRICTIONS,
+            "--tmpfs",
+            "/state:mode=0700",
             "--name",
             name,
             "--publish",
@@ -317,6 +321,7 @@ def check_session(deadline, image):
                 "docker",
                 "run",
                 "--detach",
+                *SERVICE_RESTRICTIONS,
                 "--name",
                 name,
                 "--mount",

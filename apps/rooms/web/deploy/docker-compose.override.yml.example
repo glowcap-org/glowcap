@@ -63,6 +63,9 @@ services:
   #   # step gives it its nickname.
   #   image: ${GLOWCAP_ROOMS_IMAGE}
   #   container_name: glowcap-rooms-bot-session
+  #   cap_drop: ["ALL"]
+  #   security_opt: ["no-new-privileges:true"]
+  #   read_only: true
   #   working_dir: /runtime
   #   entrypoint: ["/runtime/bin/glowcap", "apps", "rooms", "session", "serve"]
   #   command:

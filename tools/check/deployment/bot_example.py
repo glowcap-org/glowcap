@@ -109,11 +109,14 @@ def bot_example(path, dockerfile_path):
     assert session["environment"]["GLOWCAP_ROOMS_SESSION_STATE"] == "/session-state"
     assert "glowcap-rooms-net" in session["networks"], "the bot session must reach the directory"
     probe = ["CMD", "/runtime/libexec/rooms-session", "--check-ready=/run/rooms-session/use.sturdyref"]
-    managed = parse(Path(path).with_name("docker-compose.yml").read_text())["services"]["session"]
-    assert managed["healthcheck"]["test"] == probe and session["healthcheck"]["test"] == probe
+    managed = parse(Path(path).with_name("docker-compose.yml").read_text())["services"]
+    assert managed["session"]["healthcheck"]["test"] == probe and session["healthcheck"]["test"] == probe
+    for service in (managed["directory"], managed["session"], session, bot):
+        assert service["cap_drop"] == ["ALL"] and service["security_opt"] == ["no-new-privileges:true"], service
+    for service in (managed["directory"], managed["session"], session):
+        assert service["read_only"] == "true", service
     assert bot["entrypoint"][-3:] == ["rooms", "bot", "serve"], bot
     assert bot["command"] == ["--dir=/bot-state"], bot
-    assert bot["cap_drop"] == ["ALL"] and bot["security_opt"] == ["no-new-privileges:true"], bot
     assert bot["healthcheck"]["test"][-3:] == ["bot", "ready", "--dir=/bot-state"], bot["healthcheck"]
     assert bot["restart"] == "unless-stopped" and session["restart"] == "unless-stopped"
     assert bot["depends_on"]["bot-session"]["condition"] == "service_healthy"
