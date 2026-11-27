@@ -12,7 +12,15 @@ fn paused_access_keeps_the_message_until_it_resumes() {
 	run_within(Duration::from_secs(60), async {
 		let (issuer, grants, terms) = world.issuer().await;
 		let issued = grants.issue("the bot", &terms).await.unwrap();
-		let bot = world.rig.serve_linked(&issued.link, json!({}));
+		let bot = world.rig.serve_linked(&issued.link, json!({"model": ["test-model"]}));
+		assert_eq!(
+			world.rig.status()["agent"],
+			json!({
+				"harness": "fake", "model": "test-model", "permission": "safe",
+				"conversation_work_root": world.rig.dir.join("work"),
+			})
+		);
+
 		world.dm("reply:first");
 		world.await_line("direct", "first");
 

@@ -202,13 +202,22 @@ impl Facts {
 /// The report `bot status` prints for the bot directory `dir`.
 pub fn report(dir: &Path) -> Result<Value, Error> {
 	let directory = store::directory(dir)?;
-	let configured = Config::configured(dir)?.is_some();
+	let agent = Config::configured(dir)?.map(|config| {
+		json!({
+			"harness": config.harness,
+			"model": config.model,
+			"permission": config.permission,
+			"conversation_work_root": store::work_root(&directory),
+		})
+	});
 	// A directory `serve` never reached holds nothing to report, and looking
 	// at it must not leave a lease file behind. A first start that has not
 	// reached its session may have stored nothing, and the lock file it leaves
 	// shows it was served.
-	if !configured && !directory.join(FILE).exists() && !store::was_served(&directory) {
-		return Ok(json!({"ok": true, "configured": false, "running": false, "status": null, "home": null}));
+	if agent.is_none() && !directory.join(FILE).exists() && !store::was_served(&directory) {
+		return Ok(
+			json!({"ok": true, "configured": false, "agent": null, "running": false, "status": null, "home": null}),
+		);
 	}
 	// The home is the agent's, so it is counted where it lies, never read
 	// from what `serve` last wrote.
@@ -222,7 +231,9 @@ pub fn report(dir: &Path) -> Result<Value, Error> {
 		Some(status) => (false, status),
 		None => (true, store::read_unleased::<Value>(&directory, FILE)?),
 	};
-	Ok(json!({"ok": true, "configured": configured, "running": running, "status": status, "home": home}))
+	Ok(
+		json!({"ok": true, "configured": agent.is_some(), "agent": agent, "running": running, "status": status, "home": home}),
+	)
 }
 
 /// `ready`: succeed only while a `serve` holds the bot directory, has written
