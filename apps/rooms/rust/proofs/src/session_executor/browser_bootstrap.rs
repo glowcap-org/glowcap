@@ -11,15 +11,16 @@ pub(super) async fn run(limits: loam::Limits) {
 	let mut publication = None;
 	let mut anchor = None;
 	for reopening in [false, true] {
-		let prepared = rooms_browser::storage::session::Prepared::open(database.clone(), tab, platform.clone())
-			.await
-			.unwrap();
+		let prepared =
+			rooms_browser::storage::session::Prepared::open(database.clone(), tab, reopening, platform.clone())
+				.await
+				.unwrap();
 		let identity = prepared.seed();
 		let delayed = if reopening {
 			None
 		} else {
 			Some(
-				rooms_browser::storage::session::Prepared::open(database.clone(), tab, platform.clone())
+				rooms_browser::storage::session::Prepared::open(database.clone(), tab, false, platform.clone())
 					.await
 					.unwrap(),
 			)
@@ -76,7 +77,7 @@ pub(super) async fn run(limits: loam::Limits) {
 				.submit()
 				.await
 				.unwrap();
-			let rival = rooms_browser::storage::session::Prepared::open(database.clone(), tab, platform.clone())
+			let rival = rooms_browser::storage::session::Prepared::open(database.clone(), tab, true, platform.clone())
 				.await
 				.unwrap();
 			assert_eq!(rival.seed(), identity);
