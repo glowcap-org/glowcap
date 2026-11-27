@@ -103,7 +103,7 @@ export abstract class HostDrive extends HostApplication {
 			});
 		}
 		this._vows.delete(vow);
-		this._unobserved.delete(vow);
+		this.forgetUnobserved(vow);
 		const outcome = row.state.outcome;
 		return "ok" in outcome ? Promise.resolve(outcome.ok) : Promise.reject(outcome.err);
 	}
@@ -130,7 +130,10 @@ export abstract class HostDrive extends HostApplication {
 		row.state = { tag: "settled", outcome };
 		this._unobserved.add(vow);
 		if (this._unobserved.size > MAX_UNOBSERVED_OUTCOMES) {
-			this.abandonVow(this._unobserved.values().next().value!);
+			// Advance one iterator across consecutive evictions. Restarting from
+			// the beginning scans the deleted prefix of the set on every reply.
+			const oldest = this._oldestUnobserved ??= this._unobserved.values();
+			this.abandonVow(oldest.next().value!);
 		}
 		// A replacement also retires the stored, unexposed projection after the
 		// table relinquishes it, before scheduling any cleanup progress.
@@ -139,11 +142,18 @@ export abstract class HostDrive extends HostApplication {
 		}
 	}
 
+	/** Release the iterator when the backlog falls below the eviction threshold.
+	 * An idle Host need not hold a previously full set's backing storage. */
+	private forgetUnobserved(vow: bigint): void {
+		this._unobserved.delete(vow);
+		if (this._unobserved.size < MAX_UNOBSERVED_OUTCOMES) this._oldestUnobserved = undefined;
+	}
+
 	/** Drop completion state after the last public promise wrapper dies. */
 	abandonVow(vow: bigint): void {
 		const row = this._vows.get(vow);
 		this._vows.delete(vow);
-		this._unobserved.delete(vow);
+		this.forgetUnobserved(vow);
 		if (row?.state.tag === "settled" && "ok" in row.state.outcome) {
 			this._gc.discardArgument(row.state.outcome.ok);
 		}
