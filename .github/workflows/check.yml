@@ -245,6 +245,8 @@ jobs:
           deno-version: ${{ steps.pins.outputs.deno }}
 
       - uses: ./.github/actions/rust
+        with:
+          components: rustfmt
 
       - name: Check the Rooms bot on macOS
         run: cargo check --locked --manifest-path apps/rooms/rust/Cargo.toml -p rooms-product --bin rooms-bot
