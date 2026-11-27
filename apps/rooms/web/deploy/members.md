@@ -108,7 +108,23 @@ Put settings for all members in `bots.override.yml` in the deployment directory,
 The service names are `member-session` and `bot`. Relative mount paths resolve inside each member's directory.
 If public ingress requires a browser login, set the [relay alias](README.md#a-relay-behind-a-browser-login) under `services.member-session.environment` in `bots.override.yml` so members can reach browsers through the private relay.
 
-To choose another agent image for one member, set `services.bot.image` in its override and its harness in `bot.env`.
+To switch a member from safe Claude Code to Codex or Pi, give it the new agent’s image and sign-in.
+Both agents need full permission, which lets the agent read and change anything its container user can access.
+A member that has already run as safe requires an explicit `--permission=full` on the serve command. [Choosing the agent and its permission](../../../../docs/rooms/bot.md#choosing-the-agent-and-its-permission)
+
+For example, with a Codex image tagged `rooms-codex`, put its sign-in in `bots/editor/agent-home/.codex/auth.json`.
+Set `GLOWCAP_ROOMS_BOT_HARNESS=codex` and `GLOWCAP_ROOMS_BOT_PERMISSION=full` in `bots/editor/bot.env`.
+In `bots/editor/compose.override.yml`, select the image and grant the permission for the first start.
+
+```yaml
+services:
+  bot:
+    image: rooms-codex
+    command: ["--dir=/bot-state", "--permission=full"]
+```
+
+Run `glowcap apps rooms deployment bots up --dir "$PWD" editor`. Once the bot is healthy, remove the `command` line so future starts take the permission from `bot.env`.
+
 To upgrade the members, upgrade the base deployment, rebuild the shared agent image, then run `bots up` for the members you want to upgrade.
 Stopping the base deployment and stopping named members are separate operations. [Back up a stopped stack](backup.md) covers both.
 
