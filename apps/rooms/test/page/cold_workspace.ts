@@ -95,6 +95,11 @@ export async function proveColdWorkspace(browser: Browser, port: number): Promis
 			sessionStorage.setItem("rooms.managed-tab", id);
 			localStorage.setItem("rooms.last-workspace", otherId);
 		}, { id, otherId });
+		// The inventory can omit the broken Store. Keep the tab's actual
+		// recovery target even if another workspace is the only one listed.
+		await missing.addInitScript((other) => {
+			Object.defineProperty(indexedDB, "databases", { value: async () => [{ name: `rooms-session-${other}` }] });
+		}, otherId);
 		await missing.goto(origin);
 		await missing.getByRole("button", { name: "Set up a separate workspace" }).waitFor();
 		if (await missing.getByRole("combobox", { name: "Saved on this device" }).inputValue() !== id) {

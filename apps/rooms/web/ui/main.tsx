@@ -54,6 +54,7 @@ import { createRoomsBrowserController, setupRefusal } from "./controller/create_
 import {
 	coldWorkspace,
 	markedWorkspaces,
+	pinnedWorkspace,
 	pinWorkspace,
 	recordWorkspaceChoice,
 	rememberOpenWorkspace,
@@ -175,6 +176,8 @@ async function showSessionSetup({ capability = "", error = "", recoveryError = "
 			report(savedWorkspaceTitle, error);
 		}
 	}
+	const pin = pinnedWorkspace();
+	if (pin && !saved.includes(pin)) saved = [pin, ...saved];
 	const Recovery = saved.length || recoveryError ? (await loadSavedWorkspaces()).SavedWorkspaces : null;
 	root.render(
 		<StrictMode>
@@ -187,6 +190,7 @@ async function showSessionSetup({ capability = "", error = "", recoveryError = "
 							? (disabled) => (
 								<Recovery
 									choices={saved}
+									pin={pin}
 									initialError={recoveryError}
 									disabled={disabled}
 								/>

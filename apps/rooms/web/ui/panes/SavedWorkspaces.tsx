@@ -12,19 +12,17 @@ import {
 } from "../../../lib/text/session.ts";
 import { Button } from "../Button.tsx";
 import { Icon } from "../icons.tsx";
-import { chooseWorkspace, lastWorkspace, pinnedWorkspace } from "../workspace_choice.ts";
+import { chooseWorkspace, lastWorkspace } from "../workspace_choice.ts";
 
-export function SavedWorkspaces({ choices, initialError, disabled }: {
+export function SavedWorkspaces({ choices, pin, initialError, disabled }: {
 	choices: readonly string[];
+	pin: string | null;
 	initialError: string;
 	disabled: boolean;
 }) {
 	const [error, setError] = useState(initialError);
 	const options = savedWorkspaceOptions(choices, lastWorkspace());
-	const [selected, setSelected] = useState(() => {
-		const pin = pinnedWorkspace();
-		return pin && choices.includes(pin) ? pin : options[0]?.id;
-	});
+	const [selected, setSelected] = useState(pin ?? options[0]?.id);
 	const choose = (id: string | null) => {
 		const refused = chooseWorkspace(id);
 		if (refused) setError(refusalText(refused));
