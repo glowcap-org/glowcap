@@ -292,6 +292,7 @@ Declared in [`.devcontainer/pins.sh`](../.devcontainer/pins.sh):
 
 - **Debian**: The base image for the development container and the Rooms runtime.
 - **Distroless**: The minimal base for the Rooms server image.
+- **Rooms bot base**: The Node runtime for the optional bot image.
 - **Zig**: Builds the library, the C archives, the CLI and every check.
 - **ZLS**: The Zig language server for editors, built against the pinned Zig.
 - **Bend**: Checks the laws in the shared proof phase.

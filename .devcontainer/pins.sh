@@ -17,6 +17,10 @@ DEBIAN_BASE_DIGEST="sha256:a72b4433de1cf7d6bae0c4cee74d0547f58601a643b3375f070c5
 # dep Distroless: The minimal base for the Rooms server image.
 DISTROLESS_BASE_DIGEST="sha256:809d04afa1be033c441f76bb0051878c342fb76d0ea236bc6dc94b655fa0fbd6"
 
+# dep Rooms bot base: The Node runtime for the optional bot image.
+ROOMS_BOT_BASE_TAG="24-trixie-slim"
+ROOMS_BOT_BASE_DIGEST="sha256:4d00acb4bcc42c454c4eb801526f7ad7f772ea3bd4fd168c5cc2e384abcbb9d4"
+
 # --- Zig ---
 # dep Zig: Builds the library, the C archives, the CLI and every check.
 ZIG_VERSION="0.17.1"

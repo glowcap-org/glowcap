@@ -101,7 +101,7 @@ services:
   #       GLOWCAP_ROOMS_IMAGE: glowcap-rooms:selected
   #       # The agent's npm package and the directory it keeps its
   #       # configuration in, from the deployment guide's agent table.
-  #       AGENT_PACKAGE: "@anthropic-ai/claude-code"
+  #       AGENT_PACKAGE: "@anthropic-ai/claude-code@2.1.330"
   #       AGENT_DIR: .claude
   #   image: glowcap-rooms-bot
   #   pull_policy: build

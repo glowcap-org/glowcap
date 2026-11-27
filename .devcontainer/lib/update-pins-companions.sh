@@ -45,6 +45,15 @@ glowcap_pins_companions() {
             printf '%s\t%s\t%s\n' \
                 apps/rooms/web/deploy/rooms.Dockerfile "gcr.io/distroless/cc-debian13@${old}" "gcr.io/distroless/cc-debian13@${new}"
             ;;
+        rooms-bot-base)
+            printf '%s\t%s\t%s\n' \
+                apps/rooms/web/deploy/bot.Dockerfile.example "node:${ROOMS_BOT_BASE_TAG}@${old}" "node:${ROOMS_BOT_BASE_TAG}@${new}"
+            ;;
+        claude)
+            printf '%s\t%s\t%s\n' \
+                apps/rooms/web/deploy/bot.Dockerfile.example "@anthropic-ai/claude-code@${old}" "@anthropic-ai/claude-code@${new}" \
+                apps/rooms/web/deploy/docker-compose.override.yml.example "@anthropic-ai/claude-code@${old}" "@anthropic-ai/claude-code@${new}"
+            ;;
         python)
             printf '%s\t%s\t%s\n' \
                 conformance/ocapn-conformance/pyproject.toml \
