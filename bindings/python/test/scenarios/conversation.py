@@ -442,70 +442,56 @@ def _dial_injected(host: Host):
     )
 
 
-async def _feed_refusals_are_typed() -> None:
-    """Bounded inbox and typed abort causes over the byte-fed host. A frame
-    declaring more than the frame cap is a typed refusal the moment that is
-    knowable, never "read more" (ADR-0012). A refused frame names its typed
-    cause (the flat GlowcapError code says the failure family, the attached
-    AbortDetail says the member)."""
+async def _feed_one_frame(host: Host, frame: bytes) -> GlowcapError | None:
+    """Join the byte-fed Session and its standalone Host before the test loop exits."""
     from glowcap import _pump
 
-    # Over-cap: the length prefix declares past the cap, refused during the scan.
-    # Bytes ride the named pump module (`_pump._feed`), not a Session verb.
-    session = _dial_injected(Host())
+    refusal = None
     try:
-        await _pump._feed(session, b"2000000:")
-        raise AssertionError("an over-cap frame must refuse typed instead of buffering")
-    except GlowcapError as exc:
-        assert exc.code == ERR_FRAME_TOO_LARGE, exc.code
-    finally:
-        session.close_transport()
-
-    # Garbage: the refusal carries the typed abort detail.
-    session = _dial_injected(Host())
-    try:
+        session = _dial_injected(host)
         assert session.last_abort() is None, "no dispatch failure recorded yet"
         try:
-            await _pump._feed(session, b"this is not a frame")
-            raise AssertionError("feeding garbage must raise")
-        except GlowcapError as exc:
-            assert exc.abort is not None, "the refused frame carries its typed cause"
-            assert exc.abort.domain == "codec", exc.abort
-            assert exc.abort.kind == "MalformedFrame", exc.abort
-            assert exc.abort.error_name == "MalformedFrame", exc.abort
-            assert exc.abort.abort_delivery_error_name is None, exc.abort
-            assert exc.abort.secondary_error_name is None, exc.abort
-            assert exc.abort.secondary_error_count == 0, exc.abort
+            await _pump._feed(session, frame)
+        except GlowcapError as error:
+            refusal = error
+        try:
+            await session.close()
+        except GlowcapError as terminal:
+            if terminal is not refusal:
+                raise
+        else:
+            assert refusal is None, "Session close lost the feed refusal"
+        return refusal
     finally:
-        session.close_transport()
+        await host.close()
+
+
+async def _feed_refusals_are_typed() -> None:
+    """Over-cap frames refuse during the scan. A malformed frame carries its typed abort."""
+    oversized = await _feed_one_frame(Host(), b"2000000:")
+    assert oversized is not None and oversized.code == ERR_FRAME_TOO_LARGE, oversized
+
+    malformed = await _feed_one_frame(Host(), b"this is not a frame")
+    assert malformed is not None and malformed.abort is not None, "the refused frame carries its typed cause"
+    abort = malformed.abort
+    assert abort.domain == "codec", abort
+    assert abort.kind == "MalformedFrame", abort
+    assert abort.error_name == "MalformedFrame", abort
+    assert abort.abort_delivery_error_name is None, abort
+    assert abort.secondary_error_name is None, abort
+    assert abort.secondary_error_count == 0, abort
 
 
 async def _tightened_admission_cap_refuses() -> None:
-    """``Host.set_session_limits`` moves the admission cap the sessions minted
-    after it are held to (ADR-0030). One frame decides it: at the default cap a
-    4000-byte declaration is incomplete, and at a tightened 1024 the same
-    prefix is a typed over-cap refusal."""
-    from glowcap import _pump
-
+    """The same prefix fits the default cap and exceeds the configured 1024-byte cap."""
     prefix = b"4000:"
-
-    session = _dial_injected(Host())
-    try:
-        await _pump._feed(session, prefix)  # under the default cap: still incomplete
-    finally:
-        session.close_transport()
+    assert await _feed_one_frame(Host(), prefix) is None
 
     tightened = Host()
     tightened.set_ingress_limits(max_pending_turns=4096, max_pending_bytes=1024 * 1024, max_chunk_bytes=128 * 1024)
     tightened.set_session_limits(max_frame_bytes=1024, max_retained_sent_answer_bytes=8 * 1024 * 1024)
-    session = _dial_injected(tightened)
-    try:
-        await _pump._feed(session, prefix)
-        raise AssertionError("a tightened admission cap must refuse an over-cap frame")
-    except GlowcapError as exc:
-        assert exc.code == ERR_FRAME_TOO_LARGE, exc.code
-    finally:
-        session.close_transport()
+    refusal = await _feed_one_frame(tightened, prefix)
+    assert refusal is not None and refusal.code == ERR_FRAME_TOO_LARGE, refusal
 
 
 async def _runtime_frame_cap_refuses_over_cap() -> None:
