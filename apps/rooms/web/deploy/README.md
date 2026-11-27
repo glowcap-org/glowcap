@@ -194,8 +194,8 @@ until the deployment is healthy. The CLI does not discover or copy configuration
 
 ## Upgrade
 
-Read the release notes and [back up the stopped stack](#data-and-reset) before upgrading. For a local build or
-a rollback on another Docker host, [save the selected image](#keep-a-copy-of-the-selected-image) with the backup.
+Read the release notes and [back up the stopped stack](backup.md) before upgrading. For a local build or
+a rollback on another Docker host, [save the selected image](backup.md#keep-a-copy-of-the-selected-image) with the backup.
 
 Upgrade the host CLI first. It writes the managed Compose file on each `up`. In the configuration directory printed by
 `deployment doctor`, check your `docker-compose.override.yml`. If it defines a bot session, copy that service's
@@ -216,7 +216,7 @@ in startup logs. Treat those records as credentials, including any retained afte
 
 After an image change, `image` holds the new ID and `previous-image` holds the old one. To roll back that change,
 use the backup you made immediately before the upgrade. The older version may need the matching state restored
-**before** it starts. If Docker no longer has that image, [load the archived image](#keep-a-copy-of-the-selected-image) first.
+**before** it starts. If Docker no longer has that image, [load the archived image](backup.md#keep-a-copy-of-the-selected-image) first.
 Once its data is ready, this checks the previous image against the saved selection:
 
 ```sh
@@ -235,7 +235,7 @@ When the release notes say saved sessions no longer open, the session container 
 starts it again. `glowcap apps rooms deployment logs --dir "$PWD" session` shows `This session's saved data is in a form this version
 of Rooms can't read`. A bot's session stops the same way. Start new sessions in their place:
 
-1. [Back up the stopped stack](#data-and-reset), including the bot's volumes and host files if you run one.
+1. [Back up the stopped stack](backup.md), including the bot's volumes and host files if you run one.
    Check the archives before removing any state. Keep the stack stopped.
 2. If you run a bot, comment out the override's `bot` and `bot secret` pieces. Keep its home mount and give
    `bot-session-state` and `bot-state` two new, unused Docker names. Compose creates the empty volumes and leaves the
@@ -258,6 +258,10 @@ of Rooms can't read`. A bot's session stops the same way. Start new sessions in 
 
 A checkout prepares its own image with `./glowcap apps rooms deployment up`. The steps, the build environment, and the
 image are in [Developing Rooms](../../developing.md#deploy-from-a-checkout).
+
+## Run named bots together
+
+Give each agent a nickname, role and private session in a shared room. [Run named bots together](members.md)
 
 ## Run a bot
 
@@ -512,108 +516,8 @@ The directory lives in `glowcap-rooms-directory-state` and the shared session in
 directory retains no private rooms or direct messages. The session's readiness file is recreated on each start, and
 its authority stays in durable session state.
 
-### Back up a stopped stack
-
-Run this in the configuration directory printed by `deployment doctor`. Choose a backup directory outside that
-configuration. The example creates one under your home.
-
-Set the volume names to match your override. For the example bot, include `glowcap-rooms-bot-session-state` (session identity and grants),
-`glowcap-rooms-bot-state` (settings, saved link and position), and `glowcap-rooms-bot-home` (agent files).
-If the home is a bind mount, back up its host directory. The mounted home is separate from the bot state archive.
-
-```sh
-backup=$(mktemp -d "$HOME/rooms-backup.XXXXXXXX")
-(
-  set -eu
-  umask 077
-  test -d "$backup"
-  glowcap apps rooms deployment down --dir "$PWD"
-  set -- glowcap-rooms-directory-state glowcap-rooms-session-state
-  # For the example bot, uncomment this line:
-  # set -- "$@" glowcap-rooms-bot-session-state glowcap-rooms-bot-state glowcap-rooms-bot-home
-  for volume in "$@"; do
-    docker volume inspect "$volume" >/dev/null
-    docker run --rm -v "$volume:/volume:ro" debian tar czf - -C /volume . > "$backup/$volume.tgz.partial"
-    tar tzf "$backup/$volume.tgz.partial" >/dev/null
-    mv "$backup/$volume.tgz.partial" "$backup/$volume.tgz"
-  done
-  tar czf "$backup/config.tgz.partial" -C "$PWD" .
-  tar tzf "$backup/config.tgz.partial" >/dev/null
-  mv "$backup/config.tgz.partial" "$backup/config.tgz"
-)
-```
-
-Keep the backup private. The configuration archive includes the
-override, image selection, Dockerfile, and files under `bot/` and `secrets/`, including sign-in files and bearer links.
-Back up host paths mounted from elsewhere separately, preserving owners and permissions. Use a backup account that
-can read those files. Once every archive succeeds, run the intended upgrade or restart with `deployment up --dir "$PWD"`.
-
-### Keep a copy of the selected image
-
-The configuration backup records the image ID. To recover a local-only build or recover after Docker discards its
-cached image, save the image itself once. This optional archive can be large. Use the image selected in the stopped
-stack's backup:
-
-```sh
-(
-  set -eu
-  umask 077
-  saved_image=$(tar xOzf "$backup/config.tgz" ./image)
-  docker image save "$saved_image" > "$backup/rooms-image.tar.partial"
-  mv "$backup/rooms-image.tar.partial" "$backup/rooms-image.tar"
-)
-```
-
-On the recovery host, load that archive before starting the stack. Check that Docker can resolve the saved ID:
-
-```sh
-saved_image=$(tar xOzf "$backup/config.tgz" ./image) &&
-  docker image load --input "$backup/rooms-image.tar" &&
-  docker image inspect "$saved_image" >/dev/null
-```
-
-An image must support the recovery host's architecture. The optional bot service rebuilds its own image from the
-Dockerfile and package settings in your override.
-
-### Restore a backup
-
-Stop the stack before restoring it. Keep the current volumes and configuration until the restored services are healthy.
-For each volume archive, restore into a fresh volume. This example prints the Docker volume name for the directory:
-
-```sh
-(
-  set -eu
-  archive="$backup/glowcap-rooms-directory-state.tgz"
-  tar tzf "$archive" >/dev/null
-  restored=$(docker volume create)
-  docker run --rm -i -v "$restored:/volume" debian tar --numeric-owner -xzpf - -C /volume < "$archive"
-  printf '%s\n' "$restored"
-)
-```
-
-Extract the matching configuration into a new private directory. When the backup includes files owned by the
-container user, extract as an account that can restore that owner.
-
-```sh
-restored_root=$(mktemp -d "$HOME/rooms-restored.XXXXXXXX") &&
-  restored_config="$restored_root/config" && mkdir -m 700 "$restored_config" &&
-  tar --numeric-owner -xzpf "$backup/config.tgz" -C "$restored_config"
-```
-
-The private parent protects the restored files even if the original configuration directory was shared.
-Recover external bind mounts separately. In the restored `docker-compose.override.yml`, update their paths and
-point each logical volume at its recovered Docker name. For example:
-
-```yaml
-volumes:
-  directory-state:
-    name: <Docker volume name printed above>
-    external: true
-```
-
-Do the same for `session-state` and each configured bot volume. A home restored to a bind mount uses its host path
-instead. Run `glowcap apps rooms deployment up --dir "$restored_config"` to use its saved image ID,
-then check `deployment status --dir "$restored_config"`. The CLI refuses to reset volumes marked external.
+[Back up a stopped stack](backup.md) before replacing volumes or moving the deployment to another host.
+The backup includes the base deployment, named member projects and their private configuration.
 
 `glowcap apps rooms deployment reset <unit>` describes what will be lost and confirms before destroying the chosen
 volume and restarting. Reset ends by running `up` and printing new links, and every link the unit issued before

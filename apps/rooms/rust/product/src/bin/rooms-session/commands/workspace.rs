@@ -39,11 +39,15 @@ fn setup(options: &Options) -> Options {
 	setup.named.remove("base");
 	setup
 }
-pub async fn wait(options: &Options, description: &str, predicate: impl Fn(&Value) -> bool) -> Result<Value, Failure> {
+pub async fn wait(
+	options: &Options,
+	description: &str,
+	mut predicate: impl AsyncFnMut(&Value) -> Result<bool, Failure>,
+) -> Result<Value, Failure> {
 	let deadline = tokio::time::Instant::now() + Duration::from_secs(25);
 	loop {
 		let status = request(&options.state, json!({"verb":"status"})).await?;
-		if predicate(&status) {
+		if predicate(&status).await? {
 			return Ok(status);
 		}
 		if tokio::time::Instant::now() >= deadline {
@@ -57,51 +61,83 @@ pub async fn wait(options: &Options, description: &str, predicate: impl Fn(&Valu
 	}
 }
 pub async fn directory(options: &Options) -> Result<Value, Failure> {
-	let entry = if let Some(locator) = options.get("locator") {
-		let locator = super::bootstrap::resolve(locator).await?;
-		let address = request(&options.state, json!({"verb":"locate","locator":locator})).await?;
-		let mut entry = Value::Null;
-		at_current(options, async |status, base| {
-			let directories = rows(&status["workspace"], "directories")?;
-			if let Some(existing) = directories.iter().find(|row| row["id"] == address["id"]) {
-				entry = existing.clone();
-				return Ok(None);
-			}
-			let nick = options
-				.get("nick")
-				.ok_or_else(|| Failure::invalid("a new directory needs --nick"))?;
-			let access = fresh()?;
-			let source = fresh()?;
-			entry = json!({"id":address["id"],"access":access,"source":source,"home":directories.is_empty(),"nick":nick,"nickAllocation":"automatic","standing":null});
-			let mut intent = status["workspace"].clone();
-			rows_mut(&mut intent, "directories")?.push(entry.clone());
-			Ok(Some(json!({"kind":"workspace","base":base,"imports":[{"coordinate":coordinate("directoryAccess",&access),"uri":address["uri"]}],"source":source,"releases":[],"intent":intent})))
-		})
-		.await?;
-		entry
+	use rooms_application::directory::registration::NicknameAllocation;
+	let exact = options.get("exact-nick") == Some("true");
+	let allocation = if exact {
+		NicknameAllocation::Exact
 	} else {
-		let status = request(&options.state, json!({"verb":"status"})).await?;
-		rows(&status["workspace"], "directories")?
-			.iter()
-			.find(|row| row["home"] == true)
-			.cloned()
-			.ok_or_else(|| Failure::invalid("name a directory with --locator and --nick"))?
+		NicknameAllocation::Automatic
 	};
-	// A nickname belongs to the workspace that registered it, so naming
-	// another is refused before anything waits on the directory.
-	if let Some(nick) = options.get("nick")
-		&& entry["nick"] != nick
-	{
-		return Err(Failure::invalid(format!(
-			"this workspace's nickname is {} and stays with it. To use the nickname {nick:?}, start a new workspace with another --dir",
-			entry["nick"]
-		)));
-	}
-	let ready = wait(options, "directory registration", |s| {
-		s["workspace"]["directories"].as_array().is_some_and(|rows| {
-			rows.iter()
-				.any(|row| row["id"] == entry["id"] && row["name"].is_string() && row["inbox"].is_string())
-		})
+	let address = if let Some(locator) = options.get("locator") {
+		let locator = super::bootstrap::resolve(locator).await?;
+		Some(request(&options.state, json!({"verb":"locate","locator":locator})).await?)
+	} else {
+		None
+	};
+	let mut entry = Value::Null;
+	at_current(options, async |status, base| {
+		let directories = rows(&status["workspace"], "directories")?;
+		if let Some(index) = directories.iter().position(|row| match &address {
+			Some(address) => row["id"] == address["id"],
+			None => row["home"] == true,
+		}) {
+			entry = directories[index].clone();
+			if let Some(nick) = options.get("nick") && entry["nick"] != nick {
+				return Err(Failure::invalid(format!(
+					"this workspace's nickname is {} and stays with it. To use the nickname {nick:?}, start a new workspace with another --dir", entry["nick"]
+				)));
+			}
+			if exact {
+				check_assignment(&entry)?;
+				if entry["nickAllocation"] != allocation.wire() {
+					let mut intent = status["workspace"].clone();
+					rows_mut(&mut intent, "directories")?[index]["nickAllocation"] = json!(allocation);
+					return Ok(Some(json!({"kind":"workspace","base":base,"imports":[],"releases":[],"intent":intent})));
+				}
+			}
+			return Ok(None);
+		}
+		let address = address.as_ref().ok_or_else(|| Failure::invalid("name a directory with --locator and --nick"))?;
+		let nick = options.get("nick").ok_or_else(|| Failure::invalid("a new directory needs --nick"))?;
+		let access = fresh()?;
+		let source = fresh()?;
+		entry = json!({"id":address["id"],"access":access,"source":source,"home":directories.is_empty(),"nick":nick,"nickAllocation":allocation,"standing":null});
+		let mut intent = status["workspace"].clone();
+		rows_mut(&mut intent, "directories")?.push(entry.clone());
+		Ok(Some(json!({"kind":"workspace","base":base,"imports":[{"coordinate":coordinate("directoryAccess",&access),"uri":address["uri"]}],"source":source,"releases":[],"intent":intent})))
+	})
+	.await?;
+	let mut retry = entry["inbox"].clone();
+	let ready = wait(options, "directory registration", async |status| {
+		let Some(row) = rows(&status["workspace"], "directories")?
+			.iter()
+			.find(|row| row["id"] == entry["id"])
+		else {
+			return Err(Failure::invalid("the directory left the workspace during registration"));
+		};
+		if exact {
+			check_assignment(row)?;
+			if row["nick"] != entry["nick"] || row["nickAllocation"] != allocation.wire() {
+				return Err(Failure::invalid(
+					"the requested exact nickname changed during registration",
+				));
+			}
+			let Some(inbox) = row["inbox"].as_str() else {
+				return Ok(false);
+			};
+			// Only retry an inbox that stood at the beginning of this command.
+			// A failure from the attempt this command started is its answer.
+			let again = retry.take() == inbox;
+			let live = request(
+				&options.state,
+				json!({"verb":"registration-ready","inbox":inbox,"retry":again}),
+			)
+			.await?;
+			if live["ready"] != true {
+				return Ok(false);
+			}
+		}
+		Ok(row["name"].is_string() && row["inbox"].is_string())
 	})
 	.await?;
 	rows(&ready["workspace"], "directories")?
@@ -109,6 +145,18 @@ pub async fn directory(options: &Options) -> Result<Value, Failure> {
 		.find(|row| row["id"] == entry["id"])
 		.cloned()
 		.ok_or_else(|| Failure::invalid("registered directory left the workspace"))
+}
+
+fn check_assignment(row: &Value) -> Result<(), Failure> {
+	if let Some(assigned) = row["assignedNick"].as_str()
+		&& row["nick"] != assigned
+	{
+		return Err(Failure::invalid(format!(
+			"this workspace registered as {assigned:?}. To require the exact nickname {}, choose an available name and start a new workspace",
+			row["nick"]
+		)));
+	}
+	Ok(())
 }
 pub async fn join(options: &Options) -> Result<Value, Failure> {
 	let directory = directory(options).await?;
@@ -144,6 +192,14 @@ pub async fn join(options: &Options) -> Result<Value, Failure> {
 				})
 				.await?;
 				json!({"id":id})
+			} else if options.get("existing-room") == Some("true") {
+				return Err(Failure::new(
+					"no-such-room",
+					Retry::AfterStateChange,
+					format!(
+						"no listed room named {name:?} was found. Check the spelling or create the room before joining"
+					),
+				));
 			} else {
 				let (verb, args) = (
 					"openManagedRoom",
@@ -203,11 +259,11 @@ pub async fn join(options: &Options) -> Result<Value, Failure> {
 				conversation
 			}
 		};
-		wait(options, &format!("room {name} membership"), |s| {
-			s["workspace"]["conversations"].as_array().is_some_and(|rows| {
+		wait(options, &format!("room {name} membership"), async |s| {
+			Ok(s["workspace"]["conversations"].as_array().is_some_and(|rows| {
 				rows.iter()
 					.any(|row| row["id"] == conversation["id"] && row["seat"].is_string())
-			})
+			}))
 		})
 		.await?;
 		joined.push(json!({"room":name,"conversation":conversation["id"]}));
@@ -284,10 +340,10 @@ pub async fn target(options: &Options) -> Result<String, Failure> {
 	// The admission keeps the introduced route through the shared plan, which
 	// reopens the last closed conversation with this registration.
 	super::admission::command_at(&setup(options), "startDirect", start.arguments(), status).await?;
-	let opened = wait(options, "direct inbox", |s| {
-		intent(s).is_ok_and(|now| {
+	let opened = wait(options, "direct inbox", async |s| {
+		Ok(intent(s).is_ok_and(|now| {
 			workspace::open_direct(&now, &directory_id, registration).is_some_and(|row| row.inbox.is_some())
-		})
+		}))
 	})
 	.await?;
 	let opened = intent(&opened)?;

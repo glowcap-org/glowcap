@@ -297,14 +297,15 @@ impl<'a, R: Rooms> Loop<'a, R> {
 		}
 		match step {
 			Ok(Step::Deliver) => {
-				let failed = matches!(
-					self.env.ledger.borrow().phase(id),
+				let outcome = match self.env.ledger.borrow().phase(id) {
 					Some(Phase::Sending {
 						content: Content::Failure,
 						..
-					})
-				);
-				self.thought(id, &conversation, if failed { "failed" } else { "answered" });
+					}) => "failed",
+					Some(Phase::Sending { parts, .. }) if parts.is_empty() => "no reply",
+					_ => "answered",
+				};
+				self.thought(id, &conversation, outcome);
 				self.retries.remove(&id);
 				self.spawn(id, conversation, Stage::Deliver, Duration::ZERO);
 			}

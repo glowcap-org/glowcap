@@ -20,6 +20,7 @@ pub(super) mod retirement;
 mod standing;
 mod startup;
 pub(super) use ownership::Budget;
+pub use ownership::DirectoryRegistrations;
 pub(super) use ownership::Permit;
 pub(super) use ownership::{Signals, spawn};
 
@@ -100,6 +101,11 @@ impl<P: Tasks> Drop for Membership<P> {
 		self.stop.send_replace(true);
 	}
 }
+/// The receipt proved that the directory refused this attempt's name.
+fn nickname_refused(error: &Error) -> bool {
+	matches!(error, Error::Peer(cause) if matches!(cause.as_ref(), rooms_glowcap::client::Error::RefusedObservation(_))
+        && cause.failure_code() == Some(rooms_application::failure::FailureCode::NickTaken))
+}
 async fn outcome(mut state: watch::Receiver<Option<Result<()>>>) -> Result<()> {
 	loop {
 		if let Some(result) = state.borrow_and_update().clone() {
@@ -153,6 +159,11 @@ fn key<K>(entropy: &mut dyn crate::entropy::Entropy) -> Result<custody::FieldKey
 	))
 }
 impl<P: Tasks + Deadline + Clone + 'static> Session<P> {
+	/// Observe or explicitly retry only the exact registration whose callback
+	/// the local workspace currently holds.
+	pub fn directory_registrations(&self) -> DirectoryRegistrations<P> {
+		DirectoryRegistrations::new(&self.state.memberships)
+	}
 	pub async fn supervise_directory(
 		&self,
 		row: &workspace::Directory,
@@ -307,7 +318,16 @@ impl<P: Tasks + Deadline + Clone + 'static> Session<P> {
 			));
 		}
 		let workspace = installation.1.workspace().clone();
-		let retirement = Some(Rc::new(retirement::Owner::new(self.state.writer.host.clone())));
+		let mut owner = retirement::Owner::new(self.state.writer.host.clone());
+		if let workspace::InboxSelection::Directory {
+			inbox,
+			allocation: rooms_application::directory::registration::NicknameAllocation::Exact,
+			..
+		} = &selected
+		{
+			owner.exact_registration = Some(*inbox);
+		}
+		let retirement = Some(Rc::new(owner));
 		let retained_retirement = retirement.clone();
 		let startup_budget = budget.clone();
 		let platform = self.state.platform.clone();

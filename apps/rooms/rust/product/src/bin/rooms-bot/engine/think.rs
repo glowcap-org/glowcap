@@ -202,6 +202,14 @@ async fn think<R: Rooms>(env: &Env<'_, R>, id: TurnId, stop: &mut watch::Receive
 /// The lines an agent's answer becomes, led by the `/reset` confirmation when
 /// the turn asked for one.
 fn answer_parts<R: Rooms>(env: &Env<'_, R>, id: TurnId, text: &str, resets: bool) -> Result<Vec<Part>, Error> {
+	let text = if text.trim() == reply::NO_REPLY {
+		if !resets {
+			return Ok(Vec::new());
+		}
+		""
+	} else {
+		text
+	};
 	let parts = reply::split(&reset::lead(text, resets));
 	if parts.len() == reply::MAX_PARTS && parts.last().is_some_and(|last| last.ends_with(words::CUT_NOTICE)) {
 		env.store.log(&format!(

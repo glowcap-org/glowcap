@@ -108,6 +108,25 @@ fn a_turn_whose_actions_hold_every_place_still_posts_its_reply() {
 	world.finish();
 }
 
+#[test]
+fn a_silent_final_answer_settles_the_action_that_already_answered_the_dm() {
+	let world = World::new("bot-quiet-action-receipt");
+	let bot = world.serve_at(Some("view:post-unconfirmed"));
+	let actions = json!([say("done")]);
+	world.dm(&format!("act-quietly:{actions}"));
+	world.await_line("direct", "done");
+	assert_eq!(output(&world, 0)["settling"], "bot");
+	eventually("the silent turn and its action to settle", || {
+		let status = world.rig.status();
+		(status["status"]["turns_finished"] == 1 && notes(&world).is_empty()).then_some(())
+	});
+	world.stopped(bot);
+	assert_eq!(world.count("direct", "done"), 1);
+	assert_eq!(world.count("direct", "[[no reply]]"), 0);
+	assert_eq!(world.free_places(), MAX_EFFECTS);
+	world.finish();
+}
+
 /// A pending `say` is left to the serving loop. The next start lists it, the
 /// session reads the original request back, and the loop keeps the line, so
 /// the receipt's place is free and the line posted once.

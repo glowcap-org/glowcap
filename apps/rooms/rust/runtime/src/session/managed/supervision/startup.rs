@@ -157,10 +157,16 @@ impl<P: Tasks + Deadline + Clone + 'static> Worker<P> {
 							.err()
 							.map(Error::from)
 							.unwrap_or_else(|| Error::uncertain("Membership was not sent"));
+						let occupied = matches!(target, Target::Directory { .. }) && nickname_refused(&failure);
 						let advice = failure.admission_retry();
 						self.ready.send_replace(Some(Err(failure)));
-						if let Some(advice) = advice {
-							if !self.retry_after(advice).await? {
+						if occupied || advice.is_some() {
+							let retry = if let Some(advice) = advice {
+								self.retry_after(advice).await?
+							} else {
+								self.retry_wait().await? && self.retry_selection_current().await?
+							};
+							if !retry {
 								return Ok(());
 							}
 							attempt += 1;

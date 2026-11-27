@@ -13,7 +13,7 @@ pub use accesses::rights;
 pub use failure::{CONFLICT, Failure};
 use feed::{Application, Feed};
 use futures_util::future::Either;
-use rooms_application::failure::Retry;
+use rooms_application::{content::session::custody, failure::Retry};
 use serde_json::{Value, json};
 use std::{cell::RefCell, path::PathBuf, rc::Rc, time::Duration};
 use tokio::{
@@ -47,6 +47,7 @@ pub struct Control {
 request::request! {
 	enum RequestBody, verb = "verb" {
 		Status => "status" {},
+		RegistrationReady => "registration-ready" { inbox: custody::FieldKey<custody::DirectoryInbox>, retry: bool },
 		Locate => "locate" { locator: String },
 		Tick => "tick" { #[serde(default)] wait: u64, #[serde(default)] after: Option<u64>, #[serde(default)] after_id: u64 },
 		Ack => "ack" { ids: Vec<u64> },
@@ -255,6 +256,9 @@ impl Control {
 			RequestBody::ReleaseCommand { id } => {
 				self.commands.release(&id).await?;
 				Ok(json!({"ok": true}))
+			}
+			RequestBody::RegistrationReady { inbox, retry } => {
+				Ok(json!({"ok":true, "ready":app.registrations.ready(inbox, retry)?}))
 			}
 			RequestBody::Status {} => {
 				let mut result = snapshot(app).await?;

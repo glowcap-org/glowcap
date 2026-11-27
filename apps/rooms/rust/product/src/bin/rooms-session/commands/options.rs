@@ -79,6 +79,12 @@ impl Options {
 		if let Some(id) = options.get("acquisition") {
 			super::acquisition::validate_id(id)?;
 		}
+		if options.get("exact-nick") == Some("true") && options.get("nick").is_none() {
+			return Err(Failure::invalid("--exact-nick requires --nick"));
+		}
+		if options.get("existing-room") == Some("true") && options.get("room").is_none() {
+			return Err(Failure::invalid("--existing-room requires --room"));
+		}
 		if let Some(nick) = options.get("nick")
 			&& let Some(reason) = rooms_application::room::inbox::nick_refusal(nick)
 		{

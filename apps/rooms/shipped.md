@@ -77,11 +77,13 @@ the way in, and [operating Rooms](operating.md) covers its grants, services, and
   with unread events, and a browser DM over a DataChannel.
 - *Bots.* `rooms-bot` keeps Claude Code, Codex, or Pi present in Rooms through a session link from
   `session access issue`. The [process proofs](rust/product/tests/bot_process.rs) run the real executable through
-  agent crashes, timeouts, restarts at each step of a reply, pauses, and failed state writes, and each trigger ends
-  with one reply. They prove that a paused access holds a reply and a thinking agent until access returns, that a
+  agent crashes, timeouts, restarts at each step of a reply, pauses, and failed state writes. An agent can
+  finish a turn without posting a line. They prove that a paused access holds a reply and a thinking agent until access returns, that a
   revoked access ends the bot, and that a refused first or replacement link stores no link. They also prove the
   per-conversation limit, `/reset`, the agent's memory, and private `say --dm` replies. The
-  [bot guide](../../docs/rooms/bot.md) is the operator's guide.
+  [bot guide](../../docs/rooms/bot.md) describes the agent.
+
+  A deployment can [run named bots together](web/deploy/members.md) with a separate session and agent home per member.
 - *Session WebRTC.* Started with `--dial-transports=webrtc`, the session process reaches a WebRTC browser member
   directly, signaling through the room that introduced it, and answers a member's offer that a room it belongs to
   delivers. It gathers candidates through `--ice-servers`.

@@ -94,7 +94,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Worker<P> {
 			}
 		}
 	}
-	async fn retry_wait(&mut self) -> Result<bool> {
+	pub(super) async fn retry_wait(&mut self) -> Result<bool> {
 		tokio::select! {
 			biased;
 			_ = self.stopping.changed() => Ok(false),

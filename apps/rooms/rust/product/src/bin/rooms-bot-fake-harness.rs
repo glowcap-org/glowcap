@@ -13,8 +13,8 @@
 //! message carried), and `act:<json array>` (runs the sibling
 //! `rooms-bot control <request>` once for each request in the array, saves
 //! each stdout as `act-<n>.out` and each stderr as `act-<n>.err` in the
-//! working directory, and answers with
-//! the exit codes; a request `{"after": "<file>"}` runs no verb and waits
+//! working directory, and answers with the exit codes, or with the silent
+//! final answer for `act-quietly:<json array>`; a request `{"after": "<file>"}` runs no verb and waits
 //! until that file exists in the working directory, so a test can read what an
 //! earlier action printed before a later one runs), `act-once:<json array>` (the same, as an agent that
 //! follows its prompt: it skips a request whose verb the prompt's bot record
@@ -87,7 +87,7 @@ fn record_run(resumed: Option<&str>) {
 	}
 }
 
-const KEYS: [&str; 18] = [
+const KEYS: &[&str] = &[
 	"reject-resume-crash",
 	"reject-resume-slow:",
 	"reject-resume:",
@@ -103,6 +103,7 @@ const KEYS: [&str; 18] = [
 	"long:",
 	"describe-files",
 	"act-once:",
+	"act-quietly:",
 	"act:",
 	"remember:",
 	"recall",
@@ -414,6 +415,10 @@ fn main() {
 		},
 		"describe-files" => emit(&json_line("final", &describe_files(&prompt))),
 		"act:" => emit(&json_line("final", &act(&text, None))),
+		"act-quietly:" => {
+			act(&text, None);
+			emit(&json_line("final", "[[no reply]]"));
+		}
 		"act-once:" => {
 			while !marker("go") {
 				std::thread::sleep(Duration::from_millis(20));

@@ -1,6 +1,7 @@
 //! The session owns actual tasks. Views only request retry or retirement.
 //! Startup permits cap retained candidates independently of live callbacks.
 use crate::Error;
+use rooms_application::content::session::custody;
 type Result<T> = core::result::Result<T, Error>;
 use rooms_glowcap::client::Tasks;
 use std::{
@@ -31,10 +32,48 @@ struct Running<P: Tasks> {
 	stop: watch::Sender<bool>,
 	ready: watch::Sender<Option<Result<()>>>,
 	// Closing the view cannot turn a failed cleanup wait into a ready loop.
-	_retry: watch::Sender<u64>,
+	retry: watch::Sender<u64>,
 	ended: watch::Sender<Option<Result<()>>>,
 	retirement: Option<Rc<super::retirement::Owner>>,
 }
+/// Local control reads the live registration worker through its exact inbox.
+#[derive(Clone)]
+pub struct DirectoryRegistrations<P: Tasks>(Weak<Budget<P>>);
+
+impl<P: Tasks> DirectoryRegistrations<P> {
+	pub(super) fn new(budget: &Rc<Budget<P>>) -> Self {
+		Self(Rc::downgrade(budget))
+	}
+	/// A replacement callback or a retiring worker cannot confirm readiness.
+	/// Only an explicit request can retry an occupied name.
+	pub fn ready(&self, inbox: custody::FieldKey<custody::DirectoryInbox>, retry: bool) -> Result<bool> {
+		let budget = self.0.upgrade().ok_or_else(|| Error::closed("Session is closed"))?;
+		let tasks = budget.tasks.borrow();
+		let worker = tasks.values().find(|worker| {
+			worker
+				.retirement
+				.as_ref()
+				.is_some_and(|owner| owner.exact_registration == Some(inbox))
+		});
+		let Some(worker) = worker else { return Ok(false) };
+		if *worker.stop.borrow() || worker.ended.borrow().is_some() {
+			return Ok(false);
+		}
+		let status = worker.ready.borrow().clone();
+		match status {
+			Some(Err(error)) if retry && super::nickname_refused(&error) => {
+				worker.ready.send_replace(None);
+				worker
+					.retry
+					.send_modify(|generation| *generation = generation.wrapping_add(1));
+				Ok(false)
+			}
+			Some(result) => result.map(|()| true),
+			None => Ok(false),
+		}
+	}
+}
+
 impl<P: Tasks> Default for Budget<P> {
 	fn default() -> Self {
 		Self {
@@ -239,7 +278,7 @@ where
 		target: None,
 		stop: stop.clone(),
 		ready: readiness.clone(),
-		_retry: retry.clone(),
+		retry: retry.clone(),
 		ended: ended.clone(),
 		retirement,
 	};

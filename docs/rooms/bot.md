@@ -11,6 +11,8 @@ sources:
 # Running a Rooms bot
 
 A Rooms bot is a member of Rooms whose replies come from a coding agent running on your machine.
+To run several as a persistent team, [start named bots in your deployment](../../apps/rooms/web/deploy/members.md).
+Each speaks under its own nickname and can work with people and bots run by other operators.
 
 ## What you need
 
@@ -45,7 +47,9 @@ Run `serve` again with a corrected link. The access `issue` made still exists, s
 
 ## Talking to it
 
-Send the bot a direct message to its nickname and it answers every line you send. In a room, mention it with `@helper` in a line and it answers that line. A room-wide mention such as `@room` or `@here` does not wake it.
+Send the bot a direct message to its nickname, or mention it with `@helper` in a room. Both wake the bot. A room-wide mention such as `@room` or `@here` does not wake it.
+
+When a message needs no reply, the agent can end its turn by returning `[[no reply]]` as its entire final answer. Rooms posts no line for that answer. Actions the agent already took still stand, and the bot still confirms a requested `/reset`.
 
 A direct message that is exactly `/reset`, or in a room a line that is `/reset` and your mention of the bot, as in `@helper /reset`, starts a new conversation with the agent, which forgets what was said there before. The bot answers it with one line that says so. A direct message that also names someone, such as `@bob /reset`, is an ordinary line for the agent.
 
@@ -76,7 +80,7 @@ The home belongs to you as much as to the agent. Read it, edit it, back it up, o
 
 ## What the bot may do
 
-The bot has exactly the rights of its access. In a turn, which is one run of the agent for one reply, it posts and acts as a person holding the same access would, and nothing more. It answers everyone who can reach it, in the rooms it joined and in direct conversations, and it has no per-person limit.
+The bot has exactly the rights of its access. In a turn it posts and acts as a person holding the same access would. Anyone who can reach it in a joined room or a direct conversation can wake it. There is no per-person limit.
 
 Rights limit what the bot does. Where you place it decides who can reach it, so to limit who it answers, place it only in the rooms and the directory you want.
 
@@ -88,7 +92,7 @@ Rights limit what the bot does. Where you place it decides who can reach it, so 
 
 One limit guards against cost rather than rights. `--conversation-limit` caps the messages in one conversation the bot answers in any window of <!-- value ../../apps/rooms/rust/product/src/bin/rooms-bot/gate.rs WINDOW seconds -->3600 seconds<!-- /value -->, <!-- value ../../apps/rooms/rust/product/src/bin/rooms-bot/config.rs DEFAULT_CONVERSATION_LIMIT -->60<!-- /value --> unless set and at most <!-- value ../../apps/rooms/rust/product/src/bin/rooms-bot/config.rs MAX_LIMIT -->100,000<!-- /value -->. A message past it gets no reply, starts no turn, and writes one line in the bot's log. It is kept as context for the bot's next reply there. The count lives in memory, so a restart starts it over.
 
-Two agents that answer each other in one conversation are held to this same limit. To stop such an exchange sooner, lower `--conversation-limit` or remove one of them from the room.
+Two bots that answer each other each have their own limit for that conversation. Either can finish the exchange without posting again. A silent turn still starts the agent and counts toward its limit. Rooms sets no shared budget for a group of bots or for their model usage. To stop an exchange, pause one bot’s session access.
 
 ## What it can do in Rooms
 
@@ -313,7 +317,7 @@ A first start finds no link to replace, so it refuses a bot directory whose `ope
 
 ## When something goes wrong
 
-Every line the bot answers ends with a reply, either the agent's answer or one line that says why there is none. It gets no reply when the bot gives up on a reply line, below, or when the session refuses the line that says why. No reply line posts twice.
+The agent can finish a turn quietly. Otherwise the bot sends its answer or a line explaining the failure. A give-up or a refusal from the session can leave a line unanswered. No reply line posts twice.
 
 | What happens | What the bot does |
 | --- | --- |

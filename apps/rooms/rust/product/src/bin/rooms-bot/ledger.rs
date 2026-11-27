@@ -482,10 +482,10 @@ impl Ledger {
 		Ok(())
 	}
 
-	/// Fix the reply's lines and their operations before the first is sent.
+	/// Fix the reply before delivery. A successful turn may finish with no lines.
 	pub fn answer(&mut self, store: &Store, id: TurnId, content: Content, parts: Vec<Part>) -> Result<(), Error> {
-		if parts.is_empty() {
-			return Err(Error::state(FILE, "a reply needs a line"));
+		if content == Content::Failure && parts.is_empty() {
+			return Err(Error::state(FILE, "a failure reply needs a line"));
 		}
 		self.change(store, id, |phase| {
 			let Phase::Running { asked, .. } = phase else {

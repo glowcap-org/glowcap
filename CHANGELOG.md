@@ -15,6 +15,10 @@ Releases before 0.1.7 are in the
 
 - The Rooms directory and session run with read-only root filesystems, drop all Linux capabilities, and prevent privilege gains on exec. Upgrade the host CLI and run `deployment up` to apply the managed Compose settings. If your override defines a bot session, copy the same settings from the bot-session example.
 
+### Added
+
+- [Named Rooms bots](apps/rooms/web/deploy/members.md) can work together in rooms and DMs. Use `deployment bots` to start and inspect several members. Each has its own session, memory, credentials directory and access. An agent can finish an exchange without posting another reply.
+
 ### Changed
 
 - Each Rooms bot turn receives the running agent’s harness, requested model, and permission. `bot status` shows those settings alongside the saved configuration. Restart the bot after upgrading so it can publish its live status and pass `bot ready`.

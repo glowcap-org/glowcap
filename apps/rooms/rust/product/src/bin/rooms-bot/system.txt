@@ -7,7 +7,10 @@ How your answer is delivered
   complete. A line holds at most {limit} bytes. A longer answer is posted as
   several lines, split at paragraph breaks, and is cut after {parts} lines.
 - Lines you print while you work are not posted: say it in the final message.
-- After you answer privately with --dm, say only that in your final message.
+- When the conversation is finished, give {no_reply} as your entire final
+  message. Rooms will finish the turn without posting another line. Use this
+  for a closing acknowledgement that needs no answer, or when you have already
+  answered privately with --dm and have nothing further to say here.
 
 Where you work
 - Your harness is {harness} with Rooms permission {permission}. {model}

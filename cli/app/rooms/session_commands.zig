@@ -20,7 +20,9 @@ const conversation = value("conversation", "Exact conversation identifier from s
 /// The pair that names an uncertain write, shared with the bot's `command`.
 pub const operation = value("operation", "Stable operation identifier for inspecting an uncertain result");
 pub const base = value("base", "Original workspace revision, required with --operation for exact replay");
-const join = [_]Flag{ dir, nick, locator, rooms };
+const exact_nick: Flag = .{ .long = "exact-nick", .help = "Require the exact --nick on every registration" };
+const existing_room: Flag = .{ .long = "existing-room", .help = "Join only existing rooms" };
+const join = [_]Flag{ dir, nick, locator, rooms, existing_room, exact_nick };
 const access_id = value("id", "The access's id, as session access list shows it");
 /// How a session dials the peers it reaches.
 const dialing = [_]Flag{
@@ -37,7 +39,7 @@ pub const serve_options = @import("commands.zig").transport ++ @import("commands
     value("checkpoint", "Import managed workspace intent into an empty session"),
     value("readiness-file", "Write the workspace use capability here"),
 } ++ dialing;
-const team_start = start ++ [_]Flag{
+const team_start = [_]Flag{ dir, nick, locator, rooms, existing_room } ++ @import("commands.zig").transport ++ dialing ++ [_]Flag{
     value("lead", "Lead nickname"),
     many("member", "Member nickname (repeat for each member)"),
     value("max", "Maximum roster size including lead (default 4)"),
