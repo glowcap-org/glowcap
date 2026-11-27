@@ -15,8 +15,7 @@
 #
 # Environment:
 #   GLOWCAP_REPO_ROOT          repository root (default: parent of tools/)
-#   GLOWCAP_CACHE_DIR          cache base (default: ~/.cache/glowcap/c-abi,
-#                              else $TMPDIR/<fallback_cache_name from contract>)
+#   GLOWCAP_CACHE_DIR          cache base (default: the current user's cache)
 #   GLOWCAP_RELEASE_BASE_URL   override release download base URL
 #   GLOWCAP_SKIP_DOWNLOAD=1    exit 0 without fetching
 #   GLOWCAP_STRICT=1           exit non-zero on soft-fail paths (network/tooling)
@@ -124,13 +123,17 @@ shared_marker_name() {
 resolve_cache_base() {
 	if [ -n "${GLOWCAP_CACHE_DIR:-}" ]; then
 		printf '%s' "$GLOWCAP_CACHE_DIR"
-	elif [ -n "${XDG_CACHE_HOME:-}" ]; then
-		printf '%s' "$XDG_CACHE_HOME/glowcap/c-abi"
-	elif [ -n "${HOME:-}" ]; then
-		printf '%s' "$HOME/.cache/glowcap/c-abi"
-	else
-		printf '%s' "${TMPDIR:-/tmp}/$(contract fallback_cache_name)"
+		return
 	fi
+	case "${XDG_CACHE_HOME:-}" in
+	/*) printf '%s' "$XDG_CACHE_HOME/glowcap/c-abi"; return ;;
+	esac
+	for location in "${HOME:-}" "${USERPROFILE:-}"; do
+		case "$location" in
+		/*) printf '%s' "$location/.cache/glowcap/c-abi"; return ;;
+		esac
+	done
+	return 1
 }
 
 # Download URL to DEST with a size cap. Uses strict TLS unless ALLOW_INSECURE
@@ -236,7 +239,7 @@ need_cmd tar
 [ -n "$VERSION" ] || VERSION=$(abi_version_from_header)
 [ -n "$TARGET" ] || TARGET=$(host_target)
 
-CACHE_BASE=$(resolve_cache_base)
+CACHE_BASE=$(resolve_cache_base) || soft_fail "no user cache directory; set GLOWCAP_CACHE_DIR"
 BASE_URL=${GLOWCAP_RELEASE_BASE_URL:-$(contract default_release_base_url)}
 TAG=$(apply_contract_template "$(contract release_tag_template)")
 TARBALL=$(apply_contract_template "$(contract tarball_template)")

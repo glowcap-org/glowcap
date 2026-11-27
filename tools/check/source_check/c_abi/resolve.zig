@@ -80,7 +80,6 @@ pub fn checkCAbiResolve(
         "cache_layout",
         "version_header",
         "user_agent",
-        "fallback_cache_name",
         "marker_static",
         "marker_shared_stem",
     };

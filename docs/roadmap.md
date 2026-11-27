@@ -166,6 +166,11 @@ required for each release.
   establish build provenance, not this per-tree check record. Change stacks
   on Jujutsu and a community front door on Rooms follow
   ([plan to plan](planning/plan-to-plan.md)).
+- **Interrupted C library downloads.** The bindings and SDK fetch helper
+  share a directory lock. If the writer dies, the lock can outlive it.
+  Prove that two different bindings can wait for the same live writer, then
+  recover after it exits abruptly and publish one verified set of libraries
+  ([plan to plan](planning/plan-to-plan.md)).
 - **Direct npm publication.** TypeScript packages are available through JSR
   and its npm compatibility. Publishing directly to npm needs its own
   package and consumer proof

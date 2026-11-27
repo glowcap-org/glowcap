@@ -86,6 +86,33 @@
   (check-equal? (get-output-string printed) "")
   (check-equal? (reverse seen) '("first (soft-fail)" "second (soft-fail)"))
   (check-equal? (pending-resolution-notes) '())
+  (for ([value '(#"cache" #"/cache" #"\\cache" #"C:" #"C:cache" #"\\\\server")])
+    (check-false (complete-cache-path? (bytes->path value 'windows))))
+  (for ([value '(#"C:\\cache" #"C:/cache" #"\\\\server\\share\\cache")])
+    (check-true (complete-cache-path? (bytes->path value 'windows))))
+  (define temporary (make-temporary-file "glowcap-cache~a" 'directory))
+  (dynamic-wind
+   void
+   (lambda ()
+     (parameterize ([current-environment-variables (environment-variables-copy (current-environment-variables))])
+       (for ([name '(#"GLOWCAP_CACHE_DIR" #"HOME" #"USERPROFILE" #"XDG_CACHE_HOME")])
+         (environment-variables-set! (current-environment-variables) name #f))
+       (putenv "TMPDIR" (path->string temporary))
+       (putenv "GLOWCAP_DOWNLOAD" "1")
+       (putenv "GLOWCAP_SKIP_DOWNLOAD" "0")
+       (putenv "GLOWCAP_STRICT" "1")
+       (check-false (resolve-cache-lib! #f))
+       (check-equal? (directory-list temporary) '())
+       ;; A missing local archive makes the first download fail in strict mode.
+       ;; The next call must reach the same failure without waiting on the first.
+       (putenv "GLOWCAP_CACHE_DIR" (path->string temporary))
+       (putenv "GLOWCAP_ALLOW_INSECURE" "1")
+       (putenv "GLOWCAP_RELEASE_BASE_URL" (string-append "file://" (path->string temporary) "/absent"))
+       (for ([attempt (in-range 2)])
+         (check-exn #rx"download failed" (lambda () (resolve-cache-lib! #f)))
+         (check-false (for/or ([entry (in-directory temporary)])
+                        (equal? (file-name-from-path entry) (string->path ".lock")))))))
+   (lambda () (delete-directory/files temporary)))
   ;; With the sink installed, a load that fails still names the notes its
   ;; own resolution made.
   (check-exn
@@ -203,22 +230,28 @@
     [(windows) (string-append stem ".dll")]
     [else (string-append "lib" stem ".so")]))
 
-(define (cache-base contract)
-  (or (getenv "GLOWCAP_CACHE_DIR")
-      (let ([xdg (getenv "XDG_CACHE_HOME")])
-        (and xdg (build-path xdg "glowcap" "c-abi")))
-      (let ([home (or (getenv "HOME") (getenv "USERPROFILE"))])
-        (if home
-            (build-path home ".cache" "glowcap" "c-abi")
-            (build-path (find-system-path 'temp-dir)
-                        (hash-ref contract 'fallback_cache_name))))))
+(define (env-path name)
+  (define value (getenv name))
+  (and value (not (string=? value "")) (string->path value)))
+
+(define (complete-cache-path? path)
+  (and (complete-path? path)
+       ;; Racket treats C:cache as complete, but Windows resolves it on drive C's current directory.
+       (or (not (eq? 'windows (path-convention-type path)))
+           (not (regexp-match? #rx#"^[a-zA-Z]:($|[^/\\\\])" (path->bytes path))))))
 
 (define (cache-lib-dir contract version target)
-  (define base (cache-base contract))
-  (define layout (hash-ref contract 'cache_layout))
-  (string->path
-   (apply-contract-template layout version target
-                   #:cache-base (path->string (simplify-path base #f)))))
+  (define base
+    (or (env-path "GLOWCAP_CACHE_DIR")
+        (for/or ([name '("XDG_CACHE_HOME" "HOME" "USERPROFILE")])
+          (define location (env-path name))
+          (and location (complete-cache-path? location)
+               (if (equal? name "XDG_CACHE_HOME")
+                   (build-path location "glowcap" "c-abi")
+                   (build-path location ".cache" "glowcap" "c-abi"))))))
+  (and base
+       (string->path (apply-contract-template (hash-ref contract 'cache_layout) version target
+                                              #:cache-base (path->string (simplify-path base #f))))))
 
 (define (require-https? base)
   (or (string-prefix? base "https://")
@@ -486,10 +519,7 @@
         (cond
           [(with-handlers ([exn:fail? (λ (_) #f)])
              (make-directory lock-dir) #t)
-           (with-handlers ([exn:fail? swallow-or-raise])
-             (under-lock!))
-           (when (directory-exists? lock-dir)
-             (delete-directory/files lock-dir #:must-exist? #f))]
+           (dynamic-wind void under-lock! (lambda () (delete-directory lock-dir)))]
           [(>= n 300)
            (soft-fail! (format "timed out waiting for cache lock at ~a" lock-dir))]
           [else (sleep 0.1) (lock-loop (add1 n))])))))
@@ -508,10 +538,11 @@
   (define version (resolve-abi-version contract root))
   (define target (host-target-triple))
   (define cache-lib (cache-lib-dir contract version target))
-  (define marker (build-path cache-lib (ocapn-shared-marker contract)))
+  (define marker (and cache-lib (build-path cache-lib (ocapn-shared-marker contract))))
   (define zig-marker
     (and zig-out-dir (build-path zig-out-dir (ocapn-shared-marker contract))))
   (cond
+    [(not cache-lib) #f]
     [(file-exists? marker) cache-lib]
     [(and zig-marker (file-exists? zig-marker) (env-truthy? "GLOWCAP_DOWNLOAD"))
      (try-download-into-cache! contract version target cache-lib)

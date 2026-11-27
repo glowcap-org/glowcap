@@ -179,7 +179,23 @@ def rust_package(work, env, registry):
     if registry is not None:
         # The index lags the upload; fetching is the retried step, the build is not.
         install("cargo", "fetch", "--manifest-path", manifest, cwd=work, env=env)
-    run("cargo", "build", "--manifest-path", manifest, "--target-dir", str(target), cwd=work, env=env)
+    built = subprocess.run(
+        [
+            "cargo",
+            "build",
+            "--manifest-path",
+            manifest,
+            "--target-dir",
+            str(target),
+            "--message-format=json-render-diagnostics",
+        ],
+        cwd=work,
+        env=env,
+        check=True,
+        stdout=subprocess.PIPE,
+        text=True,
+        timeout=600,
+    )
     # The iroh and WebRTC features link shared libraries that the loader finds
     # through the library path, beside the static core the build script linked.
     lib_dir = env["GLOWCAP_LIB_DIR"] if registry is None else str(downloaded_lib_dir(work))
@@ -194,6 +210,40 @@ def rust_package(work, env, registry):
         env=dict(env, LD_LIBRARY_PATH=lib_dir, DYLD_LIBRARY_PATH=lib_dir),
     )
     if registry is None:
+        # Ask the detached crate's actual build script which native paths Cargo
+        # receives when the invoking account supplies no cache or SDK directory.
+        (build_script,) = (
+            binary
+            for row in map(json.loads, built.stdout.splitlines())
+            if row["reason"] == "compiler-artifact" and Path(row["target"]["src_path"]) == crate / "build.rs"
+            for binary in row["filenames"]
+        )
+        stripped = {
+            key: value
+            for key, value in env.items()
+            if key not in ("HOME", "USERPROFILE", "XDG_CACHE_HOME", "GLOWCAP_CACHE_DIR", "GLOWCAP_LIB_DIR", "DOCS_RS")
+        }
+        for skip in ("0", "1"):
+            result = subprocess.run(
+                [build_script],
+                cwd=work,
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=10,
+                env=dict(
+                    stripped,
+                    TMPDIR=str(work),
+                    CARGO_MANIFEST_DIR=str(crate),
+                    GLOWCAP_SKIP_DOWNLOAD=skip,
+                    GLOWCAP_STRICT="1",
+                    GLOWCAP_RELEASE_BASE_URL="unconfigured:",
+                ),
+            )
+            if "cargo:rustc-link-search=" in result.stdout or "cargo:rustc-link-arg=-Wl,-rpath," in result.stdout:
+                raise RuntimeError("detached Rust build selected a library path without a cache or SDK directory")
+            if "cargo:rustc-link-lib=static=glowcap_ocapn" not in result.stdout:
+                raise RuntimeError("detached Rust build omitted the native link")
         # docs.rs builds without the native SDK. Rustdoc must also accept the
         # extracted crate and resolve its public links without a source checkout.
         run(

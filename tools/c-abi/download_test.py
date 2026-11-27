@@ -22,6 +22,55 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 class DownloadPolicy(unittest.TestCase):
+    def test_shell_and_typescript_skip_an_unconfigured_cache(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            work = Path(temporary)
+            scratch = work / "tmp"
+            scratch.mkdir()
+            env = dict(os.environ)
+            for name in (
+                "GLOWCAP_LIB_DIR",
+                "GLOWCAP_CACHE_DIR",
+                "HOME",
+                "USERPROFILE",
+                "XDG_CACHE_HOME",
+                "GLOWCAP_SKIP_DOWNLOAD",
+            ):
+                env.pop(name, None)
+            env.update(
+                TMPDIR=str(scratch),
+                GLOWCAP_STRICT="1",
+                GLOWCAP_DOWNLOAD="1",
+                GLOWCAP_RELEASE_BASE_URL="unconfigured:",
+                DENO_DIR=str(work / "deno"),
+            )
+            shell = subprocess.run(
+                ["sh", str(ROOT / "tools/c-abi/fetch-c-abi.sh"), "--version", "0.1.0", "--target", "x86_64-linux"],
+                cwd=temporary,
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            self.assertNotEqual(shell.returncode, 0)
+            self.assertIn("set GLOWCAP_CACHE_DIR", shell.stderr)
+            for skip in ("0", "1"):
+                result = subprocess.run(
+                    [
+                        "deno",
+                        "eval",
+                        'import {libPath} from "./bindings/ts/runtime/internal/ffi/load.ts"; console.log(libPath("glowcap_ocapn"));',
+                    ],
+                    cwd=ROOT,
+                    env=dict(env, GLOWCAP_SKIP_DOWNLOAD=skip),
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertNotIn(temporary, result.stdout)
+            self.assertEqual(list(scratch.iterdir()), [])
+
     def test_curl_configuration_cannot_change_release_requests(self):
         payload = b"checked release library\n"
         stream = io.BytesIO()

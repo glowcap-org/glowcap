@@ -116,9 +116,11 @@ continuing to the local fallbacks.
 `GLOWCAP_ALLOW_INSECURE=1` permits HTTP for a controlled test mirror. Normal
 loads reject it.
 
-The cache root comes from `GLOWCAP_CACHE_DIR`, then `XDG_CACHE_HOME`, then
-the platform's user cache directory. The ABI version and normalized target
-select the directory underneath it.
+Set `GLOWCAP_CACHE_DIR` to a directory controlled by the build or runtime
+account. By default, bindings look under an absolute `XDG_CACHE_HOME`, then
+under `.cache` in the home directory from `HOME` or `USERPROFILE`. If none of
+these supplies a location, they skip the cache and continue library resolution.
+The ABI version and normalized target select the directory underneath it.
 
 Target names match `zig build c-sdk-pack`, such as `x86_64-linux` and
 `aarch64-macos`. The normalization rules live in

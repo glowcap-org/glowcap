@@ -16,7 +16,6 @@ struct Contract {
 	release_tag_template: String,
 	cache_layout: String,
 	version_header: String,
-	fallback_cache_name: String,
 	marker_static: String,
 	user_agent: String,
 	max_tarball_bytes: u64,
@@ -45,7 +44,9 @@ fn main() {
 	println!("cargo:rerun-if-env-changed=GLOWCAP_DOWNLOAD");
 	println!("cargo:rerun-if-env-changed=GLOWCAP_SKIP_DOWNLOAD");
 	println!("cargo:rerun-if-env-changed=GLOWCAP_RELEASE_BASE_URL");
-	println!("cargo:rerun-if-env-changed=GLOWCAP_CACHE_DIR");
+	for name in ["GLOWCAP_CACHE_DIR", "XDG_CACHE_HOME", "HOME", "USERPROFILE"] {
+		println!("cargo:rerun-if-env-changed={name}");
+	}
 	println!("cargo:rerun-if-env-changed=GLOWCAP_STRICT");
 	println!("cargo:rerun-if-env-changed=GLOWCAP_ALLOW_INSECURE");
 	println!(
@@ -60,7 +61,8 @@ fn main() {
 				"Rust Wasm uses embedder-owned byte channels; disable native transport feature {feature}"
 			);
 		}
-		let directory = resolve_lib_dir(&manifest_dir);
+		let directory = resolve_lib_dir(&manifest_dir)
+			.unwrap_or_else(|| panic!("no Wasm library directory; set GLOWCAP_CACHE_DIR or GLOWCAP_LIB_DIR"));
 		println!("cargo:rustc-link-search=native={}", directory.display());
 		let archives = ["glowcap_host", "glowcap_ocapn"]
 			.into_iter()
@@ -79,19 +81,21 @@ fn main() {
 	}
 
 	let lib_dir = resolve_lib_dir(&manifest_dir);
-	println!("cargo:rustc-link-search=native={}", lib_dir.display());
+	if let Some(ref lib_dir) = lib_dir {
+		println!("cargo:rustc-link-search=native={}", lib_dir.display());
 
-	// Relink when the FFI archives change, not only when Rust sources do.
-	for archive in [
-		"libglowcap_ocapn.a",
-		"libglowcap_host.a",
-		"libglowcap_driver.a",
-		"libglowcap_net_transport_tcp.a",
-		"libglowcap_net_transport_inproc.a",
-		"libglowcap_net_transport_onion.a",
-		"libglowcap_net_transport_relay.a",
-	] {
-		println!("cargo:rerun-if-changed={}", lib_dir.join(archive).display());
+		// Relink when the FFI archives change, not only when Rust sources do.
+		for archive in [
+			"libglowcap_ocapn.a",
+			"libglowcap_host.a",
+			"libglowcap_driver.a",
+			"libglowcap_net_transport_tcp.a",
+			"libglowcap_net_transport_inproc.a",
+			"libglowcap_net_transport_onion.a",
+			"libglowcap_net_transport_relay.a",
+		] {
+			println!("cargo:rerun-if-changed={}", lib_dir.join(archive).display());
+		}
 	}
 
 	// Host semantics and transport execution are separate symbol families and
@@ -105,16 +109,18 @@ fn main() {
 		println!("cargo:rustc-link-lib=static=glowcap_loam_sqlite");
 		println!("cargo:rustc-link-lib=static=glowcap_loam_volatile");
 		println!("cargo:rustc-link-lib=static=glowcap_loam");
-		for name in [
-			"glowcap_loam",
-			"glowcap_loam_lmdb",
-			"glowcap_loam_sqlite",
-			"glowcap_loam_volatile",
-		] {
-			println!(
-				"cargo:rerun-if-changed={}",
-				lib_dir.join(format!("lib{name}.a")).display()
-			);
+		if let Some(ref lib_dir) = lib_dir {
+			for name in [
+				"glowcap_loam",
+				"glowcap_loam_lmdb",
+				"glowcap_loam_sqlite",
+				"glowcap_loam_volatile",
+			] {
+				println!(
+					"cargo:rerun-if-changed={}",
+					lib_dir.join(format!("lib{name}.a")).display()
+				);
+			}
 		}
 	}
 
@@ -131,85 +137,51 @@ fn main() {
 		println!("cargo:rustc-link-lib=static=glowcap_net_transport_relay");
 	}
 
-	if cfg!(feature = "iroh") {
-		println!("cargo:rustc-link-lib=dylib=glowcap_net_transport_iroh");
-		println!("cargo:rustc-link-arg=-Wl,-rpath,{}", lib_dir.display());
-		#[cfg(target_os = "macos")]
-		println!(
-			"cargo:rerun-if-changed={}",
-			lib_dir.join("libglowcap_net_transport_iroh.dylib").display()
-		);
-		#[cfg(target_os = "linux")]
-		println!(
-			"cargo:rerun-if-changed={}",
-			lib_dir.join("libglowcap_net_transport_iroh.so").display()
-		);
-		#[cfg(target_os = "windows")]
-		println!(
-			"cargo:rerun-if-changed={}",
-			lib_dir.join("glowcap_net_transport_iroh.dll").display()
-		);
-	}
-
-	if cfg!(feature = "webrtc") {
-		println!("cargo:rustc-link-lib=dylib=glowcap_net_transport_webrtc");
-		println!("cargo:rustc-link-arg=-Wl,-rpath,{}", lib_dir.display());
-		#[cfg(target_os = "macos")]
-		println!(
-			"cargo:rerun-if-changed={}",
-			lib_dir.join("libglowcap_net_transport_webrtc.dylib").display()
-		);
-		#[cfg(target_os = "linux")]
-		println!(
-			"cargo:rerun-if-changed={}",
-			lib_dir.join("libglowcap_net_transport_webrtc.so").display()
-		);
-		#[cfg(target_os = "windows")]
-		println!(
-			"cargo:rerun-if-changed={}",
-			lib_dir.join("glowcap_net_transport_webrtc.dll").display()
-		);
+	for (enabled, name) in [
+		(cfg!(feature = "iroh"), "glowcap_net_transport_iroh"),
+		(cfg!(feature = "webrtc"), "glowcap_net_transport_webrtc"),
+	] {
+		if enabled {
+			println!("cargo:rustc-link-lib=dylib={name}");
+			if let Some(ref lib_dir) = lib_dir {
+				use std::env::consts::{DLL_PREFIX, DLL_SUFFIX};
+				println!("cargo:rustc-link-arg=-Wl,-rpath,{}", lib_dir.display());
+				println!(
+					"cargo:rerun-if-changed={}",
+					lib_dir.join(format!("{DLL_PREFIX}{name}{DLL_SUFFIX}")).display()
+				);
+			}
+		}
 	}
 }
+
 /// Cascade (ADR-0023): `GLOWCAP_LIB_DIR` → abi-versioned download cache →
 /// optional target-specific in-tree libraries → (caller falls through to link failure).
-fn resolve_lib_dir(manifest_dir: &Path) -> PathBuf {
-	if let Some(dir) = std::env::var_os("GLOWCAP_LIB_DIR") {
-		return PathBuf::from(dir);
+fn resolve_lib_dir(manifest_dir: &Path) -> Option<PathBuf> {
+	if let Some(dir) = std::env::var_os("GLOWCAP_LIB_DIR").filter(|value| !value.is_empty()) {
+		return Some(PathBuf::from(dir));
 	}
 
 	let contract = load_contract();
 	let dev_root = find_dev_root(manifest_dir);
 	let version = abi_version(dev_root.as_deref(), &contract);
 	let (target, checkout_lib) = sdk_target();
-	let cache_lib = cache_lib_dir(&contract, &version, &target);
 	let zig_out = dev_root.as_ref().map(|r| r.join(checkout_lib));
+	let Some(cache_lib) = cache_lib_dir(&contract, &version, &target) else {
+		return zig_out;
+	};
 
 	if cache_lib.join(&contract.marker_static).is_file() {
-		return cache_lib;
-	}
-
-	if let Some(ref zig) = zig_out
-		&& zig.join(&contract.marker_static).is_file()
-	{
-		// GLOWCAP_DOWNLOAD refreshes the cache even when zig-out exists.
-		if env_truthy("GLOWCAP_DOWNLOAD") {
-			let _ = fetch_into_cache(&contract, &version, &target, &cache_lib);
-			if cache_lib.join(&contract.marker_static).is_file() {
-				return cache_lib;
-			}
-		}
-		return zig.clone();
+		return Some(cache_lib);
 	}
 
 	if want_release_fetch(dev_root.as_deref()) {
 		let _ = fetch_into_cache(&contract, &version, &target, &cache_lib);
 		if cache_lib.join(&contract.marker_static).is_file() {
-			return cache_lib;
+			return Some(cache_lib);
 		}
 	}
-
-	zig_out.unwrap_or(cache_lib)
+	zig_out.or(Some(cache_lib))
 }
 
 /// Contract hygiene: hard-fail at load (parity with Python/TS/Racket), never
@@ -293,27 +265,30 @@ fn find_dev_root(start: &Path) -> Option<PathBuf> {
 	None
 }
 
-fn cache_base(contract: &Contract) -> PathBuf {
-	if let Some(dir) = std::env::var_os("GLOWCAP_CACHE_DIR") {
-		return PathBuf::from(dir);
+fn cache_base() -> Option<PathBuf> {
+	if let Some(dir) = std::env::var_os("GLOWCAP_CACHE_DIR").filter(|value| !value.is_empty()) {
+		return Some(PathBuf::from(dir));
 	}
-	if let Some(xdg) = std::env::var_os("XDG_CACHE_HOME") {
-		return PathBuf::from(xdg).join("glowcap/c-abi");
+	for (name, suffix) in [
+		("XDG_CACHE_HOME", "glowcap/c-abi"),
+		("HOME", ".cache/glowcap/c-abi"),
+		("USERPROFILE", ".cache/glowcap/c-abi"),
+	] {
+		if let Some(base) = std::env::var_os(name).map(PathBuf::from).filter(|p| p.is_absolute()) {
+			return Some(base.join(suffix));
+		}
 	}
-	if let Some(home) = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")) {
-		return PathBuf::from(home).join(".cache/glowcap/c-abi");
-	}
-	std::env::temp_dir().join(&contract.fallback_cache_name)
+	None
 }
 
-fn cache_lib_dir(contract: &Contract, version: &str, target: &str) -> PathBuf {
-	let base = cache_base(contract);
-	PathBuf::from(apply_contract_template(
+fn cache_lib_dir(contract: &Contract, version: &str, target: &str) -> Option<PathBuf> {
+	let base = cache_base()?;
+	Some(PathBuf::from(apply_contract_template(
 		&contract.cache_layout,
 		version,
 		target,
 		&base.to_string_lossy(),
-	))
+	)))
 }
 
 fn soft_fail(msg: &str) -> Result<(), String> {
