@@ -213,10 +213,14 @@ async function awaitRuntime(boot: () => Promise<unknown>): Promise<void> {
 // Rust admits the workspace and selects the controller before a Host exists.
 // Both local and attached sessions run on the Rust application Host.
 async function start(): Promise<void> {
-	// A host that serves one file per address hands a deep link over through
-	// its 404 page. Standing at that path comes before anything reads the address.
-	const at = pathOffer(new URL(location.href));
-	if (at != null) globalThis.history.replaceState(globalThis.history.state, "", at);
+	// A static host can hand over a deep link. Restore its path and remove
+	// an Attach offer in one history replacement, before waiting for the
+	// runtime or storage. Only this invocation keeps the offer for setup.
+	const address = new URL(location.href);
+	const at = pathOffer(address);
+	const attach = sessionOffer(at ?? address);
+	const rest = attach?.rest ?? at;
+	if (rest != null) globalThis.history.replaceState(globalThis.history.state, "", rest);
 	startOpeningMark();
 	noteBootPhase("peer");
 	startBootAsides();
@@ -225,21 +229,13 @@ async function start(): Promise<void> {
 		invariant(path != null, "the Rooms page has no application module");
 		await application.loadApplication(fetch(path));
 	});
-	// A deletion asked for before this load finishes before anything opens
-	// storage, and before the address is read, so what a link offers is kept
-	// while everything this browser saved is gone.
+	// Finish a previously requested deletion before opening workspace storage.
 	const deleted = await finishBrowserDataDeletion();
 	// Preferences bind after the deletion, so a deleting tab reads the empty
 	// storage and nothing it held in memory is written back.
 	const stopPreferences = bindViewPreferences(page.projection);
 	addEventListener("pagehide", stopPreferences, { once: true });
 	reloadWhenAnotherTabDeletes();
-	// A shared session a link offers leaves the address before anything else
-	// runs, and opens session choice with it filled in, whatever this browser
-	// used last. Attach is the answer, so a link never attaches by itself, and
-	// the session in use stays until it is pressed.
-	const attach = sessionOffer(new URL(location.href));
-	if (attach != null) globalThis.history.replaceState(globalThis.history.state, "", attach.rest);
 	// The server is fixed when the session opens, so a link's offer of one is
 	// answered before session choice.
 	await answerServerOffer();

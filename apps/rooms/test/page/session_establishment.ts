@@ -36,19 +36,36 @@ export async function establishTestSession(tab: Page): Promise<void> {
 }
 
 export async function proveSessionOffer(browser: Browser, httpPort: number): Promise<void> {
-	// A link that offers a shared session opens session choice with it filled
-	// in, and takes it out of the address before anything else can read it.
-	// Attach is the answer, so the link attaches nothing by itself.
-	{
-		const linked = await browser.newContext();
-		const open = await linked.newPage();
-		const capability = "ocapn://offered.example/s/workspace";
-		await open.goto(`http://127.0.0.1:${httpPort}/#attach=${encodeURIComponent(capability)}`);
-		await open.waitForSelector("#sessionSetupCapability", { timeout: 60_000 })
-			.catch(() => fail("a link that offers a shared session did not open session choice"));
-		if (new URL(open.url()).hash !== "") fail("the session offer stayed in the address");
-		const filled = await open.inputValue("#sessionSetupCapability");
-		if (filled !== capability) fail(`the offered session filled ${JSON.stringify(filled)}`);
+	const linked = await browser.newContext();
+	const open = await linked.newPage();
+	const capability = "ocapn://offered.example/s/workspace";
+	const entry = new URL(`http://127.0.0.1:${httpPort}/`);
+	const routed = new URL("room/offered?view=chat", entry);
+	routed.searchParams.set("server", "https://rooms.example/");
+	entry.searchParams.set("path", routed.pathname + routed.search);
+	entry.hash = `keep=%2f&attach=${encodeURIComponent(capability)}&tab=1`;
+	routed.hash = "keep=%2f&tab=1";
+
+	const runtime = Promise.withResolvers<void>();
+	const requested = open.waitForRequest((request) => new URL(request.url()).pathname.endsWith(".wasm"));
+	await open.route("**/*.wasm", async (route) => {
+		await runtime.promise;
+		await route.continue();
+	});
+	try {
+		await open.goto(entry.href, { waitUntil: "domcontentloaded" });
+		await requested;
+		if (open.url() !== routed.href) fail("the pending runtime did not leave a clean routed address");
+
+		runtime.resolve();
+		await open.click("#serverOfferKeep");
+		routed.searchParams.delete("server");
+		if (open.url() !== routed.href) fail("answering the server offer changed the remaining address");
+		await open.waitForSelector("#sessionSetupCapability", { timeout: 60_000 });
+		if (await open.inputValue("#sessionSetupCapability") !== capability) fail("setup lost the offered session");
+		if (!await open.locator("#sessionAttach").isEnabled()) fail("the offered session was not ready to confirm");
+	} finally {
+		runtime.resolve();
 		await linked.close();
 	}
 }
