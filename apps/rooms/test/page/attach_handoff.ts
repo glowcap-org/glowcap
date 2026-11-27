@@ -28,8 +28,8 @@ export async function watchAttachHandoff(page: Page): Promise<() => Promise<void
 		});
 		check();
 	}
-	await page.addInitScript(sample, { key, phase: "opening" });
-	await page.evaluate(sample, { key, phase: "leaving" });
+	await page.addInitScript(sample, { key, phase: "opening" as const });
+	await page.evaluate(sample, { key, phase: "leaving" as const });
 	return async () => {
 		for (const phase of ["leaving", "opening"]) {
 			const raw = await page.evaluate((k) => sessionStorage.getItem(k), key + phase);
