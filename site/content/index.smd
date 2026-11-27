@@ -1,6 +1,6 @@
 ---
 .title = "Capability networking and durable state in Zig",
-.description = "OCapN and CapTP networking with Loam transactional storage and durable actors. A low-level Zig library, Apache-2.0, 0.1.8 alpha.",
+.description = "OCapN and CapTP networking with Loam transactional storage and durable actors. A low-level Zig library, Apache-2.0, 0.1.9 alpha.",
 .date = .date("2026-06-12T00:00:00"),
 .layout = "index.shtml",
 .draft = false,

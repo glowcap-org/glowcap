@@ -11,6 +11,8 @@ Releases before 0.1.7 are in the
 
 ## [Unreleased]
 
+## [0.1.9] - 2026-11-27
+
 ### Added
 
 - Every Rooms session activity event now carries `mentions`, which says whether the line names you or the whole room. The session decides it once from the line's Markdown, so every reader agrees.
@@ -136,6 +138,7 @@ the [features and fixes](docs/history/0.1.7/changes/CHANGELOG.md), including
 the WebRTC reopen fix, and the [earlier changes](docs/history/0.1.7/CHANGELOG.md)
 in this release.
 
-[Unreleased]: https://github.com/glowcap-org/glowcap/compare/v0.1.8...HEAD
+[Unreleased]: https://github.com/glowcap-org/glowcap/compare/v0.1.9...HEAD
+[0.1.9]: https://github.com/glowcap-org/glowcap/compare/v0.1.8...v0.1.9
 [0.1.8]: https://github.com/glowcap-org/glowcap/compare/v0.1.7...v0.1.8
 [0.1.7]: https://github.com/glowcap-org/glowcap/compare/v0.1.6...v0.1.7

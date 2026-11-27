@@ -43,7 +43,7 @@ export const VERSION_MAJOR = 0;
 /** The version of the linked glowcap library, the macros `abiVersion` is compared with. Mirrors `GLOWCAP_VERSION_MINOR`. */
 export const VERSION_MINOR = 1;
 /** The version of the linked glowcap library, the macros `abiVersion` is compared with. Mirrors `GLOWCAP_VERSION_PATCH`. */
-export const VERSION_PATCH = 8;
+export const VERSION_PATCH = 9;
 /** A `GlowcapFailureReport.layer` value: the tier that recorded a failure with no surviving caller. Mirrors `GLOWCAP_FAILURE_LAYER_CORE`. */
 export const FAILURE_LAYER_CORE = 0;
 /** A `GlowcapFailureReport.layer` value: the tier that recorded a failure with no surviving caller. Mirrors `GLOWCAP_FAILURE_LAYER_DRIVER`. */
@@ -441,7 +441,7 @@ export const ABORT_DOMAIN_SESSION = 1;
 /** A `GlowcapLastAbort.domain` value: which layer classified the failure. Mirrors `GLOWCAP_ABORT_DOMAIN_FOREIGN`. */
 export const ABORT_DOMAIN_FOREIGN = 2;
 /** The C contract fingerprint of `libglowcap_ocapn`. The loader compares it with the library's own before the first call and refuses a stale companion. */
-export const OCAPN_ARCHIVE_FINGERPRINT = 11653604173299913284n;
+export const OCAPN_ARCHIVE_FINGERPRINT = 16412343002802576495n;
 /** The C contract fingerprint of `libglowcap_host`. The loader compares it with the library's own before the first call and refuses a stale companion. */
 export const HOST_ARCHIVE_FINGERPRINT = 3432662901050275913n;
 /** The C contract fingerprint of `libglowcap_driver`. The loader compares it with the library's own before the first call and refuses a stale companion. */

@@ -2,7 +2,7 @@
 repository = "https://github.com/glowcap-org/glowcap"
 homepage = "https://glowcap.org"
 name = "interface-conversation-proof"
-version = "0.1.8"
+version = "0.1.9"
 edition = "2024"
 license = "Apache-2.0"
 publish = false
