@@ -4,8 +4,8 @@
 ARG GLOWCAP_ROOMS_IMAGE=glowcap-rooms:selected
 FROM ${GLOWCAP_ROOMS_IMAGE} AS rooms
 
-FROM node:24-trixie-slim
-ARG AGENT_PACKAGE=@anthropic-ai/claude-code
+FROM node:24-trixie-slim@sha256:4d00acb4bcc42c454c4eb801526f7ad7f772ea3bd4fd168c5cc2e384abcbb9d4
+ARG AGENT_PACKAGE=@anthropic-ai/claude-code@2.1.330
 ARG AGENT_DIR=.claude
 RUN apt-get update \
  && apt-get install --yes --no-install-recommends ca-certificates \

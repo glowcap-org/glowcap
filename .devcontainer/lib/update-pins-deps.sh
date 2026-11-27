@@ -94,12 +94,13 @@ glowcap_pins_require_hex64() {
 #   manual - a generation move; bump prints the procedure instead of editing
 # ---------------------------------------------------------------------------
 
-GLOWCAP_PINS_DEPS="debian distroless zig zls bend rust rustup-init deno node npm bun playwright uv python serena ruff mypy claude codex cursor-agent opencode devcontainer-cli racket goblins"
+GLOWCAP_PINS_DEPS="debian distroless rooms-bot-base zig zls bend rust rustup-init deno node npm bun playwright uv python serena ruff mypy claude codex cursor-agent opencode devcontainer-cli racket goblins"
 
 glowcap_pins_dep_var() {
     case "$1" in
         debian) echo DEBIAN_BASE_DIGEST ;;
         distroless) echo DISTROLESS_BASE_DIGEST ;;
+        rooms-bot-base) echo ROOMS_BOT_BASE_DIGEST ;;
         zig) echo ZIG_VERSION ;;
         zls) echo ZLS_SOURCE_REVISION ;;
         bend) echo BEND_VERSION ;;
@@ -138,9 +139,12 @@ glowcap_pins_dep_class() {
 }
 
 glowcap_pins_dep_gate() {
+    local bot_image_check="build the example Rooms bot image and check the installed agent version"
+    local agent_check="container: bash .devcontainer/test/tool-install.sh $1 (cold-seed smoke; no rebuild; adopt with tools.sh ensure)"
     case "$1" in
         debian) echo "zig build check" ;;
         distroless) echo "release workflow Linux image proofs" ;;
+        rooms-bot-base) echo "${bot_image_check}" ;;
         zig) echo "zig build check with the new toolchain" ;;
         zls) echo "rebuild + post-create.sh (verify-toolchains)" ;;
         bend) echo ".agents/skills/work/bin/glowcap-dev python3 ci/gates.py run bend-proofs" ;;
@@ -150,7 +154,8 @@ glowcap_pins_dep_gate() {
         python) echo "rebuild (Serena installs against it, so its requires-python bounds the pin), then zig build ocapn-conformance" ;;
         ruff | mypy) echo "rebuild, then zig build python-check bindings-fmt-check site-python-examples-check" ;;
         racket | goblins) echo "zig build check-external" ;;
-        claude | codex | opencode | cursor-agent) echo "container: bash .devcontainer/test/tool-install.sh <name> (cold-seed smoke; no rebuild; adopt with tools.sh ensure)" ;;
+        claude) printf '%s; %s\n' "${agent_check}" "${bot_image_check}" ;;
+        codex | opencode | cursor-agent) echo "${agent_check}" ;;
         *) echo "rebuild + post-create.sh (verify-toolchains)" ;;
     esac
 }
@@ -162,7 +167,7 @@ glowcap_pins_dep_gate() {
 # on the next explicit ensure or a cold first use.
 glowcap_pins_dep_requires_devcontainer_rebuild() {
     case "$1" in
-        distroless | bend | claude | codex | opencode | cursor-agent) return 1 ;;
+        distroless | rooms-bot-base | bend | claude | codex | opencode | cursor-agent) return 1 ;;
         *) return 0 ;;
     esac
 }
@@ -172,6 +177,7 @@ glowcap_pins_dep_requires_devcontainer_rebuild() {
 # EPIPE into a query failure.
 glowcap_pins_query_version() {
     case "$1" in
+        rooms-bot-base) glowcap_pins_docker_hub_index_digest library/node "${ROOMS_BOT_BASE_TAG}" ;;
         debian) glowcap_pins_docker_hub_index_digest library/debian "${DEBIAN_BASE_TAG}" ;;
         distroless)
             glowcap_pins_fetch --output /dev/null --dump-header - \
@@ -241,7 +247,7 @@ glowcap_pins_latest_version() {
     local dep="$1" version pattern
     version="$(glowcap_pins_query_version "${dep}")" || return 1
     case "${dep}" in
-        debian | distroless) pattern='^sha256:[0-9a-f]{64}$' ;;
+        debian | distroless | rooms-bot-base) pattern='^sha256:[0-9a-f]{64}$' ;;
         zls | goblins) pattern='^[0-9a-f]{40}$' ;;
         zig) pattern='^[0-9]+\.[0-9]+\.[0-9]+(-dev\.[0-9]+\+[0-9a-f]+)?$' ;;
         racket) pattern='^[0-9]+\.[0-9]+(\.[0-9]+)?$' ;;
