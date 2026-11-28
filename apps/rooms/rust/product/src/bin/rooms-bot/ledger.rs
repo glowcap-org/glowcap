@@ -17,7 +17,7 @@
 //! cursor's number passes its last event, because until then a restart reads
 //! its events again.
 use super::{
-	classify::Seq,
+	classify::{Seq, Trigger},
 	error::Error,
 	rooms::{ConversationId, Cursor},
 	store::{self, Store},
@@ -26,6 +26,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
 mod admission;
+pub use admission::Scheduled;
 mod phase;
 mod replaced;
 pub use phase::{Asked, Attempt, Content, Covered, Part, Phase, Progress, Runs, TurnId};
@@ -60,6 +61,8 @@ struct Row {
 
 #[derive(Serialize, Deserialize)]
 struct Document {
+	#[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+	scheduled: BTreeMap<TurnId, admission::Occurrence>,
 	cursor: Cursor,
 	/// The number the first event after the cursor gets.
 	cursor_seq: Seq,
@@ -86,6 +89,7 @@ struct Document {
 
 #[derive(Clone)]
 pub struct Ledger {
+	scheduled: BTreeMap<TurnId, admission::Occurrence>,
 	cursor: Cursor,
 	cursor_seq: Seq,
 	next_turn: TurnId,
@@ -161,7 +165,9 @@ impl Ledger {
 				));
 			}
 		}
+		admission::validate(&document.scheduled, &rows, document.next_turn)?;
 		Ok(Some(Self {
+			scheduled: document.scheduled,
 			cursor: document.cursor,
 			cursor_seq: document.cursor_seq,
 			next_turn: document.next_turn,
@@ -193,6 +199,7 @@ impl Ledger {
 	/// bot serves, so history from before the bot existed is never answered.
 	pub fn start(store: &Store, cursor: Cursor) -> Result<Self, Error> {
 		let ledger = Self {
+			scheduled: BTreeMap::new(),
 			cursor,
 			cursor_seq: Seq(0),
 			next_turn: TurnId(0),
@@ -210,6 +217,7 @@ impl Ledger {
 
 	fn encode(&self) -> Result<Vec<u8>, Error> {
 		let document = Document {
+			scheduled: self.scheduled.clone(),
 			cursor: self.cursor.clone(),
 			cursor_seq: self.cursor_seq,
 			next_turn: self.next_turn,
@@ -369,6 +377,20 @@ impl Ledger {
 			.values()
 			.filter(|phase| matches!(phase, Phase::Sending { .. }))
 			.count()
+	}
+
+	/// Add triggers read later to a turn whose harness has not started.
+	pub fn extend(&mut self, store: &Store, id: TurnId, triggers: Vec<Trigger>) -> Result<(), Error> {
+		if triggers.is_empty() || triggers.len() > self.room_in(id) {
+			return Err(Error::state(FILE, "triggers were added past a turn's room"));
+		}
+		self.commit(store, |next| match next.rows.get_mut(&id).ok_or_else(missing)? {
+			Phase::Running { asked, .. } => {
+				asked.triggers.extend(triggers);
+				Ok(())
+			}
+			_ => Err(Error::state(FILE, "triggers were added to a turn that is not running")),
+		})
 	}
 
 	/// Record that a harness run starts, after `spent` runs have ended, and
@@ -564,13 +586,15 @@ impl Ledger {
 	}
 
 	pub fn done(&mut self, store: &Store, id: TurnId) -> Result<(), Error> {
-		self.change(store, id, |phase| {
+		self.commit(store, |next| {
+			let phase = next.rows.get_mut(&id).ok_or_else(missing)?;
 			let covered = match phase {
 				Phase::Running { asked, .. } => Covered::of(&asked.triggers),
 				Phase::Sending { covered, .. } => covered.clone(),
 				Phase::Done { .. } => return Ok(()),
 			};
 			*phase = Phase::Done { covered };
+			next.close_occurrence(id);
 			Ok(())
 		})
 	}
@@ -582,7 +606,7 @@ impl Ledger {
 	pub fn advance(&mut self, store: &Store, cursor: &Cursor, seq: Seq) -> Result<bool, Error> {
 		let moves = seq > self.cursor_seq;
 		let next_seq = seq.max(self.cursor_seq);
-		let passed = |phase: &Phase| matches!(phase, Phase::Done { covered } if covered.last < next_seq);
+		let passed = |phase: &Phase| matches!(phase, Phase::Done { covered } if covered.events.is_empty() || covered.last < next_seq);
 		if !moves && !self.rows.values().any(passed) {
 			return Ok(false);
 		}

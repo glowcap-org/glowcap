@@ -82,6 +82,14 @@ fn a_first_safe_turn_scopes_every_tool_to_the_working_directory() {
 			"Bash(/opt/glowcap/bin/glowcap apps rooms bot actions *)",
 			"Bash(/opt/glowcap/bin/glowcap apps rooms bot join)",
 			"Bash(/opt/glowcap/bin/glowcap apps rooms bot join *)",
+			"Bash(/opt/glowcap/bin/glowcap apps rooms bot remind)",
+			"Bash(/opt/glowcap/bin/glowcap apps rooms bot remind *)",
+			"Bash(/opt/glowcap/bin/glowcap apps rooms bot reminders)",
+			"Bash(/opt/glowcap/bin/glowcap apps rooms bot reminders *)",
+			"Bash(/opt/glowcap/bin/glowcap apps rooms bot cancel-reminder)",
+			"Bash(/opt/glowcap/bin/glowcap apps rooms bot cancel-reminder *)",
+			"Bash(/opt/glowcap/bin/glowcap apps rooms bot schedule)",
+			"Bash(/opt/glowcap/bin/glowcap apps rooms bot schedule *)",
 		])
 	);
 	assert_eq!(invocation.stdin.as_deref(), Some("hello"));

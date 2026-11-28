@@ -255,6 +255,10 @@ test "Rooms bot rows offer exactly the flags rooms-bot reads" {
         .{ .verb = "workspace", .flags = &.{}, .positionals = 0 },
         .{ .verb = "join", .flags = &.{"room"}, .positionals = 0 },
         .{ .verb = "members", .flags = &.{}, .positionals = 0 },
+        .{ .verb = "remind", .flags = &.{ "id", "in", "at", "every", "count", "text" }, .positionals = 0 },
+        .{ .verb = "schedule", .flags = &.{ "id", "in", "at", "every", "count", "task" }, .positionals = 0 },
+        .{ .verb = "reminders", .flags = &.{}, .positionals = 0 },
+        .{ .verb = "cancel-reminder", .flags = &.{"id"}, .positionals = 0 },
         .{ .verb = "actions", .flags = &.{}, .positionals = 0 },
     };
     try std.testing.expectEqual(expected.len, cli.rooms_bot.commands.len);

@@ -171,8 +171,16 @@ pub enum Signal {
 	Failure(FailureKind, String),
 }
 
+/// A tool-free, fresh invocation. A harness implements this capability only
+/// when its executable can enforce it independently of the model's prompt.
+pub trait ScheduledHarness {
+	fn scheduled_invocation(&self, turn: &Turn<'_>) -> Invocation;
+}
 /// One coding agent's adapter.
 pub trait Harness {
+	fn scheduled(&self) -> Option<&dyn ScheduledHarness> {
+		None
+	}
 	/// The name `--harness` takes.
 	fn name(&self) -> &'static str;
 	/// The program every invocation runs: a bare name found on `PATH`, or a
@@ -392,3 +400,6 @@ mod tests {
 		assert!(present(&*claude, None).is_err());
 	}
 }
+
+#[cfg(test)]
+mod scheduled_tests;

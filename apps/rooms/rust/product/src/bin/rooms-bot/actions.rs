@@ -113,10 +113,7 @@ pub fn spend(root: &Path, conversation: &ConversationId, id: TurnId) -> Result<(
 		.map(|budgets| budget(&budgets, conversation))
 		.filter(|path| std::fs::read_to_string(path.join(TURN)).is_ok_and(|held| held.trim() == id.0.to_string()));
 	let Some(path) = held else {
-		return Err(Error::Usage(format!(
-			"say, send, and command {}",
-			words::ONLY_WHILE_TURN
-		)));
+		return Err(Error::Usage(words::ONLY_WHILE_TURN.into()));
 	};
 	for place in 1..=MAX_ACTIONS_PER_TURN {
 		match create(&path.join(place.to_string())) {
@@ -126,7 +123,7 @@ pub fn spend(root: &Path, conversation: &ConversationId, id: TurnId) -> Result<(
 		}
 	}
 	Err(Error::Usage(format!(
-		"a turn may run say, send, and command at most {MAX_ACTIONS_PER_TURN} times in all, and this turn has"
+		"a turn may post, run commands or change schedules at most {MAX_ACTIONS_PER_TURN} times in all, and this turn has reached its limit"
 	)))
 }
 

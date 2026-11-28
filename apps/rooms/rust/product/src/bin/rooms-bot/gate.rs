@@ -1,6 +1,8 @@
 //! Rolling admission per conversation. The last event's decision is written
 //! before the turn ledger acts on it. Admission visits events in order and
 //! makes each ledger change durable before the next decision replaces it.
+mod scheduled;
+
 use super::{
 	classify::{Seq, Trigger},
 	error::Error,
@@ -10,7 +12,7 @@ use super::{
 };
 use serde::{Deserialize, Serialize};
 use std::{
-	collections::{BTreeMap, VecDeque},
+	collections::{BTreeMap, BTreeSet, VecDeque},
 	fs,
 	path::Path,
 	time::Duration,
@@ -64,6 +66,8 @@ struct Record {
 	// At most one bucket for each second in the rolling hour.
 	starts: VecDeque<(u64, u32)>,
 	last: Option<(Cursor, Seq, Decision)>,
+	#[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+	scheduled: BTreeSet<String>,
 	notice: Option<(Cursor, u64, Notice)>,
 	skipped: u64,
 	limit: u32,
@@ -85,13 +89,7 @@ impl Record {
 		None
 	}
 
-	fn decide(&mut self, event: &Trigger, time: Duration, limit: u32) -> Decision {
-		if let Some((cursor, _, decision)) = &self.last
-			&& cursor == &event.event
-		{
-			return *decision;
-		}
-		self.limit = limit;
+	fn charge(&mut self, time: Duration) {
 		let now = time.as_secs();
 		while self
 			.starts
@@ -100,6 +98,28 @@ impl Record {
 		{
 			self.starts.pop_front();
 		}
+		// Round starts up to the published UTC precision, so a slot can
+		// never reopen before its full hour, even across a clock correction.
+		let at = now.saturating_add(u64::from(time.subsec_nanos() != 0));
+		let at = self.starts.back().map_or(at, |(last, _)| at.max(*last));
+		if let Some((previous, count)) = self.starts.back_mut()
+			&& *previous == at
+		{
+			*count += 1;
+		} else {
+			self.starts.push_back((at, 1));
+		}
+	}
+
+	fn decide(&mut self, event: &Trigger, time: Duration, limit: u32) -> Decision {
+		if let Some((cursor, _, decision)) = &self.last
+			&& cursor == &event.event
+		{
+			return *decision;
+		}
+		self.limit = limit;
+		let now = time.as_secs();
+
 		let decision = if let Some(until) = self.retry_at(now, limit) {
 			if self
 				.notice
@@ -116,17 +136,7 @@ impl Record {
 		} else {
 			self.skipped = 0;
 			self.notice = None;
-			// Round starts up to the published UTC precision, so a slot can
-			// never reopen before its full hour, even across a clock correction.
-			let at = now.saturating_add(u64::from(time.subsec_nanos() != 0));
-			let at = self.starts.back().map_or(at, |(last, _)| at.max(*last));
-			if let Some((previous, count)) = self.starts.back_mut()
-				&& *previous == at
-			{
-				*count += 1;
-			} else {
-				self.starts.push_back((at, 1));
-			}
+			self.charge(time);
 			Decision::Start
 		};
 		self.last = Some((event.event.clone(), event.seq, decision));
@@ -214,8 +224,16 @@ impl Gate {
 		cursor: Seq,
 	) -> Result<Decision, Error> {
 		let time = stamp::since_epoch();
-		let now = time.as_secs();
+		self.prune(store, cursor, time.as_secs())?;
+		let (name, mut record) = self.load(store, conversation)?;
+		let decision = record.decide(event, time, self.limit);
+		store.write_in(DIRECTORY, &name, &record)?;
+		Ok(decision)
+	}
+
+	fn prune(&mut self, store: &Store, cursor: Seq, now: u64) -> Result<(), Error> {
 		if now >= self.next_prune {
+			let mut live = None;
 			records(store.root(), |path, record| {
 				if record
 					.starts
@@ -223,24 +241,38 @@ impl Gate {
 					.is_none_or(|(at, _)| at.saturating_add(WINDOW.as_secs()) <= now)
 					&& record.last.is_none_or(|(_, seq, _)| seq < cursor)
 				{
+					if !record.scheduled.is_empty() {
+						if live.is_none() {
+							live = Some(super::reminders::pending_check_ins(store.root())?.live);
+						}
+						if live
+							.as_ref()
+							.is_some_and(|pending| !record.scheduled.is_disjoint(pending))
+						{
+							return Ok(());
+						}
+					}
 					fs::remove_file(path).map_err(Error::io("retiring an expired admission record"))?;
 				}
 				Ok(())
 			})?;
 			self.next_prune = now.saturating_add(WINDOW.as_secs());
 		}
+		Ok(())
+	}
+
+	fn load(&self, store: &Store, conversation: &ConversationId) -> Result<(String, Record), Error> {
 		let name = format!("{}.json", store::file_stem(conversation));
-		let mut record: Record = store.read_in(DIRECTORY, &name)?.unwrap_or_else(|| Record {
+		let record: Record = store.read_in(DIRECTORY, &name)?.unwrap_or_else(|| Record {
 			conversation: conversation.clone(),
 			starts: VecDeque::new(),
 			last: None,
+			scheduled: BTreeSet::new(),
 			notice: None,
 			skipped: 0,
 			limit: self.limit,
 		});
-		let decision = record.decide(event, time, self.limit);
-		store.write_in(DIRECTORY, &name, &record)?;
-		Ok(decision)
+		Ok((name, record))
 	}
 }
 

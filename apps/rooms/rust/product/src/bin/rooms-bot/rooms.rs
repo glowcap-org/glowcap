@@ -386,6 +386,15 @@ pub enum Typing {
 /// A session as the bot uses it. Methods take `&self` so a long read and a
 /// send can be in flight together on one task.
 pub trait Rooms {
+	/// The revision at which the original grant can post to this exact room seat
+	/// or direct route. A backend without scheduled work has no such route.
+	fn scoped_base(
+		&self,
+		_scope: &crate::bot::reminders::Scope,
+	) -> impl Future<Output = Result<Option<Base>, RoomsError>> {
+		std::future::ready(Ok(None))
+	}
+
 	/// The events after `after`, held for news or answered at once as `wait`
 	/// says.
 	fn events(&self, after: &Cursor, wait: Wait) -> impl Future<Output = Result<Batch, RoomsError>>;

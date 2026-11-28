@@ -14,6 +14,7 @@
 //! to run again once the access works. A revoked access is final for its link:
 //! the loop stops as it does for a signal and returns [`Error::Access`].
 mod backoff;
+mod checkins;
 mod deliver;
 mod env;
 mod head;
@@ -106,10 +107,14 @@ pub fn report_failure<R: Rooms>(env: &Env<'_, R>, id: TurnId, during: Activity, 
 }
 
 /// A one-line failure reply with its own operation.
-pub fn failure_part(store: &crate::bot::store::Store, reason: &str) -> Result<Part, Error> {
+pub fn failure_part<R: Rooms>(env: &Core<'_, R>, id: TurnId, reason: &str) -> Result<Part, Error> {
+	let mut text = failure_line(reason);
+	if env.ledger.borrow().scheduled(id).is_some() {
+		text.insert_str(0, super::reminders::CHECK_IN_PREFIX);
+	}
 	Ok(Part {
-		operation: crate::bot::identity::new_action(store.root())?,
-		text: failure_line(reason),
+		operation: crate::bot::identity::new_action(env.store.root())?,
+		text,
 	})
 }
 
@@ -446,6 +451,7 @@ fn resume<R: Rooms>(state: &mut Loop<'_, R>) -> Result<(), Error> {
 }
 
 enum Woke {
+	CheckIn(super::reminders::CheckIn),
 	Stop,
 	Turn(Ended),
 	/// The access stopped serving, so what is thinking ends.
@@ -470,6 +476,7 @@ struct Reads<F> {
 pub async fn serve<'a, R: Rooms>(
 	env: &'a Env<'a, R>,
 	mut shutdown: watch::Receiver<bool>,
+	mut checkins: tokio::sync::mpsc::Receiver<super::reminders::CheckIn>,
 	stage: LinkStage,
 	reached: impl FnMut() -> Result<(), Error>,
 ) -> Result<(), Error> {
@@ -489,7 +496,7 @@ pub async fn serve<'a, R: Rooms>(
 		if let Err(error) = state.revoked(&reads.reaching) {
 			break Err(error);
 		}
-		let (woke, began) = state.wake(&mut shutdown, &reads.pace).await;
+		let (woke, began) = state.wake(&mut shutdown, &mut checkins, &reads.pace).await;
 		let step = match woke {
 			Woke::Stop => break Ok(()),
 			Woke::Halted => {
@@ -501,6 +508,7 @@ pub async fn serve<'a, R: Rooms>(
 				Ok(())
 			}
 			Woke::Held => Ok(()),
+			Woke::CheckIn(check) => checkins::accept(&mut state, check).await,
 			Woke::Read(read) => state.read_done(&mut reads, began, read),
 		};
 		if let Err(error) = step {
@@ -547,7 +555,12 @@ impl<'a, R: Rooms> Loop<'a, R> {
 	/// Wait for the next thing the loop acts on, and say how many access
 	/// changes had happened when a read in it began, so a read that began
 	/// before a send found the access stopped does not open it again.
-	async fn wake(&mut self, shutdown: &mut watch::Receiver<bool>, pace: &ReadPace) -> (Woke, u64) {
+	async fn wake(
+		&mut self,
+		shutdown: &mut watch::Receiver<bool>,
+		checkins: &mut tokio::sync::mpsc::Receiver<super::reminders::CheckIn>,
+		pace: &ReadPace,
+	) -> (Woke, u64) {
 		let env = self.env;
 		let reading = read::wanted(self.lanes.waiting(), env.facts.borrow().access, self.held.is_some());
 		let after = self.read.cursor.clone();
@@ -557,6 +570,7 @@ impl<'a, R: Rooms> Loop<'a, R> {
 			biased;
 			() = stopping(shutdown) => Woke::Stop,
 			() = env.halted.notified() => Woke::Halted,
+			Some(check) = checkins.recv() => Woke::CheckIn(check),
 			Some(ended) = self.turns.next(), if !self.turns.is_empty() => Woke::Turn(ended),
 			() = sleep_until(held_until.unwrap_or_else(Instant::now)), if held_until.is_some() => Woke::Held,
 			read = async {

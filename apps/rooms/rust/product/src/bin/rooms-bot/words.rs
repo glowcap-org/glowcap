@@ -140,7 +140,7 @@ pub const OLD_ACCESS_STOPPED: &str = "the old access stopped working";
 /// Says a bot directory has no session link.
 pub const NO_SESSION_LINK: &str = "has no session link yet";
 /// Says a turn's verbs act only while the turn runs.
-pub const ONLY_WHILE_TURN: &str = "act only while a turn in this conversation is running";
+pub const ONLY_WHILE_TURN: &str = "Bot commands can run only during an active turn in this conversation";
 /// Says a stored link lost its settings.
 pub const CONFIG_MISSING: &str = "config.json is missing";
 /// Tells an operator how to go on after a lost file.

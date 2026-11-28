@@ -50,9 +50,19 @@ fn split_within(answer: &str, limit: usize) -> Vec<String> {
 
 /// The lines that post `answer`, each at most one line's size and none empty.
 /// An answer with nothing but whitespace has no lines.
-pub fn split(answer: &str) -> Vec<String> {
-	let mut parts = split_within(answer.trim(), MAX_LINE_BYTES);
+pub fn split(answer: &str, scheduled: bool) -> Vec<String> {
+	let marker = if scheduled {
+		super::reminders::CHECK_IN_PREFIX
+	} else {
+		""
+	};
+	let mut parts = split_within(answer.trim(), MAX_LINE_BYTES - marker.len());
 	parts.retain(|part| !part.trim().is_empty());
+	if scheduled {
+		for part in &mut parts {
+			part.insert_str(0, marker);
+		}
+	}
 	parts
 }
 
@@ -65,25 +75,47 @@ mod tests {
 	}
 
 	#[test]
+	fn every_scheduled_segment_is_passive_and_inside_the_wire_bound() {
+		let answer = "界".repeat(MAX_LINE_BYTES);
+		let parts = split(&answer, true);
+		assert!(parts.len() > 1);
+		assert!(
+			parts
+				.iter()
+				.all(|part| part.len() <= MAX_LINE_BYTES && part.starts_with(crate::bot::reminders::CHECK_IN_PREFIX))
+		);
+		assert_eq!(
+			parts
+				.iter()
+				.map(|p| p.strip_prefix(crate::bot::reminders::CHECK_IN_PREFIX).unwrap())
+				.collect::<String>(),
+			answer
+		);
+	}
+
+	#[test]
 	fn an_answer_that_fits_is_one_line_unchanged() {
-		assert_eq!(split("hello\n\nthere"), ["hello\n\nthere"]);
+		assert_eq!(split("hello\n\nthere", false), ["hello\n\nthere"]);
 		let full = "x".repeat(MAX_LINE_BYTES);
-		assert_eq!(split(&full), [full]);
+		assert_eq!(split(&full, false), [full]);
 	}
 
 	#[test]
 	fn paragraphs_split_before_lines_and_lines_before_characters() {
 		let paragraph = "p".repeat(5000);
 		let text = format!("{paragraph}\n\n{paragraph}\n\n{paragraph}");
-		assert_eq!(split(&text), [paragraph.clone(), paragraph.clone(), paragraph.clone()]);
+		assert_eq!(
+			split(&text, false),
+			[paragraph.clone(), paragraph.clone(), paragraph.clone()]
+		);
 		let line = "l".repeat(5000);
-		assert_eq!(split(&format!("{line}\n{line}")), [line.clone(), line]);
+		assert_eq!(split(&format!("{line}\n{line}"), false), [line.clone(), line]);
 	}
 
 	#[test]
 	fn a_long_unbroken_answer_splits_on_character_boundaries_and_keeps_every_character() {
 		let text = "é".repeat(MAX_LINE_BYTES * 2);
-		let parts = split(&text);
+		let parts = split(&text, false);
 		assert_eq!(parts.len(), 4);
 		assert!(
 			parts
@@ -99,7 +131,7 @@ mod tests {
 			.map(|n| format!("{n}{}", "w".repeat(3000)))
 			.collect::<Vec<_>>()
 			.join("\n\n");
-		let parts = split(&text);
+		let parts = split(&text, false);
 		assert_eq!(parts.len(), MAX_PARTS);
 		assert!(parts.iter().all(|part| part.len() <= MAX_LINE_BYTES));
 		let last = parts.last().unwrap();
@@ -113,10 +145,10 @@ mod tests {
 
 	#[test]
 	fn an_answer_with_leading_breaks_has_no_empty_line() {
-		assert_eq!(split("\n\n\nhello\n\n"), ["hello"]);
-		assert!(split("\n\n \n").is_empty());
+		assert_eq!(split("\n\n\nhello\n\n", false), ["hello"]);
+		assert!(split("\n\n \n", false).is_empty());
 		let text = format!("\n\n{}\n\n{}", "a".repeat(8000), "b".repeat(8000));
-		let parts = split(&text);
+		let parts = split(&text, false);
 		assert!(parts.iter().all(|part| !part.is_empty() && !part.starts_with('\n')));
 		assert_eq!(parts.len(), 2);
 	}
@@ -124,7 +156,7 @@ mod tests {
 	#[test]
 	fn only_the_breaks_between_lines_are_dropped() {
 		let text = format!("{}\n\n\n{}\nend", "a".repeat(8000), "b".repeat(8000));
-		let parts = split(&text);
+		let parts = split(&text, false);
 		assert_eq!(without_breaks(&parts.concat()), without_breaks(&text));
 		assert!(
 			parts

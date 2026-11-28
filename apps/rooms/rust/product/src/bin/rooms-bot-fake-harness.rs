@@ -122,13 +122,15 @@ fn json_line(key: &str, value: &str) -> String {
 /// The last directive in the prompt's line texts, as its key and the rest.
 fn directive(prompt: &str) -> Option<(&'static str, String)> {
 	prompt.lines().rev().find_map(|line| {
-		let text = serde_json::from_str::<Value>(line)
-			.ok()?
-			.get("text")?
-			.as_str()?
-			.to_owned();
-		KEYS.iter()
-			.find_map(|key| text.split_once(key).map(|(_, rest)| (*key, rest.to_owned())))
+		let message = serde_json::from_str::<Value>(line).ok()?;
+		let text = message.get("task").or_else(|| message.get("text"))?.as_str()?;
+		// An act request can contain another directive as a scheduled task.
+		// Interpret the outer command first.
+		let (start, key) = KEYS
+			.iter()
+			.filter_map(|&key| text.find(key).map(|at| (at, key)))
+			.min_by_key(|(at, _)| *at)?;
+		Some((key, text.get(start + key.len()..)?.to_owned()))
 	})
 }
 

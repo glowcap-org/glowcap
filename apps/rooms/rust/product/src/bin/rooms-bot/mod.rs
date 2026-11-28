@@ -22,6 +22,7 @@ mod ledger;
 mod link;
 mod opens;
 mod prompt;
+mod reminders;
 mod reply;
 mod request;
 mod rooms;

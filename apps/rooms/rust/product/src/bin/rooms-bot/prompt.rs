@@ -146,6 +146,32 @@ fn done(action: &Action) -> String {
 	format!("- {what}: {}\n", says(&action.what, action.outcome.as_ref()))
 }
 
+fn conversation_context(prompt: &mut String, context: &[ContextLine], heading: &str) {
+	if !context.is_empty() {
+		prompt.push_str(heading);
+		prompt.push('\n');
+		for line in context {
+			prompt.push_str(&encode(&Said {
+				line: None,
+				from: line.from.as_deref(),
+				text: &line.text,
+				files: Vec::new(),
+			}));
+		}
+		prompt.push('\n');
+	}
+}
+
+pub fn check_in(context: &[ContextLine], task: &str) -> String {
+	let mut prompt = String::from(
+		"Scheduled check-in. The saved task is due in this conversation. Use the conversation context to do the task and give your answer here. Rooms delivers your final reply. Interactive Rooms commands are unavailable during this turn.\n\n",
+	);
+	conversation_context(&mut prompt, context, "Recent messages in this conversation:");
+	prompt.push_str("Saved task:\n");
+	prompt.push_str(&encode(&serde_json::json!({"task":task})));
+	prompt
+}
+
 /// The prompt for one turn. `fetched` holds what became of each trigger's
 /// attachments, in trigger order, as [`inbox::fetch`](super::inbox::fetch)
 /// returns it, and `listing` is the home's memories as
@@ -174,19 +200,7 @@ pub fn turn(
 	prompt.push_str(FORMAT);
 	prompt.push_str("\n\n");
 	memories(&mut prompt, listing);
-	if !context.is_empty() {
-		prompt.push_str(CONTEXT_HEADER);
-		prompt.push('\n');
-		for line in context {
-			prompt.push_str(&encode(&Said {
-				line: None,
-				from: line.from.as_deref(),
-				text: &line.text,
-				files: Vec::new(),
-			}));
-		}
-		prompt.push('\n');
-	}
+	conversation_context(&mut prompt, context, CONTEXT_HEADER);
 	prompt.push_str(TRIGGER_HEADER);
 	prompt.push('\n');
 	for (at, trigger) in triggers.iter().enumerate() {
@@ -377,6 +391,7 @@ mod tests {
 	#[test]
 	fn the_turn_prompt_orders_context_then_triggers_with_attachments() {
 		let context = [ContextLine {
+			ambient: true,
 			seq: Seq(1),
 			event: Cursor::new("e1").unwrap(),
 			from: Some("ann".into()),

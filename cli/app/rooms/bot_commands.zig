@@ -27,6 +27,13 @@ const base = @import("session_commands.zig").base;
 const dm = value("dm", "The nickname of a member of the turn's directory, to post to directly: the session reuses the open direct conversation with them, or reopens or opens one");
 const dm_operation = value("operation", "With --dm and --base, the operation of an earlier open from this conversation whose outcome was uncertain, to look at it again without opening twice");
 const dm_base = value("base", "With --dm and --operation, the revision of an earlier open whose outcome was uncertain");
+const schedule = [_]Flag{
+    value("id", "A name for this schedule in the current conversation"),
+    value("in", "Time until the first occurrence, such as 5m"),
+    value("at", "UTC time of the first occurrence, such as 2027-01-15T14:00:00Z"),
+    value("every", "Interval between occurrences, at least one minute. Use with --count"),
+    value("count", "Total occurrences including the first, from 2 through 32"),
+};
 pub const commands = [_]types.Command{
     .{ .name = "serve", .short_help = "Keep a coding agent present in Rooms, answering in the foreground until stopped", .flags = &.{
         dir,
@@ -62,5 +69,9 @@ pub const commands = [_]types.Command{
     .{ .name = "join", .short_help = "During a turn, join an existing listed room in this conversation's directory", .flags = &.{value("room", "Exact listed room name")}, .run = during_turn("join") },
     .{ .name = "workspace", .short_help = "During a turn, show the workspace the bot sees", .flags = &.{}, .run = during_turn("workspace") },
     .{ .name = "members", .short_help = "During a turn, show the current room’s members and introductions", .flags = &.{}, .run = during_turn("members") },
+    .{ .name = "remind", .short_help = "Post a saved message in this conversation when due", .flags = &(schedule ++ [_]Flag{value("text", "The message to post")}), .run = during_turn("remind") },
+    .{ .name = "schedule", .short_help = "Run an agent turn in this conversation when due, using the model budget", .flags = &(schedule ++ [_]Flag{value("task", "What the agent should do when the turn starts")}), .run = during_turn("schedule") },
+    .{ .name = "reminders", .short_help = "List reminders and scheduled tasks for this conversation", .run = during_turn("reminders") },
+    .{ .name = "cancel-reminder", .short_help = "Cancel a reminder or scheduled task in this conversation", .flags = &.{value("id", "The schedule to cancel")}, .run = during_turn("cancel-reminder") },
     .{ .name = "actions", .short_help = "During a turn, list the bot's actions and their outcomes from its own record", .run = during_turn("actions") },
 };

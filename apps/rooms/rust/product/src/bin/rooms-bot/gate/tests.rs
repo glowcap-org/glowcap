@@ -1,7 +1,7 @@
 use super::*;
 use crate::bot::rooms::Cursor;
 
-fn event(n: u64) -> Trigger {
+pub(super) fn event(n: u64) -> Trigger {
 	Trigger {
 		seq: Seq(n),
 		event: Cursor::new(format!("e{n}")).unwrap(),
@@ -18,6 +18,7 @@ fn rolling_expiry_replay_and_cost_changes() {
 		conversation: ConversationId::new("c"),
 		starts: VecDeque::new(),
 		last: None,
+		scheduled: BTreeSet::new(),
 		notice: None,
 		skipped: 0,
 		limit: 2,

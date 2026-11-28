@@ -63,7 +63,7 @@ impl Attached {
 		}
 	}
 
-	async fn live(&self) -> Result<Rc<Live>, RoomsError> {
+	pub(in crate::bot) async fn live(&self) -> Result<Rc<Live>, RoomsError> {
 		if let Some(live) = self.connection.borrow().clone() {
 			return Ok(live);
 		}
@@ -100,7 +100,7 @@ impl Attached {
 	}
 
 	/// Drop the connection when `cause` says it is gone.
-	async fn lost(&self, live: &Rc<Live>, cause: &attached::Error) {
+	pub(in crate::bot) async fn lost(&self, live: &Rc<Live>, cause: &attached::Error) {
 		if map::connection_lost(cause) {
 			let current = {
 				let mut held = self.connection.borrow_mut();
@@ -121,6 +121,14 @@ impl Attached {
 }
 
 impl Rooms for Attached {
+	async fn scoped_base(&self, scope: &crate::bot::reminders::Scope) -> Result<Option<Base>, RoomsError> {
+		let live = self.live().await?;
+		let snapshot = match live.view.posting_snapshot().await {
+			Ok(snapshot) => snapshot,
+			Err(cause) => return Err(self.failed(&live, cause, Ask::Read).await),
+		};
+		Ok(scope.matches(&live.grant, &snapshot).then_some(Base(snapshot.revision)))
+	}
 	async fn events(&self, after: &Cursor, wait: Wait) -> Result<Batch, RoomsError> {
 		let live = self.live().await?;
 		let raw = match live.view.events(after.as_str(), wait == Wait::Hold).await {

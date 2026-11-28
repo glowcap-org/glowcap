@@ -48,6 +48,10 @@ pub struct Trigger {
 /// A line in a conversation that does not address the bot.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ContextLine {
+	/// Only ordinary room context has this provenance. Older, unmarked entries
+	/// may include a request refused by the hourly gate.
+	#[serde(default)]
+	pub ambient: bool,
 	pub seq: Seq,
 	pub event: Cursor,
 	pub from: Option<String>,
@@ -113,7 +117,7 @@ pub fn classify(event: &Incoming, seq: Seq) -> Class {
 		Kind::Room => line.mentions.member,
 		Kind::Other => false,
 	};
-	if addressed {
+	if addressed && !super::reminders::passive(&line.text) {
 		Class::Trigger(Trigger {
 			seq,
 			event: event.cursor.clone(),
@@ -124,6 +128,7 @@ pub fn classify(event: &Incoming, seq: Seq) -> Class {
 		})
 	} else {
 		Class::Context(ContextLine {
+			ambient: true,
 			seq,
 			event: event.cursor.clone(),
 			from,
@@ -189,6 +194,21 @@ mod tests {
 		);
 		let named = classify(&event(Kind::Room, member("ann"), Change::Said, MENTIONED), Seq(1));
 		assert!(matches!(named, Class::Trigger(t) if t.from.as_deref() == Some("ann")));
+	}
+
+	#[test]
+	fn a_timer_post_stays_context_even_when_it_addresses_another_bot() {
+		for (kind, sender) in [(Kind::Direct, Sender::Peer), (Kind::Room, member("other-bot"))] {
+			for prefix in [crate::bot::reminders::PREFIX, crate::bot::reminders::CHECK_IN_PREFIX] {
+				let mut incoming = event(kind, sender.clone(), Change::Said, MENTIONED);
+				let Body::Line(line) = &mut incoming.body else {
+					unreachable!()
+				};
+				let text = format!("{prefix}@member: pick up the notes");
+				line.text = text.clone();
+				assert!(matches!(classify(&incoming,Seq(1)),Class::Context(context) if context.text==text));
+			}
+		}
 	}
 
 	#[test]

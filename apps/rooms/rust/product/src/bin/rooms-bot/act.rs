@@ -15,6 +15,7 @@
 //! however its agent is prompted.
 mod direct;
 mod failure;
+mod reminders;
 mod verbs;
 
 use super::{
@@ -44,12 +45,16 @@ pub enum Verb {
 	Members,
 	Command,
 	Actions,
+	Remind,
+	Reminders,
+	CancelReminder,
+	Schedule,
 }
 
 impl Verb {
 	/// The verbs, in the order the prompt shows them. A safe Claude run may
 	/// run these and no other glowcap command.
-	pub const ALL: [Self; 7] = [
+	pub const ALL: [Self; 11] = [
 		Self::Say,
 		Self::Send,
 		Self::Workspace,
@@ -57,6 +62,10 @@ impl Verb {
 		Self::Command,
 		Self::Actions,
 		Self::Join,
+		Self::Remind,
+		Self::Reminders,
+		Self::CancelReminder,
+		Self::Schedule,
 	];
 
 	/// The verb a request names, or none when it names no turn verb.
@@ -73,6 +82,10 @@ impl Verb {
 			Self::Members => "members",
 			Self::Command => "command",
 			Self::Actions => "actions",
+			Self::Remind => "remind",
+			Self::Schedule => "schedule",
+			Self::Reminders => "reminders",
+			Self::CancelReminder => "cancel-reminder",
 		}
 	}
 
@@ -82,7 +95,10 @@ impl Verb {
 			Self::Join => &["room"],
 			Self::Say => verbs::SAY,
 			Self::Send => verbs::SEND,
-			Self::Workspace | Self::Members | Self::Actions => &[],
+			Self::Workspace | Self::Members | Self::Actions | Self::Reminders => &[],
+			Self::Remind => &["id", "at", "in", "text", "every", "count"],
+			Self::Schedule => &["id", "at", "in", "task", "every", "count"],
+			Self::CancelReminder => &["id"],
 			Self::Command => verbs::COMMAND,
 		}
 	}
@@ -256,7 +272,7 @@ impl Turn {
 				),
 			}),
 			_ => Err(Error::Usage(format!(
-				"say, send, join, command, workspace, members, and actions run only during a bot's turn, which sets {TURN_BOT}, {TURN_CONVERSATION}, and {TURN_ID}"
+				"bot action commands run only during a bot's turn, which sets {TURN_BOT}, {TURN_CONVERSATION}, and {TURN_ID}"
 			))),
 		}
 	}
@@ -279,7 +295,7 @@ impl Turn {
 		match Ledger::running_turn_in(&root, self.id)? {
 			Some(conversation) if conversation.as_str() == self.conversation => Ok(()),
 			_ => Err(Error::Usage(format!(
-				"turn {} is not a running turn of conversation {}, so it cannot act for that conversation",
+				"turn {} is not a running turn of conversation {}",
 				self.id.0, self.conversation
 			))),
 		}
@@ -296,6 +312,13 @@ impl Turn {
 pub async fn run(verb: Verb, request: &Request) -> Result<(), Error> {
 	let turn = Turn::current()?;
 	request.only(verb.flags())?;
+	// A scheduled turn publishes one receipt-backed final answer. Interactive
+	// actions could escape its original route or repeat after an interruption.
+	if Ledger::scheduled_turn_in(&store::directory(&turn.bot)?, turn.id, &turn.conversation)?.is_some() {
+		return Err(Error::Usage(
+			"A scheduled turn can return an answer to its original conversation. Interactive Rooms actions require a message turn.".into(),
+		));
+	}
 	let line = match verb {
 		Verb::Join => verbs::join(request, &turn).await?,
 		Verb::Say => verbs::say(request, &turn).await?,
@@ -304,6 +327,9 @@ pub async fn run(verb: Verb, request: &Request) -> Result<(), Error> {
 		Verb::Workspace => verbs::workspace(&turn).await?,
 		Verb::Members => verbs::members(&turn).await?,
 		Verb::Actions => verbs::actions(&turn)?,
+		Verb::Remind | Verb::Schedule | Verb::Reminders | Verb::CancelReminder => {
+			reminders::run(request, verb, &turn).await?
+		}
 	};
 	println!("{line}");
 	Ok(())

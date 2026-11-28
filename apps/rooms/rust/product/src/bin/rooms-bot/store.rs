@@ -14,6 +14,7 @@
 //! | `availability/<conversation>.json` | rolling admission, replay decision, and outcome of the current refusal notice |
 //! | `sessions.json` | each harness's session per conversation |
 //! | `conversations.json` | the conversations the bot keeps state for |
+//! | `reminders/schedules.json` | bounded schedules and their receipt states, atomically replaced under the separate `reminders/lock` lease |
 //! | `status.json` | what `bot status` reports |
 //! | `context/<conversation>.json` | the ring of recent lines that did not address the bot |
 //! | `work/<conversation>/` | the harness's working directory, with `inbox/<turn>/` holding the files a turn was sent |
@@ -200,9 +201,11 @@ impl Store {
 			Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
 			other => other,
 		};
-		let context = self.root().join("context");
-		for name in [format!("{stem}.json"), format!("{stem}.json.unreadable")] {
-			gone(std::fs::remove_file(context.join(name))).map_err(Error::io("removing a context ring"))?;
+		for directory in ["context", super::context::ADDRESSED] {
+			let context = self.root().join(directory);
+			for name in [format!("{stem}.json"), format!("{stem}.json.unreadable")] {
+				gone(std::fs::remove_file(context.join(name))).map_err(Error::io("removing a context ring"))?;
+			}
 		}
 		gone(std::fs::remove_dir_all(work_dir(self.root(), conversation)))
 			.map_err(Error::io("removing a harness working directory"))?;
