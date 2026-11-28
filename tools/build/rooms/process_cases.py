@@ -1,4 +1,4 @@
-"""Cargo target runner for the bot process suite in zig build rooms-peers-test.
+"""Cargo target runner for the session and bot process suites in zig build rooms-peers-test.
 
 Cargo supplies the compiled executable, crate working directory and loader paths.
 Each case starts real processes and gets its own 30 seconds from launch.
@@ -24,7 +24,7 @@ def main(binary: str) -> int:
         print(f"{binary} listed no test cases", file=sys.stderr)
         return 1
 
-    print(f"Running {len(cases)} bot process tests with a {TIMEOUT} deadline per case", flush=True)
+    print(f"Running {len(cases)} process tests with a {TIMEOUT} deadline per case", flush=True)
 
     def run(case: str) -> int:
         result = subprocess.run([*timer, "--quiet-success", TIMEOUT, binary, "--exact", case])
