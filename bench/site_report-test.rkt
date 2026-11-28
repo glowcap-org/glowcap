@@ -8,12 +8,12 @@
 
 (define codec-out
   (string-append
-   "encode codec=syrup iters=200000 frame_bytes=70 ns_per_op=133.7 mb_per_sec=524 mode=fast\n"
-   "decode codec=syrup iters=200000 frame_bytes=70 ns_per_op=93.0 mb_per_sec=752 mode=fast\n"
-   "encode codec=capnp iters=200000 frame_bytes=264 ns_per_op=173.1 mb_per_sec=1525 mode=fast\n"
-   "decode codec=capnp iters=200000 frame_bytes=264 ns_per_op=58.3 mb_per_sec=4531 mode=fast\n"
-   "dispatch turns=50000 ns_per_turn=179.1 turns_per_sec=5582434\n"
-   "sparse_import_table inserts=100000 ns_per_insert=37.4\n"))
+   "encode codec=syrup iters=200000 frame_bytes=70 ns_per_op=133.7 mb_per_sec=524 mode=fast samples=5\n"
+   "decode codec=syrup iters=200000 frame_bytes=70 ns_per_op=93.0 mb_per_sec=752 mode=fast samples=5\n"
+   "encode codec=capnp iters=200000 frame_bytes=264 ns_per_op=173.1 mb_per_sec=1525 mode=fast samples=5\n"
+   "decode codec=capnp iters=200000 frame_bytes=264 ns_per_op=58.3 mb_per_sec=4531 mode=fast samples=5\n"
+   "dispatch turns=50000 ns_per_turn=179.1 turns_per_sec=5582434 samples=5\n"
+   "sparse_import_table inserts=100000 ns_per_insert=37.4 samples=5\n"))
 
 (define fv-out
   (string-append
@@ -95,8 +95,19 @@
       (check-equal? (length (hash-ref c 'rows)) 4)
       (check-equal? (hash-ref c 'dispatch_tps) 5582434)
       (check-equal? (hash-ref c 'sparse_ns) 37.4)
+      (check-equal? (hash-ref c 'samples) 5)
       (check-equal? (car (hash-ref c 'rows)) (list "encode" "syrup" 70 133.7 524))
-      (check-true (regexp-match? #px"<svg" (codec-region c))))
+      (check-true (regexp-match? #px"<svg" (codec-region c)))
+      (check-true (regexp-match? #px"median of 7 batches"
+                                (codec-region (parse-codec (regexp-replace* #px"samples=5" codec-out "samples=7")))))
+      (check-exn exn:fail? (lambda () (parse-codec (regexp-replace* #px" samples=5" codec-out ""))))
+      (check-exn exn:fail? (lambda () (parse-codec (regexp-replace* #px"samples=5" codec-out "samples=0")))))
+    (test-case "codec rejects a partial or mixed sampling method"
+      (for ([suffix '("" " samples=1")])
+        (check-exn exn:fail?
+                   (lambda ()
+                     (parse-codec (regexp-replace #px"ns_per_insert=37.4 samples=5" codec-out
+                                                 (string-append "ns_per_insert=37.4" suffix)))))))
     (test-case "frame-view"
       (define fv (parse-frameview fv-out))
       (check-equal? (hash-ref fv 'per_turn) 1)

@@ -49,8 +49,10 @@ async fn paused(fixture: &mut Fixture) -> Paused {
 		let operation = format!("paused-{tries}");
 		let base = view.revision().await.unwrap();
 		match view.say_at(&operation, base, &room, TEXT).await {
+			Ok(EffectStatus::Conflict) => assert!(Instant::now() < deadline, "the line kept conflicting"),
+			Ok(EffectStatus::Pending | EffectStatus::Unknown) => break (operation, base),
 			Ok(EffectStatus::Committed) => panic!("the fault never fired"),
-			Ok(_) => break (operation, base),
+			Ok(EffectStatus::Unsent) => panic!("the session did not dispatch the line"),
 			Err(error) => assert!(Instant::now() < deadline, "the line was never admitted: {error}"),
 		}
 		tokio::time::sleep(Duration::from_millis(200)).await;

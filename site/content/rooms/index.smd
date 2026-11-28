@@ -14,12 +14,16 @@ connected while your browser is closed.
 
 [A team at work: one person and four bots in a room. On the left, the room and a direct conversation with the lead. In the middle, the plan and each member's findings. On the right, every member, each with a message button.]($image.siteAsset('rooms-conversation-light.webp'))
 
-The bots join through the same room references as people. They need no
-separate bot API, webhook, or account. The [CapTP CLI]($link.page('cli'))
-provides a durable peer as `glowcap apps rooms session`, and `glowcap apps rooms team start`
-starts several peers. Each bot still needs a running model to read and answer
-messages, as the [agent setup guide](https://github.com/glowcap-org/glowcap/blob/main/apps/rooms/host.md#use-the-skills)
-explains.
+A member’s card shows the introduction they choose to share in this room.
+They can say whether they’re a person, a bot, or a person working with an assistant.
+Mention one or more members in a message, or ask a bot to bring another
+room member into the discussion. Try “`@scout` Find the source and ask the editor to review it.”
+The scout can pass its findings to `@editor` in the room, where everyone can read the reply.
+
+To keep talking to the same people and bots, mention them together once.
+Open that message’s menu and choose **Keep mentioning these members**.
+Your follow-ups in this room will mention them. Type a different `@name`
+to override them for one message, or choose **Stop automatic mentions** when you’re done.
 
 # Try it
 
@@ -52,6 +56,7 @@ as two people, and starting a direct conversation.
 <li>Bring an IRC channel in as a room, or let IRC users into your rooms.</li>
 <li>Hand out admin links for listeners, diagnostics, peering, IRC, the operator page, and the live wire view.</li>
 <li>Run the session and archive services with an identity that survives restarts.</li>
+<li><a href="https://github.com/glowcap-org/glowcap/blob/main/apps/rooms/web/deploy/members.md">Run a bot team</a> with a nickname, model, and working directory for each member.</li>
 </ul>
 </section>
 </div>
@@ -70,7 +75,8 @@ links to build commands, options, and limits.
 
 Press the message button beside someone and the server introduces you. The
 other side makes an inbox just for you, and from then on you talk over a
-connection of your own. The room does not receive those messages.
+connection of your own. The room does not receive those messages. If a bot follows up with a question
+here, answer it in the same conversation. The bot can see what it asked you.
 
 [The server gives a person and a bot the same room and introduces them to each other, and from then on they talk directly, with the server out of the way.]($image.siteAsset('diagram-rooms-capabilities.svg'))
 

@@ -51,7 +51,16 @@
       (list (list-ref m 1) (list-ref m 2) (n (list-ref m 3)) (n (list-ref m 4)) (n (list-ref m 5)))))
   (define disp (regexp-match #px"dispatch turns=\\d+ ns_per_turn=[0-9.]+ turns_per_sec=(\\d+)" out))
   (define sparse (regexp-match #px"sparse_import_table inserts=\\d+ ns_per_insert=([0-9.]+)" out))
+  (define sample-counts
+    (for/list ([line (regexp-match* #px"(?m:^(?:encode|decode|decode-into|dispatch|sparse_import_table) [^\n]*$)" out)])
+      (define samples (regexp-match #px" samples=(\\d+)$" line))
+      (and samples (n (list-ref samples 1)))))
+  (unless (and (pair? sample-counts)
+               (andmap exact-positive-integer? sample-counts)
+               (apply = sample-counts))
+    (error 'parse-codec "missing or inconsistent batch sample counts"))
   (hash 'rows rows
+        'samples (car sample-counts)
         'dispatch_tps (and disp (n (list-ref disp 1)))
         'sparse_ns (and sparse (n (list-ref sparse 1)))))
 
@@ -262,8 +271,8 @@
                       (row "encode MB/s" "encode" 'mbps commas)
                       (row "decode MB/s" "decode" 'mbps commas)
                       (row "frame bytes" "encode" 'frame commas))))
-   (format "\n<p class=\"bench-note\">The protocol engine alone, with no sockets, handles ~a inbound messages a second, and adds an entry to a sparse import table in ~a ns.</p>"
-           (commas (hash-ref c 'dispatch_tps)) (r1 (hash-ref c 'sparse_ns)))))
+   (format "\n<p class=\"bench-note\">Timings use the median of ~a batches per case. The protocol engine alone, with no sockets, handles ~a inbound messages a second, and adds an entry to a sparse import table in ~a ns.</p>"
+           (hash-ref c 'samples) (commas (hash-ref c 'dispatch_tps)) (r1 (hash-ref c 'sparse_ns)))))
 
 (define (peer-region rows)
   (define svg (svg-bars (map car rows)
