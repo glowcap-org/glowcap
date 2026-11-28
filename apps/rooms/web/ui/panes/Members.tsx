@@ -26,7 +26,6 @@ import { PresenceAvatar } from "../Avatar.tsx";
 import {
 	memberAbout,
 	memberProfileLabels,
-	memberProfileText,
 	membersTitle,
 	memberYouSuffix,
 	presenceAway,
@@ -105,7 +104,9 @@ function MemberRowView(
 	const away = online && standing.away !== "";
 	const said = away ? presenceAway : online ? presenceOnline : presenceOffline;
 	const identity = memberIdentity(name, standing, bridge);
-	const detail = memberDetail(identity, standing);
+	const profile = standing.profile;
+	const kind = profile?.kind && profile.kind !== "person" ? memberProfileLabels[profile.kind] : "";
+	const detail = [kind, memberDetail(identity, standing) || profile?.about].filter(Boolean).join(" · ");
 	return (
 		<li className={said} data-network={identity.network}>
 			{
@@ -142,13 +143,6 @@ function MemberRowView(
 							{identity.name}
 							{you && memberYouSuffix}
 						</span>
-						{standing.profile?.kind && standing.profile.kind !== "person" && (
-							<span className="member-kind" title={memberProfileLabels[standing.profile.kind]}>
-								{standing.profile.kind === "assisted"
-									? memberProfileText.assistedBadge
-									: memberProfileLabels[standing.profile.kind]}
-							</span>
-						)}
 						{identity.mark !== null && (
 							<span className="chip bridge-chip" data-network={identity.network}>{identity.mark}</span>
 						)}

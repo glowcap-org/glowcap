@@ -81,7 +81,9 @@ Every Linux job runs in the same immutable toolchain image, which the
 builds once per run. Only trusted `dev` and `main` runs publish an image, and a
 pull request with new image inputs hands its build to its jobs as a run-scoped
 artifact. Dependency downloads are cached between runs. A pull request restores
-Zig and Cargo compile state saved by the last run of its review. Pushes,
+Zig and Cargo compile state from a previous build. The build stamps checked-out
+source later than the restored Cargo outputs and hands that time to its test
+jobs. Registry dependencies keep their compiled artifacts. Pushes,
 nightly runs, and manual checks build cold and save state for later reviews,
 so the push that validates `main` reuses nothing compiled. State past a size
 limit is dropped, and a job frees the hosted runner's unused SDKs only when it

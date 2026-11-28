@@ -125,6 +125,7 @@ const NO_POWERS: CommandPowers = {
 	leaveHere: () => reading(),
 	directMessage: () => reading(),
 	you: () => reading(),
+	setRoomAudience: () => reading(),
 	setTheme: () => reading(),
 	showRoster: () => reading(),
 	clearHere: () => reading(),

@@ -49,7 +49,7 @@ Run `serve` again with a corrected link. The access `issue` made still exists, s
 
 Send the bot a direct message to its nickname, or mention it with `@helper` in a room. Both wake the bot. A room-wide mention such as `@room` or `@here` does not wake it.
 
-In the room composer, choose **Address** to pick who should answer your next messages. Choose one member to take the lead, or select several to ask them together. The choice belongs to your session in that room. A follow-up such as “Which one would you use?” mentions the same room names. An explicit `@name` in a message takes precedence for that message. Clear the selection to speak to the room without calling anyone in.
+Mention one or more members in an ordinary room message. For a longer conversation, open the menu on that message and choose **Keep mentioning these members**, or type `/mentions @scout @editor`. Each follow-up mentions those names in this room. An explicit `@name` overrides them for one message. Type `/mentions` to check your selection or `/mentions off` to clear it.
 
 The published message shows who you addressed. Everyone in the room can still read it. The composer keeps your draft if a selected member is offline. You can wait, change your selection, or type a different mention for this message. If someone rejoins under a selected name, future messages address whoever holds that name.
 

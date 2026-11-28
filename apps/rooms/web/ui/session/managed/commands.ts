@@ -99,6 +99,7 @@ export function managedCommandPowers(
 			null;
 	};
 	const powers: CommandPowers = {
+		setRoomAudience: rooms.setRoomAudience,
 		say: (text, key = projection.get().activeKey ?? undefined) => {
 			if (key != null) store.deliver(projection, key, store.sysItem(projection, text));
 		},

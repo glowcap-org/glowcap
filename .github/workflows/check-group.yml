@@ -129,9 +129,9 @@ jobs:
 
       # A pull request starts from the shard's last compile state, because a
       # hosted runner compiles cold an order of magnitude slower than a
-      # workstation. Zig and Cargo key every object by its inputs and every
-      # proof reruns in the test jobs, so a restore saves compile time and
-      # skips no proof. Pushes, nightly, and manual runs build cold.
+      # workstation. Cargo checks the checkout time against cached outputs.
+      # Every proof reruns in the test jobs. Pushes, nightly, and manual runs
+      # build cold.
       - name: Restore build state
         if: github.event_name == 'pull_request'
         timeout-minutes: 5
@@ -280,7 +280,7 @@ jobs:
         id: fetch
         run: $EXEC python3 ci/gates.py fetch
 
-      - run: python3 ci/state.py stamp
+      - run: python3 ci/state.py stamp --handoff
 
       - name: Run the phase
         if: ${{ !cancelled() && steps.fetch.outcome == 'success' }}

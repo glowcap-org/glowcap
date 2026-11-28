@@ -156,7 +156,7 @@ export async function proveManagedAccessEditor(browser: Browser, owner: Page, ht
 		for (const page of [owner, observer]) {
 			await page.locator(".bubble").filter({ hasText: "Edited with collaborator access" }).first().waitFor();
 		}
-		await observer.waitForSelector(".changing-bar", { state: "detached" });
+		await observer.waitForSelector("#changing", { state: "detached" });
 		await observer.setInputFiles("#filePick", {
 			name: "collaborator.png",
 			mimeType: "image/png",

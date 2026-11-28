@@ -51,7 +51,8 @@ import { IconButton } from "../IconButton.tsx";
 import { Button } from "../Button.tsx";
 import { kindOf } from "../media.ts";
 import { FileChip, KEYBOARD_SETTLE_MS, useTypingSignal } from "../composer/bits.tsx";
-import { RoomAudience } from "../composer/RoomAudience.tsx";
+import { ComposerContext } from "../composer/ComposerContext.tsx";
+import { SavedMentions } from "../composer/SavedMentions.tsx";
 import { ComposerStatus } from "../composer/status.tsx";
 import { DraftSync, useDraftFailure } from "../composer/DraftSync.tsx";
 import { markerFor, wrapSelection } from "../composer/keys.ts";
@@ -295,14 +296,6 @@ export function Composer(
 					dispatch({ kind: "tray", open: false });
 				}}
 			/>
-			{listOpen && (
-				<CompletionList
-					candidates={candidates}
-					pick={pick}
-					onPick={(picked) => dispatch({ kind: "pick", picked })}
-					onAccept={accept}
-				/>
-			)}
 			{
 				/* Rewriting a line already posted, which the field alone cannot say:
 				    the words in it look exactly like a new message. Named here, with
@@ -310,28 +303,24 @@ export function Composer(
 				    Enter is about to do is looking at the field. */
 			}
 			{changing !== undefined && (
-				<div id="changing" className="changing-bar">
-					<span className="changing-said">
-						{emptiesLine
-							? composerEmptiesLine
-							: draftKeeping !== undefined
-							? composerEditingFiles
-							: composerEditingMessage}
-					</span>
-					<IconButton
-						icon="close"
-						label={composerStopEditing}
-						size="small"
-						variant="ghost"
-						onClick={() => {
-							browser.cancelChange();
-							field.current?.focus();
-						}}
-					/>
-				</div>
+				<ComposerContext
+					id="changing"
+					dismissLabel={composerStopEditing}
+					dismiss={() => {
+						browser.cancelChange();
+						field.current?.focus();
+					}}
+				>
+					{emptiesLine
+						? composerEmptiesLine
+						: draftKeeping !== undefined
+						? composerEditingFiles
+						: composerEditingMessage}
+				</ComposerContext>
 			)}
-			{conv?.type === "room" && conv.membershipKind === "participant" && canInteract && changing === undefined &&
-				<RoomAudience key={conv.key} room={conv} nick={nick} />}
+			{conv?.type === "room" && conv.membershipKind === "participant" &&
+				canInteract && changing === undefined &&
+				<SavedMentions key={conv.key} room={conv} focusDraft={() => field.current?.focus()} />}
 			<form
 				id="composer"
 				hidden={conv === null}
@@ -340,6 +329,14 @@ export function Composer(
 					session.send();
 				}}
 			>
+				{listOpen && (
+					<CompletionList
+						candidates={candidates}
+						pick={pick}
+						onPick={(picked) => dispatch({ kind: "pick", picked })}
+						onAccept={accept}
+					/>
+				)}
 				{
 					/* The files a file-line change is keeping, above the newly-picked
 					   ones, each removable. A × here drops a file the line already has.

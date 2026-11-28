@@ -187,6 +187,7 @@ const batches: []const []const []const u8 = &.{
         "apps/rooms/test/room/client_custody_test.ts",
         "apps/rooms/test/room/message_stream_test.ts",
         "apps/rooms/test/commands_test.ts",
+        "apps/rooms/test/mentions_command_test.ts",
         "apps/rooms/test/error_detail_test.ts",
         "apps/rooms/test/log_test.ts",
         "apps/rooms/test/bounded_waits_test.ts",

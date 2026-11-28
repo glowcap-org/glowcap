@@ -7,6 +7,7 @@ import {
 	acceptCompletion,
 	commandArgTrigger,
 	completeCandidates,
+	composerCandidates,
 	nickSource,
 	roomSource,
 	triggerAt,
@@ -212,7 +213,7 @@ Deno.test("a command that names a person does not offer the room itself", () => 
 Deno.test("a person-target command does not offer your own name", () => {
 	const conv = { type: "room", dir: "d" } as unknown as Conv;
 	const trigger = { kind: "nick" as const, start: 8, query: "" };
-	const names = nickSource(trigger, conv, "/invite @", new Set(["alice", "bo"]), "alice", new Map());
+	const names = nickSource(trigger, conv, "reachable", "/invite @", new Set(["alice", "bo"]), "alice", new Map());
 	if (names.some((name) => name.toLowerCase() === "alice")) {
 		fail("/invite offered the reader's own name");
 	}
@@ -230,10 +231,14 @@ Deno.test("a bridge's roster attribution never leaks into a mention", () => {
 	const names = nickSource(
 		{ kind: "nick", start: 0, query: "" },
 		conv,
+		undefined,
 		"@",
 		new Set(),
 		"bob",
-		new Map([["irc/alice", {}], ["bob", {}], ["alice", {}]]),
+		new Map([["irc/alice", { online: true, away: "" }], ["bob", { online: true, away: "" }], ["alice", {
+			online: true,
+			away: "",
+		}]]),
 	);
 	assertEquals(names, ["alice", "bob"]);
 	const rows = completeCandidates({ kind: "nick", start: 0, query: "ali" }, {
@@ -249,13 +254,49 @@ Deno.test("a bridge's roster attribution never leaks into a mention", () => {
 		nickSource(
 			{ kind: "nick", start: 0, query: "" },
 			plain,
+			undefined,
 			"@",
 			new Set(),
 			"bob",
-			new Map([["irc/alice", {}], ["bob", {}]]),
+			new Map([["irc/alice", { online: true, away: "" }], ["bob", { online: true, away: "" }]]),
 		),
 		["irc/alice", "bob"],
 	);
+});
+
+Deno.test("a command that keeps room members offers only other addressable, online members", () => {
+	const room = { type: "room", dir: "d" } as Conv;
+	const online = { online: true, away: "" };
+	const members = new Map([
+		["Ada", online],
+		["rowan", online],
+		["forest", online],
+		["away", { ...online, online: false }],
+		["all", online],
+		["irc/fern", online],
+	]);
+	const options = (draft: string) =>
+		composerCandidates(triggerAt(draft, draft.length), null, room, draft, new Set(["guest"]), "ada", members, []);
+	assertEquals(options("/mentions @FOREST @").map((row) => row.insert), ["@rowan "]);
+	assertEquals(options("/mentions @rowan")[0]?.keepsEnter, false);
+});
+
+Deno.test("ordinary mentions find a room member by name or their local introduction", () => {
+	const members = new Map([
+		["rowan", { online: true, away: "", profile: { kind: "bot" as const, about: "Researches forests" } }],
+		["forest", { online: true, away: "" }],
+	]);
+	const room = { type: "room", dir: "d" } as Conv;
+	const rows = (draft: string, conv: Conv = room) =>
+		composerCandidates(triggerAt(draft, draft.length), null, conv, draft, new Set(["rowan"]), "ada", members, []);
+	const choices = rows("Ask @forest");
+	assertEquals(choices.map((row) => row.label), ["forest", "rowan"]);
+	assertEquals(choices[1]?.hint, "Bot · Researches forests");
+	assertEquals(choices[1]?.insert, "@rowan ");
+	assertEquals(rows("Ask @bot").map((row) => row.label), ["rowan"]);
+	assertEquals(rows("/invite @forest"), []);
+	assertEquals(rows("@forest", { type: "dm", id: "rowan" } as Conv), []);
+	assertEquals(rows("/invite @rowan")[0]?.hint, undefined);
 });
 
 Deno.test("every spelling of a room-wide call is understood, two are proposed", () => {
