@@ -6,7 +6,8 @@
 //! A verb takes its bot directory, its conversation, and its ledger id from
 //! the turn that runs it, through [`TURN_BOT`], [`TURN_CONVERSATION`], and
 //! [`TURN_ID`], which the bot sets for the harness, and never from a flag the
-//! agent chooses.
+//! agent chooses. Outside a turn the operator can list or cancel schedules by
+//! naming a bot directory and conversation.
 //!
 //! `say`, `send`, and a new `command` each take one place in the turn's
 //! action budget first, whatever conversation they post to and whether a
@@ -87,6 +88,10 @@ impl Verb {
 			Self::Reminders => "reminders",
 			Self::CancelReminder => "cancel-reminder",
 		}
+	}
+
+	pub fn operator_schedule_control(self) -> bool {
+		matches!(self, Self::Reminders | Self::CancelReminder)
 	}
 
 	/// The flags the verb reads.
@@ -310,6 +315,23 @@ impl Turn {
 }
 
 pub async fn run(verb: Verb, request: &Request) -> Result<(), Error> {
+	if verb.operator_schedule_control() {
+		let in_turn = [TURN_BOT, TURN_CONVERSATION, TURN_ID, TURN_ENDS, super::home::TURN_HOME]
+			.iter()
+			.any(|name| std::env::var_os(name).is_some());
+		if !request.state.as_os_str().is_empty() {
+			if in_turn {
+				return Err(Error::Usage(
+					"a bot turn takes its directory and conversation from the turn".into(),
+				));
+			}
+			println!("{}", reminders::operator(request, verb).await?);
+			return Ok(());
+		}
+		if !in_turn {
+			return Err(Error::Usage("outside a bot turn, pass --dir and --conversation".into()));
+		}
+	}
 	let turn = Turn::current()?;
 	request.only(verb.flags())?;
 	// A scheduled turn publishes one receipt-backed final answer. Interactive
@@ -336,8 +358,8 @@ pub async fn run(verb: Verb, request: &Request) -> Result<(), Error> {
 }
 
 /// Attach for one action. The bot directory's link is the only authority.
-async fn attach(turn: &Turn) -> Result<Live, Error> {
-	let link = Link::load(&store::directory(&turn.bot)?)?.ok_or_else(|| {
+async fn attach(dir: &std::path::Path) -> Result<Live, Error> {
+	let link = Link::load(&store::directory(dir)?)?.ok_or_else(|| {
 		Error::Config(format!(
 			"this bot directory {} Start serve with --link first",
 			words::NO_SESSION_LINK
@@ -356,9 +378,16 @@ where
 	F: FnOnce(std::rc::Rc<Live>) -> Fut,
 	Fut: std::future::Future<Output = Result<Value, Error>>,
 {
-	let attached = turn
-		.budget
-		.within(Step::Attach, attach(turn))
+	with_bot_view(&turn.bot, turn.budget, action).await
+}
+
+async fn with_bot_view<F, Fut>(dir: &std::path::Path, budget: Budget, action: F) -> Result<Value, Error>
+where
+	F: FnOnce(std::rc::Rc<Live>) -> Fut,
+	Fut: Future<Output = Result<Value, Error>>,
+{
+	let attached = budget
+		.within(Step::Attach, attach(dir))
 		.await
 		.ok_or_else(failure::nothing_sent)??;
 	let live = std::rc::Rc::new(attached);
@@ -366,6 +395,6 @@ where
 	// best-effort: the verb's own result is the report, and the process
 	// exits next, which drops the Host whether or not it closed cleanly or
 	// within the budget.
-	let _ = turn.budget.until_spent(live.close()).await;
+	let _ = budget.until_spent(live.close()).await;
 	result
 }

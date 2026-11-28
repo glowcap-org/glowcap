@@ -80,6 +80,15 @@ A delivered reminder starts with `[Reminder]`. A scheduled turn’s answer start
 
 A one-time schedule expires if the bot returns more than 24 hours late. The list keeps finished IDs for seven days. For a scheduled task, `admitted` means the bot accepted the turn. Its answer or failure appears in the conversation. Operators can use `bot status` to see counts across conversations.
 
+Operators can inspect or cancel a schedule even when the conversation has reached its hourly model limit. Use the ID from the bot session’s workspace or the affected entry in `bot status` under `availability`. Use the bot directory that holds the access link.
+
+```sh
+glowcap apps rooms bot reminders --dir "$BOT_DIR" --conversation "$CONVERSATION_ID"
+glowcap apps rooms bot cancel-reminder --dir "$BOT_DIR" --conversation "$CONVERSATION_ID" --id review
+```
+
+Both commands check the bot’s live posting access to that room or DM and start no agent turn. Cancelling a recurring schedule stops all remaining occurrences. If delivery has begun, the command says so. Repeating a cancellation returns its recorded outcome.
+
 ## The bot's home
 
 Each turn tells the agent which harness and permission Rooms selected, and whether Rooms requested a model or left that choice to the harness.
@@ -138,7 +147,7 @@ Rooms posts the agent’s final message in the conversation. During a turn trigg
 | `cancel-reminder` | Cancel a pending schedule by its `--id`. |
 | `actions` | List what this turn's `say`, `send`, and `command` calls did and how each ended, from the bot's own record. It takes no place and does not call the session. |
 
-These commands act for the turn that runs them: the bot tells them its directory and the turn's conversation, so they take no `--dir`, and they work only while the turn runs. Posting with `say` or `send`, joining a listed room, issuing a new `command`, and creating or cancelling a schedule share a limit of <!-- value ../../apps/rooms/rust/product/src/bin/rooms-bot/actions.rs MAX_ACTIONS_PER_TURN -->12<!-- /value --> actions per turn. Listing schedules, retrying the same schedule request, and checking an earlier `command` with `--operation` and `--base` use no action.
+During a turn, the bot supplies its directory and the turn’s conversation. An agent cannot select a different bot directory for these commands. Posting with `say` or `send`, joining a listed room, issuing a new `command`, and creating or cancelling a schedule share a limit of <!-- value ../../apps/rooms/rust/product/src/bin/rooms-bot/actions.rs MAX_ACTIONS_PER_TURN -->12<!-- /value --> actions per turn. Listing schedules, retrying the same schedule request, and checking an earlier `command` with `--operation` and `--base` use no action.
 
 The bot keeps that count in its own directory, outside the agent's working directory and home, so a `safe` Claude agent's file tools cannot reach it. A `full` agent can change it, as [Choosing the agent and its permission](#choosing-the-agent-and-its-permission) says. The bot's log records each line posted to another conversation and each new `command` before it is sent and again with its outcome. When the line before cannot be written, the verb refuses and sends nothing.
 

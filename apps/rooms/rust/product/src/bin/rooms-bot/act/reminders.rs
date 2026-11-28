@@ -1,6 +1,6 @@
-//! Turn-local scheduling. The target comes only from the open turn and the
-//! actual grant whose snapshot supplied the conversation's custody keys.
-use super::{Step, Turn, Verb, failure, with_view};
+//! A turn schedules work in its own conversation. An operator can inspect or
+//! cancel it with the same live grant and conversation custody keys.
+use super::{Budget, Step, Turn, Verb, failure, with_bot_view, with_view};
 use crate::bot::{
 	config::Config,
 	error::Error,
@@ -9,6 +9,7 @@ use crate::bot::{
 	request::Request,
 };
 use serde_json::{Value, json};
+use std::path::Path;
 
 pub(super) async fn run(request: &Request, verb: Verb, turn: &Turn) -> Result<Value, Error> {
 	turn.begin()?;
@@ -23,20 +24,8 @@ pub(super) async fn run(request: &Request, verb: Verb, turn: &Turn) -> Result<Va
 			)));
 		}
 	}
-	let required = |flag: &str| {
-		request
-			.single(flag)?
-			.ok_or_else(|| Error::Usage(format!("--{flag} is required")))
-	};
 	with_view(turn, |live| async move {
-		let snapshot = turn
-			.budget
-			.within(Step::Call, live.view.posting_snapshot())
-			.await
-			.ok_or_else(failure::nothing_sent)?
-			.map_err(|cause| failure::call(&cause))?;
-		let scope = Scope::held(&live.grant, &turn.conversation, &snapshot)
-			.ok_or_else(|| Error::Usage("this conversation holds no active posting route".into()))?;
+		let scope = held(&live, &turn.conversation, turn.budget).await?;
 		turn.require_running()?;
 		match verb {
 			Verb::Remind | Verb::Schedule => {
@@ -47,21 +36,69 @@ pub(super) async fn run(request: &Request, verb: Verb, turn: &Turn) -> Result<Va
 				};
 				let order = reminders::Request {
 					kind,
-					id: required("id")?,
-					text: required(flag)?,
+					id: required(request, "id")?,
+					text: required(request, flag)?,
 					when: When::parse(request.single("in")?, request.single("at")?)?,
 					repeat: Repeat::parse(request.single("every")?, request.single("count")?)?,
 				};
 				let reminder = reminders::create(&turn.bot, scope, order, reminders::now(), || turn.spend())?;
 				Ok(json!({"ok": true, "reminder": reminder}))
 			}
-			Verb::Reminders => Ok(json!({"ok": true, "reminders": reminders::list(&turn.bot, &scope)?})),
-			Verb::CancelReminder => {
-				let reminder = reminders::cancel(&turn.bot, &scope, required("id")?, || turn.spend())?;
-				Ok(json!({"ok": true, "reminder": reminder}))
-			}
-			_ => Err(Error::Usage("unknown reminder command".into())),
+			_ => control(&turn.bot, &scope, verb, request, || turn.spend()),
 		}
+	})
+	.await
+}
+
+fn required<'a>(request: &'a Request, flag: &str) -> Result<&'a str, Error> {
+	request
+		.single(flag)?
+		.filter(|v| !v.is_empty())
+		.ok_or_else(|| Error::Usage(format!("--{flag} is required")))
+}
+
+async fn held(live: &super::Live, conversation: &str, budget: Budget) -> Result<Scope, Error> {
+	let snapshot = budget
+		.within(Step::Call, live.view.posting_snapshot())
+		.await
+		.ok_or_else(failure::nothing_sent)?
+		.map_err(|cause| failure::call(&cause))?;
+	Scope::held(&live.grant, conversation, &snapshot)
+		.ok_or_else(|| Error::Usage("this conversation holds no active posting route".into()))
+}
+
+fn control(
+	root: &Path,
+	scope: &Scope,
+	verb: Verb,
+	request: &Request,
+	spend: impl FnOnce() -> Result<(), Error>,
+) -> Result<Value, Error> {
+	match verb {
+		Verb::Reminders => Ok(json!({"ok": true, "reminders": reminders::list(root, scope)?})),
+		Verb::CancelReminder => {
+			Ok(json!({"ok": true, "reminder": reminders::cancel(root, scope, required(request, "id")?, spend)?}))
+		}
+		_ => Err(Error::Usage("unknown reminder command".into())),
+	}
+}
+
+/// Local operators attach through the bot's existing grant. The timer table
+/// sees only the scope derived from that live posting route.
+pub(super) async fn operator(request: &Request, verb: Verb) -> Result<Value, Error> {
+	request.only(if verb == Verb::CancelReminder {
+		&["conversation", "id"]
+	} else {
+		&["conversation"]
+	})?;
+	let conversation = required(request, "conversation")?;
+	if verb == Verb::CancelReminder {
+		required(request, "id")?;
+	}
+	let budget = Budget::starting(None);
+	with_bot_view(&request.state, budget, |live| async move {
+		let scope = held(&live, conversation, budget).await?;
+		control(&request.state, &scope, verb, request, || Ok(()))
 	})
 	.await
 }

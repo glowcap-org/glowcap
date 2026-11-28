@@ -45,11 +45,85 @@ fn a_saved_reminder_posts_to_its_original_dm_after_bot_restart() {
 	world.finish();
 }
 
+/// Exhaust a real conversation's model allowance, then manage its pending
+/// work through a separate local process with the bot's existing grant.
+#[test]
+fn the_operator_can_cancel_a_single_schedule_after_the_hourly_refusal() {
+	let world = World::new("operator-schedule-budget");
+	let bot = world
+		.rig
+		.serve_linked(&world.fixture.peers[0].link, json!({"conversation-limit":["1"]}));
+	let other = world.fixture.room_id(0);
+	let create = action(
+		"schedule",
+		json!({"id":["review"], "in":["2s"], "task":["reply:review only if admitted"]}),
+		&[],
+	);
+	let mut forged = action("reminders", json!({"conversation":[other]}), &[]);
+	forged["state"] = json!(world.rig.dir);
+	let foreign = action("reminders", json!({"conversation":[other]}), &[]);
+	world.dm(&format!("act:{}", json!([create, forged, foreign])));
+	world.await_line("direct", "exit=0 exit=1 exit=1");
+	assert!(
+		output(&world, 1)
+			.to_string()
+			.contains("a bot turn takes its directory and conversation from the turn")
+	);
+	assert!(output(&world, 2).to_string().contains("does not take --conversation"));
+	world.dm("reply:this question exceeds the budget");
+	let direct = eventually("the bot to refuse without a second turn", || {
+		let status = world.rig.status();
+		let (id, _) = status["availability"]
+			.as_object()?
+			.iter()
+			.find(|(_, row)| row["notice"] == "posted")?;
+		(status["status"]["turns_finished"] == 1 && status["status"]["open_turns"] == 0).then(|| id.clone())
+	});
+	let list = |conversation: &str| {
+		let (body, ok) = world.rig.run("reminders", json!({"conversation":[conversation]}));
+		assert!(ok, "{body}");
+		body["reminders"].clone()
+	};
+	let cancel = |conversation: &str| {
+		world.rig.run(
+			"cancel-reminder",
+			json!({"conversation":[conversation], "id":["review"]}),
+		)
+	};
+	eventually("the pending check-in to wait for the hourly limit", || {
+		(world.rig.status()["reminders"]["waiting-for-hourly-limit"] == 1).then_some(())
+	});
+	let rows = list(&direct);
+	assert_eq!(rows.as_array().unwrap().len(), 1);
+	assert_eq!(rows[0]["id"], "review");
+	assert_eq!(rows[0]["state"], "waiting-for-hourly-limit");
+	assert_eq!(rows[0]["admitted"], 0);
+	assert!(rows[0]["retry_at"].is_string());
+	assert_eq!(list(&other), json!([]));
+	assert!(!cancel(&other).1);
+	assert!(cancel(&direct).1);
+	assert!(cancel(&direct).1, "repeating a cancellation must be safe");
+	assert_eq!(list(&direct)[0]["state"], "cancelled");
+	let status = world.rig.status();
+	assert_eq!(status["status"]["turns_finished"], 1);
+	assert_eq!(status["availability"][&direct]["skipped"], 1);
+	assert_eq!(world.count("direct", "[Check-in] review only if admitted"), 0);
+	world.stopped(bot);
+	world.finish();
+}
+
 #[test]
 fn a_scheduled_turn_returns_once_without_interactive_actions() {
 	let world = World::new("bot-scheduled-task");
 	let bot = world.serve();
+	let mut operator = action(
+		"cancel-reminder",
+		json!({"conversation":[world.fixture.room_id(0)], "id":["review"]}),
+		&[],
+	);
+	operator["state"] = json!(world.rig.dir);
 	let actions = json!([
+		operator,
 		action("workspace", json!({}), &[]),
 		action(
 			"say",
@@ -68,18 +142,23 @@ fn a_scheduled_turn_returns_once_without_interactive_actions() {
 	world.await_line("direct", "exit=0");
 	world.stopped(bot);
 	let bot = world.serve();
-	world.await_line("direct", "[Check-in] exit=1 exit=1 exit=1");
-	for i in 0..3 {
+	world.await_line("direct", "[Check-in] exit=1 exit=1 exit=1 exit=1");
+	for i in 0..4 {
 		let refused = output(&world, i);
+		let expected = if i == 0 {
+			"a bot turn takes its directory and conversation from the turn"
+		} else {
+			"Interactive Rooms actions require a message turn"
+		};
 		assert!(
 			refused["error"]["message"]
 				.as_str()
-				.is_some_and(|message| message.contains("Interactive Rooms actions require a message turn")),
+				.is_some_and(|message| message.contains(expected)),
 			"scheduled action {i}: {refused}"
 		);
 	}
 	world.stopped(bot);
-	assert_eq!(world.count("direct", "[Check-in] exit=1 exit=1 exit=1"), 1);
+	assert_eq!(world.count("direct", "[Check-in] exit=1 exit=1 exit=1 exit=1"), 1);
 	assert_eq!(world.count("room", "outside scheduled scope"), 0);
 	world.finish();
 }
@@ -101,12 +180,31 @@ fn replacing_the_grant_retires_the_original_room_reminder() {
 		);
 		assert_eq!(turn(&world, &[request]), "exit=0");
 		world.stopped(bot);
+		let selected = world.fixture.room_id(0);
+		grants.revoke(&first.name).await.unwrap();
+		for (verb, flags) in [
+			("reminders", json!({"conversation":[selected]})),
+			("cancel-reminder", json!({"conversation":[selected], "id":["review"]})),
+		] {
+			let (reply, ok) = world.rig.run(verb, flags);
+			assert!(!ok, "{reply}");
+			assert!(!reply.to_string().contains("original grant only"));
+		}
 		let bot = world.rig.serve_replacing(&second.link);
 		eventually("the original grant to lose its scheduled reminder", || {
 			(world.rig.status()["reminders"]["access-lost"] == 1).then_some(())
 		});
 		assert_eq!(turn(&world, &[action("reminders", json!({}), &[])]), "exit=0");
 		assert_eq!(output(&world, 0)["reminders"], json!([]));
+		let (listed, ok) = world.rig.run("reminders", json!({"conversation":[selected]}));
+		assert!(ok, "{listed}");
+		assert_eq!(listed["reminders"], json!([]));
+		assert!(
+			!world
+				.rig
+				.run("cancel-reminder", json!({"conversation":[selected], "id":["review"]}))
+				.1
+		);
 		world.stopped(bot);
 		assert_eq!(world.count("room", "[Reminder] original grant only"), 0);
 		world
@@ -199,6 +297,18 @@ fn reopening_the_same_dm_id_does_not_receive_the_previous_routes_reminder() {
 	);
 	assert_eq!(output(&world, 1)["conversation"], conversation);
 	world.await_line("direct", "replacement route");
+	let (report, ok) = world.rig.run("reminders", json!({"conversation":[conversation]}));
+	assert!(ok, "{report}");
+	assert_eq!(report["reminders"], json!([]));
+	assert!(
+		!world
+			.rig
+			.run(
+				"cancel-reminder",
+				json!({"conversation":[conversation], "id":["first"]})
+			)
+			.1
+	);
 	eventually("the changed DM route to retire the timer", || {
 		(world.rig.status()["reminders"]["target-changed"] == 1).then_some(())
 	});
