@@ -62,6 +62,8 @@ fn main() -> Result<(), String> {
 		("MAX_DURABLE_ROOM", server::document::MAX_DURABLE_ROOM),
 		("MAX_LINE", room::line::MAX_LINE_BYTES),
 		("MAX_AWAY", room::membership::MAX_AWAY),
+		("MAX_PROFILE_ABOUT", room::profile::MAX_ABOUT),
+		("MAX_PROFILE_BATCH", room::profile::MAX_BATCH),
 		("MAX_MESSAGE_FILES", room::line::MAX_MESSAGE_FILES),
 		("ATTACHMENT_RECORD_SPAN", room::attachment::RECORD_SPAN),
 		("MAX_ROOM_MESSAGE_BACKLOG", room::inbox::queue::MAX_MESSAGES),

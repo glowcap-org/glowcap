@@ -45,6 +45,15 @@ pub enum Presence {
 		name: Text<32, true>,
 		reason: Text<120>,
 	},
+	Profiles {
+		entries: List<crate::room::profile::Entry<String>, { crate::room::profile::MAX_BATCH }>,
+	},
+	Profile {
+		name: Text<32, true>,
+		#[serde(rename = "memberKind")]
+		member_kind: crate::room::profile::MemberKind,
+		about: String,
+	},
 	Seat {
 		name: Text<32, true>,
 		state: SeatPhase,
@@ -125,6 +134,38 @@ impl<'de> Deserialize<'de> for Presence {
 				Ok(Self::Away {
 					name: r.name,
 					reason: r.reason,
+				})
+			}
+			crate::protocol_data::PROFILES => {
+				#[derive(Deserialize)]
+				#[serde(deny_unknown_fields)]
+				struct Record {
+					#[serde(rename = "kind")]
+					_kind: serde::de::IgnoredAny,
+					entries: List<crate::room::profile::Entry<String>, { crate::room::profile::MAX_BATCH }>,
+				}
+				let r: Record = read(raw.get())?;
+				if !crate::room::profile::valid_entries(r.entries.as_slice()) {
+					return Err(serde::de::Error::custom("invalid room profiles"));
+				}
+				Ok(Self::Profiles { entries: r.entries })
+			}
+			crate::room::profile::TAG => {
+				#[derive(Deserialize)]
+				#[serde(deny_unknown_fields, rename_all = "camelCase")]
+				struct Record {
+					#[serde(rename = "kind")]
+					_kind: serde::de::IgnoredAny,
+					name: Text<32, true>,
+					member_kind: crate::room::profile::MemberKind,
+					#[serde(deserialize_with = "crate::room::profile::read_about")]
+					about: String,
+				}
+				let r: Record = read(raw.get())?;
+				Ok(Self::Profile {
+					name: r.name,
+					member_kind: r.member_kind,
+					about: r.about,
 				})
 			}
 			crate::protocol_data::SEAT => {
@@ -274,6 +315,15 @@ impl<C> Event<C> {
 			Presence::Roster { names } => names_bytes(names),
 			Presence::Offline { names } => names_bytes(names),
 			Presence::Away { name, reason } => name.text().heap_bytes() + reason.text().heap_bytes(),
+			Presence::Profiles { entries } => {
+				entries.0.capacity() * core::mem::size_of::<crate::room::profile::Entry<String>>()
+					+ entries
+						.0
+						.iter()
+						.map(|e| e.name.capacity() + e.about.capacity())
+						.sum::<usize>()
+			}
+			Presence::Profile { name, about, .. } => name.text().heap_bytes() + about.capacity(),
 			Presence::Seat {
 				name,
 				nick,

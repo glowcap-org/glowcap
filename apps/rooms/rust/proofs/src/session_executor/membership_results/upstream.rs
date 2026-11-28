@@ -15,6 +15,8 @@ struct Upstream {
 	nickname: std::cell::RefCell<String>,
 	standing: std::cell::RefCell<String>,
 	standing_calls: Cell<usize>,
+	profile: std::cell::RefCell<(String, String)>,
+	profile_calls: Cell<usize>,
 	refuse_standing: Cell<bool>,
 	standing_refusals: Cell<usize>,
 }
@@ -47,6 +49,23 @@ impl Content for Upstream {
 				*self.standing.borrow_mut() = reason.as_str().unwrap().into();
 				self.standing_calls.set(self.standing_calls.get() + 1);
 				Ok(Argument::Void)
+			}
+			rooms_application::room::profile::SET_PROFILE => {
+				assert_eq!(input.payload, b"seat");
+				let [kind, about] = input.args else {
+					panic!("exact profile")
+				};
+				*self.profile.borrow_mut() = (kind.as_str().unwrap().into(), about.as_str().unwrap().into());
+				self.profile_calls.set(self.profile_calls.get() + 1);
+				Ok(Argument::Void)
+			}
+			"last-profile" => {
+				let profile = self.profile.borrow();
+				Ok(Argument::List(vec![
+					profile.0.clone().into(),
+					profile.1.clone().into(),
+					(self.profile_calls.get() as i64).into(),
+				]))
 			}
 			"last-standing" => Ok(self.standing.borrow().clone().into()),
 			"standing-count" => Ok((self.standing_calls.get() as i64).into()),
@@ -166,6 +185,8 @@ pub(in crate::session_executor) fn registration_with_retirement(
 			"notify",
 			rooms_application::room::correlation::POST,
 			"last-nickname",
+			rooms_application::room::profile::SET_PROFILE,
+			"last-profile",
 			"away",
 			"last-standing",
 			"standing-count",
@@ -203,6 +224,8 @@ pub(in crate::session_executor) fn registration_with_retirement(
 			nickname: Default::default(),
 			standing: Default::default(),
 			standing_calls: Cell::new(0),
+			profile: Default::default(),
+			profile_calls: Cell::new(0),
 			refuse_standing: Cell::new(false),
 			standing_refusals: Cell::new(0),
 		}),

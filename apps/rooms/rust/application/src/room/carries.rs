@@ -37,14 +37,17 @@ pub enum Feature {
 	Typing,
 	/// Correlated receipts and reuse of acknowledged upload storage.
 	Retained,
+	/// Self-declared introductions scoped to current seats.
+	Profiles,
 }
 impl Feature {
-	pub const ALL: [Self; 3] = [Self::Previews, Self::Typing, Self::Retained];
+	pub const ALL: [Self; 4] = [Self::Previews, Self::Typing, Self::Retained, Self::Profiles];
 	pub const fn wire(self) -> &'static str {
 		match self {
 			Self::Previews => "previews",
 			Self::Typing => "typing",
 			Self::Retained => "retained",
+			Self::Profiles => "profiles",
 		}
 	}
 	pub fn parse(word: &str) -> Option<Self> {
@@ -59,28 +62,37 @@ impl Feature {
 pub struct Carries {
 	pub previews: bool,
 	pub typing: bool,
+	#[serde(default, skip_serializing_if = "is_false")]
+	pub profiles: bool,
 	/// Transport optimization, not a displayed room feature.
 	#[serde(skip)]
 	pub retained: bool,
 }
+fn is_false(value: &bool) -> bool {
+	!*value
+}
+
 impl Carries {
 	/// Everything this vocabulary names: what a Rooms room carries.
 	pub const EVERYTHING: Self = Self {
 		previews: true,
 		typing: true,
 		retained: true,
+		profiles: true,
 	};
 	/// Nothing: what a room bridged to IRC carries beyond its lines.
 	pub const NOTHING: Self = Self {
 		previews: false,
 		typing: false,
 		retained: false,
+		profiles: false,
 	};
 	pub const fn has(self, feature: Feature) -> bool {
 		match feature {
 			Feature::Previews => self.previews,
 			Feature::Typing => self.typing,
 			Feature::Retained => self.retained,
+			Feature::Profiles => self.profiles,
 		}
 	}
 	/// The features carried, in the wire's order.
@@ -107,6 +119,7 @@ impl Carries {
 				Some(Feature::Previews) => carries.previews = true,
 				Some(Feature::Typing) => carries.typing = true,
 				Some(Feature::Retained) => carries.retained = true,
+				Some(Feature::Profiles) => carries.profiles = true,
 				None => {}
 			}
 		}
@@ -126,7 +139,10 @@ mod tests {
 			let read = Carries::read(words.iter().map(|word| Some(word.as_str()))).unwrap();
 			assert_eq!(read, carries);
 		}
-		assert_eq!(Carries::EVERYTHING.words(), ["previews", "typing", "retained"]);
+		assert_eq!(
+			Carries::EVERYTHING.words(),
+			["previews", "typing", "retained", "profiles"]
+		);
 		assert!(Carries::NOTHING.words().is_empty());
 	}
 
@@ -138,7 +154,8 @@ mod tests {
 			Carries {
 				previews: false,
 				typing: true,
-				retained: false
+				retained: false,
+				profiles: false
 			}
 		);
 		assert_eq!(Carries::read([Some("typing"), None].into_iter()), None, "not a word");

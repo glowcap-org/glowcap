@@ -39,6 +39,99 @@ async fn applied(host: &Host, seat: &Ref, reason: &str) {
 		"membership did not apply {reason:?}"
 	);
 }
+pub(super) async fn profile(
+	host: &Host,
+	owner: &managed::Session<Platform>,
+	workspace: &Workspace<Platform>,
+	seat: &Ref,
+	callback: &Ref,
+	live: &managed::Membership<Platform>,
+) {
+	async fn wait(live: &managed::Membership<Platform>, host: &Host, seat: &Ref, kind: &str, about: &str, count: i64) {
+		let expected = Argument::List(vec![kind.into(), about.into(), count.into()]);
+		assert!(
+			environment::within(2_000, async {
+				while host.send(seat, "last-profile", &[]).await.unwrap() != expected {
+					environment::yield_turn().await;
+				}
+			})
+			.await
+			.is_some(),
+			"profile {kind:?}/{about:?} call {count} did not settle: {:?}, seat {:?}",
+			live.status(),
+			host.send(seat, "last-profile", &[]).await
+		);
+	}
+	use rooms_application::content::permissions::Permission::{InteractWorkspace, ObserveWorkspace, ReplaceWorkspace};
+	let policy = rooms_glowcap::policy::descriptor().unwrap();
+	let facet = |permission: rooms_application::content::permissions::Permission| {
+		policy
+			.value_for_kind(session::KIND, &[ObserveWorkspace.key(), permission.key()], &[])
+			.unwrap()
+	};
+	let (limited, _) = owner
+		.derive(facet(InteractWorkspace), 1, ControlPowers::default())
+		.await
+		.unwrap();
+	let posting = Workspace::local(host.clone(), Platform::default(), limited);
+	let base = workspace.snapshot().await.unwrap().revision;
+	let blocked = posting
+		.prepare_command(
+			"posting-only-profile",
+			base,
+			"setRoomProfile",
+			&["conversation".into(), "bot".into(), "Unauthorized".into()],
+		)
+		.await
+		.unwrap();
+	assert!(
+		blocked.submit().await.is_err(),
+		"posting-only access cannot declare who is speaking"
+	);
+	let (limited, _) = owner
+		.derive(facet(ReplaceWorkspace), 1, ControlPowers::default())
+		.await
+		.unwrap();
+	let editor = Workspace::local(host.clone(), Platform::default(), limited);
+	command(&editor, 13, "setRoomProfile", &["conversation", "bot", "Tests links"]).await;
+	let snapshot = workspace.snapshot().await.unwrap();
+	assert_eq!(
+		snapshot.intent.room("conversation").unwrap().profile.about(),
+		"Tests links"
+	);
+	wait(live, host, seat, "", "", 0).await;
+	host.send(
+		callback,
+		"notify",
+		&["room".into(), "".into(), "carries".into(), "profiles".into()],
+	)
+	.await
+	.unwrap();
+	wait(live, host, seat, "bot", "Tests links", 1).await;
+	let current = workspace.snapshot().await.unwrap();
+	let row = current.intent.room("conversation").unwrap();
+	let replay = editor
+		.prepare_command(
+			"another-writer-profile",
+			current.revision,
+			"applyRoomProfile",
+			&[
+				"conversation".into(),
+				serde_json::to_string(&row.seat.unwrap()).unwrap(),
+				"bot".into(),
+				"Tests links".into(),
+			],
+		)
+		.await
+		.unwrap();
+	assert!(
+		replay.submit().await.is_err(),
+		"only the original membership source can synchronize"
+	);
+	command(&editor, 14, "setRoomProfile", &["conversation", "", ""]).await;
+	wait(live, host, seat, "", "", 2).await;
+}
+
 pub(super) async fn run(
 	host: &Host,
 	owner: &managed::Session<Platform>,

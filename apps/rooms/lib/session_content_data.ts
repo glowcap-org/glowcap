@@ -201,6 +201,7 @@ export const SESSION_CONTENT = {
 			"closeDirect",
 			"setDirectoryStanding",
 			"setRoomStanding",
+			"setRoomProfile",
 			"setEffectiveStanding",
 			"dropRoomModerator",
 			"dropRoomManager",
@@ -348,6 +349,7 @@ export const SESSION_COMMAND_REQUIREMENTS = {
 	"closeDirect": { "conditional": [], "targets": [], "workspace": ["interactWorkspace"] },
 	"setDirectoryStanding": { "conditional": [], "targets": [], "workspace": ["interactWorkspace"] },
 	"setRoomStanding": { "conditional": [], "targets": [], "workspace": ["interactWorkspace"] },
+	"setRoomProfile": { "conditional": [], "targets": [], "workspace": ["replaceWorkspace"] },
 	"setEffectiveStanding": { "conditional": [], "targets": [], "workspace": ["interactWorkspace"] },
 	"dropRoomModerator": { "conditional": [], "targets": [], "workspace": ["interactWorkspace", "manageCustody"] },
 	"dropRoomManager": { "conditional": [], "targets": [], "workspace": ["interactWorkspace", "manageCustody"] },
@@ -402,6 +404,7 @@ export const SESSION_COMMAND_REQUIREMENTS = {
 	"revokeIssuedArchiveShare": { "conditional": [], "targets": ["archiveRevoke"], "workspace": ["interactWorkspace"] },
 	"setRoomSubject": { "conditional": [], "targets": ["roomSubject"], "workspace": ["interactWorkspace"] },
 	"setRoomAway": { "conditional": [], "targets": ["membershipPresence"], "workspace": ["interactWorkspace"] },
+	"applyRoomProfile": { "conditional": [], "targets": ["membershipPresence"], "workspace": ["replaceWorkspace"] },
 	"retireRoomMembership": {
 		"conditional": [],
 		"targets": ["membershipRetirement"],

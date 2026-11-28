@@ -183,7 +183,7 @@ fn command_class(route: Route) -> Option<Class> {
 	match route {
 		Route::Effect(effect) => match effect {
 			Effect::Say | Effect::EditLine | Effect::SetRoomSubject => Some(Class::Message),
-			Effect::SetRoomAway => Some(Class::Transient),
+			Effect::SetRoomAway | Effect::ApplyRoomProfile => Some(Class::Transient),
 			Effect::EnterRoom => Some(Class::Join),
 			Effect::DirectReady | Effect::OfferDirectInbox => Some(Class::Signal),
 			Effect::OfferRoom
@@ -217,6 +217,7 @@ fn command_class(route: Route) -> Option<Class> {
 			}
 			Command::SetStanding
 			| Command::SetDirectoryStanding
+			| Command::SetRoomProfile
 			| Command::SetRoomStanding
 			| Command::SetEffectiveStanding => Some(Class::Transient),
 			Command::ClearWorkspace

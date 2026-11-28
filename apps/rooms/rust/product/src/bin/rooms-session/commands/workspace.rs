@@ -240,6 +240,7 @@ pub async fn join(options: &Options) -> Result<Value, Failure> {
 					moderator: None,
 					control: Some(field(control.clone())?),
 					reconnect: workspace::Reconnect::Requested,
+					profile: Default::default(),
 					standing: None,
 					draft: Text::default(),
 				});

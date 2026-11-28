@@ -443,6 +443,8 @@ pub(super) async fn run() {
 					if options == 0 {
 						super::membership_standing::run(&host, &owner, &workspace, &held[1], &control).await;
 						super::activity::run(&host, &owner, &platform, &source, &control, &callback).await;
+						super::membership_standing::profile(&host, &owner, &workspace, &held[1], &callback, &live)
+							.await;
 					}
 					host.send(&callback, "notify", &[]).await.unwrap();
 					assert_eq!(received.get(), 1);

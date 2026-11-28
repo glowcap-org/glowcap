@@ -31,6 +31,7 @@ crate::session::command::catalog! { Command {
 	CloseDirect,
 	SetDirectoryStanding,
 	SetRoomStanding,
+	SetRoomProfile,
 	SetEffectiveStanding,
 	DropRoomModerator,
 	DropRoomManager,

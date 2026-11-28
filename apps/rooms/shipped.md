@@ -31,6 +31,7 @@ the way in, and [operating Rooms](operating.md) covers its grants, services, and
     reported before restoring waits, and healthy neighbors keep running.
   - Watching the peer that exported a direct line starts before the line is ready, and keeps going if the
     workspace refuses to expire it.
+  - A participant can introduce themselves to one room through their member card. The roster labels a declared bot or a seat shared by a person and an assistant. Room members can read the declaration in the card or with `/whois`.
   - An ended route displays **Closed** and keeps its draft and history. Current room rosters remove departed
     members independently of their directory registration and direct conversations.
 - *Direct openings.* One directory call waits for the exact registration's inbox, and the client allows

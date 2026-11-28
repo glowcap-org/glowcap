@@ -139,6 +139,15 @@ pub(super) fn admit<P: Tasks + Deadline + Clone + 'static>(
 		return super::super::manager_recovery::admit(owner, call, input, record, &request);
 	}
 	let dispatch = dispatch(input.args)?;
+	if let Some((room, seat)) = dispatch.profile_seat()
+		&& !owner
+			.memberships
+			.supports_profile(room, seat, &record.intent, &call.source()?)
+	{
+		return Err(refuse(
+			"the selected participant seat has not advertised member profiles",
+		));
+	}
 	let retiring_membership = dispatch.retires_membership();
 	let retiring_publication = dispatch.retires_publication();
 	let dependent_argument = dispatch.dependent_argument();

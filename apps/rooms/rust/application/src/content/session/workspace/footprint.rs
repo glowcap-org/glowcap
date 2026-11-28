@@ -13,7 +13,7 @@ graph!(Intent { accesses, directories, conversations, invitations, active,
 	version, keep_history, connection, archive, archive_control });
 graph!(Directory { id, nick, assigned_nick, standing;
 	access, name, source, inbox, home, nick_allocation });
-graph!(Room { id, directory, name, publication, lines, standing, draft;
+graph!(Room { id, directory, name, publication, lines, standing, profile, draft;
 		kind, source, inbox, access, accepted, public_entry, seat, subject, files, moderator, control, reconnect });
 graph!(Direct { id, directory, peer, introduction, openings, lines, draft; kind, source, access, inbox, closed });
 graph!(Introduction { registration, opening; access, name, callback });

@@ -140,3 +140,28 @@ a shadow takes a colour, not a gradient. */
 #members .offline .name {
 	color: var(--ink-soft);
 }
+
+.member-kind {
+	color: var(--ink-soft);
+	font-size: var(--type-caption);
+	white-space: nowrap;
+}
+.member-introduction {
+	display: grid;
+	gap: .25rem;
+	overflow-wrap: anywhere;
+}
+.member-profile-form fieldset {
+	margin: 0;
+	padding: 0;
+	border: 0;
+	display: grid;
+	gap: .65rem;
+}
+.member-profile-form legend {
+	font-weight: 600;
+}
+.member-profile-form label {
+	display: grid;
+	gap: .25rem;
+}

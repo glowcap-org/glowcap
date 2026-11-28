@@ -78,13 +78,14 @@ execution costs.
   Ordered settlement cannot restore an older view. Close drains the active
   gesture before dropping its scalar choices.
 
-- **Membership standing**: `standing::Standing` retains one acknowledged reason
-  and at most one pending reason/Command under the shared <!-- value ../../../../apps/rooms/rust/application/src/room/membership.rs MAX_AWAY -->120<!-- /value -->-unit Standing
-  bound. The membership lends its existing submission owner to admission. One
-  Rc command shell preserves exact intent across independent waits.
-  `Worker::apply_standing` consumes the wake's owned snapshot without copying or
-  reading it again. Pending commands discard that snapshot. Conflicts and settled
-  receipts refresh intent through the original source.
+- **Membership preferences**: `preferences::Preferences` retains one acknowledged
+  away reason and one room profile. The reason is bounded by <!-- value ../../../../apps/rooms/rust/application/src/room/membership.rs MAX_AWAY -->120<!-- /value --> UTF-16 units,
+  the profile introduction by <!-- value ../../../../apps/rooms/rust/application/src/room/profile.rs MAX_ABOUT -->120<!-- /value -->.
+  At most one pending change retains its value and an Rc command shell for
+  independent waits. The membership lends its existing submission owner to
+  admission. `Worker::apply_preferences` consumes the wake's snapshot and
+  discards it for an already pending command. Conflicts and settled receipts
+  refresh intent through the original source.
 
 - **Room post reply**: `lines::posted_reply` owns one fixed two-element argument
   spine containing the authoritative notification ID and the moved line

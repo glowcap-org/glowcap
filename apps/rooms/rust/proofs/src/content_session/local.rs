@@ -35,6 +35,22 @@ fn room(intent: &workspace::Intent) -> &workspace::Room {
 }
 pub fn run() {
 	let initial = workspace::Intent::decode(&fixture().to_string()).unwrap();
+	let declared = apply(&initial, "setRoomProfile", &["conversation", "person", "Here today"]).unwrap();
+	let mut restored = workspace::Intent::decode(&serde_json::to_string(&declared).unwrap()).unwrap();
+	let workspace::Conversation::Room(returning) = &mut restored.conversations.as_mut_slice()[0] else {
+		panic!("room")
+	};
+	returning.retire_connection();
+	assert!(returning.seat.is_none());
+	assert_eq!(
+		returning.profile.about(),
+		"Here today",
+		"room intent survives retiring the old seat"
+	);
+	let cleared = apply(&restored, "setRoomProfile", &["conversation", "", ""]).unwrap();
+	assert!(serde_json::to_value(room(&cleared)).unwrap().get("profile").is_none());
+	assert!(apply(&initial, "setRoomProfile", &["conversation", "bogus", ""]).is_err());
+	assert!(apply(&initial, "setRoomProfile", &["missing", "person", ""]).is_err());
 	let draft = apply(&initial, "setDraft", &["conversation", "new draft"]).unwrap();
 	assert_eq!(room(&draft).draft.text().as_str(), Some("new draft"));
 	assert_eq!(room(&initial).draft.text().as_str(), Some("draft"));

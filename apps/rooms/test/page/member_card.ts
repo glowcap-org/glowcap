@@ -74,6 +74,11 @@ export async function run(tab: Page): Promise<void> {
 	await tab.waitForSelector("#membercardTitle", { timeout: 10_000 })
 		.catch(() => fail("a roster row did not open the person card"));
 	const fromRoster = await readCard(tab);
+	await tab.getByRole("button", { name: "Introduce yourself" }).click();
+	await tab.getByLabel("Member type").selectOption("assisted");
+	await tab.getByLabel("Introduction", { exact: true }).fill("Reviews source notes");
+	await tab.getByRole("button", { name: "Save profile" }).click();
+	await tab.locator(".member-introduction").getByText("Reviews source notes", { exact: true }).waitFor();
 
 	if (fromRoster.title !== rowName) {
 		fail(`the card names somebody the row did not: ${JSON.stringify({ row: rowName, card: fromRoster.title })}`);
@@ -107,6 +112,9 @@ export async function run(tab: Page): Promise<void> {
 	await tab.waitForSelector("#membercardTitle", { timeout: 10_000 })
 		.catch(() => fail("the rail's foot did not open the reader's own card"));
 	const fromFoot = await readCard(tab);
+	if (await tab.locator(".member-introduction").count() !== 0) {
+		fail("rail exposed a room profile without room context");
+	}
 
 	for (const card of [fromRoster, fromFoot]) {
 		if (!card.names.includes(`${card.title} on`)) {

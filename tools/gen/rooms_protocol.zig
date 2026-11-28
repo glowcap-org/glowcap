@@ -142,6 +142,9 @@ pub const Token = enum {
     listed,
     unlisted,
     away,
+    profile,
+    profiles,
+    set_profile,
     kick,
     governs,
     managed_room_identity,
@@ -237,6 +240,9 @@ pub const Token = enum {
             .listed => "listed",
             .unlisted => "unlisted",
             .away => "away",
+            .profile => "profile",
+            .profiles => "profiles",
+            .set_profile => "setProfile",
             .kick => "kick",
             .governs => "governs",
             .managed_room_identity => "managedRoomIdentity",
@@ -326,6 +332,7 @@ pub const verbs = [_]Verb{
     .{ .name = Token.leave.wire(), .replies = true, .on = .membership },
     .{ .name = Token.typing.wire(), .replies = false, .on = .membership },
     .{ .name = Token.away.wire(), .replies = true, .on = .membership },
+    .{ .name = Token.set_profile.wire(), .replies = true, .on = .membership },
     .{ .name = Token.notify.wire(), .replies = false, .on = .inbox },
     .{ .name = Token.dm.wire(), .replies = true, .on = .inbox },
 };
@@ -380,6 +387,7 @@ const line_trailing = [_]Field{.{ .name = "id", .ty = .natural }};
 const named_trailing = [_]Field{name_field};
 const typing_trailing = [_]Field{ name_field, .{ .name = "on", .ty = .boolean } };
 const away_trailing = [_]Field{ name_field, .{ .name = "reason", .ty = .string } };
+const profile_trailing = [_]Field{ name_field, .{ .name = "memberKind", .ty = .string }, .{ .name = "about", .ty = .string } };
 const seat_trailing = [_]Field{
     name_field,
     .{ .name = "state", .ty = .text, .values = .seat_phases },
@@ -402,6 +410,7 @@ pub const Fields = enum {
     named_trailing,
     typing_trailing,
     away_trailing,
+    profile_trailing,
     seat_trailing,
 
     pub fn fields(self: Fields) []const Field {
@@ -417,6 +426,7 @@ pub const Fields = enum {
             .named_trailing => &named_trailing,
             .typing_trailing => &typing_trailing,
             .away_trailing => &away_trailing,
+            .profile_trailing => &profile_trailing,
             .seat_trailing => &seat_trailing,
         };
     }
@@ -435,6 +445,7 @@ pub const Fields = enum {
             .named_trailing => "NAMED_TRAILING",
             .typing_trailing => "TYPING_TRAILING",
             .away_trailing => "AWAY_TRAILING",
+            .profile_trailing => "PROFILE_TRAILING",
             .seat_trailing => "SEAT_TRAILING",
         };
     }
@@ -452,6 +463,7 @@ pub const Fields = enum {
             .line_trailing => "After the line tag: the line's id, then the file records apps/rooms/lib/attachment.ts reads.",
             .named_trailing => "After a join or leave tag: the member.",
             .typing_trailing => "After the typing tag: the member and whether they are typing.",
+            .profile_trailing => "A current member, its self-declared kind, and its introduction. Two empty fields clear the introduction.",
             .away_trailing => "After the away tag: the member and the reason, empty when they are back.",
             .seat_trailing => "After the bridge's seat tag, specified in apps/rooms/lib/protocol_irc.ts.",
         };
@@ -511,6 +523,8 @@ pub const room_tails = [_]RoomTail{
     .{ .tag = Token.offline.wire(), .rest = .text, .sender = .room, .text = .any, .effect = .depart },
     .{ .tag = Token.typing.wire(), .trailing = .typing_trailing, .sender = .room, .text = .empty, .effect = .stay },
     .{ .tag = Token.away.wire(), .trailing = .away_trailing, .sender = .room, .text = .any, .effect = .stay },
+    .{ .tag = Token.profiles.wire(), .rest = .string, .sender = .room, .text = .empty, .effect = .stay },
+    .{ .tag = Token.profile.wire(), .trailing = .profile_trailing, .sender = .room, .text = .empty, .effect = .stay },
     .{ .tag = Token.seat.wire(), .trailing = .seat_trailing, .sender = .room, .text = .any, .effect = .stay },
     .{ .tag = membership_ended, .sender = .room, .text = .nonempty },
 };

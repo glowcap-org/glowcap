@@ -31,6 +31,7 @@ catalog! { Effect {
 	RevokeIssuedArchiveShare,
 	SetRoomSubject,
 	SetRoomAway,
+	ApplyRoomProfile,
 	RetireRoomMembership,
 	KickRoomMember,
 	IssueRoomModerator,

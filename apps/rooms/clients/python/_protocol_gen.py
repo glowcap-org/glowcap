@@ -29,6 +29,7 @@ POST = "post"
 LEAVE = "leave"
 TYPING = "typing"
 AWAY = "away"
+SET_PROFILE = "setProfile"
 NOTIFY = "notify"
 DM = "dm"
 MEMBERSHIP_ENDED = "membershipEnded"
@@ -39,6 +40,7 @@ MEMBERSHIP_VERBS = (
     ("leave", True),
     ("typing", False),
     ("away", True),
+    ("setProfile", True),
 )
 
 MEMBERSHIP_KINDS = ("observer", "participant")
@@ -123,6 +125,13 @@ AWAY_TRAILING = (
     ("reason", "string", False, ()),
 )
 
+# A current member, its self-declared kind, and its introduction. Two empty fields clear the introduction.
+PROFILE_TRAILING = (
+    ("name", "text", False, ()),
+    ("memberKind", "string", False, ()),
+    ("about", "string", False, ()),
+)
+
 # After the bridge's seat tag, specified in apps/rooms/lib/protocol_irc.ts.
 SEAT_TRAILING = (
     ("name", "text", False, ()),
@@ -156,6 +165,8 @@ ROOM_TAILS = {
     "offline": ((), "text", "room", "any", DEPART),
     "typing": (TYPING_TRAILING, None, "room", "empty", STAY),
     "away": (AWAY_TRAILING, None, "room", "any", STAY),
+    "profiles": ((), "string", "room", "empty", STAY),
+    "profile": (PROFILE_TRAILING, None, "room", "empty", STAY),
     "seat": (SEAT_TRAILING, None, "room", "any", STAY),
     "membershipEnded": ((), None, "room", "nonempty", None),
 }

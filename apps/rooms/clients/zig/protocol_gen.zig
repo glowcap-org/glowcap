@@ -88,6 +88,7 @@ pub const post = "post";
 pub const leave = "leave";
 pub const typing = "typing";
 pub const away = "away";
+pub const set_profile = "setProfile";
 pub const notify = "notify";
 pub const dm = "dm";
 pub const membership_ended = "membershipEnded";
@@ -98,6 +99,7 @@ pub const membership_verbs = [_]Verb{
     .{ .name = "leave", .replies = true },
     .{ .name = "typing", .replies = false },
     .{ .name = "away", .replies = true },
+    .{ .name = "setProfile", .replies = true },
 };
 
 pub const membership_kinds = [_][]const u8{ "observer", "participant" };
@@ -177,6 +179,13 @@ pub const away_trailing = [_]Field{
     .{ .name = "reason", .ty = .string, .nullable = false, .values = &.{} },
 };
 
+/// A current member, its self-declared kind, and its introduction. Two empty fields clear the introduction.
+pub const profile_trailing = [_]Field{
+    .{ .name = "name", .ty = .text, .nullable = false, .values = &.{} },
+    .{ .name = "memberKind", .ty = .string, .nullable = false, .values = &.{} },
+    .{ .name = "about", .ty = .string, .nullable = false, .values = &.{} },
+};
+
 /// After the bridge's seat tag, specified in apps/rooms/lib/protocol_irc.ts.
 pub const seat_trailing = [_]Field{
     .{ .name = "name", .ty = .text, .nullable = false, .values = &.{} },
@@ -206,6 +215,8 @@ pub const room_tails = [_]RoomTail{
     .{ .tag = "offline", .trailing = &.{}, .rest = .text, .sender = .room, .text = .any, .effect = .depart },
     .{ .tag = "typing", .trailing = &typing_trailing, .rest = null, .sender = .room, .text = .empty, .effect = .stay },
     .{ .tag = "away", .trailing = &away_trailing, .rest = null, .sender = .room, .text = .any, .effect = .stay },
+    .{ .tag = "profiles", .trailing = &.{}, .rest = .string, .sender = .room, .text = .empty, .effect = .stay },
+    .{ .tag = "profile", .trailing = &profile_trailing, .rest = null, .sender = .room, .text = .empty, .effect = .stay },
     .{ .tag = "seat", .trailing = &seat_trailing, .rest = null, .sender = .room, .text = .any, .effect = .stay },
     .{ .tag = "membershipEnded", .trailing = &.{}, .rest = null, .sender = .room, .text = .nonempty, .effect = null },
 };

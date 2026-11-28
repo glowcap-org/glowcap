@@ -2,6 +2,7 @@
 //
 // The catalog and the parser both need these. Neither owns them.
 
+import type { MemberProfile } from "../../../lib/room/presence.ts";
 import type { Theme } from "../../../lib/view_state.ts";
 import type { Conv } from "../conversation.ts";
 
@@ -129,7 +130,7 @@ export interface CommandPowers {
 	liveRooms(): ReadonlyMap<string, number | null>;
 	/** Who is in this room, how each stands, and whether each is reachable
 	 * directly. In a direct line, the one person on the other end. */
-	roster(): readonly { name: string; online: boolean; away: string; reachable: boolean }[];
+	roster(): readonly { name: string; online: boolean; away: string; reachable: boolean; profile?: MemberProfile }[];
 	/** Give this directory back: the name it granted, and everything open on it.
 	 * `null` when it was given back. A sentence when this tab holds none. */
 	quitDirectory(): CommandResult<string | null>;

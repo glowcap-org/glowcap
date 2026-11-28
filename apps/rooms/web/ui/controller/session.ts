@@ -1,6 +1,7 @@
 // What an established Rooms session can do for this tab, split by the surface
 // that asks: directory, conversation, room, workspace, and operations.
 
+import type { ProfileKind } from "../../../lib/room/presence.ts";
 import { invariant } from "../../../lib/invariant.ts";
 import { createContext, useContext } from "react";
 import type { OperatorReferenceKind, OperatorResetScope } from "../../../lib/operator.ts";
@@ -88,6 +89,7 @@ export interface RoomsConversationController {
 	setTyping(key: string, on: boolean): void;
 	setStanding(standing: string): Promise<void>;
 	setDirStanding(dir: DirId, standing: string | null): Promise<void>;
+	setRoomProfile(key: string, kind: ProfileKind, about: string): Promise<void>;
 	setRoomStanding(key: string, standing: string | null): Promise<void>;
 }
 

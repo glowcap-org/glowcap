@@ -95,6 +95,7 @@ Deno.test("the client verbs and tags are the application's generated vocabulary"
 		["LEAVE", gen.LEAVE, data.LEAVE, spec.LEAVE],
 		["TYPING", gen.TYPING, data.TYPING, spec.TYPING],
 		["AWAY", gen.AWAY, data.AWAY, spec.AWAY],
+		["SET_PROFILE", gen.SET_PROFILE, data.SET_PROFILE, spec.SET_PROFILE],
 		["NOTIFY", gen.NOTIFY, data.NOTIFY, spec.NOTIFY],
 		["DM", gen.DM, data.DM, spec.DM],
 		["MEMBERSHIP_ENDED", gen.MEMBERSHIP_ENDED, data.MEMBERSHIP_ENDED, spec.MEMBERSHIP_ENDED],
@@ -103,7 +104,13 @@ Deno.test("the client verbs and tags are the application's generated vocabulary"
 		assertEquals(client, application, `${name} client projection`);
 		assertEquals(application, specified, `${name} documented export`);
 	}
-	assertEquals(gen.MEMBERSHIP_VERBS.map((verb) => verb.name), [spec.POST, spec.LEAVE, spec.TYPING, spec.AWAY]);
+	assertEquals(gen.MEMBERSHIP_VERBS.map((verb) => verb.name), [
+		spec.POST,
+		spec.LEAVE,
+		spec.TYPING,
+		spec.AWAY,
+		spec.SET_PROFILE,
+	]);
 });
 
 Deno.test("the enumerations are the ones the server's readers admit", () => {
@@ -155,7 +162,11 @@ Deno.test("the presence tails are the ones the room's reader admits", () => {
 	const presence = gen.ROOM_TAILS.filter((tail) => tail.effect !== null);
 	assertEquals(presence.map((tail) => tail.tag).sort(), unionKinds(PresenceSchema).sort(), "presence kinds");
 	for (const tail of presence) {
-		const rest = tail.rest === null ? [] : [sample({ name: "rest", type: tail.rest, nullable: false, values: [] })];
+		const rest = tail.tag === spec.PROFILES
+			? ["ada", "person", "hi"]
+			: tail.rest === null
+			? []
+			: [sample({ name: "rest", type: tail.rest, nullable: false, values: [] })];
 		const args = [gen.ROOM_SENDER, "", tail.tag, ...tail.trailing.map(sample), ...rest];
 		assertEquals(readPresence(args)?.kind, tail.tag, `${tail.tag} at its declared arity`);
 	}

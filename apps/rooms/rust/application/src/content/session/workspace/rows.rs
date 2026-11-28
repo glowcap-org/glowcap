@@ -67,6 +67,8 @@ pub struct Room {
 	pub moderator: Option<FieldKey<custody::RoomAccess>>,
 	pub control: Option<FieldKey<custody::RoomControl>>,
 	pub reconnect: Reconnect,
+	#[serde(default, skip_serializing_if = "crate::room::profile::MemberProfile::is_empty")]
+	pub profile: crate::room::profile::MemberProfile,
 	pub standing: Option<Standing>,
 	pub draft: Field,
 }

@@ -1,6 +1,6 @@
 //! Bounded unread messages. One consumer polls. Dropping it closes this queue.
 use super::{Message, metadata::Presence};
-use alloc::{collections::VecDeque, string::String, vec::Vec};
+use alloc::{collections::VecDeque, string::String};
 
 pub const MAX_MESSAGES: usize = 256;
 pub const MAX_MESSAGE_BYTES: usize = 2 * 1024 * 1024;
@@ -41,14 +41,14 @@ impl<C> Queue<C> {
 	/// remains in the binding until this call returns.
 	pub fn push(&mut self, message: Message<&str, C>) -> Result<(), Error> {
 		// The exact-size name iterator creates a new vector with no spare slots.
-		let bytes = retained_bytes(&message, |text: &&str| text.len(), Vec::len);
+		let bytes = retained_bytes(&message, |text: &&str| text.len(), |len, _| len);
 		self.admit(bytes)?;
 		self.unread.push_back((message.into_owned(), bytes));
 		Ok(())
 	}
 	/// Adopt reconstructed text directly, charging actual retained capacity.
 	pub fn push_owned(&mut self, message: Message<String, C>) -> Result<(), Error> {
-		let bytes = retained_bytes(&message, String::capacity, Vec::capacity);
+		let bytes = retained_bytes(&message, String::capacity, |_, capacity| capacity);
 		self.admit(bytes)?;
 		self.unread.push_back((message, bytes));
 		Ok(())
@@ -107,7 +107,7 @@ impl<C> Queue<C> {
 fn retained_bytes<T, C>(
 	message: &Message<T, C>,
 	size: impl Fn(&T) -> usize,
-	name_slots: impl Fn(&Vec<T>) -> usize,
+	slots: impl Fn(usize, usize) -> usize,
 ) -> usize {
 	// Each copied string requests exactly its UTF-8 length. Include the owned
 	// struct, retained vector slots, descriptions and capability handles.
@@ -117,8 +117,15 @@ fn retained_bytes<T, C>(
 		if matches!(presence, Presence::Seat(_)) {
 			bytes = bytes.saturating_add(core::mem::size_of::<super::metadata::Seat<String>>());
 		}
+		if let Presence::Profiles { entries } = presence {
+			bytes = bytes.saturating_add(
+				slots(entries.len(), entries.capacity())
+					.saturating_mul(core::mem::size_of::<crate::room::profile::Entry<String>>()),
+			);
+		}
 		if let Presence::Roster { names } | Presence::Offline { names } = presence {
-			bytes = bytes.saturating_add(name_slots(names).saturating_mul(core::mem::size_of::<String>()));
+			bytes = bytes
+				.saturating_add(slots(names.len(), names.capacity()).saturating_mul(core::mem::size_of::<String>()));
 		}
 	}
 	if let Some(facts) = message.facts() {
@@ -163,13 +170,20 @@ mod tests {
 	}
 
 	#[test]
-	fn owned_presence_charges_unused_name_capacity() {
+	fn owned_presence_charges_unused_row_capacity() {
 		for presence in [
 			Presence::Roster {
 				names: reserved_name(String::from("Ada")),
 			},
 			Presence::Offline {
 				names: reserved_name(String::from("Ada")),
+			},
+			Presence::Profiles {
+				entries: reserved_name(crate::room::profile::Entry {
+					name: "Ada".into(),
+					member_kind: crate::room::profile::MemberKind::Person,
+					about: String::new(),
+				}),
 			},
 		] {
 			let mut queue = Queue::default();

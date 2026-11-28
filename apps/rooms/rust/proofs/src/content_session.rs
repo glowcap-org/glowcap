@@ -220,10 +220,14 @@ fn mappings() {
 		}
 		assert_eq!(Route::parse(name.as_str().unwrap()), Some(route));
 		let requirement = requirements::command(route).unwrap();
-		if route == Route::Checkpoint(commands::Command::ClearWorkspace) {
-			assert_eq!(requirement.workspace, &[ReplaceWorkspace, ManageCustody]);
-		} else {
-			assert!(requirement.workspace.contains(&InteractWorkspace));
+		match route {
+			Route::Checkpoint(commands::Command::ClearWorkspace) => {
+				assert_eq!(requirement.workspace, &[ReplaceWorkspace, ManageCustody]);
+			}
+			Route::Checkpoint(commands::Command::SetRoomProfile) | Route::Effect(Effect::ApplyRoomProfile) => {
+				assert_eq!(requirement.workspace, &[ReplaceWorkspace]);
+			}
+			_ => assert!(requirement.workspace.contains(&InteractWorkspace)),
 		}
 		assert!(requirement.workspace.iter().all(|p| session::SUPPORTED.contains(p)));
 	}

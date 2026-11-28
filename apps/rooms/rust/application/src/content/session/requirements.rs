@@ -128,6 +128,7 @@ pub const fn command(route: Route) -> Option<Requirements> {
 	let (workspace, targets, conditional): (&'static [Permission], &'static [Target], &'static [Conditional]) =
 		match route {
 			Route::Checkpoint(command) => match command {
+				Command::SetRoomProfile => (&[ReplaceWorkspace], &[], &[]),
 				Command::ClearWorkspace => (&[ReplaceWorkspace, ManageCustody], &[], &[]),
 				Command::SetDraft
 				| Command::Select
@@ -186,6 +187,7 @@ pub const fn command(route: Route) -> Option<Requirements> {
 				Effect::RevokeIssuedArchiveShare => (&[InteractWorkspace], &[ArchiveRevoke], &[]),
 				Effect::SetRoomSubject => (&[InteractWorkspace], &[RoomSubject], &[]),
 				Effect::SetRoomAway => (&[InteractWorkspace], &[MembershipPresence], &[]),
+				Effect::ApplyRoomProfile => (&[ReplaceWorkspace], &[MembershipPresence], &[]),
 				Effect::RetireRoomMembership => (&[InteractWorkspace], &[MembershipRetirement], &[]),
 				Effect::KickRoomMember => (&[InteractWorkspace], &[RoomModeration], &[]),
 				Effect::IssueRoomModerator => (&[InteractWorkspace, ManageCustody], &[ExactRoomIssue], &[]),

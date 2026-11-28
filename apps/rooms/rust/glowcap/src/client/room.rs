@@ -332,6 +332,19 @@ impl<D: Deadline + Tasks + Clone + 'static> Room<D> {
 			.seat()
 			.is_ok_and(|seat| seat.files.is_some())
 	}
+	/// Publish an introduction from this participant seat. An empty profile clears it.
+	pub async fn set_profile(&self, profile: &rooms_application::room::profile::MemberProfile) -> Result<(), Error> {
+		self.inner
+			.client
+			.ask(
+				&self.seat()?,
+				rooms_application::room::profile::SET_PROFILE,
+				&[profile.kind.as_str(), profile.about()],
+				"the room did not answer the profile update",
+			)
+			.await?;
+		Ok(())
+	}
 	pub async fn away(&self, reason: &str) -> Result<(), Error> {
 		self.inner
 			.client

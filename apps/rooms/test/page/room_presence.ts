@@ -36,6 +36,17 @@ export async function proveRoomPresence(browser: Browser, httpPort: number, atta
 		const member = await departing.newPage();
 		await join(member, httpPort, peer);
 		for (const page of attached) await state(page, "online");
+		await row(member).locator(".member-face").click();
+		await member.getByRole("button", { name: "Introduce yourself" }).click();
+		await member.getByLabel("Member type").selectOption("bot");
+		await member.getByLabel("Introduction", { exact: true }).fill("Checks sources");
+		await member.getByRole("button", { name: "Save profile" }).click();
+		await member.locator(".member-introduction").getByText("Checks sources", { exact: true }).waitFor();
+		for (const page of attached) await row(page).getByText("Bot", { exact: true }).waitFor();
+		await row(attached[0]).locator(".member-face").click();
+		await attached[0].locator(".member-introduction").getByText("Checks sources", { exact: true }).waitFor();
+		await attached[0].keyboard.press("Escape");
+		await member.keyboard.press("Escape");
 		await say(member, "/leave");
 		for (const page of attached) await row(page).waitFor({ state: "detached", timeout: 15_000 });
 		await member.locator("#joinBtn:enabled").waitFor();

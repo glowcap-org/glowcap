@@ -33,6 +33,7 @@
   LEAVE
   TYPING
   AWAY
+  SET-PROFILE
   NOTIFY
   DM
   MEMBERSHIP-ENDED
@@ -52,6 +53,7 @@
   NAMED-TRAILING
   TYPING-TRAILING
   AWAY-TRAILING
+  PROFILE-TRAILING
   SEAT-TRAILING
   WATCH-KINDS
   ROOM-TAILS
@@ -86,6 +88,7 @@
 (define LEAVE 'leave)
 (define TYPING 'typing)
 (define AWAY 'away)
+(define SET-PROFILE 'setProfile)
 (define NOTIFY 'notify)
 (define DM 'dm)
 (define MEMBERSHIP-ENDED "membershipEnded")
@@ -96,7 +99,8 @@
    (cons 'post #t)
    (cons 'leave #t)
    (cons 'typing #f)
-   (cons 'away #t)))
+   (cons 'away #t)
+   (cons 'setProfile #t)))
 
 (define MEMBERSHIP-KINDS '("observer" "participant"))
 (define PUBLICATION-KINDS '("local" "foreign" "bridge"))
@@ -175,6 +179,13 @@
    (field "name" 'text #f '())
    (field "reason" 'string #f '())))
 
+;; A current member, its self-declared kind, and its introduction. Two empty fields clear the introduction.
+(define PROFILE-TRAILING
+  (list
+   (field "name" 'text #f '())
+   (field "memberKind" 'string #f '())
+   (field "about" 'string #f '())))
+
 ;; After the bridge's seat tag, specified in apps/rooms/lib/protocol_irc.ts.
 (define SEAT-TRAILING
   (list
@@ -205,6 +216,8 @@
    (room-tail "offline" '() 'text 'room 'any 'depart)
    (room-tail "typing" TYPING-TRAILING #f 'room 'empty 'stay)
    (room-tail "away" AWAY-TRAILING #f 'room 'any 'stay)
+   (room-tail "profiles" '() 'string 'room 'empty 'stay)
+   (room-tail "profile" PROFILE-TRAILING #f 'room 'empty 'stay)
    (room-tail "seat" SEAT-TRAILING #f 'room 'any 'stay)
    (room-tail "membershipEnded" '() #f 'room 'nonempty #f)))
 

@@ -264,3 +264,44 @@ fn a_subject_fact_replaces_the_view_and_an_empty_one_takes_it_down() {
 		assert!(facts(&refused).is_none(), "{refused:?}");
 	}
 }
+
+#[test]
+fn room_profiles_apply_only_to_live_roster_entries_and_reset_on_refresh() {
+	use crate::room::profile::MemberKind;
+	let mut view = view();
+	let introduction = Presence::Profile {
+		name: "ada",
+		member_kind: MemberKind::Assisted,
+		about: "Reviews",
+	};
+	let clear = Presence::Profile {
+		name: "ada",
+		member_kind: MemberKind::Undeclared,
+		about: "",
+	};
+	let online = Presence::Roster {
+		names: alloc::vec!["ada"],
+	};
+	apply(&mut view, Some(&introduction), None);
+	assert!(member(&view, "ada").is_none());
+	apply(&mut view, Some(&online), None);
+	apply(&mut view, Some(&introduction), None);
+	assert_eq!(
+		member(&view, "ada").unwrap().profile.as_ref().unwrap().about(),
+		"Reviews"
+	);
+	apply(&mut view, Some(&clear), None);
+	assert!(member(&view, "ada").unwrap().profile.is_none());
+	apply(&mut view, Some(&introduction), None);
+	apply(&mut view, Some(&online), None);
+	assert!(member(&view, "ada").unwrap().profile.is_none());
+	apply(
+		&mut view,
+		Some(&Presence::Offline {
+			names: alloc::vec!["ada"],
+		}),
+		None,
+	);
+	apply(&mut view, Some(&introduction), None);
+	assert!(member(&view, "ada").unwrap().profile.is_none());
+}

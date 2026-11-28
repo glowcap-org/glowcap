@@ -87,6 +87,7 @@ export function setBridgeFacts(projection: PageProjection, key: string, bridge: 
  * `BRIDGE_FIELD_SET` lists a bridge's: a field the comparison does not know
  * is a change the composer never hears about. */
 const CARRIES_FIELD_SET: Record<keyof RoomCarries, true> = {
+	profiles: true,
 	previews: true,
 	typing: true,
 };
@@ -202,6 +203,9 @@ function rosterEquals(
 	for (const [name, standing] of right) {
 		const was = left.get(name);
 		if (was == null || was.online !== standing.online || was.away !== standing.away) return false;
+		if (was.profile?.kind !== standing.profile?.kind || was.profile?.about !== standing.profile?.about) {
+			return false;
+		}
 		if ((was.seat == null) !== (standing.seat == null)) return false;
 		if (was.seat != null && standing.seat != null) {
 			for (const field of SEAT_FIELDS) {

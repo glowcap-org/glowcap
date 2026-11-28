@@ -41,6 +41,8 @@ export function roomListLine(name: string, count: number | null): string {
 
 /** The `/whois` answer: where they are, and whether a direct message reaches
  * them. */
-export function whoisLine(name: string, here: string, reachable: boolean): string {
-	return `${name}: ${here}, ${reachable ? "reachable for a direct message" : "not reachable directly"}`;
+export function whoisLine(name: string, here: string, reachable: boolean, introduction = ""): string {
+	return `${name}: ${here}, ${reachable ? "reachable for a direct message" : "not reachable directly"}${
+		introduction ? `\n${introduction}` : ""
+	}`;
 }

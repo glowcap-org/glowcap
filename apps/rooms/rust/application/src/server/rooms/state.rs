@@ -101,6 +101,7 @@ pub(super) struct Member<C, R> {
 	pub kind: MembershipKind,
 	/// Why this member has stepped away, empty while they are here.
 	pub away: String,
+	pub profile: Option<Arc<crate::room::profile::MemberProfile>>,
 	/// Coalesce identical typing until its display lease is due for renewal.
 	pub typing_until: core::cell::Cell<u64>,
 	pub files: FileMember,

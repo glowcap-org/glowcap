@@ -135,6 +135,22 @@ async fn rooms() {
 	assert_eq!(roster, ["Alice", "Bob"]);
 	assert!(matches!(next_presence(&mut alice_lines).await, Presence::Join { name } if name == "Bob"));
 
+	// This seat’s optional introduction reaches the other live member without posting a line.
+	let profile = rooms_application::room::profile::MemberProfile::parse("bot", "Reviews changes").unwrap();
+	alice_room.set_profile(&profile).await.unwrap();
+	for reader in [&mut alice_lines, &mut bob_lines] {
+		assert!(
+			matches!(next_presence(reader).await, Presence::Profile { name, member_kind, about }
+			if name == "Alice" && member_kind == profile.kind && about == profile.about())
+		);
+	}
+	let reader = rooms_application::room::profile::MemberProfile::parse("person", "").unwrap();
+	bob_room.set_profile(&reader).await.unwrap();
+	for stream in [&mut alice_lines, &mut bob_lines] {
+		assert!(matches!(next_presence(stream).await, Presence::Profile { name, .. } if name == "Bob"));
+	}
+	assert!(bob_room.history().await.unwrap().is_empty());
+
 	// A line said, heard, edited, and kept.
 	let posted = alice_room.say("hello").await.unwrap().expect("a line capability");
 	let heard = next_said(&mut bob_lines).await;
@@ -186,9 +202,9 @@ async fn rooms() {
 	let (carol_room, mut carol_lines, _, roster) =
 		join(&carol, carol_dir.enter("Garden").await.unwrap(), "Carol").await;
 	assert_eq!(roster.len(), 3);
-	// Who is already away and what the room is about follow the roster.
+	// The current introductions, away members and subject follow the roster.
 	let mut arrival = Vec::new();
-	for _ in 0..2 {
+	for _ in 0..3 {
 		arrival.push(next(&mut carol_lines).await);
 	}
 	assert!(
@@ -196,6 +212,8 @@ async fn rooms() {
 			.iter()
 			.any(|line| matches!(line.presence(), Some(Presence::Away { name, .. }) if name == "Alice"))
 	);
+	assert!(arrival.iter().any(|line| matches!(line.presence(), Some(Presence::Profiles { entries })
+		if entries.len() == 2 && entries[0].name == "Alice" && entries[0].member_kind == profile.kind && entries[0].about == profile.about() && entries[1].name == "Bob" && entries[1].member_kind == reader.kind)));
 	assert!(arrival.iter().any(|line| {
 		line.facts()
 			.and_then(|f| f.subject.as_deref())
