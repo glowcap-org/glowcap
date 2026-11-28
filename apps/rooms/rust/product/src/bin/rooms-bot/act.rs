@@ -41,6 +41,7 @@ pub enum Verb {
 	Say,
 	Send,
 	Workspace,
+	Members,
 	Command,
 	Actions,
 }
@@ -48,10 +49,11 @@ pub enum Verb {
 impl Verb {
 	/// The verbs, in the order the prompt shows them. A safe Claude run may
 	/// run these and no other glowcap command.
-	pub const ALL: [Self; 6] = [
+	pub const ALL: [Self; 7] = [
 		Self::Say,
 		Self::Send,
 		Self::Workspace,
+		Self::Members,
 		Self::Command,
 		Self::Actions,
 		Self::Join,
@@ -68,6 +70,7 @@ impl Verb {
 			Self::Say => "say",
 			Self::Send => "send",
 			Self::Workspace => "workspace",
+			Self::Members => "members",
 			Self::Command => "command",
 			Self::Actions => "actions",
 		}
@@ -79,7 +82,7 @@ impl Verb {
 			Self::Join => &["room"],
 			Self::Say => verbs::SAY,
 			Self::Send => verbs::SEND,
-			Self::Workspace | Self::Actions => &[],
+			Self::Workspace | Self::Members | Self::Actions => &[],
 			Self::Command => verbs::COMMAND,
 		}
 	}
@@ -229,7 +232,7 @@ impl Turn {
 	/// trusted: the agent runs with the bot's own rights, so a forged turn id
 	/// can only mis-own a claim or note the agent itself writes. An action
 	/// takes a place only in the budget its turn opened (`actions::spend`),
-	/// and [`Turn::open`] checks the turn against the ledger before an open's
+	/// and [`Turn::require_running`] checks the turn against the ledger before an open's
 	/// note is written.
 	fn current() -> Result<Self, Error> {
 		let read = |name: &str| std::env::var_os(name).filter(|value| !value.is_empty());
@@ -253,7 +256,7 @@ impl Turn {
 				),
 			}),
 			_ => Err(Error::Usage(format!(
-				"say, send, join, command, workspace, and actions run only during a bot's turn, which sets {TURN_BOT}, {TURN_CONVERSATION}, and {TURN_ID}"
+				"say, send, join, command, workspace, members, and actions run only during a bot's turn, which sets {TURN_BOT}, {TURN_CONVERSATION}, and {TURN_ID}"
 			))),
 		}
 	}
@@ -270,14 +273,13 @@ impl Turn {
 		))
 	}
 
-	/// Refuse unless this turn is a running turn of its conversation in the
-	/// ledger, so a note is only ever written for a turn that exists.
-	fn open(&self) -> Result<(), Error> {
+	/// Refuse unless this turn is a running turn of its conversation in the ledger.
+	fn require_running(&self) -> Result<(), Error> {
 		let root = store::directory(&self.bot)?;
 		match Ledger::running_turn_in(&root, self.id)? {
 			Some(conversation) if conversation.as_str() == self.conversation => Ok(()),
 			_ => Err(Error::Usage(format!(
-				"turn {} is not a running turn of conversation {}, so it writes no direct-message open",
+				"turn {} is not a running turn of conversation {}, so it cannot act for that conversation",
 				self.id.0, self.conversation
 			))),
 		}
@@ -300,6 +302,7 @@ pub async fn run(verb: Verb, request: &Request) -> Result<(), Error> {
 		Verb::Send => verbs::send(request, &turn).await?,
 		Verb::Command => verbs::command(request, &turn).await?,
 		Verb::Workspace => verbs::workspace(&turn).await?,
+		Verb::Members => verbs::members(&turn).await?,
 		Verb::Actions => verbs::actions(&turn)?,
 	};
 	println!("{line}");

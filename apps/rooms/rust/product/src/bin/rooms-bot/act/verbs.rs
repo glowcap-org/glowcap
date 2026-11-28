@@ -555,7 +555,7 @@ pub async fn join(request: &Request, turn: &Turn) -> Result<Value, Error> {
 		return Err(Error::Usage("join takes only --room NAME".into()));
 	}
 	turn.begin()?;
-	turn.open()?;
+	turn.require_running()?;
 	turn.spend()?;
 	with_view(turn, |live| async move {
 		let id = turn.budget.within(Step::Call, live.view.join_listed(&turn.conversation, room)).await
@@ -578,6 +578,22 @@ pub async fn workspace(turn: &Turn) -> Result<Value, Error> {
 		let workspace =
 			serde_json::to_value(&snapshot.intent).map_err(|cause| Error::state("the workspace snapshot", cause))?;
 		Ok(json!({"ok": true, "revision": snapshot.revision.to_string(), "workspace": workspace}))
+	})
+	.await
+}
+
+/// A read scoped to the actual running turn, irrespective of its agent's prompt.
+pub async fn members(turn: &Turn) -> Result<Value, Error> {
+	turn.begin()?;
+	turn.require_running()?;
+	with_view(turn, |live| async move {
+		let members = turn
+			.budget
+			.within(Step::Call, live.view.room_members(&turn.conversation))
+			.await
+			.ok_or_else(failure::nothing_sent)?
+			.map_err(|cause| failure::call(&cause))?;
+		Ok(json!({"ok": true, "members": members}))
 	})
 	.await
 }

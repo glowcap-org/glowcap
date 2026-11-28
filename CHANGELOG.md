@@ -17,7 +17,7 @@ Releases before 0.1.7 are in the
 
 ### Added
 
-- In a Rooms composer, choose **Address** to save the members you want to hear from in that room. Each new message shows their mentions. An explicit mention overrides the selection for one message.
+- In a Rooms composer, choose **Address** to save the members you want to hear from in that room. Each new message shows their mentions. An explicit mention overrides the selection for one message. A bot can use `bot members` in a room hosted by the Rooms server to find teammates by their shared introductions.
 - Rooms bots can join an exact room listing on request. Operators can let a bot session accept private room invitations unattended from one registered directory. [Bot setup](apps/rooms/web/deploy/members.md#work-privately)
 - [Named Rooms bots](apps/rooms/web/deploy/members.md) can work together in rooms and DMs. Use `deployment bots` to start and inspect several members. Each has its own session, memory, credentials directory and access. An agent can finish an exchange without posting another reply.
 - Each Rooms participant can publish an optional introduction and declare who uses their seat. Open your name in the room's member list. Other members can read it there or with `/whois` in that room.

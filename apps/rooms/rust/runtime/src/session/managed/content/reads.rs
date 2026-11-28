@@ -110,6 +110,10 @@ pub(super) fn requirement(input: Invocation<'_>) -> Result<Requirement> {
 		file(input.args)?;
 		return Requirement::new(&[Permission::ReadFile.key()], &[]);
 	}
+	if input.verb == "room-members-reader" {
+		rooms::conversation(input.args)?;
+		return Requirement::new(&[Permission::ObserveWorkspace.key()], &[]);
+	}
 	if input.verb == "bridge-form-reader" {
 		seat(input.args)?;
 		return Requirement::new(&[Permission::ObserveWorkspace.key()], &[]);
@@ -130,7 +134,12 @@ pub(super) fn references(input: Invocation<'_>, record: &MetadataRecord) -> Resu
 	if input.verb == "export-configuration" {
 		return Ok(Vec::new());
 	}
-	let coordinate = if input.verb == "room-identity-reader" {
+	let coordinate = if input.verb == "room-members-reader" {
+		let Some(selected) = rooms::members_selection(input.args, &record.intent)? else {
+			return Ok(Vec::new());
+		};
+		selected
+	} else if input.verb == "room-identity-reader" {
 		let Some(selected) = rooms::selection(input.args, &record.intent)? else {
 			return Ok(Vec::new());
 		};
@@ -277,19 +286,29 @@ pub(super) fn invoke(call: &mut Call<'_>, input: Invocation<'_>) -> Result<Argum
 			.disclose_reads_copying(file(input.args)?, &[ReadInterface { methods: &blob }], 0)
 			.map(Argument::Reference);
 	}
-	if matches!(input.verb, "history-reader" | "bridge-form-reader") {
-		let coordinate = seat(input.args)?;
+	if matches!(
+		input.verb,
+		"history-reader" | "bridge-form-reader" | "room-members-reader"
+	) {
 		let record = records::decode(input)?;
+		let coordinate = if input.verb == "room-members-reader" {
+			let Some(selected) = rooms::members_selection(input.args, &record.intent)? else {
+				return Ok(Argument::Void);
+			};
+			selected
+		} else {
+			seat(input.args)?
+		};
 		let target = record
 			.custody
 			.get(coordinate)
 			.ok_or_else(|| refuse("reader seat custody is absent"))?;
 		let target = records::reference(&target).resolve(call, input)?;
 		let methods = [ReadMethod {
-			verb: if input.verb == "bridge-form-reader" {
-				rooms_application::bridge::ASK
-			} else {
-				rooms_application::room::history::VERB
+			verb: match input.verb {
+				"bridge-form-reader" => rooms_application::bridge::ASK,
+				"room-members-reader" => rooms_application::protocol_data::ROOM_MEMBERS,
+				_ => rooms_application::room::history::VERB,
 			},
 			results: &[],
 		}];

@@ -110,7 +110,8 @@ Each reply is the agent's final message. During a turn the agent can also use th
 | --- | --- |
 | `say` | Post a line in the turn's conversation, in another with `--conversation <id>`, or with `--dm <nickname>` privately to a member. |
 | `send` | Send files from its working directory, up to <!-- value ../../apps/rooms/rust/application/src/room/line.rs MAX_MESSAGE_FILES -->8<!-- /value --> at a time, to the same places as `say`. It waits for the room to hold the files and prints how they ended, as the paragraph below says. |
-| `workspace` | List the conversations the bot can post to, the people in them, and its own nickname. |
+| `workspace` | List the bot’s saved conversations and its own nickname. |
+| `members` | In a turn from a room hosted by the Rooms server, list the current members and any kind or introduction each has shared. These are self-descriptions. A direct conversation has no room roster. |
 | `command` | Run any other session command the access's rights allow, such as editing or withdrawing a line, or closing a direct message. |
 | `actions` | List what this turn's `say`, `send`, and `command` calls did and how each ended, from the bot's own record. It takes no place and does not call the session. |
 

@@ -145,6 +145,7 @@ pub const Token = enum {
     profile,
     profiles,
     set_profile,
+    room_members,
     kick,
     governs,
     managed_room_identity,
@@ -243,6 +244,7 @@ pub const Token = enum {
             .profile => "profile",
             .profiles => "profiles",
             .set_profile => "setProfile",
+            .room_members => "roomMembers",
             .kick => "kick",
             .governs => "governs",
             .managed_room_identity => "managedRoomIdentity",
@@ -333,6 +335,7 @@ pub const verbs = [_]Verb{
     .{ .name = Token.typing.wire(), .replies = false, .on = .membership },
     .{ .name = Token.away.wire(), .replies = true, .on = .membership },
     .{ .name = Token.set_profile.wire(), .replies = true, .on = .membership },
+    .{ .name = Token.room_members.wire(), .replies = true, .on = .membership },
     .{ .name = Token.notify.wire(), .replies = false, .on = .inbox },
     .{ .name = Token.dm.wire(), .replies = true, .on = .inbox },
 };

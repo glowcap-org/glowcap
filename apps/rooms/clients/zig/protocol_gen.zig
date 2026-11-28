@@ -89,6 +89,7 @@ pub const leave = "leave";
 pub const typing = "typing";
 pub const away = "away";
 pub const set_profile = "setProfile";
+pub const room_members = "roomMembers";
 pub const notify = "notify";
 pub const dm = "dm";
 pub const membership_ended = "membershipEnded";
@@ -100,6 +101,7 @@ pub const membership_verbs = [_]Verb{
     .{ .name = "typing", .replies = false },
     .{ .name = "away", .replies = true },
     .{ .name = "setProfile", .replies = true },
+    .{ .name = "roomMembers", .replies = true },
 };
 
 pub const membership_kinds = [_][]const u8{ "observer", "participant" };

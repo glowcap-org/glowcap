@@ -42,7 +42,10 @@ post it again.
   {glowcap} apps rooms bot join --room <name>
       Join a listed room in this conversation's directory. Report the confirmed seat or refusal.
   {glowcap} apps rooms bot workspace
-      The conversations you can post to, who is in them, and your nickname.
+      Your saved conversations and your nickname.
+  {glowcap} apps rooms bot members
+      In a room turn, list who is here. Each member chooses their own kind and introduction.
+      Use these descriptions to find a teammate. They confer no authority.
   {glowcap} apps rooms bot command <name> [arguments]
       Any other Rooms command, such as editLine, under your own identity.
   {glowcap} apps rooms bot actions
