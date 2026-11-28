@@ -240,33 +240,59 @@ fn a_crash_after_delivery_observes_the_original_receipt_without_reposting() {
 }
 
 #[test]
-fn a_finite_series_posts_twice_at_its_real_one_minute_cadence() {
-	use std::time::{Duration, Instant};
+fn a_finite_series_resumes_each_due_slot_once_and_preserves_its_minute_cadence() {
+	use serde_json::Value;
+	use std::{fs, time::SystemTime};
+
 	let world = World::new("bot-reminder-cadence");
-	let bot = world.serve();
+	let table = world.rig.dir.join("reminders/schedules.json");
+	let read = || serde_json::from_slice::<Value>(&fs::read(&table).unwrap()).unwrap();
+	// With the bot stopped, advance only the saved due time to exercise the
+	// same recovery path as a host coming online when the next slot is due.
+	let make_due = |book: &mut Value| {
+		let now = SystemTime::now()
+			.duration_since(SystemTime::UNIX_EPOCH)
+			.unwrap()
+			.as_secs();
+		book["rows"][0]["due"] = json!(now);
+		fs::write(&table, serde_json::to_vec(book).unwrap()).unwrap();
+		now
+	};
 	let request = action(
 		"remind",
-		json!({"id":["check"],"in":["2s"],"every":["1m"],"count":["2"],"text":["check in"]}),
+		json!({"id":["check"],"in":["1h"],"every":["1m"],"count":["2"],"text":["check in"]}),
 		&[],
 	);
-	let started = Instant::now();
+	let bot = world.serve();
 	assert_eq!(turn(&world, &[request]), "exit=0");
-	world.await_line("room", "[Reminder] check in");
-	let first = Instant::now();
-	let limit = first + Duration::from_secs(85);
-	loop {
-		if world.rig.status()["reminders"]["delivered"] == 1 {
-			break;
-		}
-		assert!(Instant::now() < limit, "the second occurrence did not settle");
-		std::thread::sleep(Duration::from_secs(1));
-	}
-	assert!(
-		started.elapsed() >= Duration::from_secs(59),
-		"the second occurrence arrived before its cadence"
-	);
 	world.stopped(bot);
-	assert_eq!(world.count("room", "[Reminder] check in"), 2);
+	let mut first = read();
+	let first_due = make_due(&mut first);
+	let bot = world.serve();
+	world.await_line("room", "[Reminder] check in");
+	eventually("the next slot after the first receipt settles", || {
+		(read()["rows"][0]["occurrence"] == 2).then_some(())
+	});
+	world.stopped(bot);
+	let mut second = read();
+	let row = &second["rows"][0];
+	assert_eq!(row["state"], "Scheduled");
+	assert_eq!(row["due"], first_due + 60);
+	assert_eq!(row["delivered"], 1);
+	assert_ne!(row["operation"], first["rows"][0]["operation"]);
+	assert_eq!(world.count("room", "[Reminder] check in"), 1);
+
+	make_due(&mut second);
+	let bot = world.serve();
+	eventually("the final receipt to settle", || {
+		let row = &read()["rows"][0];
+		let finished = &row["state"]["Finished"];
+		(row["delivered"] == 2 && finished["outcome"] == "delivered" && finished["release"].is_null()).then_some(())
+	});
+	world.stopped(bot);
+	eventually("both reminder lines to reach the room", || {
+		(world.count("room", "[Reminder] check in") == 2).then_some(())
+	});
 	world.finish();
 }
 
