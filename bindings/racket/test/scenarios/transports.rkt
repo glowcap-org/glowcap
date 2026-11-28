@@ -113,7 +113,7 @@
   (feed-next! client-session client-read)   ; its resolution settles the fetch
   (expect (and (pair? (session-vow-state fetched)) (eq? 'ok (car (session-vow-state fetched))))
           "transport: the scripted fetch fulfilled")
-  (define counter-ref (cdr (session-vow-state fetched)))
+  (define counter-ref (cdr (observed-vow-outcome! fetched)))
   (expect (ref? counter-ref) "transport: fetched a capability")
   ;; Explicitly retire the consumed fetch question and serve its deterministic
   ;; GC frame before the next scripted leg. A finalizer is not an ordering
@@ -168,7 +168,7 @@
   (feed-next! server-session server-read)
   (session-flush! server-session)
   (feed-next! client-session client-read)
-  (define bad-ref (cdr (session-vow-state fetched)))
+  (define bad-ref (cdr (observed-vow-outcome! fetched)))
   (define vow (session-far-send client-session bad-ref 'unencodable '() #t))
   (drain-host! chost)
   (session-flush! client-session)

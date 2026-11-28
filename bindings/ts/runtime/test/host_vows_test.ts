@@ -78,19 +78,21 @@ Deno.test("fetch cleanup failure remains secondary to invalid native result", ()
 	assert(secondaryFailures(failed)[0] === cleanup, "the exact cleanup failure was lost");
 });
 
-Deno.test("Host vow table evicts unobserved outcomes without shifting the FIFO", async () => {
+Deno.test("Host vow table evicts unobserved outcomes only when the live FIFO is full", async () => {
 	const host = new Host();
 	try {
 		for (let vow = 0n; vow < 4096n; vow++) {
 			host.vowMinted(vow);
 			host.settleVow(vow, { ok: null });
 		}
-		const fifo = host as unknown as { _unobserved: bigint[]; _unobservedHead: number };
-
 		await assertRejectsCode(host.awaitVow(0n), CLOSED);
-		assert(await host.awaitVow(3072n) === null, "newest retained outcome changed");
-		assert(fifo._unobserved.length <= 2048, "unobserved FIFO retained more than two windows");
-		assert(fifo._unobservedHead < 1024, "unobserved FIFO head was not compacted");
+		for (let vow = 3073n; vow < 4096n; vow++) {
+			if (vow % 2n === 0n) host.abandonVow(vow);
+			else await host.awaitVow(vow);
+		}
+		host.vowMinted(4096n);
+		host.settleVow(4096n, { ok: null });
+		assert(await host.awaitVow(3072n) === null, "observed or abandoned outcomes displaced a live reply");
 	} finally {
 		await host.close();
 	}

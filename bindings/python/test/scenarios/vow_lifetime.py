@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import threading
+from unittest.mock import patch
 
-from glowcap import GlowcapError
-from glowcap._constants import ERR_CLOSED, ERR_NULL_POINTER
+from glowcap import FetchFailed, GlowcapError, Host
+from glowcap._constants import BINDING_UNOBSERVED_OUTCOME_CAP, ERR_CLOSED, ERR_NULL_POINTER
 from glowcap._gc import HostGc
 from glowcap._host.vows import VowTable
-from glowcap._promise import _promise_for
+from glowcap._promise import _classify_live_ref, _observe_vow, _promise_for
 
 
 async def abandoned_vow_drops_pending_completion() -> None:
@@ -21,6 +22,60 @@ async def abandoned_vow_drops_pending_completion() -> None:
         assert error.code == ERR_CLOSED, error
     else:
         raise AssertionError("abandoned vow retained a pending completion row")
+
+
+async def late_outcomes_count_only_live_rows() -> None:
+    table = VowTable(HostGc())
+    for vow in range(BINDING_UNOBSERVED_OUTCOME_CAP + 1):
+        table.minted(vow)
+        table.settle(vow, True, vow)
+    try:
+        await table.await_vow(0)
+    except GlowcapError as error:
+        assert error.code == ERR_CLOSED
+    else:
+        raise AssertionError("over-capacity table kept the oldest outcome")
+    for vow in range(2, BINDING_UNOBSERVED_OUTCOME_CAP + 1):
+        if vow % 2:
+            assert await table.await_vow(vow) == vow
+        else:
+            table.abandon(vow)
+    table.minted(BINDING_UNOBSERVED_OUTCOME_CAP + 1)
+    table.settle(BINDING_UNOBSERVED_OUTCOME_CAP + 1, True, None)
+    assert await table.await_vow(1) == 1
+
+
+async def refused_observation_reclaims_a_delivered_result() -> None:
+    host = Host()
+    try:
+        source = host.spawn(lambda _verb, _args: None)
+        for reason in ("progress", "classification"):
+            held = host.retain(source)
+            # A manually projected occurrence has no finalizer of its own.
+            host.gc.disarm(held)
+            if reason == "progress":
+                host.vow_minted(7)
+                host.settle_vow(7, True, [held])
+                failure = RuntimeError("drive refused")
+                with patch.object(host, "kick_actions", side_effect=failure):
+                    try:
+                        await _observe_vow(host, 7)
+                    except RuntimeError as refused:
+                        assert refused is failure
+                    else:
+                        raise AssertionError("failed drive exposed the result")
+            else:
+                try:
+                    _classify_live_ref(host.gc, [held], "compound")
+                except FetchFailed:
+                    pass
+                else:
+                    raise AssertionError("fetch accepted a compound result")
+            assert host.gc.pending == [source.id], "an unexposed native retain was lost"
+            host.gc.drain_gc()
+        host.release(source)
+    finally:
+        await host.close()
 
 
 async def promise_adoption_releases_every_post_mint_failure() -> None:
@@ -49,6 +104,9 @@ async def promise_adoption_releases_every_post_mint_failure() -> None:
                     raise failure
 
         class FakeGc:
+            def discard_argument(self, value):
+                raise AssertionError("refused mint delivered a value")
+
             def track_vow(self, _handle, _vow: int) -> None:
                 if failing == "track":
                     raise failure

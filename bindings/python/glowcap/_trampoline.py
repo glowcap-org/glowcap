@@ -38,7 +38,7 @@ from ._abi_value import _arg_from_c, _arg_to_c, _args_to_c, _ref_to_c
 from ._errors import GlowcapError, VowBroken, _check_host, _host_last_error
 from ._ffi_host import _host, _HostBehavior, _HostCtxFree, _selector_buf
 from ._ffi_ocapn import _Argument, _byte_buf, _Reference
-from ._promise import RemotePromise, _FarArguments, _send_far
+from ._promise import PromiseState, RemotePromise, _FarArguments, _send_far
 from ._value import Forward, Ref, _ref_from_id
 
 _OK = _abi.OK
@@ -172,14 +172,16 @@ def _send_local(session, ctx: int, verb: str | None, args: list) -> RemotePromis
     # hosts composes in process; a `Forward` to a far target defers onto
     # session.send's wire reply (ADR-0016); a raise settles broken with the
     # behavior's own words.
-    async def begin():
+    async def begin(delivery):
         try:
             entry = _entry_for(ctx)
             if entry is None:
                 raise VowBroken("no such hosted object")
             result = _run_hosted(entry, verb, args)
             if isinstance(result, Forward):
-                return await session.send(result.target, result.verb, result.args)
+                return await delivery.follow(
+                    session.send(result.target, result.verb, result.args), session.host.schedule_on_loop
+                )
             if inspect.isawaitable(result):
                 # A local send to an async behavior awaits it; the
                 # resolver machinery is only for wire-served turns.
@@ -190,7 +192,7 @@ def _send_local(session, ctx: int, verb: str | None, args: list) -> RemotePromis
         except Exception as error:
             raise VowBroken(str(error) or type(error).__name__)
 
-    return RemotePromise.local(begin)
+    return RemotePromise(PromiseState.local(), begin)
 
 
 async def _tell_local(session, ctx: int, verb: str | None, args: list) -> None:

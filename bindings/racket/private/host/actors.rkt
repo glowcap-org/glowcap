@@ -179,9 +179,10 @@
       (define target (hash-ref vow-targets v #f))
       (define home (and target (not (settled)) (host-exporter-for m target)))
       (if home
-          (await-vow home v 'host-await label)
+          (wait-for-vow home v 'host-await label)
           (settled-vow-value (host-wait-until m settled 'host-await) 'host-await label)))
-    (lambda () (release-vow-from-host! m v))))
+    (lambda () (release-vow-from-host! m v)))
+  (cdr (observed-vow-outcome! v)))
 
 ;; Send `verb(args)` to `target` and wait for the answer outside a turn. The
 ;; refusal inside a turn comes before the send is queued.

@@ -30,6 +30,7 @@
          track-vow!
          park-vow-release!
          track-host-argument!
+         discard-host-argument!
          track-argument!
          track-arguments!
          drain-gc!
@@ -60,21 +61,22 @@
 ;; Finalizers only enqueue and wake the Host owner. The progress bump happens
 ;; after releasing `gate`, so Host retirement can never deadlock against a
 ;; finalizer waiting for the Host lock.
-(define (queue-release! weak-host gs release)
+(define (enqueue-releases! weak-host gs enqueue!)
   (define accepted?
     (call-with-semaphore
      (gc-state-gate gs)
      (lambda ()
-       (cond
-         [(unbox (gc-state-retired? gs)) #f]
-         [else
-          (async-channel-put (gc-state-channel gs) release)
-          (set-box! (gc-state-scheduled gs) #t)
-          #t]))))
+       (and (not (unbox (gc-state-retired? gs)))
+            (enqueue! (gc-state-channel gs))
+            (begin (set-box! (gc-state-scheduled gs) #t) #t)))))
   (when accepted?
     (define m (weak-box-value weak-host))
     (when m (host-bump-progress! m)))
   accepted?)
+
+(define (queue-release! weak-host gs release)
+  (enqueue-releases! weak-host gs
+                     (lambda (channel) (async-channel-put channel release) #t)))
 
 (define (retire-host-gc! m)
   (define gs (hash-ref gc-states m #f))
@@ -143,11 +145,13 @@
 (define (park-vow-release! m id armed)
   (queue-vow-release! (make-weak-box m) (host-gc-state m) id armed))
 
-(define (track-vow! m vow id armed)
+(define (track-vow! m vow id armed take-unobserved!)
   (define weak-host (make-weak-box m))
   (define gs (host-gc-state m))
   (register-finalizer vow
-                      (lambda (_)
+                      (lambda (unreachable)
+                        (define outcome (take-unobserved! unreachable))
+                        (when outcome (queue-argument! weak-host gs (cdr outcome)))
                         (queue-vow-release! weak-host gs id armed))))
 
 ;; Attach one finalizer unit to every capability occurrence in a value the
@@ -159,18 +163,38 @@
     (track-host-argument! (session-host c) value))
   value)
 
+(define (for-each-ref value visit)
+  (let walk ([value value])
+    (cond
+      [(ref? value) (visit value)]
+      [(list? value) (for-each walk value)]
+      [(pset? value) (for-each walk (pset-items value))]
+      [(tagged-arg? value) (for-each walk (tagged-arg-value value))]
+      [(struct-arg? value)
+       (for-each (lambda (entry) (walk (cdr entry))) (struct-arg-entries value))])))
+
 (define (track-host-argument! m value)
-  (cond
-    [(ref? value) (track-host-ref! m value)]
-    [(list? value) (for-each (lambda (item) (track-host-argument! m item)) value)]
-    [(pset? value) (for-each (lambda (item) (track-host-argument! m item)) (pset-items value))]
-    [(tagged-arg? value)
-     (for-each (lambda (item) (track-host-argument! m item)) (tagged-arg-value value))]
-    [(struct-arg? value)
-     (for-each (lambda (entry) (track-host-argument! m (cdr entry)))
-               (struct-arg-entries value))]
-    [else (void)])
+  (for-each-ref value (lambda (capability) (track-host-ref! m capability)))
   value)
+
+;; The projection belongs to the binding until the first successful return
+;; or listener handoff. Queue one release for each unexposed occurrence.
+(define (discard-host-argument! m value)
+  (define gs (hash-ref gc-states m #f))
+  (when gs (queue-argument! (make-weak-box m) gs value)))
+
+(define (queue-argument! weak-host gs value)
+  (enqueue-releases!
+   weak-host gs
+   (lambda (channel)
+     (define any? #f)
+     (for-each-ref value
+                   (lambda (capability)
+                     (define prior (hash-ref ref-gc-tokens capability #f))
+                     (when prior (set-box! prior #f))
+                     (async-channel-put channel (cons 'ref (ref-id capability)))
+                     (set! any? #t)))
+     any?)))
 
 (define (track-arguments! c values)
   (for-each (lambda (value) (track-argument! c value)) values)

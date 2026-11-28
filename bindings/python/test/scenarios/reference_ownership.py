@@ -5,7 +5,8 @@ import gc
 import weakref
 from unittest.mock import patch
 
-from glowcap import GlowcapError, Host, Ref, tcp
+from glowcap import Forward, GlowcapError, Host, Ref, Tagged, tcp
+from glowcap._constants import BINDING_UNOBSERVED_OUTCOME_CAP, ERR_NOT_FOUND
 from glowcap._value import _ref_from_id
 
 from scenarios.runtime import tcp_connect
@@ -13,15 +14,22 @@ from scenarios.runtime import tcp_connect
 
 async def run() -> None:
     host = Host()
+    child = host.spawn(lambda _verb, _args: "child")
     completion = None
 
     def echo(verb, args):
         nonlocal completion
-        if verb == "pending":
+        if verb == "anchor":
+            return child
+        if verb == "compound":
+            return [child, Tagged("nested", [child])]
+        if verb == "barrier":
+            return None
+        if verb in ("pending", "pending_compound"):
             future = asyncio.get_running_loop().create_future()
 
             def completion():
-                future.set_result([args[0]])
+                future.set_result([args[0]] if args else [child, Tagged("nested", [child])])
 
             return future
         return args[0]
@@ -71,6 +79,16 @@ async def run() -> None:
                 owner.gc.drain_gc()
                 assert await session.send(resolved, "ping", []) == "alive"
                 remote = await session.fetch("echo")
+                await _unexposed_replies(session, remote)
+                forwarder = session.spawn(lambda verb, args: Forward(remote, verb, args))
+                nested = session.spawn(lambda verb, args: Forward(forwarder, verb, args))
+                for target in (remote, forwarder, nested):
+                    for case in ("cancelled", "timeout", "unread", "raced", "callback", "gather", "late"):
+                        anchor = await session.send(remote, "anchor")
+                        await _observer_lifetime(session, target, remote, case, lambda: completion())
+                        _release_last(session, anchor, (case, target is remote))
+                session.release(nested)
+                session.release(forwarder)
                 remote_resolved = await session.resolve(remote)
                 assert isinstance(remote_resolved, Ref)
                 pending = session.send(remote, "pending", [remote])
@@ -121,3 +139,111 @@ async def run() -> None:
         await server.close()
         await serving
         await host.close()
+
+
+async def _unexposed_replies(session, remote):
+    for case in ("abandoned", "evicted", "cancelled", "observed"):
+        anchor = await session.send(remote, "anchor")
+        token = anchor.id
+        pending = session.send(remote, "compound")
+        if case == "cancelled":
+            pending.add_done_callback(lambda _: None)
+            pending.cancel()
+        await session.send(remote, "barrier")
+        if case == "evicted":
+            # The native compound result is real. Only the pressure is synthesized.
+            for offset in range(BINDING_UNOBSERVED_OUTCOME_CAP):
+                vow = (1 << 64) - 1 - offset
+                session.host.vow_minted(vow)
+                session.host.settle_vow(vow, True, None)
+        elif case == "observed":
+            first, tagged = await pending
+            assert first.id == tagged.value[0].id == token
+            session.release(first)
+            session.release(tagged.value[0])
+        del pending
+        gc.collect()
+        session.host.gc.drain_gc()
+        await session.send(remote, "barrier")
+        session.host.gc.drain_gc()
+        _release_last(session, anchor, case)
+
+
+def _release_last(session, anchor, case):
+    token = anchor.id
+    session.release(anchor)
+    try:
+        extra = session.host.retain(_ref_from_id(token))
+    except GlowcapError as error:
+        assert error.code == ERR_NOT_FOUND, error
+    else:
+        session.release(extra)
+        raise AssertionError(f"{case}: unexposed native reply retained its child")
+
+
+async def _observer_lifetime(session, target, remote, case, finish):
+    p = session.send(target, "pending_compound")
+    collected = weakref.ref(p)
+    retrieved = []
+    fired = asyncio.Event()
+    if case == "callback":
+
+        def accept(settled):
+            retrieved.append(settled.result())
+            fired.set()
+
+        p.add_done_callback(accept)
+    elif case == "raced":
+
+        async def observe():
+            return await p
+
+        p.add_done_callback(lambda _: waiter.cancel())
+        waiter = asyncio.create_task(observe())
+    elif case == "gather":
+        aggregate = asyncio.gather(p)
+    elif case == "timeout":
+        done, waiting = await asyncio.wait({p}, timeout=0)
+        assert not done
+        del waiting
+    else:
+        p.add_done_callback(lambda _: fired.set())
+    await session.send(remote, "barrier")
+    if case == "cancelled":
+        assert p.cancel()
+    if case not in ("late", "raced"):
+        del p
+    for _ in range(4):
+        await asyncio.sleep(0)
+    gc.collect()
+    if case in ("timeout", "cancelled"):
+        assert collected() is None, f"{case}: pending peer kept its detached observer alive"
+    elif case == "callback":
+        assert collected() is not None, "registered callback lost its wrapper"
+    session.host.gc.drain_gc()
+    finish()
+    await session.send(remote, "barrier")
+    if case == "raced":
+        try:
+            await waiter
+        except asyncio.CancelledError:
+            pass
+        else:
+            raise AssertionError("the waiter claimed a reply after cancellation")
+        del waiter, p
+    if case in ("unread", "late", "callback"):
+        await fired.wait()
+    if case == "gather":
+        retrieved.extend(await aggregate)
+    elif case == "late":
+        assert p.done()
+        retrieved.append(await p)
+        del p
+    if case in ("gather", "late", "callback"):
+        ((first, tagged),) = retrieved
+        assert await session.send(first, "ping") == "child"
+        session.release(first)
+        session.release(tagged.value[0])
+    gc.collect()
+    await asyncio.sleep(0)
+    session.host.gc.drain_gc()

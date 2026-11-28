@@ -115,6 +115,8 @@ def main() -> int:
     vow_lifetime.gc_release_refusal_stays_owned()
     vow_lifetime.retired_gc_ignores_late_finalizers()
     asyncio.run(vow_lifetime.abandoned_vow_drops_pending_completion())
+    asyncio.run(vow_lifetime.late_outcomes_count_only_live_rows())
+    asyncio.run(vow_lifetime.refused_observation_reclaims_a_delivered_result())
     asyncio.run(vow_lifetime.promise_adoption_releases_every_post_mint_failure())
     print("python test OK: a dropped promise abandons its local completion row")
     asyncio.run(failures._websocket_close_failure_is_observable())

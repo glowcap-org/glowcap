@@ -16,7 +16,7 @@ from typing import Protocol
 from ._abi_value import _ref_to_c
 from ._errors import _check_host, _retain_cleanup_failure
 from ._ffi_host import _host
-from ._value import Argument, Ref, Set, Struct, Tagged, _ref_from_id
+from ._value import Argument, Ref, Struct, Tagged, _ref_from_id
 
 
 class GcHandle(Protocol):
@@ -72,6 +72,28 @@ class _HostGcHandle:
 def bind_host(gc: HostGc, host) -> None:
     """Bind HostGc to its Host through the narrow finalizer-safe seam."""
     gc.bind(_HostGcHandle(host))
+
+
+class VowRelease:
+    """The public wrapper's finalizer owns its vow and any unread successful reply."""
+
+    __slots__ = ("gc", "vow", "unread")
+
+    def __init__(self, gc: HostGc, vow: int):
+        self.gc = gc
+        self.vow = vow
+        self.unread: Argument = None
+
+    def discard(self) -> None:
+        value, self.unread = self.unread, None
+        if value is not None:
+            self.gc.discard_argument(value)
+
+    def __call__(self) -> None:
+        try:
+            self.discard()
+        finally:
+            self.gc.park_vow(self.vow)
 
 
 class HostGc:
@@ -144,18 +166,43 @@ class HostGc:
         projection minted one Host retain per occurrence, so equal ids in two
         leaves receive two independent death rites.
         """
+        self._visit_refs(value, self.track_ref)
+        return value
+
+    def discard_argument(self, value: Argument) -> None:
+        """Retire every native retain in a reply the application never received."""
+        self._visit_refs(value, self._park_discarded_ref)
+        with self._lock:
+            h = self._h if self.pending else None
+        if h is not None:
+            h.schedule_drain(self._drain_scheduled)
+
+    def discard_after_failure(self, value: Argument, failure: BaseException) -> None:
+        """Keep a refused observation authoritative if queuing its cleanup also fails."""
+        try:
+            self.discard_argument(value)
+        except BaseException as cleanup:
+            _retain_cleanup_failure(failure, cleanup)
+
+    def _park_discarded_ref(self, ref: Ref) -> None:
+        with self._lock:
+            if self._h is None:
+                return
+            self.pending.append(ref.id)
+        self.disarm(ref)
+
+    def _visit_refs(self, value: Argument, visit: Callable[[Ref], object]) -> None:
         if isinstance(value, Ref):
-            return self.track_ref(value)
-        if isinstance(value, (list, Set)):
+            visit(value)
+        elif isinstance(value, list):
             for item in value:
-                self.track_argument(item)
+                self._visit_refs(item, visit)
         elif isinstance(value, Tagged):
             for item in value.value:
-                self.track_argument(item)
+                self._visit_refs(item, visit)
         elif isinstance(value, Struct):
             for _, item in value.entries:
-                self.track_argument(item)
-        return value
+                self._visit_refs(item, visit)
 
     def track_arguments(self, values: list[Argument]) -> list[Argument]:
         for value in values:
@@ -179,13 +226,10 @@ class HostGc:
             self.pending.append(token)
         h.schedule_drain(self._drain_scheduled)
 
-    def track_vow(self, handle, vow: int):
-        """Release one FFI Host vow when its public wrapper dies."""
-        weakref.finalize(handle, self._on_vow_dropped, vow)
-        return handle
-
-    def _on_vow_dropped(self, vow: int) -> None:
-        self.park_vow(vow)
+    def track_vow(self, handle, vow: int) -> VowRelease:
+        release = VowRelease(self, vow)
+        weakref.finalize(handle, release)
+        return release
 
     def park_vow(self, vow: int) -> None:
         """Transfer one callerless vow release to the Host owner loop."""

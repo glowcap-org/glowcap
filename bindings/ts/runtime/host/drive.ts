@@ -103,6 +103,7 @@ export abstract class HostDrive extends HostApplication {
 			});
 		}
 		this._vows.delete(vow);
+		this.forgetUnobserved(vow);
 		const outcome = row.state.outcome;
 		return "ok" in outcome ? Promise.resolve(outcome.ok) : Promise.reject(outcome.err);
 	}
@@ -127,21 +128,15 @@ export abstract class HostDrive extends HostApplication {
 		}
 		// Minted, or an already-settled row re-settled: hold for a late observation.
 		row.state = { tag: "settled", outcome };
-		this._unobserved.push(vow);
-		while (this._unobserved.length - this._unobservedHead > MAX_UNOBSERVED_OUTCOMES) {
-			const oldest = this._unobserved[this._unobservedHead++]!;
-			const stale = this._vows.get(oldest);
-			// Only evict a row still parked unobserved; an observed one is gone.
-			if (stale !== undefined && stale.state.tag === "settled") {
-				this.abandonVow(oldest);
-			}
-		}
-		if (this._unobservedHead !== 0 && this._unobservedHead === this._unobserved.length) {
-			this._unobserved.length = 0;
-			this._unobservedHead = 0;
-		} else if (this._unobservedHead >= MAX_UNOBSERVED_OUTCOMES) {
-			this._unobserved.splice(0, this._unobservedHead);
-			this._unobservedHead = 0;
+		this._unobserved.add(vow);
+		if (this._unobserved.size > MAX_UNOBSERVED_OUTCOMES) {
+			// Advance one iterator across consecutive evictions. Restarting from
+			// the beginning scans the deleted prefix of the set on every reply.
+			const oldest = this._oldestUnobserved ??= {
+				iterator: this._unobserved.values(),
+				remaining: MAX_UNOBSERVED_OUTCOMES,
+			};
+			this.abandonVow(oldest.iterator.next().value!);
 		}
 		// A replacement also retires the stored, unexposed projection after the
 		// table relinquishes it, before scheduling any cleanup progress.
@@ -150,10 +145,22 @@ export abstract class HostDrive extends HostApplication {
 		}
 	}
 
+	/** Keep the cursor across small dips below capacity. Retire it after a
+	 * window of removals or when the backlog drains, so it cannot pin old
+	 * set storage through arbitrary insert/delete churn. */
+	private forgetUnobserved(vow: bigint): void {
+		if (!this._unobserved.delete(vow)) return;
+		const oldest = this._oldestUnobserved;
+		if (oldest && (--oldest.remaining === 0 || this._unobserved.size <= MAX_UNOBSERVED_OUTCOMES / 2)) {
+			this._oldestUnobserved = undefined;
+		}
+	}
+
 	/** Drop completion state after the last public promise wrapper dies. */
 	abandonVow(vow: bigint): void {
 		const row = this._vows.get(vow);
 		this._vows.delete(vow);
+		this.forgetUnobserved(vow);
 		if (row?.state.tag === "settled" && "ok" in row.state.outcome) {
 			this._gc.discardArgument(row.state.outcome.ok);
 		}

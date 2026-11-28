@@ -137,8 +137,8 @@ export abstract class HostState {
 	// caller. The next verb head or terminal close barrier consumes the exact cause.
 	protected _backgroundFailure: { readonly error: unknown } | null = null;
 	// FIFO of settled-but-unobserved vow ids, for the eviction cap.
-	protected readonly _unobserved: bigint[] = [];
-	protected _unobservedHead = 0;
+	protected readonly _unobserved: Set<bigint> = new Set();
+	protected _oldestUnobserved?: { iterator: SetIterator<bigint>; remaining: number };
 	// DIAL actions are asynchronous after the C queue has consumed them. Retain
 	// their executors until they report a terminal result; otherwise a detached
 	// promise can disappear while its ticket and half-open channel remain live.
@@ -409,8 +409,8 @@ export abstract class HostState {
 
 	protected clearVowRows(): void {
 		this._vows.clear();
-		this._unobserved.length = 0;
-		this._unobservedHead = 0;
+		this._unobserved.clear();
+		this._oldestUnobserved = undefined;
 	}
 
 	/** Transfer FFI ownership to a DriverLoop after its ABI claim succeeds;
