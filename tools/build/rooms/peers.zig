@@ -241,16 +241,16 @@ pub fn register(b: *std.Build, runtime_gate: *execution.RuntimeGate, iroh_abi: *
         previous_unit = &unit.step;
     }
 
-    // Cargo launches the compiled bot process suite through its target runner,
+    // Cargo launches the session and bot process suites through its target runner,
     // so each real process journey gets its own deadline and Cargo's environment.
     const runner = b.root.joinString(b.allocator, "tools/build/rooms/process_cases.py") catch @panic("OOM");
     const quoted_runner = std.json.Stringify.valueAlloc(b.allocator, runner, .{}) catch @panic("OOM");
-    const bot_runner = b.fmt("target.'cfg(all())'.runner = ['python3', {s}]", .{quoted_runner});
+    const case_runner = b.fmt("target.'cfg(all())'.runner = ['python3', {s}]", .{quoted_runner});
     const Run = struct { targets: []const []const u8, per_case: bool = false };
     const process_runs = [_]Run{
-        .{ .targets = &.{ "--test", "archive_process", "--test", "session_process", "--test", "server_process", "--test", "chat_process", "--bin", "rooms-session" } },
+        .{ .targets = &.{ "--test", "archive_process", "--test", "server_process", "--test", "chat_process", "--bin", "rooms-session" } },
         .{ .targets = &.{ "--bin", "rooms-bot" } },
-        .{ .targets = &.{ "--test", "bot_process", "--config", bot_runner }, .per_case = true },
+        .{ .targets = &.{ "--test", "session_process", "--test", "bot_process", "--config", case_runner }, .per_case = true },
     };
     const test_step = b.step("rooms-peers-test", "Prove the archive peer, session peer, and Rooms server's identity, transport, restart and shutdown (needs cargo)");
     var previous_process: *std.Build.Step = previous_unit;

@@ -266,6 +266,27 @@ fn landed(workspace: &Intent, at: usize) -> Direct {
 		Conversation::Room(_) => panic!("a room at {at}"),
 	}
 }
+#[test]
+fn a_replacement_opening_keeps_the_inbox_but_ends_its_former_ownership() {
+	use crate::content::session::workspace::InboxSelection;
+	let mut initial = incoming("original", "first");
+	initial.inbox = Some(typed(12));
+	let previous = InboxSelection::direct(&initial).unwrap();
+	let mut workspace = intent(directory(4), json!([]));
+	receive_direct(&mut workspace, initial).unwrap();
+	let first = landed(&workspace, 0);
+	assert!(previous.owns_direct_inbox(&first));
+	let mut closed = first.clone();
+	closed.closed = true;
+	assert!(previous.owns_direct_inbox(&closed));
+	receive_direct(&mut workspace, incoming("offered", "next")).unwrap();
+	let next = landed(&workspace, 0);
+	assert_eq!(next.id, first.id);
+	assert_eq!(next.inbox, first.inbox);
+	assert!(!previous.owns_direct_inbox(&next));
+	assert!(InboxSelection::direct(&next).unwrap().owns_direct_inbox(&next));
+}
+
 fn openings(row: &Direct) -> Vec<&str> {
 	row.openings
 		.as_slice()

@@ -202,11 +202,19 @@ fn exact_member_registration_and_existing_rooms_survive_restart() {
 		"join",
 		json!({"locator":[fixture.locator], "nick":["scout"], "room":["workshop"]}),
 	);
-	let actual = call(&prior, "status", json!({}))["workspace"]["directories"][0]["assignedNick"].clone();
-	assert_ne!(actual, "scout");
 	automatic.signal("-TERM");
 	let mut automatic = launch(&prior);
+	// Finish automatic registration before asking to change a live, suffixed assignment.
+	let resumed = call(&prior, "start", json!({"nick":["scout"]}));
+	let assignment = &resumed["workspace"]["directories"][0];
+	assert_eq!(assignment["nickAllocation"], "automatic");
+	assert!(
+		assignment["assignedNick"].as_str().is_some_and(|nick| nick != "scout"),
+		"{assignment}"
+	);
 	let refused = try_call(&prior, "start", json!({"nick":["scout"], "exact-nick":["true"]})).unwrap_err();
+	assert!(refused.contains(r#""class":"invalid""#), "{refused}");
+	assert!(refused.contains(r#""retry":"after-request-change""#), "{refused}");
 	assert!(refused.contains("exact nickname"), "{refused}");
 	automatic.signal("-TERM");
 
