@@ -185,8 +185,8 @@ pub fn unchanged(name: &str, args: &[String], before: &Value, after: &Value) -> 
 			before["ignored"].is_array() && before["ignored"] == after["ignored"]
 		}
 		Route::Checkpoint(
-			CloseDirect | LeaveConversation | SetRoomProfile | SetRoomStanding | DropRoomModerator | DropRoomManager
-			| SubmitRoomBridgeForm,
+			CloseDirect | LeaveConversation | SetRoomProfile | SetRoomAudience | SetRoomStanding | DropRoomModerator
+			| DropRoomManager | SubmitRoomBridgeForm,
 		)
 		| Route::Effect(
 			Effect::Say

@@ -585,3 +585,44 @@ fn two_callers_of_one_reopen_both_report_it_and_the_route_stays_held() {
 	});
 	fixture.finish();
 }
+
+#[test]
+fn a_retained_session_can_clear_its_mentions_with_the_room_server_offline() {
+	let mut fixture = start("offline-room-mentions");
+	let room = fixture.room_id(0);
+	run(async {
+		let runtime = host().await;
+		let view = attach(&runtime, &fixture.peers[0].link).await;
+		let write = |operation, names: Vec<String>| {
+			let view = &view;
+			let mut args = vec![room.clone()];
+			args.extend(names);
+			async move {
+				let base = view.revision().await.unwrap();
+				view.command(operation, base, "setRoomAudience", &args).await.unwrap()
+			}
+		};
+		assert_eq!(
+			write("mentions-set", vec!["attached-two".into()]).await,
+			EffectStatus::Committed
+		);
+		fixture.server.signal("-TERM");
+		let saved = || {
+			let status = call(&fixture.peers[0].state, "status", json!({}));
+			status["workspace"]["conversations"]
+				.as_array()
+				.unwrap()
+				.iter()
+				.find(|row| row["id"] == room)
+				.unwrap()["audience"]
+				.clone()
+		};
+		assert_eq!(saved(), json!(["attached-two"]));
+		assert_eq!(write("mentions-clear", vec![]).await, EffectStatus::Committed);
+		assert!(saved().is_null());
+		runtime.close(PendingWork::Cancel).await.unwrap();
+	});
+	for peer in &mut fixture.peers {
+		peer.process.signal("-TERM");
+	}
+}

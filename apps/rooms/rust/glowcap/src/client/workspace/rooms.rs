@@ -71,6 +71,7 @@ impl<D: Deadline + Clone> Workspace<D> {
 			control: None,
 			reconnect: workspace::Reconnect::Requested,
 			profile: Default::default(),
+			audience: Default::default(),
 			standing: None,
 			draft: Text::default(),
 		};

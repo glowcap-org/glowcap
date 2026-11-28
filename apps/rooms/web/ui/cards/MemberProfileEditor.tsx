@@ -8,6 +8,10 @@ import {
 } from "../../../lib/room/presence.ts";
 import { memberProfileLabels, memberProfileText } from "../../../lib/text/conversation.ts";
 import { refusalText } from "../../../lib/text/failure.ts";
+import { Field } from "../Field.tsx";
+import { Input } from "../Input.tsx";
+import { Select } from "../Select.tsx";
+import { Said } from "../Said.tsx";
 import { Button } from "../Button.tsx";
 
 export function MemberProfileEditor({ room, profile, onSave }: {
@@ -71,28 +75,32 @@ export function MemberProfileEditor({ room, profile, onSave }: {
 			<fieldset disabled={saving}>
 				<legend>{memberProfileText.title(room)}</legend>
 				<p className="hint">{memberProfileText.scope}</p>
-				<label>
-					{memberProfileText.type}
-					<select
-						ref={kindSelect}
-						value={kind}
-						onChange={(event) => setKind(ProfileKindSchema.parse(event.currentTarget.value))}
-					>
-						<option value="">{memberProfileText.undeclared}</option>
-						{(["person", "bot", "assisted"] as const).map((value) => (
-							<option key={value} value={value}>{memberProfileLabels[value]}</option>
-						))}
-					</select>
-				</label>
-				<label>
-					{memberProfileText.introduction}
-					<input
-						value={about}
-						maxLength={MAX_PROFILE_ABOUT}
-						onChange={(event) => setAbout(event.currentTarget.value)}
-					/>
-				</label>
-				{error && <p role="alert">{error}</p>}
+				<Field id="roomProfileKind" label={memberProfileText.type}>
+					{({ id }) => (
+						<Select
+							id={id}
+							ref={kindSelect}
+							value={kind}
+							onChange={(event) => setKind(ProfileKindSchema.parse(event.currentTarget.value))}
+						>
+							<option value="">{memberProfileText.undeclared}</option>
+							{(["person", "bot", "assisted"] as const).map((value) => (
+								<option key={value} value={value}>{memberProfileLabels[value]}</option>
+							))}
+						</Select>
+					)}
+				</Field>
+				<Field id="roomProfileAbout" label={memberProfileText.introduction}>
+					{({ id }) => (
+						<Input
+							id={id}
+							value={about}
+							maxLength={MAX_PROFILE_ABOUT}
+							onChange={(event) => setAbout(event.currentTarget.value)}
+						/>
+					)}
+				</Field>
+				{error && <Said kind="failure">{error}</Said>}
 				<div className="actions">
 					<Button variant="quiet" onClick={() => setEditing(false)} type="button">
 						{memberProfileText.cancel}

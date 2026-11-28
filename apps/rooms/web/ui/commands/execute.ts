@@ -1,5 +1,6 @@
 // Apply a Rust-interpreted command through session and browser gesture ports.
 // Text formatting reads projections. It cannot manufacture live authority.
+import { LocalRefusal, refusalText } from "../../../lib/text/failure.ts";
 import { invariant } from "../../../lib/invariant.ts";
 import * as z from "zod/mini";
 import { COMMAND_EFFECT_OPS } from "../application_data.ts";
@@ -14,11 +15,13 @@ import { memberProfileLabels } from "../../../lib/text/conversation.ts";
 import { directoryReportLine, helpYouCanUse, roomListLine, whoisLine } from "../../../lib/text/log.ts";
 import {
 	advertisingNoRooms,
+	automaticMentionSummary,
 	directoryNamesMoreThanOne,
 	ignoringNobody,
 	ignoringNow,
 	ignoringThese,
 	ignoringYourOwnName,
+	mentionsNeedRoom,
 	nobodyCalled,
 	noDirectoryCalled,
 	noDirectoryHeld,
@@ -60,7 +63,7 @@ export function runCommand(name: string, rest: string, powers: CommandPowers, co
 			name,
 			rest,
 			conv?.type === "dm" ? "direct" : conv?.type ?? "none",
-			name === "msg" || name === "invite" ? powers.you() : "",
+			name === "msg" || name === "invite" || name === "mentions" ? powers.you() : "",
 			name === "away" && powers.standingHere() !== "",
 		),
 	);
@@ -97,6 +100,23 @@ export function applyCommandPlan(
 			return { kind: "done", retires: "conversation", completion: Promise.resolve(powers.leaveHere()) };
 		case "directMessage":
 			return committed(powers.directMessage(text));
+		case "showMentions":
+		case "setMentions": {
+			if (conv?.type !== "room") return { kind: "refused", why: mentionsNeedRoom };
+			const report = (names: readonly string[]) => say(automaticMentionSummary(names));
+			if (plan.op === "showMentions") {
+				report(conv.audience ?? []);
+				break;
+			}
+			const completion = powers.setRoomAudience(conv.key, text ? text.split(" ") : []).then(
+				report,
+				(error: unknown) => {
+					if (error instanceof LocalRefusal) throw new CommandRefused(refusalText(error));
+					throw error;
+				},
+			);
+			return { kind: "done", completion };
+		}
 		case "members":
 			powers.showRoster(true);
 			break;

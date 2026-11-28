@@ -9,6 +9,7 @@ import { LocalRefusal, refusalText } from "../../../../lib/text/failure.ts";
 import { coordinate, fieldKey, type RoomIntent, type WorkspaceSnapshot } from "./model.ts";
 import type { BridgeForm } from "../../../../lib/bridge/form.ts";
 import { ResultRecipe } from "./result_recipe.ts";
+import { setRoomMentions } from "./mentions.ts";
 
 export function managedRoomActions(page: RoomsPageContext, session: ManagedRoomsSession): RoomsRoomController {
 	const projection = page.projection;
@@ -50,6 +51,13 @@ export function managedRoomActions(page: RoomsPageContext, session: ManagedRooms
 		await session.actions.replace(snapshot);
 	}
 	return {
+		setRoomAudience: (key, names) =>
+			setRoomMentions(
+				projection,
+				key,
+				names,
+				(id, selected, validate) => session.actions.run("setRoomAudience", [id, ...selected], validate),
+			),
 		bridgeForm: async (key) => {
 			const row = room(key);
 			if (row.seat == null) return null;

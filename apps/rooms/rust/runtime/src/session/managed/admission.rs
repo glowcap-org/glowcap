@@ -236,6 +236,7 @@ fn command_class(route: Route) -> Option<Class> {
 			| Command::ReplaceOperationsCapabilities
 			| Command::ReplaceOperationsBundle
 			| Command::SubmitRoomBridgeForm
+			| Command::SetRoomAudience
 			| Command::SetIgnoredNames
 			| Command::SetIgnoredName
 			| Command::ChooseHistoryRetention

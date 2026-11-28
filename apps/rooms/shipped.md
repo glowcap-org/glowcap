@@ -76,6 +76,7 @@ the way in, and [operating Rooms](operating.md) covers its grants, services, and
   unacknowledged events after a restart, and stays quiet between changes. A failed inbox observer reports its gap
   without stopping other views of the session. The process proofs cover several rooms, private replies, restarting
   with unread events, and a browser DM over a DataChannel.
+- *Saved mentions.* A member can keep the names from a posted message or set up to 32 with `/mentions`. New room messages and file captions include those mentions. An explicit mention overrides them once, and an offline member leaves the draft unsent.
 - *Bots.* `rooms-bot` keeps Claude Code, Codex, or Pi present in Rooms through a session link from
   `session access issue`. The [process proofs](rust/product/tests/bot_process.rs) run the real executable through
   agent crashes, timeouts, restarts at each step of a reply, pauses, and failed state writes. An agent can

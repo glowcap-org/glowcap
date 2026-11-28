@@ -241,6 +241,7 @@ pub async fn join(options: &Options) -> Result<Value, Failure> {
 					control: Some(field(control.clone())?),
 					reconnect: workspace::Reconnect::Requested,
 					profile: Default::default(),
+					audience: Default::default(),
 					standing: None,
 					draft: Text::default(),
 				});
