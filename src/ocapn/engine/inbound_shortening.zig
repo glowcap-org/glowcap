@@ -147,7 +147,7 @@ pub const ShorteningCallbackPlan = struct {
         // A released source with no consumer keeps nothing of the introduced
         // promise, so it nominates no shortening for it.
         if (self.source_is_held or self.has_settling_consumer)
-            prepared.shortening = try prepareIntroducedPromiseShortening(peer, pending_batch, introduced);
+            try prepareIntroducedPromiseShortening(&prepared.shortening, peer, pending_batch, introduced);
         if (!self.source_is_held)
             prepared.late_release = try prepareIntroducedPromiseRelease(peer, pending_batch, self.shortened_to.import_position);
         if (self.has_settling_consumer)
@@ -211,14 +211,27 @@ pub fn abandonPreparedOutboundMessage(peer: *Peer, prepared: PreparedOutboundMes
     model.freeMessage(peer.allocator, prepared.message);
 }
 
-pub fn prepareIntroducedPromiseShortening(
+/// Fill the caller's preparation directly. Keep the empty case at the call
+/// site so a delivery without promises builds no temporary result and calls
+/// no shortening machinery.
+pub inline fn prepareIntroducedPromiseShortening(
+    prepared: *PreparedShortening,
     self: *Peer,
     pending_batch: *engine.Peer.PendingBatch,
     introduced: *const session.validate.IntroducedImports,
-) !PreparedShortening {
-    var prepared: PreparedShortening = .{};
+) !void {
+    prepared.* = .{};
+    if (self.session_state.captp_version != .next or introduced.promise_mentions.count() == 0) return;
+    try preparePromiseShortening(prepared, self, pending_batch, introduced);
+}
+
+fn preparePromiseShortening(
+    prepared: *PreparedShortening,
+    self: *Peer,
+    pending_batch: *engine.Peer.PendingBatch,
+    introduced: *const session.validate.IntroducedImports,
+) !void {
     errdefer prepared.abandon(self);
-    if (self.session_state.captp_version != .next or introduced.promise_mentions.count() == 0) return prepared;
 
     try prepared.nominations.ensureTotalCapacity(self.allocator, introduced.promise_mentions.count());
     try prepared.reservations.ensureTotalCapacity(self.allocator, introduced.promise_mentions.count());
@@ -228,7 +241,6 @@ pub fn prepareIntroducedPromiseShortening(
         const message = shorteningListen(self, nomination);
         prepared.reservations.appendAssumeCapacity(try pending_batch.reserve(.{ .message = message }));
     }
-    return prepared;
 }
 
 pub fn commitPreparedShortening(self: *Peer, prepared: *PreparedShortening) void {

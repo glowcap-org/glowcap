@@ -209,7 +209,8 @@ const Preparation = union(enum) {
         } else if (route.callback == .shortening_callback) {
             prepared.* = .{ .shortening_callback = try route.callback.shortening_callback.prepare(self, &pending_batch, introduced) };
         } else {
-            const prepared_shortening = try shortening.prepareIntroducedPromiseShortening(self, &pending_batch, introduced);
+            var prepared_shortening: shortening.PreparedShortening = undefined;
+            try shortening.prepareIntroducedPromiseShortening(&prepared_shortening, self, &pending_batch, introduced);
             if (route.classified.route != .pipelined) {
                 prepared.* = .{ .shortening = prepared_shortening };
                 return;
