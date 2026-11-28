@@ -92,6 +92,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Worker<P> {
 					&& self
 						.retirement
 						.as_ref()
+						.filter(|owner| !owner.room_ended.get())
 						.and_then(|owner| owner.profile.as_ref())
 						.is_some_and(|(profile, _)| profile.supports(seat))
 				{

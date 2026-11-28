@@ -70,6 +70,19 @@ fn same_conversation_identity(before: &Value, after: &Value, id: Option<&String>
 		.into_iter()
 		.all(|key| before[key] == after[key])
 }
+/// An invitation gives away the held room entrance. Its renewed seat or draft
+/// changes none of the authority selected by `ArgumentTarget::SelectedRoom`.
+fn same_room_entrance(before: &Value, after: &Value, id: Option<&String>) -> bool {
+	let Some(id) = id else { return false };
+	let (Some(original), Some(current)) = (row(before, "conversations", id), row(after, "conversations", id)) else {
+		return false;
+	};
+	original["kind"] == "room"
+		&& !original["access"].is_null()
+		&& ["kind", "directory", "source", "access"]
+			.into_iter()
+			.all(|key| original[key] == current[key])
+}
 /// Moderator issuance, unregistration and policy change select only the room's
 /// held manager (`RoomTarget::Control` in dispatch). Membership supervision
 /// rewrites the seat, subject and files whenever it realizes the room again, as
@@ -215,7 +228,7 @@ pub fn unchanged(name: &str, args: &[String], before: &Value, after: &Value) -> 
 		}
 		Route::Checkpoint(AcceptInvitation | DismissInvitation) => same_row(before, after, "invitations", args.first()),
 		Route::Effect(Effect::OfferRoom) => {
-			same_conversation(before, after, args.first()) && same_conversation(before, after, args.get(1))
+			same_room_entrance(before, after, args.first()) && same_conversation(before, after, args.get(1))
 		}
 		Route::Checkpoint(SetEffectiveStanding) => {
 			let Some(id) = args.first() else { return false };
@@ -275,6 +288,27 @@ mod tests {
 	}
 	fn args() -> vec::Vec<String> {
 		vec!["ada".into()]
+	}
+
+	#[test]
+	fn room_offers_keep_the_entrance_and_recipient_through_seat_renewal() {
+		let room = json!({"id":"plans","kind":"room","directory":"home","source":"source","access":"entrance"});
+		let before = json!({"conversations":[room, direct()]});
+		let args = vec!["plans".into(), "ada".into()];
+		let mut after = before.clone();
+		after["conversations"][0]["seat"] = json!("renewed");
+		assert!(unchanged("offerRoom", &args, &before, &after));
+		for (row, field) in [
+			(0, "access"),
+			(0, "source"),
+			(0, "directory"),
+			(1, "access"),
+			(1, "source"),
+		] {
+			let mut replaced = after.clone();
+			replaced["conversations"][row][field] = json!("other");
+			assert!(!unchanged("offerRoom", &args, &before, &replaced));
+		}
 	}
 
 	#[test]

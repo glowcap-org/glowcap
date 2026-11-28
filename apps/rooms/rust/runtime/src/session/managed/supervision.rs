@@ -287,6 +287,9 @@ impl<P: Tasks + Deadline + Clone + 'static> Session<P> {
 		{
 			owner.exact_registration = Some(*inbox);
 		}
+		if let (workspace::InboxSelection::Room { inbox, .. }, Target::Room { seat, .. }) = (&selected, &target) {
+			owner.room = Some((*inbox, *seat));
+		}
 		let profile = match &target {
 			Target::Room { seat, .. } => Some(profile::Seat::new(*seat)),
 			_ => None,

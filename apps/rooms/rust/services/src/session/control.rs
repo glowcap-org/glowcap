@@ -7,6 +7,7 @@ mod commands;
 mod failure;
 mod feed;
 mod inbox;
+mod invitations;
 mod request;
 mod worker;
 pub use accesses::rights;
@@ -33,6 +34,7 @@ pub struct Control {
 	path: PathBuf,
 	feed: Rc<Feed>,
 	observation: RefCell<Option<Observer>>,
+	offers: RefCell<Option<Observer>>,
 	storage: Option<worker::Owner>,
 	report: Report,
 	stop: Notify,
@@ -49,6 +51,7 @@ pub struct Control {
 request::request! {
 	enum RequestBody, verb = "verb" {
 		Status => "status" {},
+		Invitations => "invitations" { directory: String, mode: Option<String> },
 		MemberStatus => "member-status" {},
 		RegistrationReady => "registration-ready" { inbox: custody::FieldKey<custody::DirectoryInbox>, retry: bool },
 		Locate => "locate" { locator: String },
@@ -175,6 +178,13 @@ impl Control {
 		let state = &peer.state_directory;
 		// Acquire this adapter's exclusive custody before touching its socket.
 		let storage = worker::Owner::open(state.join("inbox")).await?;
+		let invitations = match invitations::Invitations::open(state) {
+			Ok(policy) => policy,
+			Err(error) => {
+				storage.close().await?;
+				return Err(error);
+			}
+		};
 		let path = state.join("control.sock");
 		let prepared = async {
 			match tokio::fs::symlink_metadata(&path).await {
@@ -199,13 +209,15 @@ impl Control {
 				return Err(error.into());
 			}
 		};
-		let feed = Rc::new(Feed::new(app, storage.worker.clone()));
+		let feed = Rc::new(Feed::new(app, storage.worker.clone(), invitations));
 		let observation = observe(feed.clone());
+		let offers = invitations::observe(feed.clone(), report.clone());
 		Ok(Self {
 			listener,
 			path,
 			feed,
 			observation: RefCell::new(Some(observation)),
+			offers: RefCell::new(Some(offers)),
 			storage: Some(storage),
 			report,
 			stop: Notify::new(),
@@ -289,6 +301,9 @@ impl Control {
 					}
 				})?;
 				Ok(json!({"ok":true, "ready":ready}))
+			}
+			RequestBody::Invitations { directory, mode } => {
+				self.feed.invitations.configure(app, &directory, mode.as_deref()).await
 			}
 			RequestBody::MemberStatus {} => {
 				let snapshot = app.workspace.snapshot().await.map_err(peer_failure)?;
@@ -443,6 +458,11 @@ impl Control {
 	/// Drain callback and command use of the Host while retaining the control
 	/// socket and journal lease through the peer's managed-store retirement.
 	pub async fn drain(&self) -> Result<(), Failure> {
+		let offers = self.offers.borrow_mut().take();
+		if let Some(offers) = offers {
+			offers.stop.send_replace(true);
+			offers.task.await.map_err(Failure::uncertain)?;
+		}
 		self.acquisitions.close().await?;
 		self.commands.close().await?;
 		self.detach().await;

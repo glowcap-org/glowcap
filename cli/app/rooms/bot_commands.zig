@@ -59,6 +59,7 @@ pub const commands = [_]types.Command{
         dm_base,
     }, .run = during_turn("send") },
     .{ .name = "command", .short_help = "During a turn, run a Rooms application command as the bot", .flags = &.{ operation, base }, .positionals = &.{.{ .name = "arguments", .help = "Command name followed by its arguments", .variadic = true }}, .run = during_turn("command") },
+    .{ .name = "join", .short_help = "During a turn, join an existing listed room in this conversation's directory", .flags = &.{value("room", "Exact listed room name")}, .run = during_turn("join") },
     .{ .name = "workspace", .short_help = "During a turn, show the workspace the bot sees", .flags = &.{}, .run = during_turn("workspace") },
     .{ .name = "actions", .short_help = "During a turn, list the bot's actions and their outcomes from its own record", .run = during_turn("actions") },
 };

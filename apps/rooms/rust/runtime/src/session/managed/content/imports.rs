@@ -5,6 +5,7 @@ use super::*;
 use custody::{Coordinate, Retained};
 mod created;
 mod lines;
+mod membership;
 mod participation;
 mod rooms;
 
@@ -363,9 +364,22 @@ pub(super) fn references(input: Invocation<'_>, record: &MetadataRecord) -> Resu
 	// is resaved.
 	let mut requests = Vec::with_capacity(2 + request.selections.len() * 2 + usize::from(origin.is_some()) * 2);
 	requests.push(restore_source(receipt)?);
-	if let Some((fields, _)) = origin {
+	let membership = if matches!(preparation, Ok(Some(_))) {
+		request.membership_origins(record, receipt)?
+	} else {
+		None
+	};
+	for fields in origin
+		.map(|(fields, _)| fields)
+		.into_iter()
+		.chain(membership.into_iter().flatten())
+	{
 		for field in fields {
 			let location = records::location(&field);
+			// Receipt authentication already declares this exact occurrence.
+			if location == receipt.source.reference {
+				continue;
+			}
 			requests.push(ReferenceRequest::RestorePage {
 				page: location
 					.page
@@ -449,6 +463,17 @@ pub(super) fn invoke(call: &mut Call<'_>, input: Invocation<'_>) -> Result<Argum
 			!= Field::Retained(records::location(&current)).resolve(call, input)?
 	{
 		return Err(refuse(replaced));
+	}
+	if matches!(replacement, Ok(Some(_)))
+		&& let Some(pairs) = request.membership_origins(&metadata, receipt)?
+	{
+		for [original, current] in pairs {
+			if Field::Retained(records::location(&original)).resolve(call, input)?
+				!= Field::Retained(records::location(&current)).resolve(call, input)?
+			{
+				return Err(refuse("the original membership authority was replaced"));
+			}
+		}
 	}
 	let mut record = records::decode(input)?;
 	let mut changed = false;

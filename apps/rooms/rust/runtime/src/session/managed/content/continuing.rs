@@ -153,7 +153,13 @@ pub(super) fn input<'a, P: Tasks + Deadline + Clone + 'static>(
 	.ok_or_else(|| refuse("invalid private continuation method"))?;
 	Ok(Invocation {
 		verb: method.verb(),
-		args: &input.args[2..],
+		args: match method {
+			rooms_application::content::session::continuing::Method::AcceptRoomInvitation => input
+				.args
+				.get(3..)
+				.ok_or_else(|| refuse("directory witness required"))?,
+			_ => &input.args[2..],
+		},
 		..input
 	})
 }
