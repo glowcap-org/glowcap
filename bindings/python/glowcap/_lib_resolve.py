@@ -38,7 +38,6 @@ import re
 import shutil
 import sys
 import tarfile
-import tempfile
 import threading
 import time
 import urllib.error
@@ -156,21 +155,22 @@ def _host_target_triple() -> str:
     return f"{arch}-{zig_os}"
 
 
-def _cache_base(contract: dict) -> pathlib.Path:
+def _cache_lib_dir(contract: dict, version: str, target: str) -> pathlib.Path | None:
     override = os.environ.get("GLOWCAP_CACHE_DIR")
     if override:
-        return pathlib.Path(override)
-    xdg = os.environ.get("XDG_CACHE_HOME")
-    if xdg:
-        return pathlib.Path(xdg) / "glowcap" / "c-abi"
-    home = os.environ.get("HOME") or os.environ.get("USERPROFILE")
-    if home:
-        return pathlib.Path(home) / ".cache" / "glowcap" / "c-abi"
-    return pathlib.Path(tempfile.gettempdir()) / str(contract["fallback_cache_name"])
-
-
-def _cache_lib_dir(contract: dict, version: str, target: str) -> pathlib.Path:
-    base = _cache_base(contract)
+        base = pathlib.Path(override)
+    else:
+        for name, suffix in (
+            ("XDG_CACHE_HOME", "glowcap/c-abi"),
+            ("HOME", ".cache/glowcap/c-abi"),
+            ("USERPROFILE", ".cache/glowcap/c-abi"),
+        ):
+            location = pathlib.Path(os.environ.get(name, ""))
+            if location.is_absolute():
+                base = location / suffix
+                break
+        else:
+            return None
     layout = str(contract["cache_layout"])
     return pathlib.Path(_apply_contract_template(layout, version=version, target=target, cache_base=str(base)))
 
@@ -406,6 +406,8 @@ def _lib_dir() -> pathlib.Path | None:
     marker = _lib_file(str(contract["marker_shared_stem"]))
     zig_out = (dev_root / "zig-out" / "lib") if dev_root is not None else None
 
+    if cache_lib is None:
+        return zig_out if zig_out is not None and zig_out.is_dir() else None
     if (cache_lib / marker).is_file():
         return cache_lib
 

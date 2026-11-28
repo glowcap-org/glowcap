@@ -2,12 +2,25 @@
 // load that follows.
 
 import { takeRuntimeFailures } from "../failure_journal.ts";
+import * as path from "node:path";
+import { isCompleteCachePath } from "../internal/ffi/load.ts";
 import { ffi } from "../internal/ffi/runtime.ts";
 import { noteResolution, resolveNoting } from "../internal/ffi/resolution_notes.ts";
 import { assert, assertEquals } from "../../test/assert.ts";
 
 /** A path no library is at: its directory does not exist. */
 const missing = () => `/glowcap-absent-${crypto.randomUUID()}/libglowcap_absent.so`;
+
+Deno.test("ambient cache paths are independent of the current drive and working directory", () => {
+	for (const value of ["", "cache", "/cache", "\\cache", "C:", "C:cache", "\\\\server"]) {
+		assert(!isCompleteCachePath(value, path.win32), JSON.stringify(value));
+	}
+	for (const value of ["C:\\cache", "C:/cache", "\\\\server\\share\\cache"]) {
+		assert(isCompleteCachePath(value, path.win32), JSON.stringify(value));
+	}
+	assertEquals(isCompleteCachePath("/cache", path.posix), true);
+	assertEquals(isCompleteCachePath("cache", path.posix), false);
+});
 
 Deno.test("a resolution note is a library-resolution event", () => {
 	takeRuntimeFailures();

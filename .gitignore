@@ -86,10 +86,6 @@ apps/rooms/web/vite.config.ts.timestamp-*.mjs
 # Together they are about 8MB; the 64x one alone is 4.4MB.
 apps/ocapnviz/test-data/stress-*x.json
 
-# Cold-cache fallback when HOME is unset (see bindings/c-abi-resolve.json
-# `fallback_cache_name`; written under $TMPDIR / the process cwd as appropriate).
-glowcap-c-abi-cache/
-
 # per-machine agent-harness settings, never committed
 .claude/settings.local.json
 

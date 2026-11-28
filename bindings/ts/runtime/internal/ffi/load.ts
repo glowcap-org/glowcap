@@ -149,7 +149,6 @@ type Contract = {
 	release_tag_template: string;
 	cache_layout: string;
 	version_header: string;
-	fallback_cache_name: string;
 	marker_shared_stem: string;
 	user_agent: string;
 	max_tarball_bytes: number;
@@ -188,7 +187,6 @@ function loadContract(): Contract {
 		release_tag_template: requireField(raw, "release_tag_template"),
 		cache_layout: requireField(raw, "cache_layout"),
 		version_header: requireField(raw, "version_header"),
-		fallback_cache_name: requireField(raw, "fallback_cache_name"),
 		marker_shared_stem: requireField(raw, "marker_shared_stem"),
 		user_agent: requireField(raw, "user_agent"),
 		max_tarball_bytes: requireField(raw, "max_tarball_bytes"),
@@ -287,15 +285,20 @@ function hostTargetTriple(): string {
 	return `${arch}-${zigOs}`;
 }
 
-function cacheBase(contract: Contract): string | null {
+/** An ambient cache path must resolve independently of the working directory and current drive. */
+export function isCompleteCachePath(location: string, paths: typeof nodePath.posix = nodePath): boolean {
+	return paths.isAbsolute(location) && (paths.sep === "/" || paths.parse(location).root.length > 1);
+}
+
+function cacheBase(): string | null {
 	const override = envVar("GLOWCAP_CACHE_DIR");
 	if (override !== null) return override;
-	const xdg = envVar("XDG_CACHE_HOME");
-	if (xdg !== null) return join(xdg, "glowcap/c-abi");
-	const home = envVar("HOME");
-	if (home !== null) return join(home, ".cache/glowcap/c-abi");
-	const tmp = envVar("TMPDIR");
-	if (tmp !== null) return join(tmp, contract.fallback_cache_name);
+	for (const name of ["XDG_CACHE_HOME", "HOME", "USERPROFILE"]) {
+		const location = envVar(name);
+		if (location !== null && isCompleteCachePath(location)) {
+			return join(location, name === "XDG_CACHE_HOME" ? "glowcap/c-abi" : ".cache/glowcap/c-abi");
+		}
+	}
 	return null;
 }
 
@@ -304,7 +307,7 @@ function cacheLibDir(
 	version: string,
 	target: string,
 ): string | null {
-	const base = cacheBase(contract);
+	const base = cacheBase();
 	if (base === null) return null;
 	return applyContractTemplate(contract.cache_layout, version, target, base);
 }

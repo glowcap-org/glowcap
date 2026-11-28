@@ -32,7 +32,6 @@ pub fn checkCAbiResolvePorts(
         "536_870_912",
         "1048576",
         "glowcap-c-abi-fetch/",
-        "glowcap-c-abi-cache",
         "glowcap-c-v{version}-{target}.tar.gz",
         "https://github.com/glowcap-org/glowcap/releases/download",
     };
@@ -61,9 +60,6 @@ pub fn checkCAbiResolvePorts(
         }
         if (std.mem.find(u8, contents, "max_sums_bytes") == null) {
             try appendViolation(gpa, violations, "{s}: must read contract `max_sums_bytes`", .{path});
-        }
-        if (std.mem.find(u8, contents, "fallback_cache_name") == null) {
-            try appendViolation(gpa, violations, "{s}: must read contract `fallback_cache_name`", .{path});
         }
         if (std.mem.find(u8, contents, "cache_layout") == null) {
             try appendViolation(gpa, violations, "{s}: must read contract `cache_layout`", .{path});

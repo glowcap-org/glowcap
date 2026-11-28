@@ -70,6 +70,25 @@ class ReleaseTransportTest(unittest.TestCase):
         self.assertEqual(self.requests, ["http://mirror.invalid/asset", "http://mirror.invalid/payload"])
 
 
+class ReleaseCacheTest(unittest.TestCase):
+    def test_without_a_user_cache_the_detached_resolver_skips_cache_access_and_download(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            for download in ("0", "1"):
+                with (
+                    self.subTest(skip=download),
+                    mock.patch.dict(
+                        os.environ,
+                        {"TMPDIR": temporary, "HOME": "relative", "GLOWCAP_SKIP_DOWNLOAD": download},
+                        clear=True,
+                    ),
+                    mock.patch.object(RESOLVE, "_find_dev_root", return_value=None),
+                    mock.patch.object(RESOLVE, "_fetch_into_cache", side_effect=AssertionError("unexpected download")),
+                ):
+                    self.assertIsNone(RESOLVE._cache_lib_dir(RESOLVE._contract(), "0.1.0", "test-target"))
+                    self.assertIsNone(RESOLVE._lib_dir())
+                    self.assertEqual(list(Path(temporary).iterdir()), [])
+
+
 class ReleaseChecksumTest(unittest.TestCase):
     def test_staged_archive_is_verified_without_reading_it_all_into_memory(self):
         with tempfile.TemporaryDirectory() as directory:
