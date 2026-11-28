@@ -46,6 +46,7 @@ pub struct Runs {
 #[serde(rename_all = "lowercase")]
 pub enum Content {
 	Answer,
+	Availability,
 	/// A short line saying the turn could not be answered.
 	Failure,
 }
@@ -135,6 +136,15 @@ pub enum Phase {
 }
 
 impl Phase {
+	pub(super) fn is_notice(&self) -> bool {
+		matches!(
+			self,
+			Self::Sending {
+				content: Content::Availability,
+				..
+			}
+		)
+	}
 	pub(super) fn covers(&self, event: &Cursor) -> bool {
 		match self {
 			Self::Running { asked, .. } => asked.triggers.iter().any(|trigger| trigger.event == *event),

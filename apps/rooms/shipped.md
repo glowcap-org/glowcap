@@ -85,6 +85,9 @@ the way in, and [operating Rooms](operating.md) covers its grants, services, and
   per-conversation limit, `/reset`, the agent's memory, and private `say --dm` replies. The
   [bot guide](../../docs/rooms/bot.md) describes the agent.
 
+  When a conversation reaches a bot's hourly limit, it posts when to ask again. Its operator can inspect
+  skipped requests and the notice's delivery status across restarts.
+
   A deployment can [run named bots together](web/deploy/members.md) with a separate session and agent home per member.
 - *Session WebRTC.* Started with `--dial-transports=webrtc`, the session process reaches a WebRTC browser member
   directly, signaling through the room that introduced it, and answers a member's offer that a room it belongs to

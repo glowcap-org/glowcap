@@ -209,9 +209,15 @@ impl Facts {
 }
 
 /// The report `bot status` prints for the bot directory `dir`.
-pub fn report(dir: &Path) -> Result<Value, Error> {
+pub fn report(dir: &Path, availability: bool) -> Result<Value, Error> {
 	let directory = store::directory(dir)?;
-	let agent = Config::configured(dir)?.map(|config| {
+	let config = Config::configured(dir)?;
+	let availability = if availability {
+		super::gate::report(&directory, config.as_ref().map(|c| c.conversation_limit))?
+	} else {
+		Default::default()
+	};
+	let agent = config.map(|config| {
 		json!({
 			"harness": config.harness,
 			"model": config.model,
@@ -225,7 +231,7 @@ pub fn report(dir: &Path) -> Result<Value, Error> {
 	// shows it was served.
 	if agent.is_none() && !directory.join(FILE).exists() && !store::was_served(&directory) {
 		return Ok(
-			json!({"ok": true, "configured": false, "agent": null, "running": false, "status": null, "home": null}),
+			json!({"ok": true, "configured": false, "agent": null, "running": false, "status": null, "home": null, "availability": {}}),
 		);
 	}
 	// The home is the agent's, so it is counted where it lies, never read
@@ -241,7 +247,7 @@ pub fn report(dir: &Path) -> Result<Value, Error> {
 		None => (true, published(&directory)?),
 	};
 	Ok(
-		json!({"ok": true, "configured": agent.is_some(), "agent": agent, "running": running, "status": status, "home": home}),
+		json!({"ok": true, "configured": agent.is_some(), "agent": agent, "running": running, "status": status, "home": home, "availability": availability}),
 	)
 }
 

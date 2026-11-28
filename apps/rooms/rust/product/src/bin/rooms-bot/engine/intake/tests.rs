@@ -2,7 +2,7 @@
 //! rows, with triggers before and after the one that waits.
 use super::*;
 use crate::bot::{
-	classify::Seq,
+	classify::{Seq, Trigger},
 	ledger::{MAX_OPEN, MAX_ROWS, Phase, TurnId},
 	rooms::{Cursor, Kind},
 };
@@ -32,7 +32,7 @@ fn settle(lanes: &mut Lanes, ledger: &mut Ledger, store: &Store, read: u64) -> V
 		if round == 1 && (lanes.oldest_waiting().is_none() || !ledger.has_room()) {
 			break;
 		}
-		hold(lanes, ledger, store).unwrap();
+		hold(lanes, ledger, store, &mut Gate::new(1000), &mut Vec::new()).unwrap();
 		while let Some((conversation, id)) = lanes.next() {
 			lanes.started(&conversation);
 			started.push((conversation, id));

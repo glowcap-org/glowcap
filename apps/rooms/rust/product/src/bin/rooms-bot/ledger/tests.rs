@@ -1,6 +1,6 @@
 use super::*;
 use crate::bot::{
-	classify::{MAX_LABEL_BYTES, MAX_NAME_BYTES},
+	classify::{MAX_LABEL_BYTES, MAX_NAME_BYTES, Trigger},
 	rooms::{Attachment, Base, Kind},
 };
 use rooms_application::room::line::{MAX_LINE_BYTES, MAX_MESSAGE_FILES};
@@ -396,6 +396,7 @@ fn the_ledger_at_every_bound_stays_under_the_size_it_reads_back() {
 	crate::bot::identity::seed(&store).unwrap();
 	let key = crate::bot::identity::action_key(store.root()).unwrap();
 	let mut ledger = Ledger {
+		notices: 0,
 		cursor: Cursor::new(widest(Cursor::MAX_BYTES)).unwrap(),
 		cursor_seq: Seq(u64::MAX),
 		next_turn: TurnId(u64::MAX),

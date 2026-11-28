@@ -90,7 +90,7 @@ pub fn classify(event: &Incoming, seq: Seq) -> Class {
 	let Body::Line(line) = &event.body else {
 		return Class::Ignore;
 	};
-	if line.change != Change::Said {
+	if line.change != Change::Said || (line.files.is_empty() && super::gate::is_notice(&line.text)) {
 		return Class::Ignore;
 	}
 	let from = match (&line.sender, event.kind) {
