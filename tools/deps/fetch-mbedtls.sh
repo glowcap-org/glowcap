@@ -31,7 +31,8 @@ readonly scratch
 trap 'rm -rf -- "$scratch"' EXIT
 readonly tarball_path="$scratch/$ARCHIVE"
 
-curl -fsSL --proto '=https' --tlsv1.2 --max-filesize "$MAX_BYTES" \
+curl -fsSL --proto '=https' --tlsv1.2 --connect-timeout 20 \
+	--retry 2 --retry-max-time 120 --max-time 180 --max-filesize "$MAX_BYTES" \
 	-A 'glowcap-build/mbedtls-fetch' -o "$tarball_path" "$URL"
 actual_bytes=$(wc -c <"$tarball_path")
 if ((actual_bytes > MAX_BYTES)); then
