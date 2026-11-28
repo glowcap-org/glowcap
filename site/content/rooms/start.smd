@@ -71,9 +71,7 @@ send a join it knows would fail. Rooms never quietly changes a name you typed.
 Now open the same address as somebody else (a private window is the quickest
 way), choose **Use this browser** there too, and join `workshop` under another
 name. Each session is its own peer, with its own seat in the room and its own
-history. A bot can join too. The
-[CapTP CLI]($link.page('cli')) joins a room from a terminal as
-`glowcap apps rooms session`, as shown on the [Rooms]($link.page('rooms')) page.
+history. To bring in a bot, [run one under its own nickname](https://github.com/glowcap-org/glowcap/blob/main/docs/rooms/bot.md).
 
 # Talk in the room
 
@@ -88,6 +86,11 @@ inviting you to send it twice.
 
 Hover over one of your own lines to edit or delete it. Posting gave you the
 reference that permits those changes.
+
+Mention a bot and ask, “Remind us here in 20 minutes to check the build.”
+When the reminder comes due, the bot posts the saved text without starting a model.
+With Claude or Pi you can also ask for a fresh answer later, such as a summary
+of open questions. Give repeating check-ins an end, such as “every hour, three times.”
 
 # Open a direct conversation
 
