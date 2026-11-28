@@ -1,5 +1,5 @@
 //! Throughput benchmarks for codec encode/decode, steady-state inbound dispatch,
-//! and sparse export-table inserts.
+//! and sparse import-table inserts.
 //!
 //! The alloc-budget test gates per-turn allocation count (`== 1`). This bench
 //! reports ns/op and MB/s as visible numbers, not gated thresholds. Under
@@ -7,9 +7,11 @@
 //! relative regressions, or run with `-Doptimize=fast` for absolute figures.
 //!
 //! Timing uses `std.Io`'s monotonic clock (`.awake`) in the harness only.
+//! Each reported duration is the median of repeated batches of the same work.
 
 const std = @import("std");
 const clock = @import("support/clock.zig");
+const percentile = @import("support/percentile.zig");
 const builtin = @import("builtin");
 const glowcap = @import("glowcap");
 
@@ -18,6 +20,7 @@ const model = glowcap.ocapn.model;
 const engine = glowcap.ocapn.engine;
 const foundation = glowcap.foundation;
 const driveOneTurn = @import("warm_turn").driveOneTurn;
+const timing_samples = 5;
 
 /// A representative outbound call: a method invocation on an imported object
 /// carrying a small mixed-type argument list and an answer position. This is the
@@ -78,6 +81,11 @@ fn sinceNs(io: std.Io, start: i128) f64 {
     return @floatFromInt(clock.nowNs(io) - start);
 }
 
+fn medianNs(samples: []f64) f64 {
+    std.mem.sort(f64, samples, {}, std.sort.asc(f64));
+    return percentile.of(f64, samples, 0.50);
+}
+
 /// Encode `iters` copies of `message`, freeing each frame, and report ns/op and
 /// MB/s over the encoded frame size.
 fn benchEncode(
@@ -93,14 +101,17 @@ fn benchEncode(
     const frame_len = probe.bytes().len;
     probe.deinit();
 
-    const start = clock.nowNs(io);
-    var i: usize = 0;
-    while (i < iters) : (i += 1) {
-        var frame = try codec.dispatch.encodeMessageForProfile(codec_id, allocator, model.CaptpVersion.v1_0, message);
-        std.mem.doNotOptimizeAway(frame.bytes().len);
-        frame.deinit();
+    var samples: [timing_samples]f64 = undefined;
+    for (&samples) |*elapsed| {
+        const start = clock.nowNs(io);
+        for (0..iters) |_| {
+            var frame = try codec.dispatch.encodeMessageForProfile(codec_id, allocator, model.CaptpVersion.v1_0, message);
+            std.mem.doNotOptimizeAway(frame.bytes().len);
+            frame.deinit();
+        }
+        elapsed.* = sinceNs(io, start);
     }
-    report("encode", codec_id, call, iters, frame_len, sinceNs(io, start));
+    report("encode", codec_id, call, iters, frame_len, medianNs(&samples));
 }
 
 /// Decode (project a borrowed view of) the same encoded frame `iters` times.
@@ -118,13 +129,16 @@ fn benchDecode(
     const frame_len = frame.bytes().len;
     const view = frame.view();
 
-    const start = clock.nowNs(io);
-    var i: usize = 0;
-    while (i < iters) : (i += 1) {
-        const body = try codec.dispatch.decodeBody(codec_id, view);
-        std.mem.doNotOptimizeAway(&body);
+    var samples: [timing_samples]f64 = undefined;
+    for (&samples) |*elapsed| {
+        const start = clock.nowNs(io);
+        for (0..iters) |_| {
+            const body = try codec.dispatch.decodeBody(codec_id, view);
+            std.mem.doNotOptimizeAway(&body);
+        }
+        elapsed.* = sinceNs(io, start);
     }
-    report("decode", codec_id, call, iters, frame_len, sinceNs(io, start));
+    report("decode", codec_id, call, iters, frame_len, medianNs(&samples));
 }
 
 /// Decode the same frame `iters` times into the argument room the engine
@@ -146,15 +160,18 @@ fn benchDecodeInto(
     const views = try allocator.alloc(model.view.Argument, engine.events.headViewsFor(frame_len));
     defer allocator.free(views);
 
-    const start = clock.nowNs(io);
-    var i: usize = 0;
-    while (i < iters) : (i += 1) {
-        var slab = model.view.ValueSlab.init(std.mem.sliceAsBytes(views));
-        var body: model.view.Body = undefined;
-        try codec.dispatch.decodeBodyInto(codec_id, model.CaptpVersion.v1_0, view, &slab, &body);
-        std.mem.doNotOptimizeAway(&body);
+    var samples: [timing_samples]f64 = undefined;
+    for (&samples) |*elapsed| {
+        const start = clock.nowNs(io);
+        for (0..iters) |_| {
+            var slab = model.view.ValueSlab.init(std.mem.sliceAsBytes(views));
+            var body: model.view.Body = undefined;
+            try codec.dispatch.decodeBodyInto(codec_id, model.CaptpVersion.v1_0, view, &slab, &body);
+            std.mem.doNotOptimizeAway(&body);
+        }
+        elapsed.* = sinceNs(io, start);
     }
-    report("decode-into", codec_id, call, iters, frame_len, sinceNs(io, start));
+    report("decode-into", codec_id, call, iters, frame_len, medianNs(&samples));
 }
 
 /// Steady-state inbound dispatch: feed a borrowed `op:deliver` to a live export
@@ -166,13 +183,17 @@ fn benchDispatch(io: std.Io, allocator: std.mem.Allocator, turns: usize) !void {
 
     for (0..8) |_| try driveOneTurn(&peer);
 
-    const start = clock.nowNs(io);
-    for (0..turns) |_| try driveOneTurn(&peer);
-    const ns_per = sinceNs(io, start) / @as(f64, @floatFromInt(turns));
+    var samples: [timing_samples]f64 = undefined;
+    for (&samples) |*elapsed| {
+        const start = clock.nowNs(io);
+        for (0..turns) |_| try driveOneTurn(&peer);
+        elapsed.* = sinceNs(io, start);
+    }
+    const ns_per = medianNs(&samples) / @as(f64, @floatFromInt(turns));
 
     std.debug.print(
-        "dispatch turns={d} ns_per_turn={d:.1} turns_per_sec={d:.0}\n",
-        .{ turns, ns_per, 1_000_000_000.0 / ns_per },
+        "dispatch turns={d} ns_per_turn={d:.1} turns_per_sec={d:.0} samples={d}\n",
+        .{ turns, ns_per, 1_000_000_000.0 / ns_per, timing_samples },
     );
 }
 
@@ -184,20 +205,22 @@ fn benchDispatch(io: std.Io, allocator: std.mem.Allocator, turns: usize) !void {
 /// a claim. Export positions are this side's own and live in a slab, so a
 /// sparse export is the chooser's cost, not an attack.
 fn benchSparseImportTable(io: std.Io, allocator: std.mem.Allocator, count: usize) !void {
-    var peer = engine.Peer.init(allocator);
-    defer peer.deinit();
-
     const stride: u64 = 0x1_0000_0001; // sparse, far beyond any flat-vector size
-    const start = clock.nowNs(io);
-    var i: usize = 0;
-    while (i < count) : (i += 1) {
-        try peer.session_state.registerImport(.from(@as(u64, i) * stride + 1));
+    var samples: [timing_samples]f64 = undefined;
+    for (&samples) |*elapsed| {
+        var peer = engine.Peer.init(allocator);
+        defer peer.deinit();
+        const start = clock.nowNs(io);
+        for (0..count) |i| {
+            try peer.session_state.registerImport(.from(@as(u64, i) * stride + 1));
+        }
+        elapsed.* = sinceNs(io, start);
     }
-    const ns_per = sinceNs(io, start) / @as(f64, @floatFromInt(count));
+    const ns_per = medianNs(&samples) / @as(f64, @floatFromInt(count));
 
     std.debug.print(
-        "sparse_import_table inserts={d} ns_per_insert={d:.1}\n",
-        .{ count, ns_per },
+        "sparse_import_table inserts={d} ns_per_insert={d:.1} samples={d}\n",
+        .{ count, ns_per, timing_samples },
     );
 }
 
@@ -208,8 +231,8 @@ fn report(op: []const u8, codec_id: model.CodecId, call: []const u8, iters: usiz
     const total_bytes: f64 = @floatFromInt(iters * frame_len);
     const mb_per_sec: f64 = (total_bytes / 1_000_000.0) / (elapsed_ns / 1_000_000_000.0);
     std.debug.print(
-        "{s} codec={s} iters={d} frame_bytes={d} ns_per_op={d:.1} mb_per_sec={d:.0} mode={s} call={s}\n",
-        .{ op, @tagName(codec_id), iters, frame_len, ns_per, mb_per_sec, @tagName(builtin.optimize), call },
+        "{s} codec={s} iters={d} frame_bytes={d} ns_per_op={d:.1} mb_per_sec={d:.0} mode={s} call={s} samples={d}\n",
+        .{ op, @tagName(codec_id), iters, frame_len, ns_per, mb_per_sec, @tagName(builtin.optimize), call, timing_samples },
     );
 }
 

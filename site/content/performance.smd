@@ -79,15 +79,6 @@ Cap'n Proto codec reads each value in place.
 <p class="bench-note">The protocol engine alone, with no sockets, handles 9,419,659 inbound messages a second, and adds an entry to a sparse import table in 140.3 ns.</p>
 ```
 
-On November 28, five paired runs on the same cores measured a median of
-43.1 ns per sparse insert on `d9f2d78f4` and 44.2 ns on `841b9e0eb`.
-The 140.3 ns reading did not recur. Inbound dispatch took 99.7 ns and
-106.2 ns per message, respectively. Run the comparison from `841b9e0eb`.
-
-```sh
-zig build bench-ab -- --base=d9f2d78f4 --pairs=5 bench-codec
-```
-
 # [Per-connection footprint]($section.id('per-connection-footprint'))
 
 `bench-peer-scaling` counts inline and heap memory in each state: idle
