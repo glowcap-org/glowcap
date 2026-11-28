@@ -1,5 +1,6 @@
 //! Private lifetime custody can only retire the exact returned name or seat.
 use glowcap::{Argument, Host, Ref, Result, loam};
+use rooms_application::content::session::custody;
 use std::{
 	cell::{Cell, RefCell},
 	future::Future,
@@ -35,6 +36,7 @@ type Observation = Pin<Box<dyn Future<Output = Result<Argument>>>>;
 /// custody. The existing registry accounts for siblings before explicit close.
 pub(in crate::session::managed) struct Owner {
 	host: Host,
+	pub(super) exact_registration: Option<custody::FieldKey<custody::DirectoryInbox>>,
 	outcome: RefCell<Outcome>,
 	closing: Cell<bool>,
 	observation: Mutex<Option<Observation>>,
@@ -45,6 +47,7 @@ impl Owner {
 	pub(super) fn new(host: Host) -> Self {
 		Self {
 			host,
+			exact_registration: None,
 			outcome: RefCell::new(Outcome::Unstarted),
 			closing: Cell::new(false),
 			observation: Mutex::new(None),

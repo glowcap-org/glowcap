@@ -13,6 +13,7 @@ pub type Event = Rc<managed::Event<HostPlatform>>;
 #[derive(Clone)]
 pub struct Local {
 	pub workspace: Workspace<HostPlatform>,
+	pub(super) registrations: managed::DirectoryRegistrations<HostPlatform>,
 	pub management: Control<HostPlatform>,
 	/// Restores what the session saved, such as the control of an access the
 	/// terminal issued.

@@ -63,6 +63,11 @@ pub enum Error {
 }
 
 impl Error {
+	/// The original receipt confirmed that the requested nickname was taken.
+	pub fn refused_nickname(&self) -> bool {
+		matches!(self, Self::Peer(cause) if matches!(cause.as_ref(), rooms_glowcap::client::Error::RefusedObservation(_))
+			&& cause.failure_code() == Some(rooms_application::failure::FailureCode::NickTaken))
+	}
 	pub fn with_context(self, operation: impl Into<Cow<'static, str>>) -> Self {
 		Self::Context {
 			operation: operation.into(),

@@ -71,6 +71,14 @@ impl Settlement {
 			None => reason::format(error),
 		}
 	}
+	/// The directory refuses an occupied name before granting a registration.
+	/// Other calls cannot establish absence from a nickname error.
+	pub(super) fn confirmed_refusal(reply: Reply, error: &glowcap::Error) -> bool {
+		rooms_glowcap::client::binding_admission_refusal(error).is_some()
+			|| (reply == Reply::DirectoryRegistration
+				&& rooms_glowcap::client::binding_failure(error)
+					.is_some_and(|failure| failure.code == rooms_application::failure::FailureCode::NickTaken))
+	}
 	/// The original receipt owns the reason through cold restoration. It grants no replay.
 	pub(super) fn refused(error: &glowcap::Error) -> Self {
 		Self(Argument::List(vec!["refused".into(), Self::reason(error)]))
@@ -539,6 +547,16 @@ pub(super) fn disclose(
 #[cfg(test)]
 mod tests {
 	use super::*;
+	#[test]
+	fn local_diagnostics_and_transport_loss_do_not_settle_registration_absence() {
+		let diagnostic = glowcap::loam::refusal("nick-taken: occupied");
+		assert!(!Settlement::confirmed_refusal(
+			Reply::DirectoryRegistration,
+			&diagnostic
+		));
+		let transport = glowcap::Error::transport_unavailable("nick-taken: occupied");
+		assert!(!Settlement::confirmed_refusal(Reply::DirectoryRegistration, &transport));
+	}
 	/// The person reading a failed receipt is told what the catalog says about
 	/// it, so the code has to survive the receipt whether or not the outcome
 	/// is certain.

@@ -377,12 +377,9 @@ impl<P: Tasks + Deadline + Clone + 'static> Work<P> {
 									pending: None,
 								}
 							}
-							// Terminal uncertainty supplies no reason to dispatch
-							// again. Its receipt retains the diagnostic and wakes
-							// ordinary durable observers through settlement.
-							EffectResult::Unknown(error)
-								if rooms_glowcap::client::binding_admission_refusal(&error).is_some() =>
-							{
+							// An occupied directory name is refused before registration.
+							// Transport loss still leaves its exact outcome unknown.
+							EffectResult::Unknown(error) if Settlement::confirmed_refusal(work.reply, &error) => {
 								if let Some(retirement) = &work.retirement {
 									retirement.absent();
 								}

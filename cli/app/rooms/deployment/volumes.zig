@@ -23,11 +23,34 @@ pub const Kind = enum {
 };
 
 const Mount = struct { type: []const u8, source: ?[]const u8 = null, target: []const u8 };
-const Service = struct { volumes: []const Mount = &.{} };
+const Attachment = struct {
+    source: []const u8,
+    target: ?[]const u8 = null,
+
+    pub fn matches(self: Attachment, directory: []const u8, path: []const u8) bool {
+        const name = self.target orelse self.source;
+        if (std.mem.startsWith(u8, name, "/")) return std.mem.eql(u8, name, path);
+        return std.mem.startsWith(u8, path, directory) and std.mem.eql(u8, name, path[directory.len..]);
+    }
+};
+const Service = struct {
+    volumes: []const Mount = &.{},
+    secrets: []const Attachment = &.{},
+    configs: []const Attachment = &.{},
+};
 const Volume = struct { name: []const u8, external: bool = false };
+const Resource = struct {
+    name: ?[]const u8 = null,
+    file: ?[]const u8 = null,
+    environment: ?[]const u8 = null,
+    external: bool = false,
+};
+
 const Model = struct {
     services: std.json.ArrayHashMap(Service),
-    volumes: std.json.ArrayHashMap(Volume),
+    volumes: std.json.ArrayHashMap(Volume) = .{},
+    secrets: std.json.ArrayHashMap(Resource) = .{},
+    configs: std.json.ArrayHashMap(Resource) = .{},
 };
 
 pub const Selected = struct {
@@ -35,7 +58,11 @@ pub const Selected = struct {
     parsed: std.json.Parsed(Model),
 
     pub fn load(docker: Docker) !Selected {
-        const bytes = try docker.query(try docker.composeArgs(&.{ "config", "--format", "json" }));
+        return loadArgs(docker, try docker.composeArgs(&.{ "config", "--format", "json" }));
+    }
+
+    pub fn loadArgs(docker: Docker, args: []const []const u8) !Selected {
+        const bytes = try docker.privateQuery(args);
         return .{ .docker = docker, .parsed = try std.json.parseFromSlice(Model, docker.gpa, bytes, .{
             .allocate = .alloc_always,
             .ignore_unknown_fields = true,

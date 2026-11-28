@@ -7,6 +7,83 @@ use tokio::{
 };
 
 #[tokio::test]
+async fn only_the_fallback_makes_a_new_or_held_directory_home_when_other_directories_remain() {
+	for flag in ["home-locator", "locator"] {
+		for held in [false, true] {
+			let state = rooms_testing::scratch::Scratch::create("home-plan");
+			let listener = UnixListener::bind(state.join("control.sock")).unwrap();
+			let options = Options {
+				verb: "join".into(),
+				state: state.to_path_buf(),
+				named: [(flag, "fallback"), ("nick", "scout"), ("exact-nick", "true")]
+					.map(|(k, v)| (k.into(), vec![v.into()]))
+					.into(),
+				arguments: Vec::new(),
+			};
+			let other = json!({"id":"other","home":false});
+			let mut rows = vec![other.clone()];
+			if held {
+				// Home promotion alone must write even when the saved nickname is already exact.
+				let allocation = if flag == "home-locator" { "exact" } else { "automatic" };
+				rows.push(
+					json!({"id":"selected","nick":"scout","nickAllocation":allocation,"access":"held","home":false}),
+				);
+			}
+			let server = async {
+				for verb in [
+					"status",
+					"locate",
+					"acquire",
+					"release-acquisition",
+					"status",
+					"registration-ready",
+				] {
+					let (stream, _) = listener.accept().await.unwrap();
+					let mut stream = BufReader::new(stream);
+					let mut line = String::new();
+					stream.read_line(&mut line).await.unwrap();
+					let request: Value = serde_json::from_str(&line).unwrap();
+					assert_eq!(request["verb"], verb);
+					let response = match verb {
+						"status" => json!({"ok":true,"revision":"7","workspace":{"directories":rows}}),
+						"locate" => json!({"ok":true,"id":"selected","uri":"fallback"}),
+						"acquire" => {
+							let plan = &request["request"];
+							assert_eq!(plan["base"], 7);
+							assert_eq!(plan["imports"].as_array().unwrap().len(), usize::from(!held));
+							rows = plan["intent"]["directories"].as_array().unwrap().clone();
+							assert_eq!(rows.len(), 2);
+							assert_eq!(rows[0], other);
+							assert_eq!(rows[1]["home"], flag == "home-locator");
+							assert_eq!(rows[1]["nickAllocation"], "exact");
+							if held {
+								assert_eq!(rows[1]["access"], "held");
+							}
+							rows[1]["name"] = "registered".into();
+							rows[1]["inbox"] = "registered-inbox".into();
+							json!({"ok":true})
+						}
+						"registration-ready" => json!({"ok":true,"ready":true}),
+						_ => json!({"ok":true}),
+					};
+					stream
+						.get_mut()
+						.write_all(format!("{response}\n").as_bytes())
+						.await
+						.unwrap();
+				}
+			};
+			let (result, ()) = tokio::time::timeout(Duration::from_secs(2), async {
+				tokio::join!(directory(&options), server)
+			})
+			.await
+			.unwrap();
+			assert_eq!(result.unwrap()["home"], flag == "home-locator");
+		}
+	}
+}
+
+#[tokio::test]
 async fn named_contact_fences_lookup_before_reusing_route() {
 	for change in ["none", "access", "source", "name", "inbox", "removed"] {
 		let state = rooms_testing::scratch::Scratch::create("contact");
@@ -64,4 +141,64 @@ async fn named_contact_fences_lookup_before_reusing_route() {
 			.unwrap()
 			.unwrap();
 	}
+}
+
+#[tokio::test]
+async fn concurrent_listed_room_join_adopts_the_conversation_installed_at_the_next_revision() {
+	let state = rooms_testing::scratch::Scratch::create("concurrent-join");
+	let listener = UnixListener::bind(state.join("control.sock")).unwrap();
+	let options = Options {
+		verb: "join".into(),
+		state: state.to_path_buf(),
+		named: Default::default(),
+		arguments: Vec::new(),
+	};
+	let room = |directory, publication, id| json!({"kind":"room","directory":directory,"publication":publication,"id":id,"name":"workshop"});
+	let other_rows = [
+		room("other", "listed", "other-room"),
+		room("directory", "old-edition", "old-room"),
+	];
+	let mut joined = other_rows.to_vec();
+	joined.push(room("directory", "listed", "winning-conversation"));
+	let server = async {
+		let steps = [
+			(
+				"status",
+				json!({"ok":true,"revision":"1","workspace":{"conversations":other_rows}}),
+			),
+			(
+				"acquire",
+				Failure::conflict("another join installed the publication").response(),
+			),
+			("release-acquisition", json!({"ok":true})),
+			(
+				"status",
+				json!({"ok":true,"revision":"2","workspace":{"conversations":joined}}),
+			),
+		];
+		for (verb, response) in steps {
+			let (stream, _) = listener.accept().await.unwrap();
+			let mut stream = BufReader::new(stream);
+			let mut line = String::new();
+			stream.read_line(&mut line).await.unwrap();
+			let request: Value = serde_json::from_str(&line).unwrap();
+			assert_eq!(request["verb"], verb);
+			if verb == "acquire" {
+				assert_eq!(request["request"]["selection"]["publication"], "listed");
+				assert_eq!(request["request"]["base"], 1);
+			}
+			stream
+				.get_mut()
+				.write_all(format!("{response}\n").as_bytes())
+				.await
+				.unwrap();
+		}
+	};
+	let directory = json!({"id":"directory"});
+	let listing = json!({"name":"workshop","id":"listed"});
+	let joining = join_listed_room(&options, &directory, &listing);
+	let (result, ()) = tokio::time::timeout(Duration::from_secs(2), async { tokio::join!(joining, server) })
+		.await
+		.unwrap();
+	assert_eq!(result.unwrap()["id"], "winning-conversation");
 }

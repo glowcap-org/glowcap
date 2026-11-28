@@ -13,6 +13,8 @@ mod access;
 mod attached;
 #[path = "session_process/client.rs"]
 mod client;
+#[path = "session_process/fallback.rs"]
+mod fallback;
 #[path = "session_process/journey.rs"]
 mod journey;
 #[path = "session_process/paused.rs"]
@@ -27,6 +29,8 @@ mod receipts_late;
 mod receipts_result;
 #[path = "session_rig/mod.rs"]
 mod session_rig;
+#[path = "session_process/team.rs"]
+mod team;
 use session_rig::{assert_same_secret, command};
 #[test]
 fn session_peer_executable_custody_restart_and_signals() {

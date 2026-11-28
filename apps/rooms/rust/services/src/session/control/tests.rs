@@ -84,7 +84,7 @@ async fn retired_worker_keeps_custody_until_socket_cleanup_finishes() {
 	);
 	drop(retired);
 	let next = worker::Owner::open(path.to_path_buf()).await.unwrap();
-	assert!(next.worker.pending(0).await.unwrap()["gap"].is_null());
+	assert!(next.worker.read(Read::PageAfter(0)).await.unwrap()["gap"].is_null());
 	drop(next.close().await.unwrap());
 }
 
@@ -98,7 +98,7 @@ async fn only_committed_changes_wake_inbox_consumers() {
 		.await
 		.unwrap()
 		.unwrap();
-	let pending = owner.worker.pending(0).await.unwrap();
+	let pending = owner.worker.read(Read::PageAfter(0)).await.unwrap();
 	assert_eq!(pending["cursor"], 1);
 	assert_eq!(pending["pending"][0]["text"], "hello");
 	assert!(
@@ -112,7 +112,7 @@ async fn only_committed_changes_wake_inbox_consumers() {
 		.await
 		.unwrap()
 		.unwrap();
-	assert_eq!(owner.worker.pending(0).await.unwrap()["remaining"], 0);
+	assert_eq!(owner.worker.read(Read::PageAfter(0)).await.unwrap()["remaining"], 0);
 	drop(owner.close().await.unwrap());
 }
 
@@ -126,16 +126,18 @@ async fn inbox_pages_survive_acknowledgment_and_restart_without_acknowledging_de
 			id
 		);
 	}
-	let first = owner.worker.pending(0).await.unwrap();
+	let first = owner.worker.read(Read::PageAfter(0)).await.unwrap();
 	assert_eq!(first["pending"].as_array().unwrap().len(), 64);
 	assert_eq!(first["more"], true);
-	let second = owner.worker.pending(64).await.unwrap();
+	let health = owner.worker.read(Read::Health).await.unwrap();
+	assert_eq!(health, json!({"remaining":130,"gap":null,"cursor":first["cursor"]}));
+	let second = owner.worker.read(Read::PageAfter(64)).await.unwrap();
 	assert_eq!(second["cursor"], first["cursor"], "paging is not a journal mutation");
 	assert_eq!(second["pending"][0]["id"], 65);
 	assert_eq!(second["pending"][63]["id"], 128);
 	assert_eq!(second["remaining"], 130, "reading must not acknowledge");
 	owner.worker.ack(vec![1, 64, 65, 129]).await.unwrap();
-	let second = owner.worker.pending(64).await.unwrap();
+	let second = owner.worker.read(Read::PageAfter(64)).await.unwrap();
 	assert_eq!(
 		second["pending"][0]["id"], 66,
 		"acknowledgment must not shift the page position"
@@ -144,10 +146,13 @@ async fn inbox_pages_survive_acknowledgment_and_restart_without_acknowledging_de
 	assert_eq!(second["more"], false);
 	drop(owner.close().await.unwrap());
 	let owner = worker::Owner::open(path.to_path_buf()).await.unwrap();
-	let replay = owner.worker.pending(0).await.unwrap();
+	let replay = owner.worker.read(Read::PageAfter(0)).await.unwrap();
 	assert_eq!(replay["pending"][0]["id"], 2);
 	assert_eq!(replay["remaining"], 126);
-	assert_eq!(owner.worker.pending(128).await.unwrap()["pending"][0]["id"], 130);
+	assert_eq!(
+		owner.worker.read(Read::PageAfter(128)).await.unwrap()["pending"][0]["id"],
+		130
+	);
 	assert_eq!(owner.worker.event(json!({"text":"after-restart"})).await.unwrap(), 131);
 	drop(owner.close().await.unwrap());
 }
@@ -167,7 +172,7 @@ async fn a_second_control_cannot_remove_the_live_socket() {
 		assert!(Control::open(&peer, Rc::new(|_| {})).await.is_err());
 		assert!(UnixStream::connect(path.join("control.sock")).await.is_ok());
 		control.feed.inbox.event(json!({"text":"first"})).await.unwrap();
-		let first = control.pending(0).await.unwrap();
+		let first = control.inbox(Read::PageAfter(0)).await.unwrap();
 		let mut next = Box::pin(control.execute(RequestBody::Tick {
 			wait: 2,
 			after: first["cursor"].as_u64(),
@@ -189,7 +194,7 @@ async fn a_second_control_cannot_remove_the_live_socket() {
 				.await
 				.unwrap();
 		}
-		let first = control.pending(0).await.unwrap();
+		let first = control.inbox(Read::PageAfter(0)).await.unwrap();
 		let second = tokio::time::timeout(
 			Duration::from_secs(1),
 			control.execute(RequestBody::Tick {
@@ -213,4 +218,23 @@ async fn a_second_control_cannot_remove_the_live_socket() {
 		assert!(!path.join("control.sock").exists());
 	})
 	.await;
+}
+
+#[test]
+fn member_status_projects_membership_and_gap_advice() {
+	let room = serde_json::from_str(
+		r#"{"kind":"room","id":"r","directory":"d","name":"workshop","reconnect":"requested","draft":"private draft"}"#,
+	)
+	.unwrap();
+	let status = member_status(
+		&[room],
+		&json!({"remaining":2,"gap":{
+			"class":"uncertain","retry":"after-state-change","message":"private reason"
+		}}),
+	);
+	assert_eq!(
+		status,
+		json!({"ok":true,"rooms":[{"name":"workshop","joined":false}],
+        "inbox":{"remaining":2,"gap":{"class":"uncertain","retry":"after-state-change"}}})
+	);
 }

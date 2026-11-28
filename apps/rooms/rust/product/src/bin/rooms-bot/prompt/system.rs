@@ -2,7 +2,7 @@
 use crate::bot::{
 	actions::MAX_ACTIONS_PER_TURN,
 	config::Config,
-	reply::MAX_PARTS,
+	reply::{MAX_PARTS, NO_REPLY},
 	rooms::{ConversationId, Kind},
 };
 use rooms_application::room::line::{MAX_LINE_BYTES, MAX_MESSAGE_FILES};
@@ -34,6 +34,7 @@ pub fn system(facts: &Facts<'_>) -> String {
 			("kind", kind.to_owned()),
 			("limit", MAX_LINE_BYTES.to_string()),
 			("parts", MAX_PARTS.to_string()),
+			("no_reply", NO_REPLY.to_owned()),
 			("actions", MAX_ACTIONS_PER_TURN.to_string()),
 			("files", MAX_MESSAGE_FILES.to_string()),
 			("conversation", conversation),

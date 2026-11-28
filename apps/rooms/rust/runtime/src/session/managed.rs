@@ -41,7 +41,7 @@ mod revoked_receipts;
 mod supervision;
 mod watching;
 pub use profile::{production_limits, reader_limits, storage_limits};
-pub use supervision::Membership;
+pub use supervision::{DirectoryRegistrations, Membership};
 pub use watching::WorkspaceActivity;
 mod introductions;
 mod records;

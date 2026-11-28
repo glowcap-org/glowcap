@@ -13,7 +13,8 @@ pub use accesses::rights;
 pub use failure::{CONFLICT, Failure};
 use feed::{Application, Feed};
 use futures_util::future::Either;
-use rooms_application::failure::Retry;
+use rooms_application::content::session::workspace::Conversation;
+use rooms_application::{content::session::custody, failure::Retry};
 use serde_json::{Value, json};
 use std::{cell::RefCell, path::PathBuf, rc::Rc, time::Duration};
 use tokio::{
@@ -21,6 +22,7 @@ use tokio::{
 	net::{UnixListener, UnixStream},
 	sync::{Notify, RwLock, RwLockReadGuard, RwLockWriteGuard, watch},
 };
+use worker::Read;
 
 /// The longest a `tick` may wait for new events.
 const MAX_TICK_WAIT_SECS: u64 = 30;
@@ -47,6 +49,8 @@ pub struct Control {
 request::request! {
 	enum RequestBody, verb = "verb" {
 		Status => "status" {},
+		MemberStatus => "member-status" {},
+		RegistrationReady => "registration-ready" { inbox: custody::FieldKey<custody::DirectoryInbox>, retry: bool },
 		Locate => "locate" { locator: String },
 		Tick => "tick" { #[serde(default)] wait: u64, #[serde(default)] after: Option<u64>, #[serde(default)] after_id: u64 },
 		Ack => "ack" { ids: Vec<u64> },
@@ -83,6 +87,21 @@ impl RequestBody {
 async fn snapshot(app: &Application) -> Result<Value, Failure> {
 	let s = app.workspace.snapshot().await.map_err(peer_failure)?;
 	Ok(json!({"ok": true, "revision": s.revision.to_string(), "workspace": s.intent}))
+}
+// Project the local roster view before encoding the response. A member's drafts,
+// private conversations and capability fields stay inside its own session.
+fn member_status(conversations: &[Conversation], inbox: &Value) -> Value {
+	let rooms: Vec<_> = conversations
+		.iter()
+		.filter_map(|conversation| match conversation {
+			Conversation::Room(room) => Some(json!({"name":room.name,"joined":room.seat.is_some()})),
+			Conversation::Direct(_) => None,
+		})
+		.collect();
+	let gap = inbox["gap"]
+		.as_object()
+		.map(|failure| json!({"class":failure.get("class"),"retry":failure.get("retry")}));
+	json!({"ok":true,"rooms":rooms,"inbox":{"remaining":inbox["remaining"],"gap":gap}})
 }
 fn peer_failure(error: rooms_glowcap::client::Error) -> Failure {
 	if matches!(error, rooms_glowcap::client::Error::WorkspaceConflict) {
@@ -195,12 +214,12 @@ impl Control {
 			access: RwLock::new(()),
 		})
 	}
-	async fn pending(&self, after_id: u64) -> Result<Value, Failure> {
+	async fn inbox(&self, view: Read) -> Result<Value, Failure> {
 		let failure = self.feed.failure.borrow_mut().take();
 		if let Some(error) = failure {
 			self.feed.inbox.gap(error).await?;
 		}
-		let result = self.feed.inbox.pending(after_id).await?;
+		let result = self.feed.inbox.read(view).await?;
 		if !result["gap"].is_null() {
 			self.detach().await;
 		}
@@ -256,9 +275,29 @@ impl Control {
 				self.commands.release(&id).await?;
 				Ok(json!({"ok": true}))
 			}
+			RequestBody::RegistrationReady { inbox, retry } => {
+				let ready = app.registrations.ready(inbox, retry).map_err(|error| {
+					if error.refused_nickname() {
+						// This command can start a fresh registration after the name frees.
+						Failure::new(
+							rooms_application::failure::FailureCode::NickTaken.wire(),
+							Retry::AfterStateChange,
+							error,
+						)
+					} else {
+						error.into()
+					}
+				})?;
+				Ok(json!({"ok":true, "ready":ready}))
+			}
+			RequestBody::MemberStatus {} => {
+				let snapshot = app.workspace.snapshot().await.map_err(peer_failure)?;
+				let inbox = self.inbox(Read::Health).await?;
+				Ok(member_status(snapshot.intent.conversations.as_slice(), &inbox))
+			}
 			RequestBody::Status {} => {
 				let mut result = snapshot(app).await?;
-				let inbox = self.pending(0).await?;
+				let inbox = self.inbox(Read::Health).await?;
 				result["inbox"] = json!({"remaining": inbox["remaining"], "gap": inbox["gap"]});
 				Ok(result)
 			}
@@ -287,7 +326,7 @@ impl Control {
 				let deadline = tokio::time::Instant::now() + Duration::from_secs(wait);
 				let mut updates = self.feed.inbox.updates();
 				loop {
-					let pending = self.pending(after_id).await?;
+					let pending = self.inbox(Read::PageAfter(after_id)).await?;
 					let changed = after.is_some_and(|cursor| pending["cursor"].as_u64() != Some(cursor));
 					if changed
 						|| pending["pending"].as_array().is_some_and(|rows| !rows.is_empty())
@@ -304,7 +343,7 @@ impl Control {
 			}
 			RequestBody::Ack { ids } => self.feed.ack(ids).await,
 			RequestBody::Resume {} => {
-				self.pending(0).await?;
+				self.inbox(Read::Health).await?;
 				app.workspace.resynchronize_discovery().await.map_err(peer_failure)?;
 				self.feed.inbox.resume().await?;
 				if self.observation.borrow().is_none() {

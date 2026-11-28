@@ -99,6 +99,29 @@ fn unspawned_startup_is_an_active_shutdown_barrier() {
 }
 
 #[tokio::test]
+async fn stopping_a_waiting_retry_leaves_the_next_startup_slot_for_a_live_retry() {
+	use core::{future::poll_fn, task::Poll};
+	let budget = Rc::new(Budget::<Platform>::default());
+	let mut active: Vec<_> = (0..MAX_STARTING).map(|_| Permit::reserve(&budget).unwrap()).collect();
+	let mut canceled = Box::pin(Permit::resume(&budget));
+	let mut remaining = Box::pin(Permit::resume(&budget));
+	poll_fn(|cx| {
+		assert!(canceled.as_mut().poll(cx).is_pending());
+		assert!(remaining.as_mut().poll(cx).is_pending());
+		Poll::Ready(())
+	})
+	.await;
+	// The worker's stop branch drops its run future while all slots are held.
+	drop(canceled);
+	assert_eq!(budget.starting.get(), MAX_STARTING);
+	drop(active.pop());
+	let resumed = remaining.await;
+	assert!(Permit::reserve(&budget).is_err());
+	drop(resumed);
+	assert!(Permit::reserve(&budget).is_ok());
+}
+
+#[tokio::test]
 async fn failed_retirements_charge_the_population_until_cleanup_succeeds() {
 	rooms_testing::local_set::run(async {
 		let budget = Rc::new(Budget::default());

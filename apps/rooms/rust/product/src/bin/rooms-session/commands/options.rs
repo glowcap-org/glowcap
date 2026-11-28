@@ -57,7 +57,6 @@ impl Options {
 		}
 		for required in match options.verb.as_str() {
 			"reply" => &["text"][..],
-			"join" => &["room"][..],
 			"dismiss" => &["id"][..],
 			"resume" => &["accept-gap"][..],
 			"recover" => &["acquisition"][..],
@@ -66,6 +65,12 @@ impl Options {
 			if options.get(required).is_none() {
 				return Err(Failure::invalid(format!("--{required} is required")));
 			}
+		}
+		if options.verb == "join" && options.get("room").is_none() && options.get("nick").is_none() {
+			return Err(Failure::invalid("join needs --room or --nick"));
+		}
+		if options.get("home-locator").is_some() && options.get("locator").is_some() {
+			return Err(Failure::invalid("choose --locator or --home-locator"));
 		}
 		if options.verb == "command" && options.arguments.is_empty() {
 			return Err(Failure::invalid("command needs an application command name"));
@@ -78,6 +83,12 @@ impl Options {
 		options.number("base", 0)?;
 		if let Some(id) = options.get("acquisition") {
 			super::acquisition::validate_id(id)?;
+		}
+		if options.get("exact-nick") == Some("true") && options.get("nick").is_none() {
+			return Err(Failure::invalid("--exact-nick requires --nick"));
+		}
+		if options.get("existing-room") == Some("true") && options.get("room").is_none() {
+			return Err(Failure::invalid("--existing-room requires --room"));
 		}
 		if let Some(nick) = options.get("nick")
 			&& let Some(reason) = rooms_application::room::inbox::nick_refusal(nick)

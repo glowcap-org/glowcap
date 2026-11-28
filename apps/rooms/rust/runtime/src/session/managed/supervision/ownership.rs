@@ -1,6 +1,7 @@
 //! The session owns actual tasks. Views only request retry or retirement.
 //! Startup permits cap retained candidates independently of live callbacks.
 use crate::Error;
+use rooms_application::content::session::custody;
 type Result<T> = core::result::Result<T, Error>;
 use rooms_glowcap::client::Tasks;
 use std::{
@@ -8,7 +9,7 @@ use std::{
 	collections::BTreeMap,
 	rc::{Rc, Weak},
 };
-use tokio::sync::watch;
+use tokio::sync::{Notify, watch};
 
 const MAX_STARTING: usize = 4;
 // Failed cleanup still owns a task and its exact upstream target. Charge it
@@ -18,6 +19,7 @@ const MAX_RETAINED: usize = rooms_application::content::session::workspace::MAX_
 
 pub(in crate::session::managed) struct Budget<P: Tasks> {
 	starting: Cell<usize>,
+	startup_available: Notify,
 	tasks: RefCell<BTreeMap<String, Running<P>>>,
 }
 struct Running<P: Tasks> {
@@ -31,14 +33,53 @@ struct Running<P: Tasks> {
 	stop: watch::Sender<bool>,
 	ready: watch::Sender<Option<Result<()>>>,
 	// Closing the view cannot turn a failed cleanup wait into a ready loop.
-	_retry: watch::Sender<u64>,
+	retry: watch::Sender<u64>,
 	ended: watch::Sender<Option<Result<()>>>,
 	retirement: Option<Rc<super::retirement::Owner>>,
 }
+/// Local control reads the live registration worker through its exact inbox.
+#[derive(Clone)]
+pub struct DirectoryRegistrations<P: Tasks>(Weak<Budget<P>>);
+
+impl<P: Tasks> DirectoryRegistrations<P> {
+	pub(super) fn new(budget: &Rc<Budget<P>>) -> Self {
+		Self(Rc::downgrade(budget))
+	}
+	/// A replacement callback or a retiring worker cannot confirm readiness.
+	/// Only an explicit request can retry an occupied name.
+	pub fn ready(&self, inbox: custody::FieldKey<custody::DirectoryInbox>, retry: bool) -> Result<bool> {
+		let budget = self.0.upgrade().ok_or_else(|| Error::closed("Session is closed"))?;
+		let tasks = budget.tasks.borrow();
+		let worker = tasks.values().find(|worker| {
+			worker
+				.retirement
+				.as_ref()
+				.is_some_and(|owner| owner.exact_registration == Some(inbox))
+		});
+		let Some(worker) = worker else { return Ok(false) };
+		if *worker.stop.borrow() || worker.ended.borrow().is_some() {
+			return Ok(false);
+		}
+		let status = worker.ready.borrow().clone();
+		match status {
+			Some(Err(error)) if retry && error.refused_nickname() => {
+				worker.ready.send_replace(None);
+				worker
+					.retry
+					.send_modify(|generation| *generation = generation.wrapping_add(1));
+				Ok(false)
+			}
+			Some(result) => result.map(|()| true),
+			None => Ok(false),
+		}
+	}
+}
+
 impl<P: Tasks> Default for Budget<P> {
 	fn default() -> Self {
 		Self {
 			starting: Cell::new(0),
+			startup_available: Notify::new(),
 			tasks: RefCell::new(BTreeMap::new()),
 		}
 	}
@@ -176,8 +217,21 @@ impl<P: Tasks> Permit<P> {
 		if budget.starting.get() == MAX_STARTING {
 			return Err(Error::busy("Membership startup capacity is exhausted"));
 		}
+		Ok(Self::charge(budget))
+	}
+
+	/// An explicitly retried worker already has a retained task slot. It only
+	/// needs one active startup slot before preparing its next candidate.
+	pub(super) async fn resume(budget: &Rc<Budget<P>>) -> Self {
+		while budget.starting.get() == MAX_STARTING {
+			budget.startup_available.notified().await;
+		}
+		Self::charge(budget)
+	}
+
+	fn charge(budget: &Rc<Budget<P>>) -> Self {
 		budget.starting.set(budget.starting.get() + 1);
-		Ok(Self(Rc::downgrade(budget)))
+		Self(Rc::downgrade(budget))
 	}
 }
 
@@ -187,6 +241,7 @@ impl<P: Tasks> Drop for Permit<P> {
 	fn drop(&mut self) {
 		if let Some(budget) = self.0.upgrade() {
 			budget.starting.set(budget.starting.get() - 1);
+			budget.startup_available.notify_one();
 		}
 	}
 }
@@ -239,7 +294,7 @@ where
 		target: None,
 		stop: stop.clone(),
 		ready: readiness.clone(),
-		_retry: retry.clone(),
+		retry: retry.clone(),
 		ended: ended.clone(),
 		retirement,
 	};

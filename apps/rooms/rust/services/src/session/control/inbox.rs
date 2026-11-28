@@ -227,6 +227,10 @@ impl Inbox {
 		let removed = self.remove(&requested);
 		Ok(json!({"ok": true, "acknowledged": removed}))
 	}
+	/// A roster or status read only needs the queue length and observation gap.
+	pub fn health(&self) -> Value {
+		json!({"remaining": self.rows.len(), "gap": self.gap})
+	}
 	/// Copy at most one page into the socket response. Identifiers survive
 	/// acknowledgments and restart, so paging never depends on shifting offsets.
 	/// The response owns its rows after the disk worker finishes this request.

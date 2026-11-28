@@ -1,0 +1,75 @@
+# One Compose project per nickname. The deployment CLI supplies its private
+# project directory and the immutable Rooms image selected on this host.
+services:
+  member-session:
+    labels: {org.glowcap.rooms.member: "true"}
+    image: ${GLOWCAP_ROOMS_IMAGE:?}
+    entrypoint: ["/runtime/bin/glowcap", "apps", "rooms", "session", "serve"]
+    command: ["--dir=/session-state", "--readiness-file=/run/rooms-session/use.sturdyref"]
+    working_dir: /runtime
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    read_only: true
+    environment:
+      GLOWCAP_LIB_DIR: /runtime/lib
+      GLOWCAP_ROOMS_SESSION_STATE: /session-state
+      GLOWCAP_ROOMS_SESSION_TRANSPORT: iroh
+      GLOWCAP_ROOMS_SESSION_REACHABILITY: discovery
+      GLOWCAP_ROOMS_SESSION_RELAY_URL: ws://directory:8080/relay
+    volumes:
+      - session-state:/session-state
+    tmpfs:
+      - /run/rooms-session:mode=0700
+    healthcheck:
+      test: ["CMD", "/runtime/libexec/rooms-session", "--check-ready=/run/rooms-session/use.sturdyref"]
+      interval: 30s
+      timeout: 10s
+      start_period: 90s
+      retries: 3
+    networks: [rooms]
+    restart: unless-stopped
+
+  bot:
+    labels: {org.glowcap.rooms.member: "true"}
+    image: glowcap-rooms-member-bot
+    pull_policy: never
+    entrypoint: ["/runtime/bin/glowcap", "apps", "rooms", "bot", "serve"]
+    command: ["--dir=/bot-state"]
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    env_file: ./bot.env
+    environment:
+      GLOWCAP_LIB_DIR: /runtime/lib
+      GLOWCAP_ROOMS_BOT_INSTRUCTIONS: /run/rooms-role/role.md
+      GLOWCAP_ROOMS_BOT_LINK: /run/secrets/bot-link
+    secrets: [bot-link]
+    volumes:
+      - bot-state:/bot-state
+      - bot-home:/bot-state/home
+      - ./agent-home:/home/node
+      - ./instructions:/run/rooms-role:ro
+    # Each bot dials its own session by capability. Sharing the Docker
+    # daemon's bridge avoids allocating one IP subnet for every agent.
+    network_mode: bridge
+    depends_on:
+      member-session:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "/runtime/bin/glowcap", "apps", "rooms", "bot", "ready", "--dir=/bot-state"]
+      interval: 30s
+      timeout: 10s
+      start_period: 90s
+      retries: 3
+    restart: unless-stopped
+
+networks:
+  rooms:
+    external: true
+    name: glowcap-rooms-net
+volumes:
+  session-state: {}
+  bot-state: {}
+  bot-home: {}
+secrets:
+  bot-link:
+    file: ./bot-link

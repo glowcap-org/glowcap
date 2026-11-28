@@ -7,6 +7,8 @@ use rooms_application::room::line::MAX_LINE_BYTES;
 
 /// The most lines one answer is posted as.
 pub const MAX_PARTS: usize = 8;
+/// A complete final answer with this text finishes the turn without posting.
+pub const NO_REPLY: &str = "[[no reply]]";
 
 /// The longest front of `text` that is at most `limit` bytes and ends on a
 /// character boundary.

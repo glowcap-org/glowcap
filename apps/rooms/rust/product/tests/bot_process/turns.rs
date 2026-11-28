@@ -1,5 +1,5 @@
 //! Ordinary turns, what does not trigger one, and what the bot refuses.
-use super::rig::{Rig, eventually};
+use super::rig::{Rig, eventually, runs};
 use super::session_rig::LinkSecret;
 use super::words;
 use serde_json::json;
@@ -55,6 +55,60 @@ fn a_direct_message_gets_one_reply_and_the_next_turn_resumes_the_harness_session
 	assert!(settings.contains(&format!("--resume {session}")), "{settings}");
 	assert!(bot.stop().success(), "the bot exited with a failure");
 	assert_eq!(rig.sent().len(), 2, "a trigger was answered more than once");
+}
+
+#[test]
+fn a_silent_final_answer_finishes_its_dm_once_across_restart() {
+	let rig = Rig::new("bot-no-reply");
+	let first = rig.serve(json!({}), Some("answer-write@1"));
+	rig.direct(1, "c1", "reply: [[no reply]]");
+	rig.wait_for_cursor(1);
+	assert!(first.stop().success());
+	assert!(rig.texts().is_empty());
+	assert_eq!(runs(&rig.workdir("c1")), 1);
+	assert!(rig.log().contains(words::SAVE_RETRIED_WITHOUT_RUNNING));
+	assert!(rig.log().lines().any(|line| line.ends_with(": no reply")));
+
+	let second = rig.serve(json!({}), None);
+	rig.direct(2, "c1", "reply:the marker is [[no reply]]");
+	rig.wait_for_cursor(2);
+	assert!(second.stop().success());
+	assert_eq!(rig.texts(), ["the marker is [[no reply]]"]);
+	assert_eq!(runs(&rig.workdir("c1")), 2);
+}
+
+#[test]
+fn a_silent_final_answer_preserves_a_batched_reset_confirmation() {
+	let rig = Rig::new("bot-no-reply-reset");
+	let bot = rig.serve(json!({}), None);
+	rig.direct(1, "c1", "wait-file:first");
+	let workdir = rig.workdir("c1");
+	eventually("the first turn to start", || {
+		workdir.join("waiting.marker").exists().then_some(())
+	});
+	rig.direct(2, "c1", "/reset");
+	rig.direct(3, "c1", "reply:[[no reply]]");
+	eventually("both triggers to be saved in the next turn", || {
+		let ledger = rig.ledger();
+		let triggers = ledger["turns"][1]["asked"]["triggers"].as_array()?;
+		(triggers.len() == 2).then_some(())
+	});
+	std::fs::write(workdir.join("release"), "").unwrap();
+	rig.wait_for_cursor(3);
+	assert!(bot.stop().success());
+	assert_eq!(rig.texts(), ["first", words::RESET_CONFIRMED]);
+}
+
+#[test]
+fn a_blank_final_answer_still_retries_and_reports_failure() {
+	let rig = Rig::new("bot-blank-final");
+	let bot = rig.serve(json!({}), None);
+	rig.direct(1, "c1", "reply: ");
+	rig.wait_for_cursor(1);
+	assert!(bot.stop().success());
+	assert_eq!(runs(&rig.workdir("c1")), 2);
+	assert_eq!(rig.texts().len(), 1);
+	assert!(rig.texts()[0].contains("the agent stopped unexpectedly"));
 }
 
 /// Whether `text` has the shape `2026-11-21T09:30:05Z`.

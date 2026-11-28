@@ -12,11 +12,26 @@ const Docker = @import("deployment/docker.zig").Client;
 const Io = std.Io;
 const stdout = @import("../../argv.zig").writeStdout;
 
+const members = @import("deployment/members.zig");
+const nicks = &[_]types.Positional{.{ .name = "nick", .help = "Named bot members", .variadic = true }};
+const optional_nicks = &[_]types.Positional{.{ .name = "nick", .help = "Bot members (default: every initialized member)", .required = false, .variadic = true }};
 const dir: types.Flag = .{ .long = "dir", .help = "Deployment configuration directory (default $XDG_STATE_HOME/glowcap/rooms-deployment)", .kind = .string_flag };
 const image_flag: types.Flag = .{ .long = "image", .help = "Published image tag, digest, or existing local image ID", .kind = .string_flag };
 const build_flag: types.Flag = .{ .long = "build", .help = "Build an image from a prepared Linux product directory", .kind = .string_flag };
+const rooms: types.Flag = .{ .long = "room", .kind = .string_flag, .repeatable = true, .help = "Existing room to join (repeatable). With no rooms a new bot can receive direct messages and invitations" };
+const locator: types.Flag = .{ .long = "locator", .kind = .string_flag, .help = "Directory bootstrap URL or locator. Defaults to the saved home, or http://directory:8080/locator for a new member" };
 pub const command: types.Command = .{ .name = "deployment", .short_help = "Run Rooms as a persistent Docker deployment", .children = &.{
     .{ .name = "up", .short_help = "Select an image, start the stack, wait for health, and print capabilities", .flags = &.{ dir, image_flag, build_flag }, .run = run(.up) },
+    .{ .name = "bots", .short_help = "Run individually named bot members alongside the deployment", .children = &.{
+        .{ .name = "init", .short_help = "Prepare private member files. With --room or --locator also register and issue access before starting agents", .flags = &.{ dir, rooms, locator }, .positionals = nicks, .run = run(.{ .bots = .init }) },
+        .{ .name = "session", .short_help = "Run a Rooms session command for one named member", .flags = &.{dir}, .positionals = &.{ .{ .name = "nick", .help = "Bot nickname" }, .{ .name = "command", .help = "Session command and arguments after --", .variadic = true } }, .run = run(.{ .bots = .session }) },
+        .{ .name = "inspect", .short_help = "Read one running bot's access, turns and most recent failure as JSON", .flags = &.{dir}, .positionals = &.{.{ .name = "nick", .help = "Bot nickname" }}, .run = run(.{ .bots = .inspect }) },
+        .{ .name = "logs", .short_help = "Show recent container output for the named bots and their sessions", .flags = &.{dir}, .positionals = nicks, .run = run(.{ .bots = .logs }) },
+        .{ .name = "up", .short_help = "Start these bots and join the named rooms, keeping their existing memberships", .flags = &.{ dir, rooms, locator }, .positionals = nicks, .run = run(.{ .bots = .up }) },
+        .{ .name = "status", .short_help = "Inspect the sessions and agents of the named bots", .flags = &.{dir}, .positionals = optional_nicks, .run = run(.{ .bots = .status }) },
+        .{ .name = "down", .short_help = "Stop the named bots and their sessions, retaining their identities and state", .flags = &.{dir}, .positionals = nicks, .run = run(.{ .bots = .down }) },
+    } },
+    .{ .name = "backup-plan", .short_help = "List the selected services and mounts to archive before stopping the deployment", .flags = &.{ dir, .{ .long = "unstarted", .kind = .string_flag, .repeatable = true, .help = "Member whose agent has never started. Require its session store" }, .{ .long = "files-only", .kind = .string_flag, .repeatable = true, .help = "Member prepared only on disk. Its session and agent have never started" } }, .run = run(.backup_plan) },
     .{ .name = "doctor", .short_help = "Inspect configuration and Docker availability without changing them", .flags = &.{dir}, .run = run(.doctor) },
     .{ .name = "status", .short_help = "Show service health and persistent volumes", .flags = &.{dir}, .run = run(.status) },
     .{ .name = "links", .short_help = "Print the page link, operator capabilities, locators, and session links again", .flags = &.{dir}, .run = run(.links) },
@@ -27,7 +42,9 @@ pub const command: types.Command = .{ .name = "deployment", .short_help = "Run R
     .{ .name = "reset", .short_help = "Permanently delete the selected data and authority, then restart", .flags = &.{ dir, image_flag, build_flag, .{ .long = "yes", .help = "Confirm the requested destruction without prompting" } }, .positionals = &.{.{ .name = "unit", .help = "session | directory | all" }}, .run = run(.reset) },
 } };
 
-const Verb = enum {
+const Verb = union(enum) {
+    bots: members.Verb,
+    backup_plan,
     up,
     doctor,
     status,
@@ -42,14 +59,16 @@ const Verb = enum {
     fn starts(verb: Verb) bool {
         return switch (verb) {
             .up, .reset => true,
-            .doctor, .status, .links, .logs, .trace, .down, .restart => false,
+            .backup_plan, .doctor, .status, .links, .logs, .trace, .down, .restart, .bots => false,
         };
     }
-    /// Whether the verb changes the deployment, and so holds its state lock.
-    fn mutating(verb: Verb) bool {
+    /// A member owns its own writer lock. Reading the selected base under a
+    /// shared lease keeps a base reset or image change out of its rollout.
+    fn lock(verb: Verb) Io.File.Lock {
         return switch (verb) {
-            .up, .down, .restart, .reset => true,
-            .doctor, .status, .links, .logs, .trace => false,
+            .up, .down, .restart, .reset => .exclusive,
+            .bots => |member| if (member.mutating()) .shared else .none,
+            else => .none,
         };
     }
 };
@@ -135,19 +154,9 @@ fn perform(ctx: *Ctx, parsed: *types.Parsed, comptime verb: Verb) !void {
         }
     }
 
-    const show_versions = verb == .doctor;
-    versionProbe(docker, if (show_versions) &.{"version"} else &.{ "version", "--format", "{{.Server.Version}}" }, show_versions) catch |err| {
-        if (err == error.FileNotFound) {
-            log.err(ctx.io, "Docker was not found on PATH. Install Docker with Compose, then rerun this command.", .{});
-        } else {
-            log.err(ctx.io, "Check that the Docker daemon is running and that your user can reach it with `docker version`.", .{});
-        }
-        return err;
-    };
-    versionProbe(docker, &.{ "compose", "version" }, show_versions) catch |err| {
-        log.err(ctx.io, "Check that Docker Compose is installed with `docker compose version`.", .{});
-        return err;
-    };
+    // Named commands call Docker only for the operation they perform. File-only
+    // initialization can run offline and status needs one daemon snapshot.
+    if (comptime verb != .bots) try checkDocker(docker, verb == .doctor);
     if (verb == .doctor) return;
     const directory = if (starts)
         try Io.Dir.cwd().createDirPathOpen(ctx.io, absolute_dir, .{ .permissions = .fromMode(0o700) })
@@ -162,9 +171,13 @@ fn perform(ctx: *Ctx, parsed: *types.Parsed, comptime verb: Verb) !void {
         };
     defer directory.close(ctx.io);
     const state: config.Config = .{ .io = ctx.io, .gpa = gpa, .dir = directory, .path = absolute_dir, .templates = templates };
-    const mutating = comptime verb.mutating();
+    const mode = comptime verb.lock();
     const state_lock = @import("../../operability/state_lock.zig");
-    var lock: ?state_lock.Guard = if (mutating) try state_lock.tryAcquire(ctx.io, absolute_dir) else null;
+    var lock: ?state_lock.Guard = switch (mode) {
+        .none => null,
+        .shared => try state_lock.tryAcquireShared(ctx.io, absolute_dir),
+        .exclusive => try state_lock.tryAcquire(ctx.io, absolute_dir),
+    };
     defer if (lock) |*guard| guard.deinit();
     if (starts) {
         try state.prepare();
@@ -186,6 +199,8 @@ fn perform(ctx: *Ctx, parsed: *types.Parsed, comptime verb: Verb) !void {
         return error.DeploymentNotConfigured;
     };
     try environ.put("GLOWCAP_ROOMS_IMAGE", selected);
+    if (comptime verb == .bots) return members.perform(state, docker, parsed, verb.bots);
+    if (comptime verb == .backup_plan) return @import("deployment/backup.zig").plan(state, docker, parsed);
     // Preflight includes the operator override before any stop or deletion.
     _ = try docker.query(try docker.composeArgs(&.{ "config", "--quiet" }));
     switch (verb) {
@@ -214,8 +229,23 @@ fn perform(ctx: *Ctx, parsed: *types.Parsed, comptime verb: Verb) !void {
             return std.process.replace(ctx.io, .{ .argv = try docker.args(try docker.composeArgs(operands)), .environ_map = &environ });
         },
         .reset => try operations.reset(docker, unit, parsed.flagBool("yes")),
-        .doctor => unreachable, // answered above, before any configuration exists
+        .backup_plan, .bots, .doctor => unreachable, // answered above, before any configuration exists
     }
+}
+
+fn checkDocker(docker: Docker, show_versions: bool) !void {
+    versionProbe(docker, if (show_versions) &.{"version"} else &.{ "version", "--format", "{{.Server.Version}}" }, show_versions) catch |err| {
+        if (err == error.FileNotFound) {
+            log.err(docker.io, "Docker was not found on PATH. Install Docker with Compose, then rerun this command.", .{});
+        } else {
+            log.err(docker.io, "Check that the Docker daemon is running and that your user can reach it with `docker version`.", .{});
+        }
+        return err;
+    };
+    versionProbe(docker, &.{ "compose", "version" }, show_versions) catch |err| {
+        log.err(docker.io, "Check that Docker Compose is installed with `docker compose version`.", .{});
+        return err;
+    };
 }
 
 fn versionProbe(docker: Docker, operands: []const []const u8, show: bool) !void {

@@ -154,6 +154,135 @@ fn starting_a_workspace_under_another_nickname_is_refused() {
 }
 
 #[test]
+fn exact_member_registration_and_existing_rooms_survive_restart() {
+	use super::session_rig::{Fixture, try_call};
+	let fixture = Fixture::start("exact-member", &["scout"], "workshop");
+	// An automatically allocated name that actually matches can become exact
+	// in its existing workspace and keep its rooms.
+	call(
+		&fixture.peers[0].state,
+		"start",
+		json!({"nick":["scout"],"exact-nick":["true"]}),
+	);
+	let launch = |state: &std::path::Path| {
+		let mut cmd = super::command();
+		cmd.args([
+			format!("--state={}", state.display()),
+			"--transport=tcp".into(),
+			"--dial-transports=tcp".into(),
+			"--local-control".into(),
+		]);
+		ready(cmd, "ROOMS-SESSION-LISTENING ").0
+	};
+	let strict = |nick, room| {
+		json!({"locator":[fixture.locator], "nick":[nick],
+        "exact-nick":["true"], "existing-room":["true"], "room":[room]})
+	};
+	let member = fixture.temp.join("member");
+	let mut peer = launch(&member);
+	let missing = try_call(&member, "start", strict("editor", "workshpo")).unwrap_err();
+	assert!(missing.contains("no-such-room"), "{missing}");
+	assert!(
+		call(&member, "status", json!({}))["workspace"]["conversations"]
+			.as_array()
+			.unwrap()
+			.is_empty()
+	);
+	call(&member, "start", strict("editor", "workshop"));
+	let state = call(&member, "status", json!({}));
+	assert_eq!(state["workspace"]["directories"][0]["assignedNick"], "editor");
+	assert_eq!(state["workspace"]["directories"][0]["nickAllocation"], "exact");
+	peer.signal("-TERM");
+
+	// Ordinary join can allocate another name when the requested one is occupied.
+	let prior = fixture.temp.join("automatic");
+	let mut automatic = launch(&prior);
+	call(
+		&prior,
+		"join",
+		json!({"locator":[fixture.locator], "nick":["scout"], "room":["workshop"]}),
+	);
+	let actual = call(&prior, "status", json!({}))["workspace"]["directories"][0]["assignedNick"].clone();
+	assert_ne!(actual, "scout");
+	automatic.signal("-TERM");
+	let mut automatic = launch(&prior);
+	let refused = try_call(&prior, "start", json!({"nick":["scout"], "exact-nick":["true"]})).unwrap_err();
+	assert!(refused.contains("exact nickname"), "{refused}");
+	automatic.signal("-TERM");
+
+	let occupied = fixture.temp.join("occupied");
+	let mut contender = launch(&occupied);
+	let refused = try_call(&occupied, "start", strict("scout", "workshop")).unwrap_err();
+	assert!(refused.contains(r#""class":"nick-taken""#), "{refused}");
+	assert!(refused.contains(r#""retry":"after-state-change""#), "{refused}");
+	let state = call(&occupied, "status", json!({}));
+	let directory = &state["workspace"]["directories"][0];
+	assert_eq!(directory["nickAllocation"], "exact");
+	assert!(directory["assignedNick"].is_null());
+	assert!(state["workspace"]["conversations"].as_array().unwrap().is_empty());
+	let use_link = std::fs::read_to_string(occupied.join("use.sturdyref")).unwrap();
+	session_rig::run_within(Duration::from_secs(5), async {
+		let runtime = session_rig::host().await;
+		let view = session_rig::attach(&runtime, use_link.trim()).await;
+		assert!(
+			view.held().await.unwrap().is_empty(),
+			"a refused registration held a receipt place"
+		);
+	});
+	// The first holder still owns the name. Stopping the denied worker must
+	// finish even though the first holder is still connected.
+	contender.signal("-TERM");
+	let mut contender = launch(&occupied);
+	let refused = try_call(&occupied, "start", strict("scout", "workshop")).unwrap_err();
+	assert!(refused.contains("nick-taken"), "{refused}");
+	let mut fixture = fixture;
+	let mut holder = fixture.peers.remove(0);
+	holder.process.signal("-TERM");
+	// An unrelated member can take the released name while the contender
+	// still waits for an explicit retry.
+	let witness = fixture.temp.join("witness");
+	let mut witness_peer = launch(&witness);
+	call(
+		&witness,
+		"start",
+		json!({"locator":[fixture.locator],"nick":["scout"],"exact-nick":["true"]}),
+	);
+	assert!(call(&occupied, "status", json!({}))["workspace"]["directories"][0]["assignedNick"].is_null());
+	witness_peer.signal("-TERM");
+	// The named workspace retries the known refusal in the same process.
+	call(&occupied, "start", json!({"nick":["scout"], "exact-nick":["true"]}));
+	let state = call(&occupied, "status", json!({}));
+	assert_eq!(state["workspace"]["directories"][0]["assignedNick"], "scout");
+	contender.signal("-TERM");
+	fixture.finish();
+}
+
+#[test]
+fn refused_directory_names_leave_capacity_for_an_unrelated_room() {
+	use super::session_rig::{Fixture, try_call};
+	let fixture = Fixture::start("name-capacity", &["worker", "holder"], "workshop");
+	let worker = &fixture.peers[0].state;
+	let holder = &fixture.peers[1].state;
+	let mut directories = Vec::new();
+	// Keep four exact names occupied in independent directories. The worker
+	// must still be able to open a room in its original directory.
+	for _ in 0..4 {
+		let directory = Fixture::start("occupied-directory", &[], "unused");
+		let registration = json!({"locator":[directory.locator],"nick":["taken"],"exact-nick":["true"]});
+		call(holder, "start", registration.clone());
+		let refused = try_call(worker, "start", registration).unwrap_err();
+		assert!(refused.contains(r#""class":"nick-taken""#), "{refused}");
+		directories.push(directory);
+	}
+	let new_room = call(worker, "join", json!({"room":["garden"]}));
+	assert_eq!(new_room["joined"][0]["room"], "garden");
+	fixture.finish();
+	for directory in directories {
+		directory.finish();
+	}
+}
+
+#[test]
 fn private_startup_keeps_session_links_out_of_managed_child_diagnostics() {
 	let temp = Scratch::create("private-startup");
 	let state = temp.join("managed");

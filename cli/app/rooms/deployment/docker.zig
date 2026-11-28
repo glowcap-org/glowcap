@@ -1,5 +1,5 @@
 //! Docker actions inherit both output streams. Queries capture only their
-//! result on stdout. Stderr stays live even on success or timeout.
+//! result on stdout. Private session queries suppress both output streams.
 //! No shell, timer process, or contributor toolchain participates in deployment.
 const std = @import("std");
 const log = @import("../../../operability/log.zig");
@@ -19,20 +19,45 @@ pub const Client = struct {
     const Output = struct { term: std.process.Child.Term, stdout: []const u8 };
 
     pub fn capture(self: Client, operands: []const []const u8) !Output {
-        return self.readOutput(operands) catch |err| {
+        return self.readOutput(operands, false, 15) catch |err| {
             log.err(self.io, "{s}: {f}", .{ @errorName(err), Command{ .operands = operands } });
             return err;
         };
     }
 
-    fn readOutput(self: Client, operands: []const []const u8) !Output {
-        const expires = Io.Clock.awake.now(self.io).addDuration(.fromSeconds(15));
+    /// Compose configuration can expand credentials. Never print its output.
+    pub fn privateQuery(self: Client, operands: []const []const u8) ![]const u8 {
+        const result = try self.readOutput(operands, true, 15);
+        if (!result.term.success()) return error.DockerCommandFailed;
+        return result.stdout;
+    }
+
+    /// Session operations can return bearer links even before an error. Keep
+    /// both output streams private on every exit, including timeout.
+    pub fn sessionResult(self: Client, operands: []const []const u8, seconds: i64) ![]const u8 {
+        const result = try self.readOutput(operands, true, seconds);
+        if (!result.term.success()) {
+            const Report = struct { @"error": struct { class: []const u8 } };
+            const report = std.json.parseFromSlice(Report, self.gpa, result.stdout, .{ .ignore_unknown_fields = true }) catch return error.MemberSessionCommandFailed;
+            for ([_][]const u8{ "nick-taken", "no-such-room", "room-full", "timeout", "invalid", "conflict", "storage", "uncertain", "receipt-expired" }) |known| {
+                if (std.mem.eql(u8, known, report.value.@"error".class)) {
+                    log.err(self.io, "member session reported {s}", .{known});
+                    break;
+                }
+            }
+            return error.MemberSessionCommandFailed;
+        }
+        return result.stdout;
+    }
+
+    fn readOutput(self: Client, operands: []const []const u8, private: bool, seconds: i64) !Output {
+        const expires = Io.Clock.awake.now(self.io).addDuration(.fromSeconds(seconds));
         var child = try std.process.spawn(self.io, .{
             .argv = try self.args(operands),
             .environ_map = self.environ,
             .stdin = .ignore,
             .stdout = .pipe,
-            .stderr = .inherit,
+            .stderr = if (private) .ignore else .inherit,
         });
         defer retire(self.io, &child);
         var buffers: Io.File.MultiReader.Buffer(1) = undefined;
@@ -41,7 +66,7 @@ pub const Client = struct {
         defer reader.deinit();
         // A query's partial stdout may explain its failure. Keep it out of
         // product stdout, and preserve it even when the child times out.
-        errdefer log.writeMsg(self.io, reader.reader(0).buffered());
+        errdefer if (!private) log.writeMsg(self.io, reader.reader(0).buffered());
         while (reader.fill(256, .{ .deadline = expires.withClock(.awake) })) |_| {
             if (reader.reader(0).buffered().len > 1024 * 1024) return error.DockerOutputTooLarge;
         } else |err| switch (err) {
@@ -52,7 +77,7 @@ pub const Client = struct {
         try reader.checkAnyError();
         const term = try wait(self.io, &child, expires);
         const output = try reader.toOwnedSlice(0);
-        if (!term.success()) log.writeMsg(self.io, output);
+        if (!term.success() and !private) log.writeMsg(self.io, output);
         return .{ .term = term, .stdout = output };
     }
 
