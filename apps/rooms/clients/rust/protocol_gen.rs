@@ -106,6 +106,7 @@ pub const POST: &str = "post";
 pub const LEAVE: &str = "leave";
 pub const TYPING: &str = "typing";
 pub const AWAY: &str = "away";
+pub const SET_PROFILE: &str = "setProfile";
 pub const NOTIFY: &str = "notify";
 pub const DM: &str = "dm";
 pub const MEMBERSHIP_ENDED: &str = "membershipEnded";
@@ -126,6 +127,10 @@ pub const MEMBERSHIP_VERBS: &[Verb] = &[
 	},
 	Verb {
 		name: "away",
+		replies: true,
+	},
+	Verb {
+		name: "setProfile",
 		replies: true,
 	},
 ];
@@ -341,6 +346,28 @@ pub const AWAY_TRAILING: &[Field] = &[
 	},
 ];
 
+/// A current member, its self-declared kind, and its introduction. Two empty fields clear the introduction.
+pub const PROFILE_TRAILING: &[Field] = &[
+	Field {
+		name: "name",
+		ty: Ty::Text,
+		nullable: false,
+		values: &[],
+	},
+	Field {
+		name: "memberKind",
+		ty: Ty::String,
+		nullable: false,
+		values: &[],
+	},
+	Field {
+		name: "about",
+		ty: Ty::String,
+		nullable: false,
+		values: &[],
+	},
+];
+
 /// After the bridge's seat tag, specified in apps/rooms/lib/protocol_irc.ts.
 pub const SEAT_TRAILING: &[Field] = &[
 	Field {
@@ -471,6 +498,22 @@ pub const ROOM_TAILS: &[RoomTail] = &[
 		rest: None,
 		sender: Sender::Room,
 		text: TextRule::Any,
+		effect: Some(Effect::Stay),
+	},
+	RoomTail {
+		tag: "profiles",
+		trailing: &[],
+		rest: Some(Ty::String),
+		sender: Sender::Room,
+		text: TextRule::Empty,
+		effect: Some(Effect::Stay),
+	},
+	RoomTail {
+		tag: "profile",
+		trailing: PROFILE_TRAILING,
+		rest: None,
+		sender: Sender::Room,
+		text: TextRule::Empty,
 		effect: Some(Effect::Stay),
 	},
 	RoomTail {

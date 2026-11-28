@@ -388,6 +388,35 @@ impl<C: Copy + Ord, R: Clone> Rooms<C, R> {
 		Ok(history.read(room.as_str(), HISTORY_ANSWERED))
 	}
 
+	pub fn profile_needed(
+		&self,
+		room: &RoomKey,
+		membership: MembershipKey,
+		profile: &crate::room::profile::MemberProfile,
+	) -> Result<bool, Refusal> {
+		let member = participant(&self.rooms, room, membership)?;
+		Ok(member.profile.as_deref() != (!profile.is_empty()).then_some(profile))
+	}
+
+	pub fn set_profile(
+		&mut self,
+		room: &RoomKey,
+		membership: MembershipKey,
+		profile: crate::room::profile::MemberProfile,
+	) -> Result<Effects<C, R>, Refusal> {
+		let mut effects = Effects::default();
+		if self.profile_needed(room, membership, &profile)? {
+			let member = live(&mut self.rooms, room)?.member_mut(membership).ok_or_else(ended)?;
+			member.profile = (!profile.is_empty()).then(|| alloc::sync::Arc::new(profile));
+			let notice = Notice::Profile {
+				nick: member.nick.clone(),
+				profile: member.profile.clone(),
+			};
+			self.broadcast(room, &mut effects, notice, None);
+		}
+		Ok(effects)
+	}
+
 	pub fn away_needed(&self, room: &RoomKey, membership: MembershipKey, why: &str) -> Result<bool, Refusal> {
 		let member = seated(&self.rooms, room, membership)?;
 		if why.encode_utf16().count() > MAX_AWAY {

@@ -27,6 +27,7 @@ pub fn apply<T: AsRef<str>>(view: &mut RoomView, presence: Option<&Presence<T>>,
 				for (_, member) in rows.iter_mut() {
 					member.online = true;
 					member.seat = None;
+					member.profile = None;
 				}
 				for name in names {
 					if let Some(index) = slot(rows, name.as_ref(), &mut view.members_more) {
@@ -45,6 +46,7 @@ pub fn apply<T: AsRef<str>>(view: &mut RoomView, presence: Option<&Presence<T>>,
 						online: true,
 						away: empty(),
 						seat: None,
+						profile: None,
 					};
 				}
 			}
@@ -55,6 +57,7 @@ pub fn apply<T: AsRef<str>>(view: &mut RoomView, presence: Option<&Presence<T>>,
 							online: false,
 							away: empty(),
 							seat: None,
+							profile: None,
 						};
 					}
 				}
@@ -64,6 +67,18 @@ pub fn apply<T: AsRef<str>>(view: &mut RoomView, presence: Option<&Presence<T>>,
 					&& let Some(away) = Text::new(reason.as_ref().into())
 				{
 					rows[index].1.away = away;
+				}
+			}
+			Presence::Profile {
+				name,
+				member_kind,
+				about,
+			} => {
+				apply_profile(rows, name.as_ref(), *member_kind, about.as_ref());
+			}
+			Presence::Profiles { entries } => {
+				for e in entries {
+					apply_profile(rows, e.name.as_ref(), e.member_kind, e.about.as_ref());
 				}
 			}
 			Presence::Seat(seat) => {
@@ -95,6 +110,13 @@ pub fn apply<T: AsRef<str>>(view: &mut RoomView, presence: Option<&Presence<T>>,
 	}
 }
 type Rows = Vec<(Text<32, true>, Member)>;
+fn apply_profile(rows: &mut Rows, name: &str, kind: crate::room::profile::MemberKind, about: &str) {
+	if let Some(index) = find_online(rows, name)
+		&& let Some(profile) = crate::room::profile::MemberProfile::parse(kind.as_str(), about)
+	{
+		rows[index].1.profile = (!profile.is_empty()).then(|| alloc::boxed::Box::new(profile));
+	}
+}
 fn empty() -> Text<120> {
 	Text::default()
 }
@@ -124,6 +146,7 @@ fn slot(rows: &mut Rows, name: &str, more: &mut Option<bool>) -> Option<usize> {
 			online: false,
 			away: empty(),
 			seat: None,
+			profile: None,
 		},
 	));
 	Some(rows.len() - 1)

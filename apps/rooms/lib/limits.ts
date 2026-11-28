@@ -164,6 +164,10 @@ export const SUBJECT_LINK_SCHEME = APPLICATION_DATA.SUBJECT_LINK_SCHEME;
  * off the edge. */
 export const MAX_AWAY = APPLICATION_DATA.MAX_AWAY;
 
+/** Maximum UTF-16 units in a room member’s introduction. */
+export const MAX_PROFILE_ABOUT = APPLICATION_DATA.MAX_PROFILE_ABOUT;
+export const MAX_PROFILE_BATCH = APPLICATION_DATA.MAX_PROFILE_BATCH;
+
 /** The longest attribution prefix a bridge may claim on this room's roster.
  *
  * A prefix is a namespace, not a decoration. `irc/bo` is a name in the room's

@@ -189,23 +189,7 @@ export { EDITED, HISTORY, WITHDRAWN } from "./protocol_data.ts";
  * again. A client that predates this skips the tag and keeps showing the
  * files it already had, which is stale but never wrong. */
 export { LEAVE, LINE_BYTES, OFFLINE, REFILED, SUBJECT, TYPING } from "./protocol_data.ts";
-/** What the room carries of a message beyond its text and files, stated at
- * arrival as `notify("room", "", "carries", ...features)`, before the roster,
- * so a client holds it by the time joining returns.
- *
- * This is description, not authority, so the room states it instead of
- * handing over a facet. Nothing a member holds could say whether the room
- * keeps the link previews a line names (`previews`) or relays the typing
- * signal (`typing`). A room bridged to IRC does neither and says so. A Rooms
- * room also advertises `retained` for correlated delivery and upload reuse.
- * The vocabulary is positive and additive: a feature named is carried, one not
- * named is not, and one a client does not know is skipped. A room that never
- * states the fact has not said it lacks anything, and a client keeps every
- * control it has. */
-export { CARRIES } from "./protocol_data.ts";
-/** Displayed features. `retained` is negotiated by the Rust membership client. */
-export const ROOM_FEATURES = ["previews", "typing"] as const;
-export type RoomFeature = typeof ROOM_FEATURES[number];
+export { AWAY, CARRIES, PROFILE, PROFILES, ROOM_FEATURES, type RoomFeature, SET_PROFILE } from "./protocol_presence.ts";
 
 /* A client that received `retained` may send `postRetained(text, previews,
  * request)` to its seat or `postFilesRetained(caption, previews, request)` to
@@ -236,12 +220,6 @@ export type RoomFeature = typeof ROOM_FEATURES[number];
  * additive, and an older client skips them. `/join` of a locator seats from this, not from a method
  * asked before subscribe. */
 export { LISTED, UNLISTED } from "./protocol_data.ts";
-/** Both the verb and the tag, like `leave`. `away(reason)` says this
- * membership has stepped away and `away("")` says it is back, and the room
- * states the same word about a member. No facet is handed over, because a
- * member's standing is theirs to state and the room knows which membership is
- * calling. */
-export { AWAY } from "./protocol_data.ts";
 /** The steward's verb: ask a member, by nick, to leave. A steward is
  * handed out by the room manager's `giveSteward` (`protocol_operator.ts`) or
  * by the operator capability, never asked of the room by a nickname. */
@@ -339,6 +317,8 @@ export { HAND_ARCHIVE, HAND_ROOM, OFFER_ARCHIVE, OFFER_ROOM } from "./protocol_h
 //   `"join"` / `"leave"`, nick
 //   `"offline"`, …names    disconnected names, kept as display-only offline rows
 //   `"typing"`, nick, on
+//   `"profiles"`, (nick, kind, about)...  up to 128 current introductions for a new seat, with an empty display line
+//   `"profile"`, nick, kind, about  a current seat’s optional introduction; the display line is empty
 //   `"away"`, nick, reason  that member has stepped away (empty reason: back)
 //   `"subject"`, text, link? what the room is about (empty: taken down)
 //   `"line-bytes"`, n       the longest line this room will carry

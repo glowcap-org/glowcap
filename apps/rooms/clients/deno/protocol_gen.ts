@@ -72,6 +72,7 @@ export const POST = "post";
 export const LEAVE = "leave";
 export const TYPING = "typing";
 export const AWAY = "away";
+export const SET_PROFILE = "setProfile";
 export const NOTIFY = "notify";
 export const DM = "dm";
 export const MEMBERSHIP_ENDED = "membershipEnded";
@@ -82,6 +83,7 @@ export const MEMBERSHIP_VERBS: readonly Verb[] = [
 	{ name: "leave", replies: true },
 	{ name: "typing", replies: false },
 	{ name: "away", replies: true },
+	{ name: "setProfile", replies: true },
 ];
 
 export const MEMBERSHIP_KINDS: readonly string[] = ["observer", "participant"];
@@ -161,6 +163,13 @@ export const AWAY_TRAILING: readonly Field[] = [
 	{ name: "reason", type: "string", nullable: false, values: [] },
 ];
 
+/** A current member, its self-declared kind, and its introduction. Two empty fields clear the introduction. */
+export const PROFILE_TRAILING: readonly Field[] = [
+	{ name: "name", type: "text", nullable: false, values: [] },
+	{ name: "memberKind", type: "string", nullable: false, values: [] },
+	{ name: "about", type: "string", nullable: false, values: [] },
+];
+
 /** After the bridge's seat tag, specified in apps/rooms/lib/protocol_irc.ts. */
 export const SEAT_TRAILING: readonly Field[] = [
 	{ name: "name", type: "text", nullable: false, values: [] },
@@ -237,6 +246,22 @@ export const ROOM_TAILS: readonly RoomTail[] = [
 		rest: null,
 		sender: "room",
 		text: "any",
+		effect: "stay",
+	},
+	{
+		tag: "profiles",
+		trailing: [],
+		rest: "string",
+		sender: "room",
+		text: "empty",
+		effect: "stay",
+	},
+	{
+		tag: "profile",
+		trailing: PROFILE_TRAILING,
+		rest: null,
+		sender: "room",
+		text: "empty",
 		effect: "stay",
 	},
 	{

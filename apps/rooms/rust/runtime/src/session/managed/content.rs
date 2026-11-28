@@ -262,7 +262,7 @@ impl<P: Tasks + Deadline + Clone + 'static> loam::ForwardAdmission for SessionCo
 			| rooms_application::room::correlation::POST_FILES
 			| rooms_application::open_graph::ROOM_POST_VERB
 			| rooms_application::open_graph::ROOM_POST_FILES_VERB => Class::Message,
-			"typing" | "away" => Class::Transient,
+			wire::TYPING | wire::AWAY | wire::SET_PROFILE => Class::Transient,
 			"subscribe" => Class::Join,
 			"ready" => Class::Recipient,
 			wire::WRITE => Class::Transfer,
@@ -343,6 +343,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Content for SessionContent<P> {
 			| rooms_application::bridge::SUBMIT
 			| protocol::PUBLICATION_READY
 			| protocol::SET_SUBJECT => Requirement::new(&[Permission::InteractWorkspace.key()], &[]),
+			protocol::SET_PROFILE => Requirement::new(&[Permission::ReplaceWorkspace.key()], &[]),
 			protocol::READ => Requirement::new(&[Permission::ReadFile.key()], &[]),
 			protocol::PUBLICATION_DESCRIBE => Requirement::new(&[Permission::UseOperations.key()], &[]),
 			protocol::HISTORY => Requirement::new(&[Permission::History.key()], &[]),

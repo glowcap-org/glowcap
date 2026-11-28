@@ -133,6 +133,19 @@ impl Dispatch {
 						let target = room.entrance().ok_or(Refusal)?;
 						(target.role, target.key.slot(), target.key.generation())
 					}
+					RoomTarget::ProfileSeat(expected) => {
+						let key = room.seat.ok_or(Refusal)?;
+						let [kind, about] = self.mutation.args.as_slice() else {
+							return Err(Refusal);
+						};
+						if key != *expected
+							|| kind.text() != Some(room.profile.kind.as_str())
+							|| about.text() != Some(room.profile.about())
+						{
+							return Err(Refusal);
+						}
+						(custody::Role::RoomSeat, key.slot(), key.generation())
+					}
 					RoomTarget::Seat | RoomTarget::RetiringSeat(_) => {
 						let key = room.seat.ok_or(Refusal)?;
 						if matches!(selection, RoomTarget::RetiringSeat(expected) if *expected != key) {

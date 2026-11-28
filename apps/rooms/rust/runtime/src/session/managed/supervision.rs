@@ -15,9 +15,10 @@ use tokio::sync::watch;
 mod connection;
 mod observation;
 mod ownership;
+mod preferences;
+mod profile;
 mod rate_retry;
 pub(super) mod retirement;
-mod standing;
 mod startup;
 pub(super) use ownership::Budget;
 pub use ownership::DirectoryRegistrations;
@@ -262,7 +263,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Session<P> {
 		target: Target,
 		entropy: &mut dyn crate::entropy::Entropy,
 		permit: Permit<P>,
-		receive: impl FnMut(
+		mut receive: impl FnMut(
 			&str,
 			&[Argument],
 			Option<glowcap::Session>,
@@ -277,7 +278,32 @@ impl<P: Tasks + Deadline + Clone + 'static> Session<P> {
 			.as_str()
 			.ok_or_else(|| Error::platform_message("generated membership identifier is not text"))?
 			.to_owned();
-		let mut inbox = self.open_inbox(selected.clone(), receive).await?;
+		let mut owner = retirement::Owner::new(self.state.writer.host.clone());
+		if let workspace::InboxSelection::Directory {
+			inbox,
+			allocation: rooms_application::directory::registration::NicknameAllocation::Exact,
+			..
+		} = &selected
+		{
+			owner.exact_registration = Some(*inbox);
+		}
+		let profile = match &target {
+			Target::Room { seat, .. } => Some(profile::Seat::new(*seat)),
+			_ => None,
+		};
+		let profile_updates = profile.as_ref().map(|profile| profile.updates.subscribe());
+		let advertised = profile.as_ref().map(|profile| profile.updates.clone());
+		let mut inbox = self
+			.open_inbox(selected.clone(), move |verb, args, delivering, origin| {
+				let result = receive(verb, args, delivering, origin)?;
+				if let Some(updates) = &advertised {
+					profile::notice(updates, verb, args);
+				}
+				Ok(result)
+			})
+			.await?;
+		owner.profile = profile.map(|profile| (profile, inbox.origin().clone()));
+		let owner = Rc::new(owner);
 		if matches!(selected, workspace::InboxSelection::Direct { .. }) {
 			let mut publication_entropy = [0; glowcap::Host::DURABLE_ENTROPY_BYTES];
 			if let Err(error) = entropy
@@ -313,16 +339,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Session<P> {
 			));
 		}
 		let workspace = installation.1.workspace().clone();
-		let mut owner = retirement::Owner::new(self.state.writer.host.clone());
-		if let workspace::InboxSelection::Directory {
-			inbox,
-			allocation: rooms_application::directory::registration::NicknameAllocation::Exact,
-			..
-		} = &selected
-		{
-			owner.exact_registration = Some(*inbox);
-		}
-		let retirement = Some(Rc::new(owner));
+		let retirement = Some(owner);
 		let retained_retirement = retirement.clone();
 		let startup_budget = budget.clone();
 		let platform = self.state.platform.clone();
@@ -358,7 +375,8 @@ impl<P: Tasks + Deadline + Clone + 'static> Session<P> {
 					retirement,
 					recovery,
 					submission: None,
-					standing: standing::Standing::default(),
+					preferences: preferences::Preferences::default(),
+					profile_updates,
 					rate_retry: rate_retry::Window::new(&operation),
 				};
 				let mut cancellation = worker.stopping.clone();
@@ -440,7 +458,8 @@ struct Worker<P: Tasks> {
 	retirement: Option<Rc<retirement::Owner>>,
 	recovery: Rc<super::watching::Refresh>,
 	submission: Option<rooms_glowcap::client::workspace::Submission>,
-	standing: standing::Standing<P>,
+	preferences: preferences::Preferences<P>,
+	profile_updates: Option<watch::Receiver<bool>>,
 	rate_retry: rate_retry::Window,
 }
 impl<P: Tasks + Deadline + Clone + 'static> Worker<P> {

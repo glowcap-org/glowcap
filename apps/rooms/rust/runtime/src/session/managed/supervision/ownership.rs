@@ -145,6 +145,31 @@ impl<P: Tasks> Budget<P> {
 			.filter(|worker| worker.admission == id)
 			.and_then(|worker| worker.retirement.clone())
 	}
+	pub(in crate::session::managed) fn supports_profile(
+		&self,
+		room: &str,
+		seat: custody::FieldKey<custody::RoomSeat>,
+		intent: &super::workspace::Intent,
+		source: &glowcap::Ref,
+	) -> bool {
+		self.tasks.borrow().values().any(|worker| {
+			!*worker.stop.borrow()
+				&& worker.ended.borrow().is_none()
+				&& worker
+					.retirement
+					.as_ref()
+					.and_then(|owner| owner.profile.as_ref())
+					.is_some_and(|(profile, origin)| {
+						profile.supports(seat)
+							&& origin.is_open()
+							&& origin.source() == source
+							&& origin.installed().is_some_and(|(selected, _)| {
+								matches!(selected, super::workspace::InboxSelection::Room { id, .. } if id.text().as_str() == Some(room))
+									&& selected.matches(intent)
+							})
+					})
+		})
+	}
 	/// The live worker is still acquiring its own admission. Once the worker
 	/// fails, becomes ready, or starts closing, its receipt cannot justify
 	/// delaying a different request.

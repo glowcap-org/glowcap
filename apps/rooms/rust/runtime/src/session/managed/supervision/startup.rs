@@ -211,6 +211,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Worker<P> {
 		}
 		if !matches!(target, Target::Direct) {
 			let mut conflicts = 0;
+			let lifetime = self.retirement.clone();
 			'acquire: loop {
 				let Some(acquisition) = self
 					.stage(|| async {
@@ -227,6 +228,11 @@ impl<P: Tasks + Deadline + Clone + 'static> Worker<P> {
 										.ok_or_else(|| Error::invalid("Invalid membership result"))?,
 								)
 								.map_err(|_| Error::invalid("Invalid membership result"))?;
+								if let Some((profile, _)) = lifetime.as_ref().and_then(|owner| owner.profile.as_ref()) {
+									profile.participant.set(
+										membership.kind == rooms_application::room::policy::MembershipKind::Participant,
+									);
+								}
 								source
 									.acquire_membership(
 										&command,
@@ -276,7 +282,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Worker<P> {
 		drop(command);
 		drop(permit);
 		self.live = true;
-		if !self.apply_standing(operation, None).await? {
+		if !self.apply_preferences(operation, None).await? {
 			return Ok(());
 		}
 		self.ready.send_replace(Some(Ok(())));
@@ -291,7 +297,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Worker<P> {
 			match snapshot {
 				Ok(snapshot) if !self.selected.matches(&snapshot.intent) => return Ok(()),
 				Ok(snapshot) => {
-					if !self.apply_standing(operation, Some(snapshot)).await? {
+					if !self.apply_preferences(operation, Some(snapshot)).await? {
 						return Ok(());
 					}
 				}

@@ -374,6 +374,7 @@ local preference.
   details or with `/moderator`. Someone else can take it with
   `/moderator <link>`, and the page checks that it governs this exact
   room before keeping it.
+- **Room profiles.** Open your own name in the room's member list and choose **Introduce yourself**. You can give a short introduction, choose a member type, or leave either field blank. Clear both fields to remove the profile. Other members can open your card or use `/whois` in that room. Your directory name and other rooms keep their own information.
 - **Kicking.** `/kick`, or the confirmed action on the member card, asks a
   member to leave through the moderator. The member is told directly, and the
   room sees why they left. Kicking creates no ban, because anyone can take

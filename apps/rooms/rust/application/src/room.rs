@@ -12,6 +12,7 @@ pub mod mentions;
 pub mod message;
 pub mod operation;
 pub mod policy;
+pub mod profile;
 pub mod queries;
 pub mod receipt;
 pub mod stewardship;

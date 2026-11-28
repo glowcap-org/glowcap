@@ -36,6 +36,7 @@ type Observation = Pin<Box<dyn Future<Output = Result<Argument>>>>;
 /// custody. The existing registry accounts for siblings before explicit close.
 pub(in crate::session::managed) struct Owner {
 	host: Host,
+	pub(super) profile: Option<(super::profile::Seat, crate::session::managed::InboxOrigin)>,
 	pub(super) exact_registration: Option<custody::FieldKey<custody::DirectoryInbox>>,
 	outcome: RefCell<Outcome>,
 	closing: Cell<bool>,
@@ -48,6 +49,7 @@ impl Owner {
 		Self {
 			host,
 			exact_registration: None,
+			profile: None,
 			outcome: RefCell::new(Outcome::Unstarted),
 			closing: Cell::new(false),
 			observation: Mutex::new(None),

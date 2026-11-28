@@ -266,6 +266,7 @@ export function managedCommandPowers(
 				name,
 				online: standing.online,
 				away: standing.away,
+				profile: standing.profile,
 				reachable: reachable?.has(name.toLowerCase()) === true,
 			}));
 		},

@@ -65,6 +65,11 @@ pub enum Notice {
 		names: Arc<[String]>,
 		count: usize,
 	},
+	Profiles(Vec<(String, Arc<crate::room::profile::MemberProfile>)>),
+	Profile {
+		nick: String,
+		profile: Option<Arc<crate::room::profile::MemberProfile>>,
+	},
 	Away {
 		nick: String,
 		why: String,
@@ -190,6 +195,8 @@ impl Notice {
 			Self::Subject { subject, changed } => subject.said(*changed).into(),
 			Self::Said(text) | Self::Ended(text) => Cow::Borrowed(text),
 			Self::ReceiptRejected(_)
+			| Self::Profile { .. }
+			| Self::Profiles(_)
 			| Self::Forgotten(_)
 			| Self::Listed(_)
 			| Self::Carries(_)

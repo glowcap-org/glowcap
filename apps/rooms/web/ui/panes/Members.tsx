@@ -25,6 +25,8 @@ import { IconButton } from "../IconButton.tsx";
 import { PresenceAvatar } from "../Avatar.tsx";
 import {
 	memberAbout,
+	memberProfileLabels,
+	memberProfileText,
 	membersTitle,
 	memberYouSuffix,
 	presenceAway,
@@ -140,6 +142,13 @@ function MemberRowView(
 							{identity.name}
 							{you && memberYouSuffix}
 						</span>
+						{standing.profile?.kind && standing.profile.kind !== "person" && (
+							<span className="member-kind" title={memberProfileLabels[standing.profile.kind]}>
+								{standing.profile.kind === "assisted"
+									? memberProfileText.assistedBadge
+									: memberProfileLabels[standing.profile.kind]}
+							</span>
+						)}
 						{identity.mark !== null && (
 							<span className="chip bridge-chip" data-network={identity.network}>{identity.mark}</span>
 						)}

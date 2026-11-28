@@ -1,4 +1,5 @@
 // Coordinates describe separately held fields. They are never bearer links.
+import type { MemberProfile } from "../../../../lib/room/presence.ts";
 import * as z from "zod/mini";
 import { ARCHIVE_SHARE_KINDS } from "../../../../lib/archive/handover.ts";
 import type { RoomsPermission } from "../../../../lib/session_content_data.ts";
@@ -62,6 +63,7 @@ export interface RoomIntent {
 	control: FieldKey | null;
 	lines?: PostedLine[];
 	reconnect: "manual" | "requested";
+	profile?: MemberProfile;
 	standing: string | null;
 	draft: string;
 }

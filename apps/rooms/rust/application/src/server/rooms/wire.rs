@@ -152,6 +152,25 @@ pub fn arguments<E: Encoder>(notice: &Notice, e: &mut E) -> Result<Vec<E::Value>
 			out.push(e.text(crate::protocol_data::LEAVE.into()));
 			out.push(e.text(nick.clone()));
 		}
+		Notice::Profiles(entries) => {
+			out.reserve(3 + entries.len() * 3);
+			out.push(e.text(ROOM.into()));
+			out.push(e.text(String::new()));
+			out.push(e.text(crate::protocol_data::PROFILES.into()));
+			for (name, profile) in entries.iter() {
+				out.push(e.text(name.clone()));
+				out.push(e.text(profile.kind.as_str().into()));
+				out.push(e.text(profile.about().into()));
+			}
+		}
+		Notice::Profile { nick, profile } => {
+			out.push(e.text(ROOM.into()));
+			out.push(e.text(String::new()));
+			out.push(e.text(crate::room::profile::TAG.into()));
+			out.push(e.text(nick.clone()));
+			out.push(e.text(profile.as_ref().map_or("", |p| p.kind.as_str()).into()));
+			out.push(e.text(profile.as_ref().map_or("", |p| p.about()).into()));
+		}
 		Notice::Away { nick, why } => {
 			out.push(e.text(ROOM.into()));
 			out.push(e.text(notice.said().into_owned()));

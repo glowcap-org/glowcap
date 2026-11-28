@@ -41,11 +41,31 @@ pub(super) fn read<A: ArgumentView>(args: &[A]) -> Option<Metadata<&str>> {
 #[derive(Debug, Serialize)]
 #[serde(tag = "kind", rename_all = "lowercase")]
 pub enum Presence<T> {
-	Roster { names: Vec<T> },
-	Join { name: T },
-	Leave { name: T },
-	Offline { names: Vec<T> },
-	Away { name: T, reason: T },
+	Roster {
+		names: Vec<T>,
+	},
+	Join {
+		name: T,
+	},
+	Leave {
+		name: T,
+	},
+	Offline {
+		names: Vec<T>,
+	},
+	Away {
+		name: T,
+		reason: T,
+	},
+	Profiles {
+		entries: Vec<crate::room::profile::Entry<T>>,
+	},
+	Profile {
+		name: T,
+		#[serde(rename = "memberKind")]
+		member_kind: crate::room::profile::MemberKind,
+		about: T,
+	},
 	// Keep bridge-only seat details out of every ordinary queued line.
 	Seat(Box<Seat<T>>),
 }
@@ -115,6 +135,35 @@ pub fn presence<A: ArgumentView>(args: &[A]) -> Option<Presence<&str>> {
 			name: args.get(3)?.text()?,
 			reason: args.get(4).and_then(ArgumentView::text).unwrap_or(""),
 		},
+		crate::protocol_data::PROFILES if args[0].text() == Some(super::ROOM) && args[1].text() == Some("") => {
+			let (rows, extra) = args[3..].as_chunks::<3>();
+			if rows.is_empty() || rows.len() > crate::room::profile::MAX_BATCH || !extra.is_empty() {
+				return None;
+			}
+			let entries = rows
+				.iter()
+				.map(|[name, kind, about]| {
+					Some(crate::room::profile::Entry {
+						name: name.text()?,
+						member_kind: crate::room::profile::MemberKind::parse(kind.text()?)?,
+						about: about.text()?,
+					})
+				})
+				.collect::<Option<Vec<_>>>()?;
+			if !crate::room::profile::valid_entries(&entries) {
+				return None;
+			}
+			Presence::Profiles { entries }
+		}
+		crate::room::profile::TAG
+			if args.len() == 6 && args[0].text() == Some(super::ROOM) && args[1].text() == Some("") =>
+		{
+			Presence::Profile {
+				name: args[3].text().filter(|name| super::valid_nick(name))?,
+				member_kind: crate::room::profile::MemberKind::parse(args[4].text()?)?,
+				about: args[5].text().filter(|s| crate::room::profile::valid_about(s))?,
+			}
+		}
 		crate::protocol_data::SEAT => {
 			let state = args.get(4)?.text()?;
 			if !matches!(state, "rooms" | "connecting" | "linked" | "failed") {
@@ -180,6 +229,18 @@ impl<T> Presence<T> {
 				name: f(name),
 				reason: f(reason),
 			},
+			Self::Profiles { entries } => Presence::Profiles {
+				entries: entries.into_iter().map(|e| e.map(&mut f)).collect(),
+			},
+			Self::Profile {
+				name,
+				member_kind,
+				about,
+			} => Presence::Profile {
+				name: f(name),
+				member_kind,
+				about: f(about),
+			},
 			Self::Seat(seat) => {
 				let Seat {
 					name,
@@ -207,6 +268,16 @@ impl<T> Presence<T> {
 			Self::Away { name, reason } => {
 				f(name);
 				f(reason);
+			}
+			Self::Profiles { entries } => {
+				for e in entries {
+					f(&e.name);
+					f(&e.about);
+				}
+			}
+			Self::Profile { name, about, .. } => {
+				f(name);
+				f(about);
 			}
 			Self::Seat(s) => {
 				for t in [&s.name, &s.state, &s.nick, &s.network, &s.badge, &s.said] {

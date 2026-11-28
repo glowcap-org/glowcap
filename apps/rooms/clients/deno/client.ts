@@ -129,6 +129,8 @@ export async function runClient(
 				case "offline":
 					for (const name of presence.names) present.delete(name);
 					break;
+				case "profile":
+				case "profiles": // introductions describe existing seats
 				case "away": // stepped away, or back: still a member
 				case "typing": // ephemeral, never a membership change
 				case "seat": // a bridge's seat for a member already counted

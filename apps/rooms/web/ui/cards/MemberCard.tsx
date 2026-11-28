@@ -13,11 +13,13 @@
 // that a name is granted per directory and you may hold several, is a fact
 // about names rather than about whose card this is.
 
+import { SESSION_COMMAND_REQUIREMENTS } from "../../../lib/session_content_data.ts";
+import { MemberProfileEditor } from "./MemberProfileEditor.tsx";
 import { memo, useLayoutEffect, useMemo, useRef } from "react";
 import type { DirId, DirView } from "../directory.ts";
 import type { MemberRef } from "../member_ref.ts";
 import type { Standing } from "../conversation.ts";
-import { useConversationMembers, useRoomsState } from "../hooks.ts";
+import { useConversationMembers, useRoomsState, useSessionPermission } from "../hooks.ts";
 import { useRoomsBrowser } from "../controller/browser.ts";
 import { useRoomsSession } from "../controller/session.ts";
 import { directoryName } from "../text.ts";
@@ -42,6 +44,8 @@ import {
 	memberNoNameYet,
 	memberNotReachable,
 	memberOf,
+	memberProfileLabels,
+	memberProfileText,
 	memberYou,
 	memberYourNames,
 } from "../../../lib/text/conversation.ts";
@@ -72,6 +76,7 @@ interface MemberView {
 	 * is about the reader on the page rather than in any one room, and null for a
 	 * conversation that is not a room, because neither names a room to say. */
 	room: string | null;
+	profileEditorRoom: { key: string; name: string } | null;
 	dir: DirView | null;
 	dirName: string;
 	/** Every name this reader holds, when the card is their own: a name belongs
@@ -125,6 +130,10 @@ export const MemberCard = memo(function MemberCard(
 			bridgeBadge: conv?.type === "room" ? conv.bridge?.badge ?? null : null,
 			standing,
 			you,
+			profileEditorRoom: you && conv?.type === "room" && conv.membership === "joined" &&
+					conv.membershipKind === "participant" && conv.carries?.profiles && standing.online
+				? { key: conv.key, name: conv.id }
+				: null,
 			room: conv === null || conv.type !== "room" ? null : conv.id,
 			dir: on,
 			dirName: on === null ? "" : directoryName(on.id, homeDirectory),
@@ -179,6 +188,9 @@ function MemberDialog(
 	const dialog = useRef<HTMLDialogElement>(null);
 	useModalDialog(dialog, () => browser.aboutMember(null), close, open, onExited);
 	const presence = presenceOf(view);
+	const canEditProfile = useSessionPermission(SESSION_COMMAND_REQUIREMENTS.setRoomProfile.workspace[0]);
+	const editorRoom = view.profileEditorRoom;
+	const profile = view.room === null ? undefined : view.standing.profile;
 	return (
 		<dialog ref={dialog} className="modal" aria-labelledby="membercardTitle">
 			<ModalCard className="membercard">
@@ -271,6 +283,15 @@ function MemberDialog(
 										</dd>
 									</>
 								)}
+							{profile && (
+								<>
+									<dt>{memberProfileText.card}</dt>
+									<dd className="member-introduction">
+										{profile.kind && <span>{memberProfileLabels[profile.kind]}</span>}
+										{profile.about && <span dir="auto">{profile.about}</span>}
+									</dd>
+								</>
+							)}
 							<dt>{memberPresence}</dt>
 							<dd id="membercardHere">{presence.said}</dd>
 							{view.said !== "" && (
@@ -308,6 +329,14 @@ function MemberDialog(
 									    line the roster's own button offers, said in words here because
 									    a card has room for the sentence a glyph cannot carry. */
 					}
+					{canEditProfile && editorRoom !== null && (
+						<MemberProfileEditor
+							key={editorRoom.key}
+							room={editorRoom.name}
+							profile={profile}
+							onSave={(kind, about) => session.setRoomProfile(editorRoom.key, kind, about)}
+						/>
+					)}
 					{canInteract && (view.you
 						? view.standing.seat !== undefined && (
 							<div className="actions">

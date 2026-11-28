@@ -142,7 +142,11 @@ impl<C: Copy + Ord, R: Clone> Rooms<C, R> {
 		let mut entitled = |directory: &mut Directory<C, R>| -> bool {
 			*entitlement.get_or_insert_with(|| voucher.is_some_and(|voucher| directory.redeem_voucher(nick, &voucher)))
 		};
-		let previous = room.member_named(nick).map(|member| (member.key, member.connection));
+		let previous = room.member_named(nick);
+		let previous_spelling = previous
+			.filter(|member| member.nick != nick)
+			.map(|member| member.nick.clone());
+		let previous = previous.map(|member| (member.key, member.connection));
 		if let Some((_, holder)) = previous
 			&& holder != connection
 			&& !same_claimant(holder, connection)
@@ -208,6 +212,7 @@ impl<C: Copy + Ord, R: Clone> Rooms<C, R> {
 			connection,
 			kind: entrance.kind,
 			away: String::new(),
+			profile: None,
 			typing_until: core::cell::Cell::new(0),
 			files,
 		});
@@ -228,7 +233,13 @@ impl<C: Copy + Ord, R: Clone> Rooms<C, R> {
 				None,
 			);
 		}
-		if previous.is_none() {
+		let announce = previous.is_none() || previous_spelling.is_some();
+		if let Some(spelling) = previous_spelling {
+			// Roster keys preserve display spelling. A replacement can publish
+			// its own profile only after readers know its current key.
+			self.broadcast(&entrance.room, &mut effects, Notice::Forgotten(spelling), None);
+		}
+		if announce {
 			self.broadcast(
 				&entrance.room,
 				&mut effects,
@@ -266,6 +277,26 @@ impl<C: Copy + Ord, R: Clone> Rooms<C, R> {
 					why: member.away.clone(),
 				},
 			);
+		}
+		let mut profiles = room
+			.members
+			.iter()
+			.filter_map(|m| m.profile.as_ref().map(|p| (&m.nick, p)))
+			.peekable();
+		while let Some((name, first)) = profiles.next() {
+			let notice = if profiles.peek().is_none() {
+				Notice::Profile {
+					nick: name.clone(),
+					profile: Some(first.clone()),
+				}
+			} else {
+				let entries = core::iter::once((name, first))
+					.chain(profiles.by_ref().take(crate::room::profile::MAX_BATCH - 1))
+					.map(|(n, p)| (n.clone(), p.clone()))
+					.collect::<alloc::vec::Vec<_>>();
+				Notice::Profiles(entries)
+			};
+			effects.tell(connection, inbox.clone(), notice);
 		}
 		if !room.subject.is_empty() {
 			effects.tell(

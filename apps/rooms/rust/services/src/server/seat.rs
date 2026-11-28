@@ -243,6 +243,27 @@ pub(super) fn seat(
 						.collect(),
 				))
 			}
+			rooms_application::room::profile::SET_PROFILE => {
+				let (Some(kind), Some(about), 2) = (text(0), text(1), args.len()) else {
+					return Err("setProfile needs a kind and a description".into());
+				};
+				let profile = rooms_application::room::profile::MemberProfile::parse(kind, about)
+					.ok_or("invalid room member profile")?;
+				if !state
+					.rooms
+					.profile_needed(&room, membership, &profile)
+					.map_err(refusal)?
+				{
+					state
+						.admission
+						.coalesced(rooms_application::admission::Class::RoomTransient);
+					return Ok(Argument::Void);
+				}
+				state.admit_transient(connection, &room)?;
+				let effects = state.rooms.set_profile(&room, membership, profile).map_err(refusal)?;
+				state.apply_rooms(effects);
+				Ok(Argument::Void)
+			}
 			AWAY => {
 				let (Some(why), 1) = (text(0), args.len()) else {
 					return Err("away needs one reason".into());

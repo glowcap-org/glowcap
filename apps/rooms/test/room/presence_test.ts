@@ -1,8 +1,8 @@
 // Room presence describes current membership, not a history of departed names.
 import { assertEquals } from "../assert.ts";
-import { applyRoomPresence, type RoomMemberState } from "../../lib/room/presence.ts";
+import { applyRoomPresence, type Presence, type RoomMemberState } from "../../lib/room/presence.ts";
 import { readPresence } from "../../lib/room/message.ts";
-import { MAX_ROOM_OFFLINE } from "../../lib/limits.ts";
+import { MAX_PROFILE_BATCH, MAX_ROOM_OFFLINE } from "../../lib/limits.ts";
 
 Deno.test("leaving removes only that room membership and a rejoin starts fresh", () => {
 	const current = new Map<string, RoomMemberState>([
@@ -72,4 +72,56 @@ Deno.test("a roster removes absent names, preserves current away state and reset
 		[...roster],
 		"late bridge updates cannot recreate a departed membership",
 	);
+});
+
+Deno.test("a member profile belongs to the current seat and room", () => {
+	const joined = applyRoomPresence(new Map(), { kind: "join", name: "scout" });
+	const notice = readPresence(["room", "", "profile", "scout", "assisted", "Review notes"]);
+	if (!notice || notice.kind !== "profile") throw new Error("missing profile");
+	const published = applyRoomPresence(joined, notice);
+	assertEquals(published.get("scout")?.profile, { kind: "assisted", about: "Review notes" });
+	assertEquals(joined.get("scout")?.profile, undefined);
+	const resets: Presence[] = [
+		{ kind: "join", name: "scout" },
+		{ kind: "roster", names: ["scout"] },
+		{ kind: "offline", names: ["scout"] },
+		{ ...notice, memberKind: "", about: "" },
+	];
+	for (const event of resets) {
+		assertEquals(applyRoomPresence(published, event).get("scout")?.profile, undefined);
+	}
+	const left = applyRoomPresence(published, { kind: "leave", name: "scout" });
+	assertEquals(applyRoomPresence(left, notice).has("scout"), false);
+	for (
+		const fields of [
+			["scout", "", "profile", "scout", "bot", "Reviews"],
+			["room", "unrelated text", "profile", "scout", "bot", ""],
+			["room", "", "profile", "scout", "verified", ""],
+			["room", "", "profile", "scout", "person", "two\nlines"],
+			["room", "", "profile", "scout", "bot", "x".repeat(121)],
+			["room", "", "profile", "scout", "bot", "\ud800"],
+		]
+	) assertEquals(readPresence(fields), undefined);
+});
+
+Deno.test("a profile batch applies atomically to current seats within the replay bound", () => {
+	const names = Array.from({ length: MAX_PROFILE_BATCH }, (_, i) => "member" + i);
+	const triples = names.flatMap((name) => [name, "bot", "Research"]);
+	const head = ["room", "", "profiles"];
+	const event = readPresence([...head, ...triples]);
+	if (event?.kind !== "profiles") throw new Error("valid replay was refused");
+	const current = applyRoomPresence(new Map(), { kind: "roster", names: names.slice(1) });
+	const updated = applyRoomPresence(current, event);
+	assertEquals(updated.has(names[0]), false);
+	assertEquals(updated.get(names.at(-1)!)?.profile, { kind: "bot", about: "Research" });
+	for (
+		const tail of [[], ["a", "bot"], ["a", "", ""], ["a", "bot", "", "A", "person", ""], [
+			...triples,
+			"more",
+			"bot",
+			"",
+		], ["a", "bot", "", "b", "invalid", ""]]
+	) {
+		assertEquals(readPresence([...head, ...tail]), undefined);
+	}
 });

@@ -10,6 +10,7 @@ import { CommandRefused } from "./types.ts";
 import { held, hereOf } from "./catalog.ts";
 import { ThemeSchema } from "../../../lib/view_state.ts";
 import { helpCommandFormatting } from "../../../lib/text/writing.ts";
+import { memberProfileLabels } from "../../../lib/text/conversation.ts";
 import { directoryReportLine, helpYouCanUse, roomListLine, whoisLine } from "../../../lib/text/log.ts";
 import {
 	advertisingNoRooms,
@@ -168,7 +169,11 @@ export function applyCommandPlan(
 			const found = powers.roster().find((member) => member.name.toLowerCase() === text.toLowerCase());
 			if (found === undefined) return { kind: "refused", why: nobodyCalled(text) };
 			const here = found.away !== "" ? whoisAway(found.away) : found.online ? whoisHereNow : whoisNotHere;
-			say(whoisLine(found.name, here, found.reachable));
+			const profile = found.profile;
+			const introduction = profile
+				? [memberProfileLabels[profile.kind], profile.about].filter(Boolean).join(" · ")
+				: "";
+			say(whoisLine(found.name, here, found.reachable, introduction));
 			break;
 		}
 		case "details":

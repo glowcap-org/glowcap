@@ -247,3 +247,136 @@ fn a_posted_line_ends_its_authors_typing_without_a_notice() {
 			.is_empty()
 	);
 }
+
+#[test]
+fn a_profile_belongs_to_one_participant_seat_even_when_the_name_continues() {
+	use crate::room::profile::MemberProfile;
+	let mut world = World::new(false);
+	let room = world.open(1, "Garden", RoomPolicy::Open);
+	let other = world.open(2, "Study", RoomPolicy::Open);
+	let first = world.join(1, &room, "Alice").membership;
+	world.join(2, &room, "Bob");
+	world.join(1, &other, "Alice");
+	world.join(3, &other, "Carol");
+
+	let bot = MemberProfile::parse("bot", "Reviewing").unwrap();
+	let update = world.rooms.set_profile(&room.room, first, bot.clone()).unwrap();
+	assert_eq!(update.tells.iter().map(|t| t.connection).collect::<Vec<_>>(), [1, 2]);
+	assert!(update.events.is_empty());
+	assert!(
+		world
+			.rooms
+			.set_profile(&room.room, first, bot.clone())
+			.unwrap()
+			.tells
+			.is_empty()
+	);
+
+	let observe = world
+		.rooms
+		.mint_invitation(&room.room, first, MembershipKind::Observer)
+		.unwrap();
+	let observer = world
+		.rooms
+		.claim_invitation(observe, "0123456789abcdef0123456789abcdef")
+		.unwrap();
+	let watching = world.join(4, &observer, "Observer");
+	assert!(notices(&watching.effects, 4).iter().any(
+		|notice| matches!(notice, Notice::Profile { nick, profile: Some(profile) } if nick == "Alice" && **profile == bot)
+	));
+	assert_eq!(
+		world
+			.rooms
+			.set_profile(&room.room, watching.membership, bot.clone())
+			.unwrap_err()
+			.code,
+		Some(FailureCode::ReadOnlyMembership)
+	);
+	let unchanged = world.join(1, &room, "Alice");
+	assert!(
+		notices(&unchanged.effects, 2)
+			.iter()
+			.any(|n| matches!(n, Notice::Profile {nick,profile: None} if nick == "Alice"))
+	);
+	assert!(
+		!notices(&unchanged.effects, 2)
+			.iter()
+			.any(|n| matches!(n, Notice::Join { .. } | Notice::Leave { .. }))
+	);
+	world
+		.rooms
+		.set_profile(&room.room, unchanged.membership, bot.clone())
+		.unwrap();
+	let replacement = world.join(1, &room, "ALICE");
+	assert!(
+		notices(&replacement.effects, 2)
+			.iter()
+			.any(|n| matches!(n, Notice::Join {nick, ..} if nick == "ALICE"))
+	);
+	assert!(
+		notices(&replacement.effects, 2)
+			.iter()
+			.any(|notice| matches!(notice, Notice::Profile { nick, profile: None } if nick == "Alice"))
+	);
+	assert_eq!(
+		world
+			.rooms
+			.set_profile(&room.room, first, bot.clone())
+			.unwrap_err()
+			.code,
+		Some(FailureCode::NotRoomMember)
+	);
+	assert!(
+		world
+			.rooms
+			.set_profile(&room.room, replacement.membership, MemberProfile::default())
+			.unwrap()
+			.tells
+			.is_empty()
+	);
+	let late = world.join(5, &room, "Late");
+	assert!(
+		!notices(&late.effects, 5)
+			.iter()
+			.any(|n| matches!(n, Notice::Profile { .. }))
+	);
+	let other_late = world.join(6, &other, "AlsoLate");
+	assert!(
+		!notices(&other_late.effects, 6)
+			.iter()
+			.any(|n| matches!(n, Notice::Profile { .. }))
+	);
+}
+
+#[test]
+fn a_full_room_introduces_all_incumbents_in_two_bounded_batches() {
+	use crate::room::profile::{MAX_ABOUT, MAX_BATCH, MemberProfile};
+	let mut world = World::new(false);
+	let room = world.open(1, "Garden", RoomPolicy::Open);
+	let introduction = MemberProfile::parse("assisted", &"界".repeat(MAX_ABOUT)).unwrap();
+	for who in 1..MAX_ROOM_MEMBERS {
+		let seat = world.join(who as u32, &room, &format!("Nick{who}")).membership;
+		world.rooms.set_profile(&room.room, seat, introduction.clone()).unwrap();
+	}
+	let joining = MAX_ROOM_MEMBERS as u32;
+	let arrival = world.join(joining, &room, "Reader");
+	let chunks = notices(&arrival.effects, joining)
+		.into_iter()
+		.filter_map(|notice| match notice {
+			Notice::Profiles(entries) => Some(entries),
+			Notice::Profile { .. } => panic!("full room split off an unnecessary single introduction"),
+			_ => None,
+		})
+		.collect::<Vec<_>>();
+	assert_eq!(chunks.len(), 2);
+	let mut count = 0;
+	for chunk in chunks {
+		assert!(chunk.len() <= MAX_BATCH);
+		for (name, profile) in chunk.iter() {
+			count += 1;
+			assert_eq!(name, &format!("Nick{count}"));
+			assert_eq!(profile.as_ref(), &introduction);
+		}
+	}
+	assert_eq!(count, MAX_ROOM_MEMBERS - 1);
+}

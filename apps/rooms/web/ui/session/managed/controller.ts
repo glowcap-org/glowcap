@@ -581,6 +581,11 @@ export function createManagedController(
 			(value == null ? run("setDirectoryStanding", id) : run("setDirectoryStanding", id, value)).then(() =>
 				undefined
 			),
+		setRoomProfile: async (key, kind, about) => {
+			const row = store.getConv(projection, key);
+			if (row?.type !== "room") throw new LocalRefusal("room-gone");
+			await run("setRoomProfile", row.persistId, kind, about);
+		},
 		setRoomStanding: (key, value) => {
 			const row = store.getConv(projection, key);
 			if (row?.type !== "room") return Promise.resolve();

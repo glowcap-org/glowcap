@@ -48,6 +48,7 @@ enum RoomTarget {
 	Entrance,
 	Link,
 	Seat,
+	ProfileSeat(custody::FieldKey<custody::RoomSeat>),
 	RetiringSeat(custody::FieldKey<custody::RoomSeat>),
 	Subject,
 	Moderator,
@@ -234,6 +235,17 @@ impl Dispatch {
 					},
 				)
 			}
+			(Route::Effect(Effect::ApplyRoomProfile), [room, seat, kind, about])
+				if crate::room::profile::MemberProfile::parse(kind, about).is_some() =>
+			{
+				(
+					Selection::Room(
+						room.clone(),
+						RoomTarget::ProfileSeat(serde_json::from_str(seat).map_err(|_| Refusal)?),
+					),
+					acknowledgment(crate::room::profile::SET_PROFILE, vec![kind.clone(), about.clone()]),
+				)
+			}
 			(Route::Effect(Effect::SetRoomAway), [room, text])
 				if crate::fields::Text::<{ crate::room::membership::MAX_AWAY }>::accepts_utf16(text.encode_utf16()) =>
 			{
@@ -361,6 +373,14 @@ impl Dispatch {
 			mutation,
 			argument,
 		})
+	}
+	/// The runtime admits synchronization only for a confirmed participant whose
+	/// current inbox advertised profiles. The target must also match saved intent.
+	pub fn profile_seat(&self) -> Option<(&str, custody::FieldKey<custody::RoomSeat>)> {
+		match &self.selection {
+			Selection::Room(room, RoomTarget::ProfileSeat(seat)) => Some((room, *seat)),
+			_ => None,
+		}
 	}
 	/// Retirement changes workspace selection in the same transaction as its
 	/// receipt. The already captured target remains independent of that change.

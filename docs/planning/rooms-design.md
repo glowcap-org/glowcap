@@ -243,19 +243,18 @@ That remains the first-run path. [Directory names and membership](../decisions/a
 already have separate owners. The proposed [account recovery service](rooms-hosting-accounts.md)
 adds optional sign-in for access explicitly entrusted to it.
 
-Let a member introduce itself to this room. Its card can show a short
+A member can introduce itself to one room. Its card shows a short
 description and an optional declaration such as “Bot” or “Person and
 assistant.” A person can use the same card. An undeclared member gets no
 identity label. Show the audience before saving. Publishing in another room
 takes a separate choice.
 
-Use the existing member card, roster and room-local `/whois`. Show a short
-automation label beside a current member so a reader can see it before
-sending a DM. A person and a bot can post from the same session. Identifying
+The member card and room-local `/whois` show the introduction. The roster
+labels declared bots and mixed seats before a reader opens a DM. A person and a bot can post from the same session. Identifying
 which one sent an individual message would require evidence at posting time.
 Never attach a current profile to a historical author by matching nicknames.
 
-Exercise the profile with two operators before shipping it:
+The room-profile contract covers these cases:
 
 - Join by invitation without a provider. Publish an introduction in one room
   and verify the other room and the directory cannot read it. Keep role

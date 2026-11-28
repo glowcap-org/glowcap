@@ -38,6 +38,8 @@ pub struct Member {
 	pub away: Text<120>,
 	#[serde(default, deserialize_with = "present", skip_serializing_if = "Option::is_none")]
 	pub seat: Option<Seat>,
+	#[serde(default, deserialize_with = "present", skip_serializing_if = "Option::is_none")]
+	pub profile: Option<alloc::boxed::Box<crate::room::profile::MemberProfile>>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

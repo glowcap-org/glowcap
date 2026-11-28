@@ -15,6 +15,7 @@ import type { Attachment } from "../attachment.ts";
 import {
 	MAX_FORM_SCOPE,
 	MAX_NICK,
+	MAX_PROFILE_BATCH,
 	MAX_ROOM,
 	MAX_ROOM_FEATURE,
 	MAX_ROOM_FEATURES,
@@ -22,8 +23,9 @@ import {
 	MAX_SEAT_BADGE,
 	MAX_SEAT_PREFIX,
 	MAX_SEAT_SAID,
+	nickRefusal,
 } from "../limits.ts";
-import type { Presence } from "./presence.ts";
+import { MemberProfileSchema, type Presence } from "./presence.ts";
 import { type Subject, subject, SubjectSchema } from "./subject.ts";
 import { nonemptyText, positiveSafeInteger } from "../schema.ts";
 import {
@@ -33,6 +35,8 @@ import {
 	LINE,
 	LINE_BYTES,
 	LISTED,
+	PROFILE,
+	PROFILES,
 	REFILED,
 	ROOM_FEATURES,
 	type RoomFeature,
@@ -126,6 +130,7 @@ const BridgeFactsSchema = z.strictObject({
 const RoomCarriesSchema = z.strictObject({
 	previews: z.boolean(),
 	typing: z.boolean(),
+	profiles: z.optional(z.literal(true)),
 });
 
 export type RoomCarries = z.infer<typeof RoomCarriesSchema>;
@@ -237,6 +242,13 @@ function bounded(value: Argument | undefined, most: number): value is string {
 	return typeof value === "string" && value.length > 0 && value.length <= most;
 }
 
+function readProfile(args: Argument[], at: number) {
+	const name = args[at];
+	if (typeof name !== "string" || nickRefusal(name) !== null) return undefined;
+	const fields = MemberProfileSchema.safeParse({ kind: args[at + 1], about: args[at + 2] });
+	return fields.success ? { name, memberKind: fields.data.kind, about: fields.data.about } : undefined;
+}
+
 /** Read the structured presence a room line carries after its display text:
  * `notify("room", text, "roster", ...names)` or `notify("room", text, kind, nick)`.
  * Ordinary chat lines carry none. */
@@ -258,6 +270,26 @@ export function readPresence(args: Argument[]): Presence | undefined {
 	}
 	if ((kind === "join" || kind === "leave") && named(args[3])) {
 		return { kind, name: args[3] };
+	}
+	if (kind === PROFILE || kind === PROFILES) {
+		if (args[0] !== "room" || args[1] !== "") return undefined;
+		if (kind === PROFILE) {
+			const entry = args.length === 6 && readProfile(args, 3);
+			return entry ? { kind, ...entry } : undefined;
+		}
+		const count = (args.length - 3) / 3;
+		if (!Number.isInteger(count) || count < 1 || count > MAX_PROFILE_BATCH) return undefined;
+		const entries = [];
+		const seen = new Set<string>();
+		for (let at = 3; at < args.length; at += 3) {
+			const entry = readProfile(args, at);
+			if (!entry || !(entry.memberKind || entry.about)) return undefined;
+			const key = entry.name.toLowerCase();
+			if (seen.has(key)) return undefined;
+			seen.add(key);
+			entries.push(entry);
+		}
+		return { kind, entries };
 	}
 	if (kind === AWAY && typeof args[3] === "string") {
 		return { kind: "away", name: args[3], reason: typeof args[4] === "string" ? args[4] : "" };

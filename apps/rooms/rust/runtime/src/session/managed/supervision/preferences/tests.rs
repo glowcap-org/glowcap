@@ -128,8 +128,9 @@ async fn inspect() {
 		recovery: owner.state.discovery_refresh.clone(),
 		submission: None,
 		rate_retry: rate_retry::Window::default(),
-		standing: Standing {
-			applied: "away".into(),
+		profile_updates: None,
+		preferences: Preferences {
+			away: "away".into(),
 			..Default::default()
 		},
 	};
@@ -141,7 +142,7 @@ async fn inspect() {
 	assert!(worker.rate_retry.delay(advice, 0).is_some());
 	assert!(
 		worker
-			.apply_standing(
+			.apply_preferences(
 				"inspection",
 				Some(Snapshot {
 					revision: 1,
@@ -156,13 +157,13 @@ async fn inspect() {
 		worker.rate_retry.delay(advice, 60_000).is_some(),
 		"confirmed standing must finish the previous incident's retry window"
 	);
-	assert!(worker.apply_standing("inspection", None).await.unwrap());
+	assert!(worker.apply_preferences("inspection", None).await.unwrap());
 	assert_eq!(reads.get(), 1, "startup without a snapshot reads once");
 	let mut retired = intent;
 	retired.conversations = Default::default();
 	assert!(
 		!worker
-			.apply_standing(
+			.apply_preferences(
 				"inspection",
 				Some(Snapshot {
 					revision: 2,

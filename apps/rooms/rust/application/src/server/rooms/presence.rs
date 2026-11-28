@@ -100,7 +100,22 @@ impl<C: Copy + Ord, R: Clone> Rooms<C, R> {
 				names: Arc::from([member.nick]),
 				count,
 			},
-			Departure::Continued | Departure::Replaced => return effects,
+			Departure::Continued | Departure::Replaced => {
+				// A continuing nickname receives no leave/join pair. Retire this
+				// exact seat’s introduction before the replacement can publish.
+				if member.profile.is_some() {
+					self.broadcast(
+						key,
+						&mut effects,
+						Notice::Profile {
+							nick: member.nick,
+							profile: None,
+						},
+						None,
+					);
+				}
+				return effects;
+			}
 		};
 		if let Some(nick) = evicted {
 			self.broadcast(key, &mut effects, Notice::Forgotten(nick), None);

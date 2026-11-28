@@ -3,6 +3,8 @@
 import {
 	MAX_AWAY,
 	MAX_NICK,
+	MAX_PROFILE_ABOUT,
+	MAX_PROFILE_BATCH,
 	MAX_ROOM,
 	MAX_ROOM_OFFLINE,
 	MAX_ROSTER_SEEN,
@@ -15,6 +17,22 @@ import * as z from "zod/mini";
 
 export const SEAT_PHASES = ["rooms", "connecting", "linked", "failed"] as const satisfies readonly SeatPhase[];
 
+export const ProfileKindSchema = z.enum(["", "person", "bot", "assisted"]);
+export type ProfileKind = z.infer<typeof ProfileKindSchema>;
+
+const ProfileAboutSchema = boundedText(MAX_PROFILE_ABOUT).check(
+	z.refine((value) => value.isWellFormed() && !/[\p{Cc}\u2028\u2029]/u.test(value)),
+);
+export const MemberProfileSchema = z.strictObject({ kind: ProfileKindSchema, about: ProfileAboutSchema });
+export type MemberProfile = z.infer<typeof MemberProfileSchema>;
+
+const ProfileEntrySchema = z.strictObject({
+	name: nonemptyText(MAX_NICK),
+	memberKind: ProfileKindSchema,
+	about: ProfileAboutSchema,
+});
+type ProfileEntry = z.infer<typeof ProfileEntrySchema>;
+
 export const PresenceSchema = z.union([
 	z.strictObject({ kind: z.literal("typing"), name: nonemptyText(MAX_NICK), on: z.boolean() }),
 	z.strictObject({
@@ -25,6 +43,16 @@ export const PresenceSchema = z.union([
 	z.strictObject({
 		kind: z.literal("offline"),
 		names: z.array(nonemptyText(MAX_NICK)).check(z.maxLength(MAX_ROOM_OFFLINE)),
+	}),
+	z.strictObject({
+		kind: z.literal("profiles"),
+		entries: z.array(ProfileEntrySchema).check(z.minLength(1), z.maxLength(MAX_PROFILE_BATCH)),
+	}),
+	z.strictObject({
+		kind: z.literal("profile"),
+		name: nonemptyText(MAX_NICK),
+		memberKind: ProfileKindSchema,
+		about: ProfileAboutSchema,
 	}),
 	z.strictObject({ kind: z.literal("away"), name: nonemptyText(MAX_NICK), reason: boundedText(MAX_AWAY) }),
 	z.strictObject({
@@ -46,6 +74,7 @@ export type Presence = z.infer<typeof PresenceSchema>;
 const RoomMemberStateSchema = z.strictObject({
 	online: z.boolean(),
 	away: boundedText(MAX_AWAY),
+	profile: z.optional(MemberProfileSchema),
 	/** The foreign seat this member holds, when a bridge has said they hold one.
 	 *
 	 * `badge` and `said` are the bridge's words for it, carried and not
@@ -62,6 +91,15 @@ const RoomMemberStateSchema = z.strictObject({
 });
 
 export type RoomMemberState = z.infer<typeof RoomMemberStateSchema>;
+
+function setProfile(members: Map<string, RoomMemberState>, { name, memberKind, about }: ProfileEntry): void {
+	const member = members.get(name);
+	if (!member?.online) return;
+	const next = { ...member };
+	if (memberKind || about) next.profile = { kind: memberKind, about };
+	else delete next.profile;
+	members.set(name, next);
+}
 
 export function applyRoomPresence(
 	current: ReadonlyMap<string, RoomMemberState>,
@@ -89,6 +127,10 @@ export function applyRoomPresence(
 				said: event.said,
 			},
 		});
+	} else if (event.kind === "profile") {
+		setProfile(members, event);
+	} else if (event.kind === "profiles") {
+		for (const entry of event.entries) setProfile(members, entry);
 	} else if (event.kind === "away") {
 		if (!members.get(event.name)?.online) return members;
 		members.set(event.name, { ...standing(event.name), away: event.reason });

@@ -68,6 +68,12 @@ impl<P: Tasks + Deadline + Clone + 'static> Worker<P> {
 			biased;
 			_ = self.stopping.changed() => return Ok(false),
 			_ = self.retrying.changed() => { self.changes.retry(); return Ok(true); },
+			_ = async {
+				match &mut self.profile_updates {
+					Some(updates) => { let _closed = updates.changed().await; }
+					None => std::future::pending().await,
+				}
+			} => Ok(()),
 			result = self.changes.changed() => result,
 			};
 			let result = match result {

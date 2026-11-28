@@ -42,6 +42,7 @@ pub fn recognizes(route: Route) -> bool {
 				| Command::ChooseHomeDirectory
 				| Command::SetDirectoryStanding
 				| Command::SetRoomStanding
+				| Command::SetRoomProfile
 				| Command::SetEffectiveStanding
 				| Command::SetIgnoredNames
 				| Command::SetIgnoredName
@@ -224,6 +225,13 @@ pub fn apply<R: References>(
 				.find(|row| row.id.text().as_str() == Some(id))
 				.ok_or(Refusal::Missing)?
 				.standing = standing;
+		}
+		(Route::Checkpoint(Command::SetRoomProfile), [id, kind, about]) => {
+			let profile = crate::room::profile::MemberProfile::parse(kind, about).ok_or(Refusal::Arguments)?;
+			let Conversation::Room(row) = conversation(intent, id)? else {
+				return Err(Refusal::Missing);
+			};
+			row.profile = profile;
 		}
 		(Route::Checkpoint(Command::SetRoomStanding), [id, rest @ ..]) if rest.len() <= 1 => {
 			let standing = rest.first().map(|text| field(text)).transpose()?;

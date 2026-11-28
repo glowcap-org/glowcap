@@ -352,6 +352,7 @@ export const memberHereNow = "Here now";
 export function memberAway(standing: string): string {
 	return `Away: ${standing}`;
 }
+export const memberProfileLabels = { "": "", person: "Person", bot: "Bot", assisted: "Person and assistant" } as const;
 export const memberYou = "You";
 export const memberAMember = "A member";
 export function memberOf(room: string): string {
@@ -380,3 +381,19 @@ export function memberMessageDirectly(name: string): string {
 export function memberManageBridgeIdentity(bridge: string): string {
 	return `Manage your ${bridge} identity…`;
 }
+
+export const memberProfileText = {
+	introduction: "Introduction",
+	card: "Room introduction",
+	type: "Member type",
+	undeclared: "Unspecified",
+	assistedBadge: "Person + bot",
+	add: "Introduce yourself",
+	edit: "Edit room profile",
+	scope: "Visible to members of this room. Clear both fields to remove it.",
+	singleLine: "Use a single line for your introduction.",
+	save: "Save profile",
+	saving: "Saving…",
+	cancel: "Cancel",
+	title: (room: string) => `Your profile in #${room}`,
+} as const;

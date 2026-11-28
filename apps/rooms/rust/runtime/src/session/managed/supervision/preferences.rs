@@ -1,52 +1,59 @@
-//! Standing follows persisted room, directory and workspace intent through the
+//! Room standing and member profiles follow saved intent through the
 //! membership's exact source. One bounded pending command survives interruption.
 //! An acknowledged value is never redispatched on unrelated workspace changes.
 use super::*;
+use rooms_application::{content::permissions::Permission, room::profile::MemberProfile};
 use rooms_glowcap::client::workspace::{Command, Snapshot};
 
 #[cfg(test)]
 #[cfg(not(target_arch = "wasm32"))]
 mod tests;
 
-/// Retain the acknowledged setting and at most one submitted setting, each
-/// bounded by the application's Standing type. Forgetting either would resend
+enum Preference {
+	Standing(String),
+	Profile(MemberProfile),
+}
+/// Retain the acknowledged bounded preferences and at most one submitted change.
+/// Forgetting either would resend
 /// unchanged preferences or replace an uncertain operation with newer intent.
 /// One Rc shell lends the exact Command to waits while this owner keeps it.
 /// Worker.submission owns actual admission. Existing membership and effect
 /// limits bound the population. Empty standing allocates no string backing.
-pub(super) struct Standing<P> {
-	applied: String,
+pub(super) struct Preferences<P> {
+	away: String,
+	profile: MemberProfile,
 	generation: u64,
-	pending: Option<(String, Rc<Command<P>>)>,
+	pending: Option<(Preference, Rc<Command<P>>)>,
 }
-impl<P> Default for Standing<P> {
+impl<P> Default for Preferences<P> {
 	fn default() -> Self {
 		Self {
-			applied: String::new(),
+			away: String::new(),
+			profile: MemberProfile::default(),
 			generation: 0,
 			pending: None,
 		}
 	}
 }
 impl<P: Tasks + Deadline + Clone + 'static> Worker<P> {
-	/// Consume the wake's owned snapshot for selection and standing together.
+	/// Consume the wake's owned snapshot for selection and preferences together.
 	/// Nothing is cached between wakes. A pending command discards that input:
 	/// after settlement or a proved conflict, only a fresh read may select intent.
-	pub(super) async fn apply_standing(&mut self, operation: &str, mut snapshot: Option<Snapshot>) -> Result<bool> {
+	pub(super) async fn apply_preferences(&mut self, operation: &str, mut snapshot: Option<Snapshot>) -> Result<bool> {
 		let workspace::InboxSelection::Room { id, .. } = &self.selected else {
 			return Ok(true);
 		};
 		let id = id
 			.text()
 			.as_str()
-			.ok_or_else(|| Error::invalid("invalid standing room"))?
+			.ok_or_else(|| Error::invalid("invalid preference room"))?
 			.to_owned();
 		let mut conflicts = 0;
-		if self.standing.pending.is_some() {
+		if self.preferences.pending.is_some() {
 			snapshot.take();
 		}
 		'intent: loop {
-			if self.standing.pending.is_none() {
+			if self.preferences.pending.is_none() {
 				let snapshot = match snapshot.take() {
 					Some(snapshot) => snapshot,
 					None => {
@@ -67,45 +74,82 @@ impl<P: Tasks + Deadline + Clone + 'static> Worker<P> {
 				let Some(Lease::Room(seat)) = self.lease else {
 					return Ok(false);
 				};
-				if !snapshot.intent.conversations.as_slice().iter().any(|row| {
-					matches!(row, workspace::Conversation::Room(room)
-						if room.id.text().as_str() == Some(id.as_str()) && room.seat == Some(seat))
-				}) {
+				let Some(room) = snapshot.intent.room(&id).filter(|room| room.seat == Some(seat)) else {
 					return Ok(false);
-				}
+				};
 				let reason = snapshot
 					.intent
 					.room_standing(&id)
 					.and_then(|value| value.text().as_str())
-					.ok_or_else(|| Error::closed("standing room was retired"))?;
-				if reason == self.standing.applied {
+					.ok_or_else(|| Error::closed("preference room was retired"))?;
+				let (preference, verb, args) = if reason != self.preferences.away {
+					(
+						Preference::Standing(reason.to_owned()),
+						"setRoomAway",
+						vec![id.clone(), reason.into()],
+					)
+				} else if room.profile != self.preferences.profile
+					&& self
+						.retirement
+						.as_ref()
+						.and_then(|owner| owner.profile.as_ref())
+						.is_some_and(|(profile, _)| profile.supports(seat))
+				{
+					// A saved declaration cannot widen the exact source which joined
+					// this room. A posting-only membership still reconciles standing.
+					let workspace = self.workspace.clone();
+					let Some(access) = self
+						.stage(|| async { workspace.describe_access().await.map_err(Error::from) })
+						.await?
+					else {
+						return Ok(false);
+					};
+					if !matches!(access.view(), loam::UseDescription::Active(source)
+						if source.effective.permissions().any(|p| p == Permission::ReplaceWorkspace.key()))
+					{
+						self.rate_retry.reset();
+						return Ok(true);
+					}
+					let expected =
+						serde_json::to_string(&seat).map_err(|_| Error::invalid("invalid profile seat coordinate"))?;
+					(
+						Preference::Profile(room.profile.clone()),
+						"applyRoomProfile",
+						vec![
+							id.clone(),
+							expected,
+							room.profile.kind.as_str().into(),
+							room.profile.about().into(),
+						],
+					)
+				} else {
 					// Confirmed current intent ends this recovery incident. A later
 					// refusal gets its own finite window; pending retries cannot reset it.
 					self.rate_retry.reset();
 					return Ok(true);
-				}
-				self.standing.generation = self
-					.standing
+				};
+				self.preferences.generation = self
+					.preferences
 					.generation
 					.checked_add(1)
-					.ok_or_else(|| Error::exhausted("standing operation space exhausted"))?;
+					.ok_or_else(|| Error::exhausted("preference operation space exhausted"))?;
 				let command = self
 					.workspace
 					.prepare_command(
-						&format!("{operation}:standing:{}", self.standing.generation),
+						&format!("{operation}:preference:{}", self.preferences.generation),
 						snapshot.revision,
-						"setRoomAway",
-						&[id.clone(), reason.into()],
+						verb,
+						&args,
 					)
 					.await
 					.map_err(Error::from)?;
-				self.standing.pending = Some((reason.into(), Rc::new(command)));
+				self.preferences.pending = Some((preference, Rc::new(command)));
 			}
 			let command = self
-				.standing
+				.preferences
 				.pending
 				.as_ref()
-				.ok_or_else(|| Error::closed("standing command is not retained"))?
+				.ok_or_else(|| Error::closed("preference command is not retained"))?
 				.1
 				.clone();
 			self.submission.get_or_insert_with(|| command.start_submission());
@@ -113,7 +157,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Worker<P> {
 				let outcome = tokio::select! {
 					biased;
 					_ = self.stopping.changed() => return Ok(false),
-					outcome = self.submission.as_mut().ok_or_else(|| Error::closed("standing admission is not owned"))?.within(
+					outcome = self.submission.as_mut().ok_or_else(|| Error::closed("room preference admission is not owned"))?.within(
 						&self.platform, rooms_application::room::authority::REQUEST_TIMEOUT_MS) => outcome,
 				};
 				match outcome {
@@ -130,7 +174,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Worker<P> {
 					}
 					None => {
 						if !self
-							.failed(Error::uncertain("standing admission remains pending"))
+							.failed(Error::uncertain("room preference admission remains pending"))
 							.await?
 						{
 							return Ok(false);
@@ -139,10 +183,10 @@ impl<P: Tasks + Deadline + Clone + 'static> Worker<P> {
 				}
 			};
 			if admitted == EffectStatus::Conflict {
-				self.standing.pending.take();
+				self.preferences.pending.take();
 				conflicts += 1;
 				if conflicts == 4 {
-					return Err(Error::stale("standing admission repeatedly conflicted"));
+					return Err(Error::stale("room preference admission repeatedly conflicted"));
 				}
 				continue;
 			}
@@ -165,11 +209,11 @@ impl<P: Tasks + Deadline + Clone + 'static> Worker<P> {
 							.await
 							.err()
 							.map(Error::from)
-							.unwrap_or_else(|| Error::uncertain("Standing was not sent"));
+							.unwrap_or_else(|| Error::uncertain("Room preference was not sent"));
 						if !self.failed(failure).await? {
 							return Ok(false);
 						}
-						self.standing.pending.take();
+						self.preferences.pending.take();
 						self.ready.send_replace(self.live.then_some(Ok(())));
 						continue 'intent;
 					}
@@ -180,7 +224,9 @@ impl<P: Tasks + Deadline + Clone + 'static> Worker<P> {
 					}
 					_ => {
 						if !self
-							.failed(Error::uncertain("standing requires recovery of its original receipt"))
+							.failed(Error::uncertain(
+								"room preference requires recovery of its original receipt",
+							))
 							.await?
 						{
 							return Ok(false);
@@ -188,12 +234,16 @@ impl<P: Tasks + Deadline + Clone + 'static> Worker<P> {
 					}
 				}
 			}
-			self.standing.applied = self
-				.standing
+			match self
+				.preferences
 				.pending
 				.take()
-				.ok_or_else(|| Error::closed("confirmed standing is not retained"))?
-				.0;
+				.ok_or_else(|| Error::closed("confirmed room preference is not retained"))?
+				.0
+			{
+				Preference::Standing(value) => self.preferences.away = value,
+				Preference::Profile(value) => self.preferences.profile = value,
+			}
 			// A newer preference may have arrived while this receipt settled.
 		}
 	}

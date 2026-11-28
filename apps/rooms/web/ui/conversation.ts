@@ -305,6 +305,7 @@ export type BridgeFacts = NonNullable<RoomFacts["bridge"]>;
  * control. A direct line carries both. A directory carries no messages. */
 export function conversationCarries(conv: Conv | null, feature: RoomFeature): boolean {
 	if (conv === null || conv.type === "directory") return false;
+	if (feature === "profiles") return conv.type === "room" && conv.carries?.profiles === true;
 	if (conv.type === "dm") return true;
 	return conv.carries === undefined || conv.carries[feature];
 }
