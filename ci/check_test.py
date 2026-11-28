@@ -344,6 +344,8 @@ class GroupTest(unittest.TestCase):
         build, test = found["build"], found["test"]
         for shards, expected in (("[]", False), ("[1]", True), ("[1, 2]", True)):
             self.assertEqual(selected(build["if"], context={"inputs": {"shards": shards}}), expected)
+        for job, stamp in ((build, "python3 ci/state.py stamp"), (test, "python3 ci/state.py stamp --handoff")):
+            self.assertIn(stamp, [item.get("run") for item in job["steps"]])
         # The phases run after a failed compile, so one run names every failure in a group.
         for result, expected in (("success", True), ("failure", True), ("skipped", True), ("cancelled", False)):
             self.assertEqual(selected(test["if"], context={"needs": {"build": {"result": result}}}), expected)

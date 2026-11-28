@@ -4,18 +4,19 @@ Called by check-group.yml on the runner host, outside the devcontainer,
 from any directory.
 
     ci/state.py stores                    print each store, one per line
-    ci/state.py stamp                     set every tracked file's mtime to the commit time
+    ci/state.py stamp [--handoff]         stamp checkout inputs for compilation or a test job
     ci/state.py bound LIMIT_GB FLOOR_GB   empty the stores when they outgrow the limit
                                           or leave less than the floor free
     ci/state.py pack ARCHIVE              write the stores and zig-out to a zstd tar
     ci/state.py restore DIR SHARDS BUILD  unpack every shard's archive found in DIR
 
 Zig keys its cache by content, but Cargo calls an output stale when a source
-is newer than it. Two jobs check the same commit out at different times, so
-both stamp the checkout to the commit time first: the build job's outputs
-are then newer than every source in the test job too. zig-out travels with
-the stores because the installer leaves an archive with unchanged bytes in
-place, and Cargo's build scripts watch those archives' mtimes.
+is newer than its output. A review may restore Cargo outputs built after the
+review commit. Stamp tracked inputs later than those outputs before compiling.
+Only this run's handoff carries the chosen time. Test jobs use the latest
+stamp from their shards, so an inherited output from any shard stays older
+than its sources. Registry sources keep their own times. zig-out travels with
+the stores because Cargo's build scripts watch installed archives' mtimes.
 
 The archive keeps absolute paths, so pack and restore run as the same user
 with the same home and checkout path, as every hosted runner does. Restore
@@ -83,7 +84,13 @@ def present():
     return [store for store in STORES if store.exists()]
 
 
-def stamp():
+def checkout_stamps():
+    # The per-run artifact merges these files from all build shards. The
+    # cross-run compile cache includes only STORES and never these stamps.
+    return ROOT / ".local/ci-checkout-times"
+
+
+def stamp(handoff=False):
     when = int(
         subprocess.run(
             ["git", "-C", ROOT, "log", "-1", "--format=%ct", "HEAD"],
@@ -93,6 +100,22 @@ def stamp():
             timeout=60,
         ).stdout
     )
+    stamps = checkout_stamps()
+    inherited = [int(path.name) for path in stamps.iterdir()] if handoff and stamps.is_dir() else []
+    if inherited:
+        when = max(when, *inherited)
+    else:
+        # Cached outputs can come from a concurrent build on another runner.
+        # Compare against their actual times, including a future-dated one.
+        # Both cache transfers preserve at least whole seconds.
+        def require_readable(error):
+            if not isinstance(error, FileNotFoundError):
+                raise error
+
+        for directory, _, names in os.walk(CARGO_BUILD, onerror=require_readable):
+            for name in names:
+                cached = os.lstat(os.path.join(directory, name)).st_mtime_ns
+                when = max(when, cached // 1_000_000_000 + 1)
     listing = subprocess.run(
         ["git", "-C", ROOT, "ls-files", "-z", "--recurse-submodules"], capture_output=True, check=True, timeout=120
     ).stdout
@@ -101,6 +124,9 @@ def stamp():
         # The index may name a file the checkout lacks, which stays absent.
         if name and (path.is_symlink() or path.exists()):
             os.utime(path, (when, when), follow_symlinks=False)
+    if not handoff:
+        stamps.mkdir(parents=True, exist_ok=True)
+        (stamps / str(when)).touch()
 
 
 def bound(limit_gb, floor_gb):
@@ -127,6 +153,11 @@ def pack(archive):
     if not paths:
         say("nothing to pack")
         return 1
+    stamps = checkout_stamps()
+    if not stamps.is_dir() or not any(stamps.iterdir()):
+        say("cannot hand over compiled state without its checkout time")
+        return 1
+    paths.append(stamps)
     for path in paths:
         print(f"{size(path) / GIB:.2f} GiB  {path}")
     # Cargo keys each workspace's build directory by a hash of its path, and
@@ -164,7 +195,7 @@ def main(argv):
     )
     verbs = parser.add_subparsers(dest="verb", required=True)
     verbs.add_parser("stores")
-    verbs.add_parser("stamp")
+    verbs.add_parser("stamp").add_argument("--handoff", action="store_true")
     bounding = verbs.add_parser("bound")
     bounding.add_argument("limit_gb", type=float)
     bounding.add_argument("floor_gb", type=float)
@@ -176,7 +207,7 @@ def main(argv):
     if args.verb == "stores":
         print("\n".join(map(str, STORES)))
     elif args.verb == "stamp":
-        stamp()
+        stamp(args.handoff)
     elif args.verb == "bound":
         bound(args.limit_gb, args.floor_gb)
     elif args.verb == "pack":
