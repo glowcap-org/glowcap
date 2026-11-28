@@ -1,5 +1,5 @@
 # Copied once to docker-compose.override.yml by `glowcap apps rooms deployment
-# up`, and never rewritten. Every setting this host chooses lives here. The
+# up`, and never rewritten. Shared session settings can go in session.env. The
 # managed compose.yml is replaced on each `up`, so a change there is lost.
 #
 # There are two ways to the page, and a host may use either or both. A
@@ -45,11 +45,9 @@ services:
     # networks:
     #   - glowcap-rooms-net
     #   - site-ingress
-  # session:
-  #   environment:
-  #     # Behind a browser login, the session reaches the public relay address
-  #     # through the private network.
-  #     GLOWCAP_ROOMS_SESSION_RELAY_ALIAS_URL: "wss://rooms.example/relay"
+  # Behind a browser login, put the public relay address in session.env beside
+  # this override so each session reaches it through the private network:
+  # GLOWCAP_ROOMS_SESSION_RELAY_ALIAS_URL=wss://rooms.example/relay
 
   # Run a bot: a member of Rooms whose replies come from a coding agent. The
   # Rooms deployment guide's "Run a bot" section gives the order. Uncomment
@@ -71,6 +69,7 @@ services:
   #   command:
   #     - --dir=/session-state
   #     - --readiness-file=/run/rooms-session/use.sturdyref
+  #   env_file: ${GLOWCAP_ROOMS_SESSION_ENV_FILE:-/dev/null}
   #   environment:
   #     GLOWCAP_LIB_DIR: /runtime/lib
   #     GLOWCAP_ROOMS_SESSION_STATE: /session-state

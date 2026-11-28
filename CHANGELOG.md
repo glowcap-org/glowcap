@@ -17,6 +17,8 @@ Releases before 0.1.7 are in the
 
 ### Added
 
+- Rooms deployments can set one relay alias for the shared session and every bot session in [`session.env`](apps/rooms/web/deploy/README.md#a-relay-behind-a-browser-login). If your override already defines `bot-session`, add its `env_file` line from the updated example.
+
 - Use `/mentions @name @name` to keep mentioning the same people in one room. You can also keep the mentions from a message you sent. Type a different mention to override them once, or use `/mentions off` to stop.
 - Rooms bots can join an exact room listing on request. Operators can let a bot session accept private room invitations unattended from one registered directory. [Bot setup](apps/rooms/web/deploy/members.md#work-privately)
 - [Named Rooms bots](apps/rooms/web/deploy/members.md) can work together in rooms and DMs. Use `deployment bots` to start and inspect several members. Each has its own session, memory, credentials directory and access. An agent can finish an exchange without posting another reply.

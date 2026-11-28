@@ -82,9 +82,11 @@ Configuration defaults to `$XDG_STATE_HOME/glowcap/rooms-deployment`, or `$HOME/
 Every command accepts `--dir <configuration-directory>` to pick the configuration. The deployment has fixed container,
 network, and volume names, so one Docker daemon runs one stack.
 
-The managed `compose.yml` is refreshed from the installed product during `up` and `reset`. Every setting this host
-chooses belongs in `docker-compose.override.yml`, which `up` copies once from the example and never rewrites. Its
-`environment` entries add to and replace the managed file's. Every operator capability is on by default. To withhold
+The deployment refreshes `compose.yml` from the installed product during `up` and `reset`. Keep shared session
+settings in `session.env` and service settings in `docker-compose.override.yml`. The first `up` copies the override
+from the example. Its `environment` entries take precedence over the shared settings.
+
+Every operator capability is on by default. To withhold
 some, list the ones you want in the override, such as
 `GLOWCAP_ROOMS_CAPABILITIES: "admin-listeners,diagnostics,operator,peering,trace"`, which leaves IRC out.
 
@@ -161,22 +163,30 @@ Open Rooms at the server's public address and sign in there. The page and its re
 browser session. A Rooms page hosted elsewhere reads anonymously, so give readers the server's own page link for a
 deployment that requires sign-in. Set the public address and list its page first as shown in [Host it publicly](#host-it-publicly).
 
-When public ingress requires a login, such as Cloudflare Access, a shared-session server cannot use the browser's
-login cookie. When it connects for a direct message, it follows the other browser's advertised `/relay` route and
-receives a login redirect.
-Configure an alias when that public route reaches this deployment's directory relay:
+When a shared or bot session opens a DM to a browser, it dials the browser's advertised relay. Behind a browser
+login, the session needs a private path to that same relay. In your deployment configuration directory, create
+`session.env` with the exact public relay URL for your directory:
 
-```yaml
-services:
-  session:
-    environment:
-      GLOWCAP_ROOMS_SESSION_RELAY_ALIAS_URL: wss://rooms.example/relay
+```dotenv
+GLOWCAP_ROOMS_SESSION_RELAY_ALIAS_URL=wss://rooms.example/relay
 ```
 
-Add this to `docker-compose.override.yml` in your configuration directory, replacing `rooms.example` with the page's
-public host (and port if needed). Then run `glowcap apps rooms deployment up`.
+The shared session, the optional bot session and all named bot sessions read this file. The directory and agent
+containers have their own settings. A service's explicit `environment` entries take precedence, so move an existing
+alias into `session.env` to manage it in one place.
 
-- The shared session dials the matching route through the Compose default `ws://directory:8080/relay`. Browser
+If an older `docker-compose.override.yml` already defines `bot-session`, add the following line under that service
+once. The deployment keeps your override across upgrades.
+
+```yaml
+env_file: ${GLOWCAP_ROOMS_SESSION_ENV_FILE:-/dev/null}
+```
+
+From the configuration directory, run `glowcap apps rooms deployment up --dir "$PWD"`. Run
+`glowcap apps rooms deployment bots up --dir "$PWD" scout editor` with the names of your running members.
+New members inherit the file when their sessions start.
+
+- Each configured session dials the matching route through the Compose default `ws://directory:8080/relay`. Browser
   connections still use public ingress.
 - Only this exact endpoint is redirected, including scheme, host, port, path, and fixed query. Other deployments' relay
   hints keep their routes.
@@ -188,7 +198,7 @@ public host (and port if needed). Then run `glowcap apps rooms deployment up`.
 - A standalone session dials WebRTC-only browsers when started with `--dial-transports=webrtc`. The Compose session
   keeps the relay route, which every browser can reach.
 
-To move a deployment's configuration, copy its operator override into the new directory before running `up` or
+To move a deployment's configuration, copy its operator override and any `session.env` into the new directory before running `up` or
 `reset`. Relative paths in the override resolve from the configuration directory, so review them. Keep the originals
 until the deployment is healthy. The CLI does not discover or copy configuration from other directories.
 
@@ -199,7 +209,7 @@ a rollback on another Docker host, [save the selected image](backup.md#keep-a-co
 
 Upgrade the host CLI first. It writes the managed Compose file on each `up`. In the configuration directory printed by
 `deployment doctor`, check your `docker-compose.override.yml`. If it defines a bot session, copy that service's
-`healthcheck`, `cap_drop`, `security_opt`, and `read_only` settings from the updated
+`healthcheck`, `cap_drop`, `security_opt`, `read_only` and `env_file` settings from the updated
 [override example](docker-compose.override.yml.example). Both the shared session and bot session should probe
 `/runtime/libexec/rooms-session --check-ready=/run/rooms-session/use.sturdyref`.
 

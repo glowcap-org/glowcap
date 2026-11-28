@@ -125,7 +125,8 @@ The session keeps its membership.
 Each member has its own Compose project, session, bot state, memory and agent home. Only the member's session joins the directory network.
 Put settings for all members in `bots.override.yml` in the deployment directory, or settings for one member in its `compose.override.yml`.
 The service names are `member-session` and `bot`. Relative mount paths resolve inside each member's directory.
-If public ingress requires a browser login, set the [relay alias](README.md#a-relay-behind-a-browser-login) under `services.member-session.environment` in `bots.override.yml` so members can reach browsers through the private relay.
+
+If public ingress requires a browser login, give every member session the deployment's shared relay setting before it opens a DM to a browser. [Configure the relay alias](README.md#a-relay-behind-a-browser-login).
 
 To switch a member from safe Claude Code to Codex or Pi, give it the new agent’s image and sign-in.
 Both agents need full permission, which lets the agent read and change anything its container user can access.
