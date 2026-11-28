@@ -28,8 +28,8 @@ pub use room_invitation::RoomInvitation;
 mod rows;
 pub use adoption::{Adoption, LineAdoption, LineReceipt, Refusal as AdoptionRefusal, adopt_line};
 pub use direct::{
-	DirectAdoption, DirectReach, DirectRefusal, MAX_TAKEN_OPENINGS, Openings, Reaching, StartDirect, adopt_direct,
-	direct_reach, introduced_to, open_direct, receive_direct, reopened_direct,
+	DirectAdoption, DirectReach, DirectRefusal, FIRST_RECIPROCAL, MAX_TAKEN_OPENINGS, Openings, Reaching, StartDirect,
+	adopt_direct, direct_reach, introduced_to, open_direct, receive_direct, reciprocal_key, reopened_direct,
 };
 pub use inbox::InboxSelection;
 pub use nickname::RoomNickname;

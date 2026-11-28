@@ -9,6 +9,7 @@ import hashlib
 import json
 import os
 import re
+import shlex
 import subprocess
 import sys
 import tarfile
@@ -239,6 +240,35 @@ def check_command_refusal(root, scratch):
         assert not Path(state).exists(), "refused options acquired state"
 
 
+def check_bot_turn_commands(root, bot_source):
+    # The installed CLI must reach the turn handler for every advertised action.
+    prompt = (
+        (bot_source / "system.txt")
+        .read_text()
+        .replace("{scheduled_check_in}", (bot_source / "prompt/scheduled_check_in.txt").read_text().rstrip())
+    )
+    examples = re.findall(r"^ +\{glowcap\} apps rooms bot (.+)$", prompt, re.MULTILINE)
+    assert examples, "the bot's prompt advertised no commands"
+    commands = [shlex.split(example.partition(" [")[0]) for example in examples]
+    # An absolute due time is an alternative for both kinds of timer.
+    due = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() + 1200))
+    for verb, payload in (("remind", "--text"), ("schedule", "--task")):
+        assert any(cmd[0] == verb and "--in" in cmd for cmd in commands), f"the prompt lacks a relative {verb} example"
+        commands.append([verb, "--id", "build-check", "--at", due, payload, "Check the build."])
+    for command in commands:
+        result = subprocess.run(
+            [str(root / "bin/glowcap"), "apps", "rooms", "bot", *command], capture_output=True, text=True, timeout=5
+        )
+        reason = (
+            "outside a bot turn, pass --dir and --conversation"
+            if command[0] in {"reminders", "cancel-reminder"}
+            else "only during a bot's turn"
+        )
+        assert result.returncode == 1 and reason in result.stderr, (command, result)
+        error = json.loads(result.stdout)["error"]
+        assert error["class"] == "invalid" and reason in error["message"], (command, error)
+
+
 def check_source_installation(root, launcher):
     with tempfile.TemporaryDirectory(prefix="glowcap-install-", dir="/tmp") as scratch:
         # The checkout launcher needs shell utilities, but no host compiler or
@@ -253,21 +283,7 @@ def check_source_installation(root, launcher):
         assert (root / "share/glowcap/DEPENDENCY-NOTICES.txt").stat().st_size > 0, "missing dependency notices"
         check_skills(root)
         check_completion(root)
-        # Every command the bot teaches its agent must reach the turn handler
-        # through the installed CLI, even when there is no running turn.
-        prompt = launcher.parent / "apps/rooms/rust/product/src/bin/rooms-bot/system.txt"
-        examples = re.findall(r"^ +\{glowcap\} apps rooms bot (.+)$", prompt.read_text(), re.MULTILINE)
-        assert examples, "the bot's prompt advertised no commands"
-        for example in examples:
-            required = example.partition(" [")[0].split()
-            result = subprocess.run(
-                [str(root / "bin/glowcap"), "apps", "rooms", "bot", *required],
-                capture_output=True,
-                text=True,
-                timeout=5,
-            )
-            assert result.returncode == 1 and "only during a bot's turn" in result.stderr, (example, result)
-            assert json.loads(result.stdout)["error"]["class"] == "invalid", (example, result.stdout)
+        check_bot_turn_commands(root, launcher.parent / "apps/rooms/rust/product/src/bin/rooms-bot")
         rooms_peer.main(launcher.parent, transport="iroh")
         print("glowcap-install-test: checkout launcher serves Rooms; installed sessions, skills and completion passed")
 

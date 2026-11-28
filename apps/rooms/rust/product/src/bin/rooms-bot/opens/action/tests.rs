@@ -93,6 +93,8 @@ async fn the_loop_writes_what_it_settled_into_the_claims_of_a_running_turn() {
 		conversation: ConversationId::new("c1"),
 		kind: Kind::Direct,
 		triggers: vec![Trigger {
+			opening_until: None,
+			scope: None,
 			seq: Seq(1),
 			event: Cursor::new("e1").unwrap(),
 			line: "l1".into(),
@@ -159,6 +161,8 @@ async fn the_loop_settles_nothing_under_a_verb_that_runs() {
 		conversation: ConversationId::new("c1"),
 		kind: Kind::Direct,
 		triggers: vec![Trigger {
+			opening_until: None,
+			scope: None,
 			seq: Seq(1),
 			event: Cursor::new("e1").unwrap(),
 			line: "l1".into(),
@@ -201,6 +205,8 @@ async fn the_last_list_writes_the_outcome_of_a_running_turns_claim() {
 		conversation: ConversationId::new("c1"),
 		kind: Kind::Direct,
 		triggers: vec![Trigger {
+			opening_until: None,
+			scope: None,
 			seq: Seq(1),
 			event: Cursor::new("e1").unwrap(),
 			line: "l1".into(),
@@ -337,6 +343,8 @@ async fn a_restart_mid_delivery_leaves_the_sent_and_replaced_lines_to_their_deli
 			conversation: ConversationId::new("c1"),
 			kind: Kind::Direct,
 			triggers: vec![Trigger {
+				opening_until: None,
+				scope: None,
 				seq: Seq(1),
 				event: Cursor::new("e1").unwrap(),
 				line: "l1".into(),

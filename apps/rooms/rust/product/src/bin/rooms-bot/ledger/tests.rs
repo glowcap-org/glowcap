@@ -12,6 +12,8 @@ fn event(seq: u64) -> Cursor {
 
 fn trigger(seq: u64) -> Trigger {
 	Trigger {
+		opening_until: None,
+		scope: None,
 		seq: Seq(seq),
 		event: event(seq),
 		line: format!("l{seq}"),
@@ -380,6 +382,8 @@ fn widest_trigger(seq: u64) -> Trigger {
 		height: u32::MAX,
 	};
 	Trigger {
+		opening_until: None,
+		scope: None,
 		seq: Seq(u64::MAX - seq),
 		event: Cursor::new(widest(Cursor::MAX_BYTES)).unwrap(),
 		line: widest(MAX_NAME_BYTES),
@@ -396,7 +400,9 @@ fn the_ledger_at_every_bound_stays_under_the_size_it_reads_back() {
 	crate::bot::identity::seed(&store).unwrap();
 	let key = crate::bot::identity::action_key(store.root()).unwrap();
 	let mut ledger = Ledger {
+		private: BTreeMap::new(),
 		notices: 0,
+		scheduled: BTreeMap::new(),
 		cursor: Cursor::new(widest(Cursor::MAX_BYTES)).unwrap(),
 		cursor_seq: Seq(u64::MAX),
 		next_turn: TurnId(u64::MAX),
@@ -415,7 +421,26 @@ fn the_ledger_at_every_bound_stays_under_the_size_it_reads_back() {
 		unsettled: false,
 	};
 	for id in 0..MAX_OPEN as u64 {
-		let triggers = (0..MAX_TRIGGERS as u64).map(widest_trigger).collect();
+		let scope: crate::bot::rooms::Scope = serde_json::from_value(serde_json::json!({
+			"kind":"direct","grant":"f".repeat(64),"target":"e".repeat(64),
+			"conversation":widest(rooms_application::content::session::workspace::MAX_ID_UNITS)
+		}))
+		.unwrap();
+		let triggers = (0..MAX_TRIGGERS as u64)
+			.map(|seq| Trigger {
+				opening_until: Some(u64::MAX),
+				scope: Some(scope.clone()),
+				..widest_trigger(seq)
+			})
+			.collect();
+		ledger.private.insert(
+			TurnId(u64::MAX - id),
+			crate::bot::direct_context::Speech {
+				text: format!("{} [cut]", widest(crate::bot::context::MAX_TEXT_BYTES)),
+				scope,
+				operation: Some(key.mint().unwrap()),
+			},
+		);
 		ledger.rows.insert(
 			TurnId(u64::MAX - id),
 			Phase::Running {
@@ -439,6 +464,7 @@ fn the_ledger_at_every_bound_stays_under_the_size_it_reads_back() {
 			TurnId(id),
 			Phase::Done {
 				covered: Covered {
+					opening_until: Some(u64::MAX),
 					events: vec![Cursor::new(widest(Cursor::MAX_BYTES)).unwrap(); MAX_TRIGGERS],
 					last: Seq(u64::MAX),
 				},
@@ -455,6 +481,7 @@ fn the_ledger_at_every_bound_stays_under_the_size_it_reads_back() {
 		*phase = Phase::Sending {
 			conversation: ConversationId::new(widest(rooms_application::content::session::workspace::MAX_ID_UNITS)),
 			covered: Covered {
+				opening_until: Some(u64::MAX),
 				events: vec![Cursor::new(widest(Cursor::MAX_BYTES)).unwrap(); MAX_TRIGGERS],
 				last: Seq(u64::MAX),
 			},
@@ -563,4 +590,47 @@ fn the_crowd_process_test_names_the_rows_the_ledger_holds() {
 		test.contains(&format!("const ROWS: u64 = {MAX_ROWS};")),
 		"turns.rs names another row count than MAX_ROWS ({MAX_ROWS})"
 	);
+}
+
+#[test]
+fn a_scheduled_occurrence_survives_lost_acknowledgement_and_never_covers_a_message() {
+	let (_scratch, store, mut ledger) = fresh("check-in-admission");
+	let scope: crate::bot::rooms::Scope = serde_json::from_value(serde_json::json!({
+		"grant":"test-grant", "target":"test-route", "kind":"room","conversation":"c1"
+	}))
+	.unwrap();
+	let scheduled = |op: &str| Scheduled {
+		scope: scope.clone(),
+		operation: op.into(),
+		task: "Review progress".into(),
+	};
+	let request = BTreeSet::from(["first".to_owned()]);
+	let first = ledger.begin_scheduled(&store, scheduled("first"), &request).unwrap();
+	assert_eq!(ledger.room_in(first), 0);
+	assert!(!ledger.covers(&event(1)));
+	assert!(Ledger::scheduled_turn_in(store.root(), first, "another").is_err());
+	assert_eq!(
+		Ledger::scheduled_turn_in(store.root(), first, "c1").unwrap(),
+		Some(scope.clone())
+	);
+	let mut ledger = Ledger::load(&store).unwrap().unwrap();
+	assert!(ledger.admitted("first"));
+	assert!(ledger.begin_scheduled(&store, scheduled("first"), &request).is_err());
+	ledger.done(&store, first).unwrap();
+	assert!(ledger.advance(&store, &Cursor::start(), Seq(0)).unwrap());
+	let persisted = std::fs::read_to_string(store.root().join(FILE)).unwrap();
+	assert!(!persisted.contains("Review progress") && !persisted.contains("test-route"));
+	assert!(Ledger::scheduled_turn_in(store.root(), first, "c1").is_err());
+	let mut ledger = Ledger::load(&store).unwrap().unwrap();
+	assert!(ledger.phase(first).is_none() && ledger.admitted("first"));
+	// A later occurrence, after the clock saved the first acknowledgement,
+	// prunes the first dedup record even in a conversation with no traffic.
+	let second = ledger
+		.begin_scheduled(&store, scheduled("second"), &BTreeSet::from(["second".into()]))
+		.unwrap();
+	assert_ne!(first, second);
+	assert!(!ledger.admitted("first"));
+	let incoming = ledger.begin(&store, asked(&[1])).unwrap();
+	assert_eq!(Ledger::scheduled_turn_in(store.root(), incoming, "c1").unwrap(), None);
+	assert_eq!(ledger.cursor_seq(), Seq(0));
 }

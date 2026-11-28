@@ -34,6 +34,16 @@ use crate::{
 };
 use alloc::{boxed::Box, string::String, vec::Vec};
 use core::fmt;
+/// The owner installs a reciprocal route under the delivering inbox slot and
+/// its handoff ordinal. The coordinate compares custody; only the owner can
+/// install the actual reference.
+pub fn reciprocal_key(
+	inbox: custody::FieldKey<custody::DirectInbox>,
+	ordinal: core::num::NonZeroU64,
+) -> custody::FieldKey<custody::DirectAccess> {
+	custody::FieldKey::new(inbox.slot(), ordinal)
+}
+pub const FIRST_RECIPROCAL: core::num::NonZeroU64 = core::num::NonZeroU64::MIN;
 
 /// The most openings a direct row remembers taking. A replay of an opening
 /// older than these lands as a fresh one.

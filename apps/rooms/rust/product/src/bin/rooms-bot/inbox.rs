@@ -10,7 +10,7 @@
 use super::{
 	classify::Trigger,
 	ledger::TurnId,
-	rooms::{ConversationId, Rooms},
+	rooms::Rooms,
 	store::{self, Store},
 };
 use rooms_application::files::{MAX_FILE_BYTES, sources};
@@ -184,8 +184,8 @@ pub async fn fetch<R: Rooms>(
 /// Remove what `fetch` saved for `turn`, inside an inbox of its own
 /// ([`own_inbox`]). A directory left behind is only disk the next start
 /// sweeps, so a failure is logged and not raised.
-pub fn remove(store: &Store, conversation: &ConversationId, turn: TurnId) {
-	let workdir = store::work_dir(store.root(), conversation);
+pub fn remove(store: &Store, stem: &str, turn: TurnId) {
+	let workdir = store::work_dir(store.root(), stem);
 	let path = match own_inbox(&workdir) {
 		Ok(Some(shared)) => shared.join(turn.0.to_string()),
 		Ok(None) => return,
@@ -278,6 +278,7 @@ pub fn sweep(store: &Store, open: &[TurnId]) {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use crate::bot::rooms::ConversationId;
 
 	/// A fetch the session never answers ends with the share of the deadline
 	/// fetches may take, and the files after it are skipped without a fetch.
@@ -304,6 +305,8 @@ mod tests {
 			height: 0,
 		};
 		let trigger = Trigger {
+			opening_until: None,
+			scope: None,
 			seq: Seq(1),
 			event: Cursor::start(),
 			line: "l".into(),
@@ -364,14 +367,14 @@ mod tests {
 		let (linked, kept) = (ConversationId::new("c1"), ConversationId::new("c2"));
 		let elsewhere = scratch.join("elsewhere");
 		std::fs::create_dir_all(elsewhere.join("5")).unwrap();
-		let linked_work = store::work_dir(store.root(), &linked);
+		let linked_work = store::work_dir(store.root(), linked.as_str());
 		std::fs::create_dir_all(&linked_work).unwrap();
 		std::os::unix::fs::symlink(&elsewhere, linked_work.join(DIRECTORY)).unwrap();
-		let own = store::work_dir(store.root(), &kept).join(DIRECTORY);
+		let own = store::work_dir(store.root(), kept.as_str()).join(DIRECTORY);
 		std::fs::create_dir_all(own.join("7")).unwrap();
 		std::fs::create_dir_all(own.join("8")).unwrap();
 		sweep(&store, &[TurnId(8)]);
-		remove(&store, &linked, TurnId(5));
+		remove(&store, linked.as_str(), TurnId(5));
 		assert!(
 			elsewhere.join("5").is_dir(),
 			"a linked inbox was swept or removed through"

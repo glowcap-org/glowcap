@@ -223,6 +223,21 @@ pub(super) fn seat(
 				state.apply_rooms(effects);
 				Ok(Argument::Void)
 			}
+			rooms_application::protocol_data::ROOM_MEMBERS if args.is_empty() => {
+				state.admit_work(connection, rooms_application::admission::Class::Read, 1)?;
+				let members = state.rooms.room_members(&room, membership).map_err(refusal)?;
+				Ok(Argument::List(
+					members
+						.map(|member| {
+							Argument::List(vec![
+								member.name.into(),
+								member.member_kind.as_str().into(),
+								member.about.into(),
+							])
+						})
+						.collect(),
+				))
+			}
 			HISTORY => {
 				if !args.is_empty() {
 					return Err("history takes no arguments".into());

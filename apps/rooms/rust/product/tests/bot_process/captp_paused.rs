@@ -5,11 +5,11 @@
 //! reads unknown. The bot gives it back, the session retires the paused
 //! executor with the receipt, and the receipt's place is free again. Each
 //! proof serves the bot on the collaborator access an operator issues.
-use super::captp::{FRIEND, World};
+use super::captp::{BOT, FRIEND, World};
 use super::captp_crashes::answered;
 use super::captp_direct::{say, turn};
 use super::rig::{Bot, eventually};
-use super::session_rig::{free_places, run_within};
+use super::session_rig::{call, direct_message, free_places, run_within, wait_for_return_route};
 use super::words;
 use glowcap::PendingWork;
 use rooms_application::content::session::custody::MAX_EFFECTS;
@@ -136,6 +136,23 @@ fn paused_open(label: &str, bot_fault: Option<&str>) -> String {
 	seen
 }
 
+/// The crash must interrupt a post on an installed return route. Opening the
+/// DM and sending its first message can both finish before the bot can reply.
+fn prepare_private_reply(world: &World) {
+	let peer = &world.fixture.peers[0].state;
+	let text = "Open the private conversation.";
+	world.dm(text);
+	direct_message(peer, text);
+	let status = call(world.friend(), "status", json!({}));
+	let direct = status["workspace"]["conversations"]
+		.as_array()
+		.unwrap()
+		.iter()
+		.find(|row| row["kind"] == "direct" && row["peer"] == BOT && row["closed"] == false)
+		.expect("the sender holds the opening of its DM with the bot");
+	wait_for_return_route(peer, direct["introduction"]["opening"].as_str().unwrap());
+}
+
 /// A line the first access sent, whose executor the session pauses, is
 /// finished by the second access's echo check and recorded as replaced.
 /// When the first link returns, its access gives the receipt back and the
@@ -150,10 +167,12 @@ fn a_replaced_line_whose_executor_is_paused_is_given_back_and_its_record_goes() 
 		let second = grants.issue("the second", &terms).await.unwrap();
 		issuer.close(PendingWork::Cancel).await.unwrap();
 		world.restart_in_room(LINE);
+		prepare_private_reply(&world);
 		let (issuer, grants, _) = world.issuer().await;
 		let mut bot = world.rig.serve_linked_at(&first.link, json!({}), Some("after-send"));
 		world.dm(&format!("reply:{text}"));
 		assert!(!bot.process.wait().success(), "the bot was not killed after its send");
+		world.await_line("direct", text);
 		grants.pause(&first.name).await.unwrap();
 		let bot = world.rig.serve_replacing(&second.link);
 		answered(&world, text);
@@ -194,10 +213,12 @@ fn a_revoked_accesss_paused_line_is_settled_by_its_echo_alone() {
 		let second = grants.issue("the second", &terms).await.unwrap();
 		issuer.close(PendingWork::Cancel).await.unwrap();
 		world.restart_in_room(LINE);
+		prepare_private_reply(&world);
 		let (issuer, grants, _) = world.issuer().await;
 		let mut bot = world.rig.serve_linked_at(&first.link, json!({}), Some("after-send"));
 		world.dm(&format!("reply:{text}"));
 		assert!(!bot.process.wait().success(), "the bot was not killed after its send");
+		world.await_line("direct", text);
 		grants.revoke(&first.name).await.unwrap();
 		let bot = world.rig.serve_replacing(&second.link);
 		answered(&world, text);

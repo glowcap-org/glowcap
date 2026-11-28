@@ -69,6 +69,9 @@ pub use replaced::settle as settle_replaced;
 use tokio::sync::watch;
 
 pub async fn run<R: Rooms>(env: &Core<'_, R>, id: TurnId, stop: &mut watch::Receiver<bool>) -> Result<Step, Error> {
+	if let Some(step) = super::private::notice(env, id, stop).await? {
+		return Ok(step);
+	}
 	drive(env, id, stop, Mode::Deliver).await
 }
 
@@ -192,8 +195,19 @@ async fn step<R: Rooms>(env: &Core<'_, R>, id: TurnId, tries: &mut Tries) -> Res
 	}
 	match attempt {
 		Attempt::Unsent => {
-			let base = match within(SEND_DEADLINE, env.rooms.base()).await {
-				Ok(base) => base,
+			let scope = env.ledger.borrow().scope(id).cloned();
+			let checked = match scope {
+				Some(scope) => super::checkins::base(env, &scope).await,
+				None => within(SEND_DEADLINE, env.rooms.base()).await.map(Some),
+			};
+			let base = match checked {
+				Ok(Some(base)) => base,
+				Ok(None) => {
+					env.store
+						.log(&format!("turn {} closed before posting to a changed destination", id.0));
+					finish(env, id, &conversation)?;
+					return Ok(Next::Finished);
+				}
 				Err(error) => return turn.failed(&error, tries),
 			};
 			let after = env.ledger.borrow().cursor().clone();
@@ -218,6 +232,14 @@ async fn step<R: Rooms>(env: &Core<'_, R>, id: TurnId, tries: &mut Tries) -> Res
 		}
 		Attempt::Sent { base, after, looks, .. } => {
 			let (answer, call) = if let Some(call) = tries.again.take() {
+				let scope = env.ledger.borrow().scope(id).cloned();
+				if let Some(scope) = scope {
+					match super::checkins::base(env, &scope).await {
+						Ok(Some(_)) => {}
+						Ok(None) => return turn.give_up(base),
+						Err(error) => return turn.failed(&error, tries),
+					}
+				}
 				let answer = within(SEND_DEADLINE, env.rooms.send(&line, base)).await;
 				fault::hit(Kill::AfterSend);
 				(answer, call)
@@ -603,7 +625,7 @@ impl<R: Rooms> Delivery<'_, '_, R> {
 		tries.ended();
 		match self.content {
 			Content::Answer => {
-				let part = failure_part(self.env.store, reason)?;
+				let part = failure_part(self.env, self.id, reason)?;
 				self.env.ledger.borrow_mut().fail_rest(self.env.store, self.id, part)?;
 				Ok(Next::Now)
 			}
@@ -619,7 +641,8 @@ impl<R: Rooms> Delivery<'_, '_, R> {
 
 /// Close the turn in the ledger and remove the files it saved.
 fn finish<R: Rooms>(env: &Core<'_, R>, id: TurnId, conversation: &ConversationId) -> Result<(), Error> {
+	let stem = crate::bot::store::data_stem(conversation, env.ledger.borrow().scope(id));
 	env.ledger.borrow_mut().done(env.store, id)?;
-	inbox::remove(env.store, conversation, id);
+	inbox::remove(env.store, &stem, id);
 	Ok(())
 }

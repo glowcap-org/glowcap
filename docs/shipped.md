@@ -271,6 +271,7 @@ A Rooms bot can join a listed room on request. Its operator can enable unattende
 - The [Rooms application](../apps/rooms/) runs browser and terminal peers with durable sessions stored through Loam ([session guide](rooms/session.md)). Members join rooms
   and exchange direct messages and files over WebRTC, the Noise-sealed relay, iroh, and TCP. A session process started with
   `--dial-transports=webrtc` and a WebRTC member reach each other directly, signaling through a room they share.
+  Bots can post reminders and schedule a later agent turn in the same conversation.
   Directories can list each other's rooms, IRC works in both directions, and
   operator capabilities can be revoked.
 

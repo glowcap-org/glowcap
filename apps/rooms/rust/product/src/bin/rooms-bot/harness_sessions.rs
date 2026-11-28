@@ -8,10 +8,17 @@ const FILE: &str = "sessions.json";
 /// The largest session map the bot writes or reads: every harness's session
 /// for every kept conversation, at the widest conversation ids and session
 /// ids. A test fills every bound to prove it.
-const MAX_STORE_BYTES: usize = 8 * 1024 * 1024;
+const MAX_STORE_BYTES: usize = 16 * 1024 * 1024;
+
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+#[serde(untagged)]
+enum Saved {
+	Id(String),
+	Private { id: String, scope: super::rooms::Scope },
+}
 
 #[derive(Clone, Default)]
-pub struct HarnessSessions(BTreeMap<String, BTreeMap<ConversationId, String>>);
+pub struct HarnessSessions(BTreeMap<String, BTreeMap<ConversationId, Saved>>);
 
 impl HarnessSessions {
 	pub fn load(store: &Store) -> Result<Self, Error> {
@@ -19,7 +26,16 @@ impl HarnessSessions {
 	}
 
 	pub fn get(&self, harness: &str, conversation: &ConversationId) -> Option<&str> {
-		self.0.get(harness)?.get(conversation).map(String::as_str)
+		Some(match self.0.get(harness)?.get(conversation)? {
+			Saved::Id(id) | Saved::Private { id, .. } => id,
+		})
+	}
+
+	pub fn scope(&self, harness: &str, conversation: &ConversationId) -> Option<&super::rooms::Scope> {
+		match self.0.get(harness)?.get(conversation)? {
+			Saved::Private { scope, .. } => Some(scope),
+			Saved::Id(_) => None,
+		}
 	}
 
 	/// Write the changed map, and keep it only once the write succeeds. A map
@@ -35,6 +51,7 @@ impl HarnessSessions {
 	}
 
 	/// Remember the session a turn ended with.
+	#[cfg(test)]
 	pub fn remember(
 		&mut self,
 		store: &Store,
@@ -42,14 +59,31 @@ impl HarnessSessions {
 		conversation: &ConversationId,
 		session: &str,
 	) -> Result<(), Error> {
-		if self.get(harness, conversation) == Some(session) {
+		self.remember_scoped(store, harness, conversation, session, None)
+	}
+
+	pub fn remember_scoped(
+		&mut self,
+		store: &Store,
+		harness: &str,
+		conversation: &ConversationId,
+		session: &str,
+		scope: Option<&super::rooms::Scope>,
+	) -> Result<(), Error> {
+		if self.get(harness, conversation) == Some(session) && self.scope(harness, conversation) == scope {
 			return Ok(());
 		}
 		self.commit(store, |next| {
-			next.0
-				.entry(harness.to_owned())
-				.or_default()
-				.insert(conversation.clone(), session.to_owned());
+			next.0.entry(harness.to_owned()).or_default().insert(
+				conversation.clone(),
+				match scope {
+					Some(scope) => Saved::Private {
+						id: session.into(),
+						scope: scope.clone(),
+					},
+					None => Saved::Id(session.into()),
+				},
+			);
 		})
 	}
 
@@ -68,7 +102,7 @@ impl HarnessSessions {
 	/// Forget every harness's session of each conversation in `gone`.
 	pub fn forget_all(&mut self, store: &Store, gone: &[ConversationId]) -> Result<(), Error> {
 		let holds =
-			|map: &BTreeMap<ConversationId, String>| gone.iter().any(|conversation| map.contains_key(conversation));
+			|map: &BTreeMap<ConversationId, Saved>| gone.iter().any(|conversation| map.contains_key(conversation));
 		if !self.0.values().any(holds) {
 			return Ok(());
 		}
@@ -113,7 +147,7 @@ mod tests {
 			.0
 			.entry("claude".into())
 			.or_default()
-			.insert(ConversationId::new("c1"), "s".repeat(MAX_STORE_BYTES));
+			.insert(ConversationId::new("c1"), Saved::Id("s".repeat(MAX_STORE_BYTES)));
 		let result = sessions.remember(&store, "claude", &ConversationId::new("c2"), "s");
 		assert!(matches!(
 			result,
@@ -131,8 +165,15 @@ mod tests {
 			for n in 0..crate::bot::conversations::MAX_CONVERSATIONS {
 				let id = format!("{n:04}{}", "\u{1}".repeat(MAX_ID_UNITS - 4));
 				map.insert(
-					ConversationId::new(id),
-					"\"".repeat(crate::bot::runner::MAX_SESSION_ID_BYTES),
+					ConversationId::new(id.clone()),
+					Saved::Private {
+						id: "\"".repeat(crate::bot::runner::MAX_SESSION_ID_BYTES),
+						scope: serde_json::from_value(serde_json::json!({
+							"kind": "direct", "grant": "0".repeat(64),
+							"conversation": id, "target":"f".repeat(64),
+						}))
+						.unwrap(),
+					},
 				);
 			}
 		}

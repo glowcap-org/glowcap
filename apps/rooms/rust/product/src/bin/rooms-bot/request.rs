@@ -26,12 +26,12 @@ impl Request {
 		}
 		let request: Self =
 			serde_json::from_str(body).map_err(|error| Error::Usage(format!("unreadable request: {error}")))?;
-		// A verb a harness runs takes its bot from the turn, and every other
-		// verb names its bot directory.
-		let turn_verb = super::act::Verb::named(&request.verb).is_some();
-		match (request.state.as_os_str().is_empty(), turn_verb) {
-			(true, false) => return Err(Error::Usage("--dir is required".into())),
-			(false, true) => {
+		// A turn supplies its own bot directory. Schedule controls also run
+		// outside a turn, where the operator must name a directory.
+		let verb = super::act::Verb::named(&request.verb);
+		match (request.state.as_os_str().is_empty(), verb) {
+			(true, None) => return Err(Error::Usage("--dir is required".into())),
+			(false, Some(verb)) if !verb.operator_schedule_control() => {
 				return Err(Error::Usage(format!(
 					"{} takes its bot directory from the turn and no --dir",
 					request.verb

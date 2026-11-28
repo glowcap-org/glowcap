@@ -458,7 +458,7 @@ fn open_checked<P: Tasks + Deadline + Clone + 'static>(
 			installed: reference.clone(),
 			live: Rc::downgrade(&live),
 			recording: RefCell::new(None),
-			next_route: Cell::new(1),
+			next_route: Cell::new(rooms_application::content::session::workspace::FIRST_RECIPROCAL.get() as i64),
 		})),
 	};
 	let retained_origin = origin.clone();

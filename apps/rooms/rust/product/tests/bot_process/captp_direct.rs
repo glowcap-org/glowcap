@@ -14,6 +14,188 @@ use rooms_application::content::session::custody::MAX_EFFECTS;
 use serde_json::{Value, json};
 use std::time::Duration;
 
+fn prompt_work(world: &World, last: &str) -> std::path::PathBuf {
+	eventually("the exact incoming turn's working directory", || {
+		std::fs::read_dir(world.rig.dir.join("work"))
+			.ok()?
+			.flatten()
+			.map(|entry| entry.path())
+			.find(|path| {
+				std::fs::read_to_string(path.join("prompt.txt")).is_ok_and(|text| {
+					text.lines()
+						.rev()
+						.find_map(|line| serde_json::from_str::<Value>(line).ok())
+						.is_some_and(|row| row["text"] == last)
+				})
+			})
+	})
+}
+
+/// The follow-up is deliberately only an ordinal. Its answer must come from
+/// the earlier private question, across restart, and never from room history.
+#[test]
+fn a_private_answer_recovers_the_bots_confirmed_question_after_restart() {
+	let world = World::new("bot-private-followup");
+	let bot = world.serve_at(Some("view:post-lost"));
+	world.room("ROOM-ONLY should never appear in the private turn");
+	assert_eq!(
+		turn(&world, &[say(FRIEND, "Would you prefer amber or cobalt?")]),
+		"exit=0"
+	);
+	assert_eq!(output(&world, 0)["looked"], true, "the verb lost its post answer");
+	world.await_line("direct", "Would you prefer amber or cobalt?");
+	world.stopped(bot);
+	let bot = world.serve();
+	world.dm_again("the second");
+	world.await_line("direct", "cobalt");
+	let prompt = std::fs::read_to_string(prompt_work(&world, "the second").join("prompt.txt")).unwrap();
+	assert!(
+		prompt.contains(r#""speaker":"you""#) && prompt.contains("amber or cobalt?"),
+		"{prompt}"
+	);
+	assert!(!prompt.contains("ROOM-ONLY") && !prompt.contains("act:"), "{prompt}");
+	world.stopped(bot);
+	assert_eq!(world.count("direct", "cobalt"), 1);
+	assert_eq!(world.count("room", "cobalt"), 0);
+}
+
+#[test]
+fn a_replaced_grant_does_not_resume_the_provider_or_read_the_private_question() {
+	let world = World::new("bot-followup-rotate");
+	run_within(Duration::from_secs(60), async {
+		let (issuer, grants, terms) = world.issuer().await;
+		let first = grants.issue("first", &terms).await.unwrap();
+		let second = grants.issue("second", &terms).await.unwrap();
+		let bot = world.rig.serve_linked(&first.link, json!({}));
+		world.dm("reply:private conversation already started");
+		world.await_line("direct", "private conversation already started");
+		assert_eq!(turn(&world, &[say(FRIEND, "Would you prefer rust or zig?")]), "exit=0");
+		let conversation = output(&world, 0)["conversation"].as_str().unwrap().to_owned();
+		world.dm_again("the second");
+		world.await_line("direct", "zig");
+		assert!(
+			std::fs::read_to_string(prompt_work(&world, "the second").join("settings.txt"))
+				.unwrap()
+				.contains("--resume")
+		);
+		assert_eq!(turn(&world, &[say(FRIEND, "Would you prefer lime or mint?")]), "exit=0");
+		world.stopped(bot);
+		let saved: Value =
+			serde_json::from_slice(&std::fs::read(world.rig.dir.join("sessions.json")).unwrap()).unwrap();
+		assert!(
+			saved["fake"][&conversation]["id"]
+				.as_str()
+				.is_some_and(|id| id.starts_with("fa4e0000-"))
+		);
+		assert_eq!(saved["fake"][&conversation]["scope"]["conversation"], conversation);
+		let bot = world.rig.serve_replacing(&second.link);
+		let reply = call(
+			world.friend(),
+			"reply",
+			json!({"conversation":[world.direct()],"text":["the second again"]}),
+		);
+		assert_eq!(reply["status"], "committed");
+		world.await_line("direct", "no prior private choice");
+		let work = prompt_work(&world, "the second again");
+		let prompt = std::fs::read_to_string(work.join("prompt.txt")).unwrap();
+		assert!(!prompt.contains("lime or mint?") && !prompt.contains("rust or zig?"));
+		assert!(
+			!std::fs::read_to_string(work.join("settings.txt"))
+				.unwrap()
+				.contains("--resume")
+		);
+		world.stopped(bot);
+		grants.revoke(&first.name).await.unwrap();
+		issuer.close(glowcap::PendingWork::Cancel).await.unwrap();
+	});
+}
+
+/// Retiring an original route while the provider is running cannot send its
+/// output or run a deferred action against the replacement with the same id.
+#[test]
+fn ordinary_private_work_and_a_running_answer_stay_with_their_original_opening() {
+	let world = World::new("bot-private-same-id");
+	let bot = world.serve();
+	let session = &world.fixture.peers[0].state;
+	let open_id = || {
+		let status = call(session, "status", json!({}));
+		status["workspace"]["conversations"]
+			.as_array()
+			.unwrap()
+			.iter()
+			.find(|row| row["kind"] == "direct" && row["closed"] == false)
+			.unwrap()["id"]
+			.as_str()
+			.unwrap()
+			.to_owned()
+	};
+	// Posted by the session owner, without any cross-conversation bot action.
+	call(session, "reply", json!({"dm":[FRIEND],"text":["hello"]}));
+	world.await_line("direct", "hello");
+	let conversation = open_id();
+	let legacy = world.rig.dir.join("work").join(&conversation);
+	std::fs::create_dir_all(&legacy).unwrap();
+	std::fs::write(legacy.join("operator-note.txt"), "legacy operator file").unwrap();
+	world.dm_again("reply:ordinary private first");
+	world.await_line("direct", "ordinary private first");
+	let work = prompt_work(&world, "reply:ordinary private first");
+	std::fs::write(work.join("private-customer-note.txt"), "first opening only").unwrap();
+	let adapter = world.rig.dir.join("harness/fake").join(work.file_name().unwrap());
+	std::fs::create_dir_all(&adapter).unwrap();
+	std::fs::write(adapter.join("previous-provider.txt"), "first opening only").unwrap();
+	let action_text = format!(
+		"act:{}",
+		json!([{"after":"continue"},action("say",json!({"text":["late private action"]}),&[])])
+	);
+	world.dm_again(&action_text);
+	prompt_work(&world, &action_text);
+
+	assert_eq!(
+		turn(&world, &[action("command", json!({}), &["closeDirect", &conversation])]),
+		"exit=0"
+	);
+	call(session, "reply", json!({"dm":[FRIEND],"text":["new route"]}));
+	assert_eq!(open_id(), conversation);
+	world.await_line("direct", "new route");
+	std::fs::write(work.join("continue"), "").unwrap();
+	eventually("the protected verb to refuse its obsolete route", || {
+		std::fs::read_to_string(work.join("act-1.out"))
+			.ok()
+			.filter(|s| s.contains(r#""ok":false"#))
+	});
+	world.dm_again("the second");
+	world.await_line("direct", "no prior private choice");
+	let next = prompt_work(&world, "the second");
+	assert!(
+		!std::fs::read_to_string(next.join("settings.txt"))
+			.unwrap()
+			.contains("--resume")
+	);
+	assert!(!next.join("private-customer-note.txt").exists());
+	let new_adapter = world.rig.dir.join("harness/fake").join(next.file_name().unwrap());
+	assert_ne!(work, next);
+	assert!(!new_adapter.join("previous-provider.txt").exists());
+	assert!(work.join("private-customer-note.txt").exists());
+	assert!(legacy.join("operator-note.txt").exists());
+	assert!(!next.join("operator-note.txt").exists());
+	for directory in ["context", "addressed-context"] {
+		let ring = world
+			.rig
+			.dir
+			.join(directory)
+			.join(format!("{}.json", next.file_name().unwrap().to_string_lossy()));
+		assert!(
+			!std::fs::read_to_string(ring)
+				.unwrap_or_default()
+				.contains("ordinary private first")
+		);
+	}
+	world.stopped(bot);
+	assert_eq!(world.count("direct", "late private action"), 0);
+	assert_eq!(world.count("direct", "exit=1"), 0);
+	world.finish();
+}
+
 /// The other member addresses the bot in the room with one turn of actions,
 /// and the bot's reply there, one exit per action, once it arrives.
 pub(super) fn turn(world: &World, actions: &[Value]) -> String {
@@ -44,7 +226,7 @@ pub(super) fn output(world: &World, at: usize) -> Value {
 }
 
 /// Remove the outputs earlier turns left, so the next turn's are the only ones.
-fn clear_outputs(world: &World) {
+pub(super) fn clear_outputs(world: &World) {
 	let work = match std::fs::read_dir(world.rig.dir.join("work")) {
 		Ok(work) => work,
 		// No turn has run yet, so nothing is left over.

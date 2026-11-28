@@ -303,6 +303,44 @@ fn a_refused_or_unconfirmable_notice_never_claims_a_post_or_starts_another_turn(
 	}
 }
 
+/// The interactive request to schedule the work and its later paid turn
+/// consume the same two slots. A refusal for the following DM stays in that
+/// DM and starts no third turn, even across the restart between the two.
+#[test]
+fn a_scheduled_turn_and_a_message_share_the_conversations_paid_allowance() {
+	use super::captp::{World, action};
+	let world = World::new("bot-scheduled-allowance");
+	let bot = world
+		.rig
+		.serve_linked(&world.fixture.peers[0].link, json!({"conversation-limit": ["2"]}));
+	let task = action(
+		"schedule",
+		json!({"id": ["once"], "in": ["4s"], "task": ["reply:scheduled result"]}),
+		&[],
+	);
+	world.dm(&format!("act:{}", json!([task])));
+	world.await_line("direct", "exit=0");
+	world.stopped(bot);
+	let bot = world.serve();
+	world.await_line("direct", "[Check-in] scheduled result");
+	world.dm("reply:over the shared limit");
+	eventually("the conversation to receive the hourly refusal", || {
+		world
+			.seen()
+			.iter()
+			.any(|line| line.kind == "direct" && line.text.contains("Please ask me again at or after"))
+			.then_some(())
+	});
+	eventually("the two paid turns to settle", || {
+		let status = world.rig.status();
+		(status["status"]["turns_finished"] == 2 && status["status"]["open_turns"] == 0).then_some(())
+	});
+	world.stopped(bot);
+	assert_eq!(world.count("direct", "[Check-in] scheduled result"), 1);
+	assert_eq!(world.count("direct", "over the shared limit"), 0);
+	world.finish();
+}
+
 #[test]
 fn the_operators_instructions_are_read_for_every_turn() {
 	let rig = Rig::new("bot-instructions");

@@ -31,6 +31,8 @@ macro_rules! points {
 }
 
 points! {
+	/// The original first return capability arrives but the owner has not yet installed it.
+	HoldReciprocalRoute = "hold-reciprocal-route",
 	/// The session process ends after saving the issue's place, before issuing.
 	AfterIssueReservation = "after-issue-reservation",
 	/// The session process ends between issuing an access and saving its
@@ -139,4 +141,17 @@ pub(crate) fn settles_late(reply: Reply) -> bool {
 /// armed.
 pub(crate) fn holds_settled_retirement() -> bool {
 	armed() == Some(SessionFault::LateLineSettlementsHeld)
+}
+
+/// The process proof releases this single receiver's handoff independently
+/// of its other conversations and the bot attached to the session.
+#[cfg(feature = "test-support")]
+pub(crate) async fn hold_reciprocal(platform: &impl rooms_glowcap::client::Deadline) {
+	if armed() == Some(SessionFault::HoldReciprocalRoute)
+		&& let Some(path) = std::env::var_os("GLOWCAP_ROOMS_TEST_ROUTE_LATCH")
+	{
+		while std::path::Path::new(&path).exists() {
+			platform.within(20, std::future::pending::<()>()).await;
+		}
+	}
 }

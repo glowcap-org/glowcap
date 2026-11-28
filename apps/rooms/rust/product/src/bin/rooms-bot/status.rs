@@ -247,7 +247,7 @@ pub fn report(dir: &Path, availability: bool) -> Result<Value, Error> {
 		None => (true, published(&directory)?),
 	};
 	Ok(
-		json!({"ok": true, "configured": agent.is_some(), "agent": agent, "running": running, "status": status, "home": home, "availability": availability}),
+		json!({"ok": true, "configured": agent.is_some(), "agent": agent, "running": running, "status": status, "home": home, "availability":availability,"reminders":super::reminders::status(&directory).unwrap_or_else(|_|json!({"error": "the reminder table could not be read"}))}),
 	)
 }
 

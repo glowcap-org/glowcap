@@ -187,6 +187,16 @@ test "Rooms bot and access commands hand their flags and arguments to the privat
         defer gpa.free(last.?);
         try std.testing.expectEqualStrings(verb, parsed.value.object.get("verb").?.string);
     }
+    for ([_][]const []const u8{
+        &.{ "reminders", "--dir", "/b", "--conversation", "room-one" },
+        &.{ "cancel-reminder", "--dir", "/b", "--conversation", "room-one", "--id", "review" },
+    }) |args| {
+        const parsed = try handed(gpa, &bot_root, &ctx, args);
+        defer parsed.deinit();
+        defer gpa.free(last.?);
+        try std.testing.expectEqualStrings("/b", parsed.value.object.get("state").?.string);
+        try std.testing.expectEqualStrings("room-one", parsed.value.object.get("named").?.object.get("conversation").?.array.items[0].string);
+    }
     {
         const parsed = try handed(gpa, &bot_root, &ctx, &.{ "say", "--text", "-" });
         defer parsed.deinit();
@@ -254,6 +264,11 @@ test "Rooms bot rows offer exactly the flags rooms-bot reads" {
         .{ .verb = "command", .flags = &.{ "operation", "base" }, .positionals = 1 },
         .{ .verb = "workspace", .flags = &.{}, .positionals = 0 },
         .{ .verb = "join", .flags = &.{"room"}, .positionals = 0 },
+        .{ .verb = "members", .flags = &.{}, .positionals = 0 },
+        .{ .verb = "remind", .flags = &.{ "id", "in", "at", "every", "count", "text" }, .positionals = 0 },
+        .{ .verb = "schedule", .flags = &.{ "id", "in", "at", "every", "count", "task" }, .positionals = 0 },
+        .{ .verb = "reminders", .flags = &.{ "dir", "conversation" }, .positionals = 0 },
+        .{ .verb = "cancel-reminder", .flags = &.{ "dir", "conversation", "id" }, .positionals = 0 },
         .{ .verb = "actions", .flags = &.{}, .positionals = 0 },
     };
     try std.testing.expectEqual(expected.len, cli.rooms_bot.commands.len);

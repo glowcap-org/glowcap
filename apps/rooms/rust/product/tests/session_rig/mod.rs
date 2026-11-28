@@ -199,14 +199,17 @@ pub struct Peer {
 
 impl Peer {
 	fn launch(arguments: &[String]) -> (Process, String) {
-		Self::launch_with(arguments, None)
+		Self::launch_with(arguments, None, None)
 	}
 
-	fn launch_with(arguments: &[String], fault: Option<&str>) -> (Process, String) {
+	fn launch_with(arguments: &[String], fault: Option<&str>, state: Option<&Path>) -> (Process, String) {
 		let mut command = match fault {
 			Some(point) => {
 				let mut command = built_command();
 				command.env("GLOWCAP_ROOMS_SESSION_FAULT", point);
+				if point == "hold-reciprocal-route" {
+					command.env("GLOWCAP_ROOMS_TEST_ROUTE_LATCH", state.unwrap().join("hold-route"));
+				}
 				command
 			}
 			None => command(),
@@ -230,7 +233,7 @@ impl Peer {
 
 	/// Start a peer whose process has ended again on the same state.
 	pub fn relaunch(&mut self, fault: Option<&str>) {
-		let (process, link) = Self::launch_with(&self.arguments, fault);
+		let (process, link) = Self::launch_with(&self.arguments, fault, Some(&self.state));
 		self.process = process;
 		assert_same_secret(&link, &self.link, "the restarted session announced a new link");
 	}

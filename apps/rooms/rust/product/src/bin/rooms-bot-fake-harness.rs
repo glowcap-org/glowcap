@@ -122,13 +122,15 @@ fn json_line(key: &str, value: &str) -> String {
 /// The last directive in the prompt's line texts, as its key and the rest.
 fn directive(prompt: &str) -> Option<(&'static str, String)> {
 	prompt.lines().rev().find_map(|line| {
-		let text = serde_json::from_str::<Value>(line)
-			.ok()?
-			.get("text")?
-			.as_str()?
-			.to_owned();
-		KEYS.iter()
-			.find_map(|key| text.split_once(key).map(|(_, rest)| (*key, rest.to_owned())))
+		let message = serde_json::from_str::<Value>(line).ok()?;
+		let text = message.get("task").or_else(|| message.get("text"))?.as_str()?;
+		// An act request can contain another directive as a scheduled task.
+		// Interpret the outer command first.
+		let (start, key) = KEYS
+			.iter()
+			.filter_map(|&key| text.find(key).map(|at| (at, key)))
+			.min_by_key(|(at, _)| *at)?;
+		Some((key, text.get(start + key.len()..)?.to_owned()))
 	})
 }
 
@@ -347,6 +349,27 @@ fn main() {
 	emit(&json_line("session", &session));
 	emit(&json_line("activity", "thinking"));
 	emit(&json_line("text", "working"));
+	// A private follow-up proof asks for the second of two choices from the
+	// bot's own prior speech. Derive the answer from the actual model input.
+	if prompt
+		.lines()
+		.rev()
+		.find_map(|line| serde_json::from_str::<Value>(line).ok())
+		.is_some_and(|last| matches!(last["text"].as_str(), Some("the second" | "the second again")))
+	{
+		let choices = prompt
+			.lines()
+			.filter_map(|line| serde_json::from_str::<Value>(line).ok())
+			.find(|row| row["speaker"] == "you");
+		let answer = choices
+			.as_ref()
+			.and_then(|row| row["text"].as_str())
+			.and_then(|question| question.strip_suffix('?'))
+			.and_then(|question| question.rsplit_once(" or "))
+			.map_or("no prior private choice", |(_, second)| second);
+		emit(&json_line("final", answer));
+		return;
+	}
 	let marker = |name: &str| std::path::Path::new(name).exists();
 	let mark = |name: &str| {
 		if let Err(error) = std::fs::write(name, "") {

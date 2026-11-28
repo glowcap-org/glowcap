@@ -61,7 +61,46 @@ fn ended(line: &Value) -> Vec<Signal> {
 	}
 }
 
+impl super::ScheduledHarness for Pi {
+	fn scheduled_invocation(&self, turn: &Turn<'_>) -> Invocation {
+		let mut args: Vec<OsString> = [
+			"--mode",
+			"json",
+			"-p",
+			"--no-session",
+			"--no-tools",
+			"--exclude-tools",
+			"*",
+			"--no-extensions",
+			"--no-mcp",
+			"--no-skills",
+			"--no-prompt-templates",
+			"--no-context-files",
+			"--no-themes",
+			"--no-approve",
+			"--system-prompt",
+			turn.system,
+		]
+		.map(OsString::from)
+		.into();
+		if let Some(model) = turn.model {
+			args.extend(["--model".into(), model.into()]);
+		}
+		Invocation {
+			program: self.program(),
+			args,
+			env: vec![],
+			stdin: Some(turn.prompt.into()),
+			prepare: vec![],
+			resume: None,
+		}
+	}
+}
+
 impl Harness for Pi {
+	fn scheduled(&self) -> Option<&dyn super::ScheduledHarness> {
+		Some(self)
+	}
 	fn name(&self) -> &'static str {
 		"pi"
 	}

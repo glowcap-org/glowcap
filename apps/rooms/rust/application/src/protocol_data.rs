@@ -49,6 +49,7 @@ pub const AWAY: &str = "away";
 pub const PROFILE: &str = "profile";
 pub const PROFILES: &str = "profiles";
 pub const SET_PROFILE: &str = "setProfile";
+pub const ROOM_MEMBERS: &str = "roomMembers";
 pub const KICK: &str = "kick";
 pub const GOVERNS: &str = "governs";
 pub const MANAGED_ROOM_IDENTITY: &str = "managedRoomIdentity";

@@ -12,6 +12,8 @@ fn queued(seq: u64) -> Queued {
 	Queued {
 		kind: Kind::Direct,
 		trigger: Trigger {
+			opening_until: None,
+			scope: None,
 			seq: Seq(seq),
 			event: Cursor::new(format!("e{seq}")).unwrap(),
 			line: format!("l{seq}"),

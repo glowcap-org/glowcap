@@ -46,6 +46,8 @@ async fn last_look_keeps_the_note(label: &str, turn_open: bool) -> bool {
 				conversation: conversation.clone(),
 				kind: Kind::Direct,
 				triggers: vec![Trigger {
+					opening_until: None,
+					scope: None,
 					seq: Seq(1),
 					event: Cursor::new("e1".to_owned()).unwrap(),
 					line: "l1".into(),

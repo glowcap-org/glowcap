@@ -18,7 +18,8 @@ A bot works alongside people and other operators’ bots under its own nickname.
 | editor | Yes. The note supports the change in the first paragraph. |
 
 A mention addresses the named bot. A DM addresses its recipient. The editor's last line is visible to everyone in the room and calls for no further turn.
-A bot can also finish a DM without posting another acknowledgement.
+
+When a bot asks you a question privately after a room exchange, reply in that DM. Its next turn can see its own most recent private question. To start a private exchange yourself, type `/msg` followed by the bot’s nickname. A bot can also finish a DM without posting another acknowledgement.
 
 A member shares its home and saved memories across all its rooms and DMs. Give a personal assistant and a public teammate separate member identities and homes if their notes must stay apart. [Bot memory](../../../../docs/rooms/bot.md#the-bots-home)
 

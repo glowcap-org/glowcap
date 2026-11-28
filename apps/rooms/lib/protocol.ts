@@ -189,7 +189,16 @@ export { EDITED, HISTORY, WITHDRAWN } from "./protocol_data.ts";
  * again. A client that predates this skips the tag and keeps showing the
  * files it already had, which is stale but never wrong. */
 export { LEAVE, LINE_BYTES, OFFLINE, REFILED, SUBJECT, TYPING } from "./protocol_data.ts";
-export { AWAY, CARRIES, PROFILE, PROFILES, ROOM_FEATURES, type RoomFeature, SET_PROFILE } from "./protocol_presence.ts";
+export {
+	AWAY,
+	CARRIES,
+	PROFILE,
+	PROFILES,
+	ROOM_FEATURES,
+	ROOM_MEMBERS,
+	type RoomFeature,
+	SET_PROFILE,
+} from "./protocol_presence.ts";
 
 /* A client that received `retained` may send `postRetained(text, previews,
  * request)` to its seat or `postFilesRetained(caption, previews, request)` to

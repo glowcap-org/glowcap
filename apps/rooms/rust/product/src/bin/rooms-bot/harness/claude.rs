@@ -128,7 +128,50 @@ fn result(line: &Value) -> Vec<Signal> {
 	}
 }
 
+impl super::ScheduledHarness for Claude {
+	fn scheduled_invocation(&self, turn: &Turn<'_>) -> Invocation {
+		let mut args: Vec<std::ffi::OsString> = [
+			"-p",
+			"--output-format",
+			"stream-json",
+			"--verbose",
+			"--safe-mode",
+			"--restricted",
+			"--strict-mcp-config",
+			"--settings",
+			r#"{"disableAllHooks":true}"#,
+			"--disable-slash-commands",
+			"--no-chrome",
+			"--no-session-persistence",
+			"--permission-mode",
+			"dontAsk",
+			"--permission-prompts",
+			"none",
+			"--tools",
+			"",
+			"--system-prompt",
+			turn.system,
+		]
+		.map(Into::into)
+		.into();
+		if let Some(model) = turn.model {
+			args.extend(["--model".into(), model.into()]);
+		}
+		Invocation {
+			program: self.program(),
+			args,
+			env: vec![],
+			stdin: Some(turn.prompt.into()),
+			prepare: vec![],
+			resume: None,
+		}
+	}
+}
+
 impl Harness for Claude {
+	fn scheduled(&self) -> Option<&dyn super::ScheduledHarness> {
+		Some(self)
+	}
 	fn name(&self) -> &'static str {
 		"claude"
 	}

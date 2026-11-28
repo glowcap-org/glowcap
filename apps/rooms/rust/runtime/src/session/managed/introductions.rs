@@ -19,7 +19,7 @@ pub(super) struct Pending<P: Tasks> {
 	failure: Option<glowcap::Error>,
 }
 struct Request {
-	source: glowcap::Ref,
+	origin: InboxOrigin,
 	verb: &'static str,
 	args: Vec<Argument>,
 }
@@ -66,7 +66,7 @@ pub(super) fn accept<P: Tasks + Deadline + Clone + 'static>(
 		state,
 		origin,
 		Request {
-			source: origin.source().clone(),
+			origin: origin.clone(),
 			verb: "accept-direct-introduction",
 			args: vec![
 				encoded.into(),
@@ -101,7 +101,7 @@ pub(super) fn route<P: Tasks + Deadline + Clone + 'static>(
 		state,
 		origin,
 		Request {
-			source: origin.source().clone(),
+			origin: origin.clone(),
 			verb: "adopt-direct-route",
 			args: vec![
 				encoded.into(),
@@ -141,7 +141,7 @@ fn queue<P: Tasks + Deadline + Clone + 'static>(
 	}
 	let mut pending = state.introductions.borrow_mut();
 	if let Some(previous) = pending.get(&key) {
-		return if previous.request.source == request.source && previous.request.args == request.args {
+		return if previous.request.origin.source() == request.origin.source() && previous.request.args == request.args {
 			Ok(())
 		} else {
 			Err(loam::refusal("callback already retains another direct transition"))
@@ -169,10 +169,24 @@ fn start<P: Tasks + Deadline + Clone + 'static>(
 	executing: Rc<Request>,
 ) -> P::Task {
 	let writer = state.writer.clone();
+	#[cfg(feature = "test-support")]
+	let platform = state.platform.clone();
 	state.platform.spawn(async move {
-		let result = writer
-			.idempotent_through(&executing.source, executing.verb, &executing.args)
+		#[cfg(feature = "test-support")]
+		if executing.verb == "adopt-direct-route" {
+			crate::session::fault::hold_reciprocal(&platform).await;
+		}
+		let mut result = writer
+			.idempotent_through(executing.origin.source(), executing.verb, &executing.args)
 			.await;
+		// A rejected handoff to an independently retired inbox is finished.
+		// A live or inconclusive source retains its exact request for recovery.
+		if executing.verb == "adopt-direct-route"
+			&& matches!(&result,Err(cause) if cause.kind() == glowcap::ErrorKind::Broken)
+			&& !executing.origin.is_open()
+		{
+			result = Ok(Argument::Void);
+		}
 		if let Err(error) = &result {
 			writer.report(executing.verb, error);
 		}
