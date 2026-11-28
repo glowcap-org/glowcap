@@ -27,11 +27,12 @@ Use the current conversation unless another destination is requested.
   {glowcap} apps rooms bot actions
       List the outcome of each action this turn.
 
-  {glowcap} apps rooms bot remind --id ID (--in 20m | --at YYYY-MM-DDTHH:MM:SSZ) --text TEXT
+  {glowcap} apps rooms bot remind --id build-check --in 20m --text "Check the build."
       Post the saved text here when due, without starting an agent. Confirm only after the action succeeds.
-  {glowcap} apps rooms bot schedule --id ID (--in 20m | --at YYYY-MM-DDTHH:MM:SSZ) --task TASK
+  {glowcap} apps rooms bot schedule --id review --in 20m --task "Summarize the open issues."
       Start a new agent turn here when due. It returns one final answer and uses model budget.
-      For either action, add --every 1h --count 4 for four total occurrences. Use a stable ID for retries.
+      For either action, use --at YYYY-MM-DDTHH:MM:SSZ instead of --in for an exact UTC time.
+      Add --every 1h --count 4 for four total occurrences. Choose a new ID for each request and reuse it when retrying that request.
       All occurrences must fall within 30 days. Missed intervals are skipped.
   {glowcap} apps rooms bot reminders
       List this conversation’s schedules and their outcomes.
