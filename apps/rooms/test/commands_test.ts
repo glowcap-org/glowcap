@@ -12,12 +12,8 @@
 // a wrong flag. So each is asked of every command here.
 
 import { type Command, type CommandHere, type CommandPowers, held, hereOf, known } from "../web/ui/commands.ts";
-import {
-	NO_DIRECTORY_TO_GIVE_BACK,
-	NO_LINE_TO_CHANGE,
-	NO_LINE_TO_TAKE_BACK,
-	NOT_ON_A_DIRECTORY,
-} from "../web/ui/commands/targets.ts";
+import { quietCommandPowers as QUIET } from "./support/command_powers.ts";
+import { NO_DIRECTORY_TO_GIVE_BACK, NOT_ON_A_DIRECTORY } from "../web/ui/commands/targets.ts";
 import { applyCommandPlan } from "../web/ui/commands/execute.ts";
 import { prepareComposerSend } from "../web/ui/composer/send.ts";
 import type { ComposerDraft } from "../web/ui/composer/send.ts";
@@ -179,38 +175,6 @@ Deno.test("a command that takes nothing refuses words after it", () => {
 		}
 	}
 });
-
-/** Powers that answer without acting, for running every command to see what it
- * says. Each returns the empty answer held by a fresh window. */
-const QUIET: CommandPowers = {
-	say: () => {},
-	joinRoom: () => NOT_ON_A_DIRECTORY,
-	joinLink: () => null,
-	leaveHere: () => {},
-	directMessage: () => NOT_ON_A_DIRECTORY,
-	you: () => "",
-	setTheme: () => {},
-	clearHere: () => {},
-	ignore: () => {},
-	unignore: () => false,
-	ignored: () => [],
-	editLast: () => NO_LINE_TO_CHANGE,
-	withdrawLast: () => NO_LINE_TO_TAKE_BACK,
-	setSubject: () => null,
-	setAway: () => null,
-	invite: () => null,
-	kick: () => null,
-	steward: () => null,
-	roomLink: () => null,
-	standingHere: () => "",
-	directories: () => [],
-	granted: () => NO_GRANTS,
-	showRoster: () => {},
-	liveRooms: () => new Map(),
-	roster: () => [],
-	quitDirectory: () => NO_DIRECTORY_TO_GIVE_BACK,
-	aboutConversation: () => {},
-};
 
 /** A plausible argument, so a command that wants one is not refused merely for
  * being handed nothing. What it names does not exist, which is fine: this asks

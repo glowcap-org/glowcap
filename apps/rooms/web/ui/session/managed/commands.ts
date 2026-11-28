@@ -61,6 +61,7 @@ export function managedCommandPowers(
 	pick: (id: DirId, name: string) => Promise<void>,
 	select: (id: string) => Promise<void>,
 	openDm: (peer: string) => Promise<string>,
+	setRoomAudience: CommandPowers["setRoomAudience"],
 ): CommandPowers {
 	const projection = page.projection;
 	const active = () => store.activeConv(projection);
@@ -99,6 +100,7 @@ export function managedCommandPowers(
 			null;
 	};
 	const powers: CommandPowers = {
+		setRoomAudience,
 		say: (text, key = projection.get().activeKey ?? undefined) => {
 			if (key != null) store.deliver(projection, key, store.sysItem(projection, text));
 		},
@@ -255,8 +257,8 @@ export function managedCommandPowers(
 			return row?.type === "room" ? row.grants : new Set();
 		},
 		liveRooms: () => liveRoomCounts(store.actingDir(projection)?.liveRooms ?? new Map()),
-		roster: () => {
-			const row = active();
+		roster: (key) => {
+			const row = key == null ? active() : store.getConv(projection, key);
 			// A direct line has one person on the other end. Whether the line is
 			// live is what this window knows of them.
 			if (row?.type === "dm") return [{ name: row.id, online: row.line === "live", away: "", reachable: true }];

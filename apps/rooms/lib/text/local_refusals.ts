@@ -1,4 +1,5 @@
 // Local refusal keys own their sentence and retry advice together.
+import { MAX_ROOM_AUDIENCE } from "../application_data.ts";
 import type { RoomsFailureRetry } from "../error_codes.ts";
 import { recoveryFinish, recoveryLetGoAsk } from "./recovery.ts";
 import {
@@ -19,6 +20,14 @@ import { conversationNoLongerOpen } from "./attached.ts";
 import { cannotSendRegistrationEnded } from "./conversation.ts";
 
 export const LOCAL_REFUSALS = {
+	"mentions-room": {
+		summary: "Join this room as a participant to change automatic mentions.",
+		retry: "never",
+	},
+	"mentions-name": { summary: "Use a member’s @name. Room-wide mentions cannot be saved here.", retry: "never" },
+	"mentions-offline": { summary: "Choose members currently online in this room.", retry: "never" },
+	"mentions-members": { summary: "Choose each member once and leave out your own name.", retry: "never" },
+	"mentions-limit": { summary: `Choose up to ${MAX_ROOM_AUDIENCE} members per room.`, retry: "never" },
 	"session-startup-failed": {
 		summary: "Rooms couldn't open or cleanly close this session. Reload the page before opening it again.",
 		retry: "never",

@@ -1,6 +1,7 @@
 //! Rooms capability behavior shared by browser hosts and host services.
 //! These are application actors above CapTP, not another transport or codec.
 pub mod attachment;
+pub mod audience;
 pub mod authority;
 pub mod carries;
 pub mod history;

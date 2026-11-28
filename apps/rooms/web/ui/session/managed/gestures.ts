@@ -60,6 +60,7 @@ export const GESTURES = {
 	setDirectoryStanding: optimistic("directory"),
 	setRoomProfile: indicate("conversation"),
 	setRoomStanding: optimistic("conversation"),
+	setRoomAudience: indicate("conversation"),
 	setEffectiveStanding: optimistic("conversation"),
 	dropRoomModerator: indicate("conversation"),
 	dropRoomManager: indicate("conversation"),

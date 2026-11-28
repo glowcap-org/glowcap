@@ -219,6 +219,7 @@ export type Conv =
 		type: "room";
 		/** Durable session / checkpoint id. Session commands name this. */
 		persistId: string;
+		audience?: readonly string[];
 		membership: "joining" | "joined" | "unavailable";
 		membershipIssue: string;
 		publicationId?: string;

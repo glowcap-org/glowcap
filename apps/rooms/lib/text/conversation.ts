@@ -387,7 +387,6 @@ export const memberProfileText = {
 	card: "Room introduction",
 	type: "Member type",
 	undeclared: "Unspecified",
-	assistedBadge: "Person + bot",
 	add: "Introduce yourself",
 	edit: "Edit room profile",
 	scope: "Visible to members of this room. Clear both fields to remove it.",
@@ -397,3 +396,11 @@ export const memberProfileText = {
 	cancel: "Cancel",
 	title: (room: string) => `Your profile in #${room}`,
 } as const;
+
+/** The names this sender has chosen to keep mentioning in a room. */
+export const roomAudienceText = {
+	keep: (names: readonly string[]) =>
+		names.length === 1 ? `Keep mentioning @${names[0]}` : "Keep mentioning these members",
+	keeping: "Saved mentions",
+	stop: "Stop automatic mentions",
+};

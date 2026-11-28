@@ -31,6 +31,13 @@ pub struct Submission {
 	pub can_post_files: bool,
 	pub files: Vec<Attachment>,
 	pub keeping: bool,
+	#[serde(default)]
+	pub editing: bool,
+	#[serde(default)]
+	pub audience: crate::room::audience::Audience,
+	/// Which of the selected names are online in this conversation.
+	#[serde(default)]
+	pub available_audience: crate::room::audience::Names,
 }
 /// Descriptions cross the presentation boundary. Source readers stay with the host.
 #[derive(Deserialize)]
@@ -107,7 +114,18 @@ pub fn prepare(submission: &Submission) -> Prepared {
 	} else if let Some(token) = super::unknown(text) {
 		return refuse(format!("There is no /{token} command. Type /help to see them."));
 	} else {
-		text.clone()
+		if submission.place == Place::Room
+			&& !submission.editing
+			&& !submission.keeping
+			&& !submission.audience.is_empty()
+		{
+			match addressed(submission, text, limit) {
+				Ok(text) => text,
+				Err(why) => return refuse(why),
+			}
+		} else {
+			text.clone()
+		}
 	};
 	if submission.place == Place::Directory {
 		return refuse(DIRECTORY_NO_CHAT);
@@ -137,3 +155,54 @@ pub fn prepare(submission: &Submission) -> Prepared {
 	}
 	Prepared::Send { text }
 }
+
+fn addressed(submission: &Submission, text: &DocumentText, limit: Option<usize>) -> Result<DocumentText, String> {
+	use crate::room::{inbox::same_nick, mentions::visit_line};
+	let mut explicit = false;
+	visit_line(&text.utf8_lossy(), |_, _| explicit = true);
+	if explicit {
+		return Ok(text.clone());
+	}
+	for name in submission.audience.names() {
+		if submission.you.text().as_str().is_some_and(|own| same_nick(name, own)) {
+			return Err(format!(
+				"The audience includes your own name, {name}. Change the audience to send."
+			));
+		}
+		if !submission
+			.available_audience
+			.as_slice()
+			.iter()
+			.any(|online| online.text().as_str().is_some_and(|online| same_nick(name, online)))
+		{
+			return Err(format!(
+				"{name} is offline. Change the audience or address this message explicitly."
+			));
+		}
+	}
+	let mut prefix = submission.audience.prefix();
+	if text.utf16().next().is_some() {
+		prefix.push_str("\n\n");
+	}
+	let line = input::decorate(&prefix, text, "");
+	if let Some(why) = line_refusal(&line, limit) {
+		return Err(why);
+	}
+	// Combined Markdown can change the reading of names which worked in isolation.
+	// Confirm the actual published line addresses every selection, once and in order.
+	let mut expected = submission.audience.names();
+	let mut exact = true;
+	visit_line(&line.utf8_lossy(), |name, room| {
+		exact &= !room && expected.next() == Some(name)
+	});
+	if !exact || expected.next().is_some() {
+		return Err(
+			"These names cannot be mentioned together in this message. Change the audience or address it explicitly."
+				.into(),
+		);
+	}
+	Ok(line)
+}
+
+#[cfg(test)]
+mod tests;

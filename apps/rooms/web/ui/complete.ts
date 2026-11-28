@@ -15,9 +15,27 @@
 import { type CommandHere, commandIn, held, hereOf } from "./commands.ts";
 import { MENTION_QUERY, ROOM_MENTIONS_OFFERED } from "./text.ts";
 import { EMOJI_TABLE } from "./emoji.ts";
-import type { Conv } from "./conversation.ts";
+import type { Conv, Standing } from "./conversation.ts";
+import { memberProfileLabels } from "../../lib/text/conversation.ts";
 import { liveRoomNames, type LiveRooms } from "./directory.ts";
 import { foreignName } from "./member_identity.ts";
+import { applicationModule } from "./application.ts";
+import type { Command } from "./commands/types.ts";
+import { MAX_ROOM_AUDIENCE } from "../../lib/application_data.ts";
+
+/** Roster snapshots are immutable. Validate each online name once per snapshot
+ * while composing a command that keeps a list of members. */
+const onlineNames = new WeakMap<ReadonlyMap<string, Standing>, readonly string[]>();
+function addressableMembers(members: ReadonlyMap<string, Standing>): readonly string[] {
+	const cached = onlineNames.get(members);
+	if (cached) return cached;
+	const names: string[] = [];
+	for (const [name, member] of members) {
+		if (member.online && applicationModule().roomAudienceName(name)) names.push(name);
+	}
+	onlineNames.set(members, names);
+	return names;
+}
 
 type TriggerKind = "nick" | "room" | "emoji" | "command";
 
@@ -53,27 +71,32 @@ export function triggerAt(text: string, caret: number): Trigger | null {
 	return null;
 }
 
-/** Whose names an `@` completes against, here.
- *
- * A mention reaches somebody in the conversation, so most `@`s complete against
- * the room's members (or the one person a direct line is with). But a command
- * whose target is somebody to bring in (`/invite`, `/msg`) wants the people
- * the members list leaves out, so its `@` completes against the directory's
- * reachable set instead. The command registry declares which (`targets`). The
- * one place that knows a name is not present is here, where the draft is.
- * Room-wide names are not in this list: they are mention vocabulary, and
- * completion keeps them off any command that declared `targets`. Your own
- * name is not either: a line to yourself is not a conversation. */
+/** Ordinary mentions use the current conversation. Commands declare their own
+ * targets: a directory contact to invite or message, or online room members
+ * to keep mentioning. A saved list cannot contain the writer or duplicates. */
 export function nickSource(
 	trigger: Trigger | null,
 	conv: Conv | null,
+	targets: Command["targets"],
 	draft: string,
 	reachable: ReadonlySet<string>,
 	you: string,
-	members: ReadonlyMap<string, unknown>,
+	members: ReadonlyMap<string, Standing>,
 ): readonly string[] {
 	if (trigger?.kind !== "nick" || conv === null) return [];
-	if (commandIn(draft)?.command.targets === "reachable") {
+	if (targets === "room-members") {
+		if (conv.type !== "room") return [];
+		const selected = new Set<string>();
+		for (const token of draft.matchAll(/\S+/g)) {
+			if (token.index !== trigger.start && token[0].startsWith("@")) {
+				selected.add(token[0].slice(1).toLowerCase());
+			}
+		}
+		if (selected.size >= MAX_ROOM_AUDIENCE) return [];
+		selected.add(you.toLowerCase());
+		return addressableMembers(members).filter((name) => !selected.has(name.toLowerCase()));
+	}
+	if (targets === "reachable") {
 		const mine = you.toLowerCase();
 		return mine === "" ? [...reachable] : [...reachable].filter((name) => name.toLowerCase() !== mine);
 	}
@@ -202,6 +225,8 @@ export function completeCandidates(
 	trigger: Trigger,
 	sources: {
 		nicks: readonly string[];
+		/** Optional introductions published by members in this room. */
+		roomMembers?: ReadonlyMap<string, Standing>;
 		rooms: readonly string[];
 		grants?: ReadonlySet<string>;
 		here: CommandHere;
@@ -209,7 +234,7 @@ export function completeCandidates(
 		 * is a mention: somebody in this conversation, and in a room the room
 		 * itself. `"reachable"` is a person to bring in, which is not a mention,
 		 * so the room-wide names stay off that list. */
-		targets?: "reachable";
+		targets?: Command["targets"];
 	},
 	limit: number = LIMITS[trigger.kind],
 ): Candidate[] {
@@ -282,7 +307,13 @@ export function completeCandidates(
 			]
 			: sources.rooms.map((name) => ({ name, says: name, hint: undefined, after: false }));
 		for (const { name, says, hint, after } of named) {
-			const score = rank(name, query);
+			const profile = trigger.kind === "nick" && !after ? sources.roomMembers?.get(name)?.profile : undefined;
+			const nameRank = rank(name, query);
+			// A nickname match comes first. Someone who knows the job but not the
+			// name can find the member by the introduction they shared in this room.
+			const score = nameRank < Infinity || !profile
+				? nameRank
+				: 2 + Math.min(rank(memberProfileLabels[profile.kind], query), rank(profile.about, query));
 			if (score === Infinity) continue;
 			scored.push({
 				score: score + (after ? 1 : 0),
@@ -296,13 +327,23 @@ export function completeCandidates(
 					insert: `${sigil}${name} `,
 					label: says,
 					hint,
-					keepsEnter: !(trigger.argument === true && query === name.toLowerCase()),
+					keepsEnter: !((trigger.argument === true || sources.targets === "room-members") &&
+						query === name.toLowerCase()),
 				},
 			});
 		}
 	}
 	scored.sort((a, b) => a.score - b.score || a.candidate.label.localeCompare(b.candidate.label));
-	return scored.slice(0, limit).map((s) => s.candidate);
+	return scored.slice(0, limit).map(({ candidate }) => {
+		const profile = candidate.kind === "nick" && !candidate.hint
+			? sources.roomMembers?.get(candidate.label)?.profile
+			: undefined;
+		if (profile) {
+			candidate.hint = [memberProfileLabels[profile.kind], profile.about].filter(Boolean).join(" · ") ||
+				undefined;
+		}
+		return candidate;
+	});
 }
 
 /** The completion list under this caret, or none while the token is dismissed. */
@@ -313,17 +354,19 @@ export function composerCandidates(
 	draft: string,
 	reachable: ReadonlySet<string>,
 	you: string,
-	members: ReadonlyMap<string, unknown>,
+	members: ReadonlyMap<string, Standing>,
 	/** What a `#` or a room argument completes against: `roomSource`'s answer. */
 	rooms: readonly string[],
 ): readonly Candidate[] {
 	if (trigger === null || trigger.start === dismissedAt) return [];
+	const targets = commandIn(draft)?.command.targets;
 	return completeCandidates(trigger, {
-		nicks: nickSource(trigger, conv, draft, reachable, you, members),
+		nicks: nickSource(trigger, conv, targets, draft, reachable, you, members),
+		roomMembers: conv?.type === "room" && !draft.startsWith("/") ? members : undefined,
 		rooms,
 		grants: conv?.type === "room" ? conv.grants : undefined,
 		here: hereOf(conv),
-		targets: commandIn(draft)?.command.targets,
+		targets,
 	});
 }
 

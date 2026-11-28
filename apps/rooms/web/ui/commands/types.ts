@@ -65,6 +65,7 @@ export interface CommandPowers {
 	/** Open a direct line to a member. `null` when the line was opened. A
 	 * sentence when this tab does not hold an introduction to them. */
 	directMessage(who: string): CommandResult<string | null>;
+	setRoomAudience(key: string, names: readonly string[]): Promise<readonly string[]>;
 	setTheme(theme: Theme): void;
 	/** Empty this conversation's history in this window only. */
 	clearHere(): void;
@@ -130,7 +131,9 @@ export interface CommandPowers {
 	liveRooms(): ReadonlyMap<string, number | null>;
 	/** Who is in this room, how each stands, and whether each is reachable
 	 * directly. In a direct line, the one person on the other end. */
-	roster(): readonly { name: string; online: boolean; away: string; reachable: boolean; profile?: MemberProfile }[];
+	roster(
+		key?: string,
+	): readonly { name: string; online: boolean; away: string; reachable: boolean; profile?: MemberProfile }[];
 	/** Give this directory back: the name it granted, and everything open on it.
 	 * `null` when it was given back. A sentence when this tab holds none. */
 	quitDirectory(): CommandResult<string | null>;
@@ -204,8 +207,9 @@ export interface Command {
 	 * because the command's target is somebody to bring in or open a line to,
 	 * who is by definition often not here: `/invite` and `/msg` want the people
 	 * the members list leaves out, which is the opposite of a mention. Room-wide
-	 * names (`here`, `room`) follow the mention path and stay off this list. */
-	targets?: "reachable";
+	 * names (`here`, `room`) follow the ordinary mention path. `"room-members"`
+	 * offers other online room members who can receive individual mentions. */
+	targets?: "reachable" | "room-members";
 	/** What the words after this command complete as. `"room"` is a listed
 	 * room name, with or without `#`: `/join` takes one on the directory, and
 	 * `/link` one this tab is in (`roomSource` offers each its own). `"person"`

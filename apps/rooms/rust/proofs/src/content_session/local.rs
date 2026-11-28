@@ -72,6 +72,19 @@ pub fn run() {
 			.iter()
 			.all(|row| matches!(row, workspace::Conversation::Direct(d) if d.closed))
 	);
+	let chosen = apply(&initial, "setRoomAudience", &["conversation", "Ana", "Bo"]).unwrap();
+	let saved = serde_json::to_string(&chosen).unwrap();
+	let restored = workspace::Intent::decode(&saved).unwrap();
+	assert_eq!(room(&restored).audience.names().collect::<Vec<_>>(), ["Ana", "Bo"]);
+	assert!(room(&initial).audience.is_empty());
+	assert!(
+		room(&apply(&restored, "setRoomAudience", &["conversation"]).unwrap())
+			.audience
+			.is_empty()
+	);
+	assert!(apply(&restored, "setRoomAudience", &["conversation", "Ana", "ANA"]).is_err());
+	assert!(apply(&restored, "setRoomAudience", &["missing", "Ana"]).is_err());
+	assert!(apply(&direct, "setRoomAudience", &["direct", "Ana"]).is_err());
 	let selected = apply(&initial, "select", &[]).unwrap();
 	assert!(selected.active.is_none());
 	assert_eq!(

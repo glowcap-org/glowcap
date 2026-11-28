@@ -136,6 +136,7 @@ pub const fn command(route: Route) -> Option<Requirements> {
 				| Command::ChooseDirectoryNickname
 				| Command::ChooseHomeDirectory
 				| Command::SetDirectoryStanding
+				| Command::SetRoomAudience
 				| Command::SetRoomStanding
 				| Command::SetEffectiveStanding
 				| Command::SetIgnoredNames

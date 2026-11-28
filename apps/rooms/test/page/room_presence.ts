@@ -25,7 +25,7 @@ async function join(page: Page, httpPort: number, nick: string) {
 
 async function state(page: Page, expected: "online" | "offline") {
 	await row(page).and(page.locator(`li.${expected}`)).waitFor({ timeout: 15_000 });
-	if (expected === "offline") await row(page).getByText("offline", { exact: true }).waitFor();
+	if (expected === "offline") await row(page).getByText(/(?:^| · )offline$/).waitFor();
 }
 
 export async function proveRoomPresence(browser: Browser, httpPort: number, attached: readonly [Page, Page]) {
@@ -42,7 +42,7 @@ export async function proveRoomPresence(browser: Browser, httpPort: number, atta
 		await member.getByLabel("Introduction", { exact: true }).fill("Checks sources");
 		await member.getByRole("button", { name: "Save profile" }).click();
 		await member.locator(".member-introduction").getByText("Checks sources", { exact: true }).waitFor();
-		for (const page of attached) await row(page).getByText("Bot", { exact: true }).waitFor();
+		for (const page of attached) await row(page).getByText("Bot · Checks sources", { exact: true }).waitFor();
 		await row(attached[0]).locator(".member-face").click();
 		await attached[0].locator(".member-introduction").getByText("Checks sources", { exact: true }).waitFor();
 		await attached[0].keyboard.press("Escape");
