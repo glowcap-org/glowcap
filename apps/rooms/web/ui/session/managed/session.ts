@@ -20,6 +20,7 @@ import { ManagedReads } from "./reads.ts";
 import { ManagedEffects } from "./effects.ts";
 import { Committed } from "./committed.ts";
 import type { ReleaseEnd } from "./release.ts";
+import { directoryRegistration } from "./workspace_readiness.ts";
 import { ManagedActions } from "./actions.ts";
 import type { ActivityDelivery } from "./activity.ts";
 import { ManagedActivityReading } from "./activity_reading.ts";
@@ -42,8 +43,8 @@ import type { RoomsPermission } from "../../../../lib/session_content_data.ts";
 import { managedAccessText as text, savedControlSource } from "../../../../lib/text/managed_access.ts";
 import { TrackedJobs } from "./tracked_jobs.ts";
 
-// Registration is observed through the existing workspace subscription.
-const DIRECTORY_REGISTRATION_WAIT_MS = 30_000;
+// New registrations and direct routes arrive on the workspace subscription.
+const WORKSPACE_READINESS_WAIT_MS = 30_000;
 
 /** What a press module holds of the session: reads that wait for the link
  * because nothing is sent yet, and `press`, the one way to send. A press has
@@ -345,10 +346,18 @@ export class ManagedRoomsSession {
 	}
 	/** Acquisition establishes custody. Registration establishes the chosen name.
 	 * Wait on the existing observation owner, retaining the exact original choice. */
-	async directoryRegistered(original: DirectoryIntent, signal?: AbortSignal): Promise<void> {
+	directoryRegistered(original: DirectoryIntent, signal?: AbortSignal): Promise<void> {
+		return this.whenReady(directoryRegistration(original), "registration-unfinished", signal);
+	}
+	/** Observe the existing subscription until the original selection is usable. */
+	async whenReady(
+		ready: (snapshot: WorkspaceSnapshot | null) => boolean,
+		timeout: "registration-unfinished" | "invite-route-pending",
+		signal?: AbortSignal,
+	): Promise<void> {
 		let expired = false;
 		const wake = () => this.#changed();
-		const cancelDeadline = this.#clock.after(DIRECTORY_REGISTRATION_WAIT_MS, () => {
+		const cancelDeadline = this.#clock.after(WORKSPACE_READINESS_WAIT_MS, () => {
 			expired = true;
 			wake();
 		});
@@ -356,14 +365,9 @@ export class ManagedRoomsSession {
 		try {
 			while (!this.#stopped && !signal?.aborted) {
 				const change = this.#change;
-				const row = this.#snapshot?.intent.directories.find((row) => row.id === original.id);
-				if (
-					row == null || row.access !== original.access || row.source !== original.source ||
-					row.nick !== original.nick || row.nickAllocation !== original.nickAllocation
-				) throw new LocalRefusal("registration-changed");
-				if (row.name != null && row.assignedNick != null) return;
+				if (ready(this.#snapshot)) return;
 				if (this.#observationFailure != null) throw this.#observationFailure;
-				if (expired) throw new LocalRefusal("registration-unfinished");
+				if (expired) throw new LocalRefusal(timeout);
 				await this.#wait(change);
 			}
 			if (this.#stopped) throw new LocalRefusal("session-closed");

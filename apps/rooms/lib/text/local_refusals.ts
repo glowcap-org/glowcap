@@ -94,6 +94,14 @@ export const LOCAL_REFUSALS = {
 	"still-working": { summary: "Rooms is still working on this. Try again once it finishes.", retry: "soon" },
 	"busy": { summary: "Rooms is still working on earlier requests. Try again once they finish.", retry: "soon" },
 	"not-sent": { summary: "Nothing was sent. Try again.", retry: "soon" },
+	"invite-route-pending": {
+		summary: "The direct line is still opening. The invitation hasn’t been sent. Try again when the line is ready.",
+		retry: "after-state-change",
+	},
+	"invite-selection-changed": {
+		summary: "The room or direct line changed before the invitation was sent. Choose the recipient again.",
+		retry: "after-request-change",
+	},
 	"invite-unsent": {
 		summary:
 			"The direct conversation opened, but Rooms couldn't read it to send the invitation. Try inviting again.",
