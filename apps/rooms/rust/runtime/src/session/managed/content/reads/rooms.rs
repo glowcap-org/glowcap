@@ -27,6 +27,24 @@ pub(super) fn selection(args: &[Argument], intent: &workspace::Intent) -> Result
 	));
 	Ok(held.then_some(selected))
 }
+/// Select the live seat by conversation inside the session. Learning who is
+/// present requires neither a workspace snapshot nor a disclosed seat.
+pub(super) fn conversation(args: &[Argument]) -> Result<&str> {
+	let [value] = args else {
+		return Err(refuse("members takes one room conversation"));
+	};
+	let id = text(value)?;
+	if id.is_empty() || id.encode_utf16().take(workspace::MAX_ID_UNITS + 1).count() > workspace::MAX_ID_UNITS {
+		return Err(refuse("invalid room conversation"));
+	}
+	Ok(id)
+}
+pub(super) fn members_selection(args: &[Argument], intent: &workspace::Intent) -> Result<Option<custody::Coordinate>> {
+	Ok(intent
+		.room(conversation(args)?)
+		.and_then(|room| room.seat)
+		.map(|seat| custody::Coordinate::new(custody::Role::RoomSeat, seat)))
+}
 /// One facade over the seat answers both identities: the manager's, and the
 /// room's public digest a steward governs. A seat the intent does not select is
 /// answered with `Void`.

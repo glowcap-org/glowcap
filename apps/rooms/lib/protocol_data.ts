@@ -49,6 +49,7 @@ export const AWAY = "away";
 export const PROFILE = "profile";
 export const PROFILES = "profiles";
 export const SET_PROFILE = "setProfile";
+export const ROOM_MEMBERS = "roomMembers";
 export const KICK = "kick";
 export const GOVERNS = "governs";
 export const MANAGED_ROOM_IDENTITY = "managedRoomIdentity";

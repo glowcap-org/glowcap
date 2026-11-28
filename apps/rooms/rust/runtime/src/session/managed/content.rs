@@ -165,6 +165,7 @@ impl<P: Tasks + Deadline + Clone + 'static> SessionContent<P> {
 			"archive-reader"
 			| "history-reader"
 			| "bridge-form-reader"
+			| "room-members-reader"
 			| "file-reader"
 			| "custody-recipe"
 			| "direct-route"
@@ -308,7 +309,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Content for SessionContent<P> {
 				&[Permission::ObserveWorkspace.key(), Permission::InteractWorkspace.key()],
 				&[],
 			),
-			protocol::NOTIFY | rooms_application::bridge::ASK => {
+			protocol::NOTIFY | protocol::ROOM_MEMBERS | rooms_application::bridge::ASK => {
 				Requirement::new(&[Permission::ObserveWorkspace.key()], &[])
 			}
 			_ => Err(refuse("unknown dependent session method")),
@@ -489,6 +490,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Content for SessionContent<P> {
 			"archive-reader"
 				| "history-reader"
 				| "bridge-form-reader"
+				| "room-members-reader"
 				| "file-reader"
 				| "custody-recipe"
 				| "direct-route"

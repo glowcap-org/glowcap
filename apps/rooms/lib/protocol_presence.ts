@@ -28,3 +28,7 @@ export { AWAY } from "./protocol_data.ts";
 /** On an exact participant seat, setProfile(kind, about) publishes its
  * introduction to current room members. Both empty strings clear it. */
 export { PROFILE, PROFILES, SET_PROFILE } from "./protocol_data.ts";
+/** Native roomMembers() returns current seats as [name, memberKind, about]
+ * triples. Kind and introduction are self-declared and empty when unset.
+ * Only a live room seat can ask, including an observer seat. */
+export { ROOM_MEMBERS } from "./protocol_data.ts";

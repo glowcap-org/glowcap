@@ -73,6 +73,7 @@ export const LEAVE = "leave";
 export const TYPING = "typing";
 export const AWAY = "away";
 export const SET_PROFILE = "setProfile";
+export const ROOM_MEMBERS = "roomMembers";
 export const NOTIFY = "notify";
 export const DM = "dm";
 export const MEMBERSHIP_ENDED = "membershipEnded";
@@ -84,6 +85,7 @@ export const MEMBERSHIP_VERBS: readonly Verb[] = [
 	{ name: "typing", replies: false },
 	{ name: "away", replies: true },
 	{ name: "setProfile", replies: true },
+	{ name: "roomMembers", replies: true },
 ];
 
 export const MEMBERSHIP_KINDS: readonly string[] = ["observer", "participant"];

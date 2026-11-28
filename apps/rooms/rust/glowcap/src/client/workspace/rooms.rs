@@ -48,6 +48,65 @@ impl PublicRoomImport {
 	}
 }
 impl<D: Deadline + Clone> Workspace<D> {
+	/// Read one live membership through a single-method facade. Validate the
+	/// room's reply before any peer-supplied names or descriptions reach the caller.
+	pub async fn room_members(
+		&self,
+		conversation: &str,
+	) -> Result<Option<Vec<rooms_application::room::profile::Entry<String>>>, Error> {
+		use rooms_application::{
+			room::{
+				inbox::{nick_key, valid_nick},
+				profile::{Entry, MemberKind, valid_about},
+			},
+			server::rooms::MAX_ROOM_MEMBERS,
+		};
+		let offered = self.call("room-members-reader", &[conversation.into()]).await?;
+		if matches!(offered, Argument::Void) {
+			return Ok(None);
+		}
+		let reader = Self::capability(&offered)?;
+		let answer = self
+			.caller
+			.call(
+				&reader,
+				rooms_application::protocol_data::ROOM_MEMBERS,
+				&[],
+				"the room did not provide its live membership",
+			)
+			.await?;
+		let malformed = || loam::refusal("invalid room members reply");
+		let Argument::List(rows) = answer else {
+			return Err(malformed().into());
+		};
+		if rows.is_empty() || rows.len() > MAX_ROOM_MEMBERS {
+			return Err(malformed().into());
+		}
+		let mut seen = std::collections::BTreeSet::new();
+		rows.into_iter()
+			.map(|row| {
+				let Argument::List(fields) = row else {
+					return Err(malformed().into());
+				};
+				let [Argument::String(name), Argument::String(kind), Argument::String(about)] =
+					<[Argument; 3]>::try_from(fields).map_err(|_| malformed())?
+				else {
+					return Err(malformed().into());
+				};
+				let member_kind = MemberKind::parse(&kind).ok_or_else(malformed)?;
+				if !valid_nick(&name) || !valid_about(&about) || !seen.insert(nick_key(&name)) {
+					return Err(malformed().into());
+				}
+				Ok(Entry {
+					name,
+					member_kind,
+					about,
+				})
+			})
+			.collect::<Result<_, _>>()
+			.map(Some)
+	}
+
 	/// A retained seat is ready only while its exact worker is active and its
 	/// original participation grant still admits the readiness check.
 	pub async fn room_membership_ready(

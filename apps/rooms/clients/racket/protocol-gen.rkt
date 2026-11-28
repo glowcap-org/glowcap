@@ -34,6 +34,7 @@
   TYPING
   AWAY
   SET-PROFILE
+  ROOM-MEMBERS
   NOTIFY
   DM
   MEMBERSHIP-ENDED
@@ -89,6 +90,7 @@
 (define TYPING 'typing)
 (define AWAY 'away)
 (define SET-PROFILE 'setProfile)
+(define ROOM-MEMBERS 'roomMembers)
 (define NOTIFY 'notify)
 (define DM 'dm)
 (define MEMBERSHIP-ENDED "membershipEnded")
@@ -100,7 +102,8 @@
    (cons 'leave #t)
    (cons 'typing #f)
    (cons 'away #t)
-   (cons 'setProfile #t)))
+   (cons 'setProfile #t)
+   (cons 'roomMembers #t)))
 
 (define MEMBERSHIP-KINDS '("observer" "participant"))
 (define PUBLICATION-KINDS '("local" "foreign" "bridge"))

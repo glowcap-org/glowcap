@@ -5,6 +5,17 @@ use rooms_application::content::session::workspace;
 use rooms_glowcap::client::workspace::PublicRoomImport;
 
 impl<D: Deadline + Tasks + Clone + 'static> View<D> {
+	/// Read the current room through its exact seated membership. A direct
+	/// conversation has no room seat, even when its peer shares a room with us.
+	pub async fn room_members(
+		&self,
+		conversation: &str,
+	) -> Result<Vec<rooms_application::room::profile::Entry<String>>, Error> {
+		self.settled(self.workspace.room_members(conversation).await)
+			.await?
+			.ok_or_else(|| Error::Input("members requires a turn in a room with a live seat".into()))
+	}
+
 	pub async fn join_listed(&self, conversation: &str, name: &str) -> Result<String, Error> {
 		let snapshot = self.snapshot().await?;
 		let directory_id = snapshot

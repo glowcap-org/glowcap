@@ -30,6 +30,96 @@ fn policy(state: &Path, directory: &str, mode: Option<&str>) -> serde_json::Valu
 }
 
 #[test]
+fn a_collaborator_reads_only_this_rooms_live_members_and_their_own_introductions() {
+	let world = World::new("bot-room-members");
+	let room = world.fixture.room_id(0);
+	let friend_room = world.fixture.room_id(1);
+	let elsewhere = Fixture::start("members-another-directory", &["unrelated"], "unrelated-room");
+	call(
+		&world.fixture.peers[0].state,
+		"join",
+		json!({"locator":[elsewhere.locator],"nick":[super::captp::BOT],"room":["unrelated-room"]}),
+	);
+
+	let (link, grant) = session_rig::run_within(Duration::from_secs(40), async {
+		let (issuer, grants, terms) = world.issuer().await;
+		let issued = grants.issue("member reader", &terms).await.unwrap();
+		let host = session_rig::host().await;
+		let friend = session_rig::attach(&host, &world.fixture.peers[1].link).await;
+		let args = [friend_room.clone(), "bot".to_owned(), "Looks up citations".to_owned()];
+		assert_eq!(
+			friend
+				.command(
+					"introduce-room-member",
+					friend.revision().await.unwrap(),
+					"setRoomProfile",
+					&args
+				)
+				.await
+				.unwrap(),
+			rooms_services::session::attached::EffectStatus::Committed
+		);
+		loop {
+			if friend
+				.room_members(&friend_room)
+				.await
+				.unwrap()
+				.iter()
+				.any(|member| member.about == args[2])
+			{
+				break;
+			}
+			tokio::time::sleep(Duration::from_millis(75)).await;
+		}
+		host.close(glowcap::PendingWork::Cancel).await.unwrap();
+		issuer.close(glowcap::PendingWork::Cancel).await.unwrap();
+		(issued.link, issued.name)
+	});
+	let bot = world.rig.serve_linked(&link, json!({}));
+	let members = action("members", json!({}), &[]);
+	assert_eq!(turn(&world, std::slice::from_ref(&members)), "exit=0");
+	let answer = output(&world, 0);
+	let rows = answer["members"].as_array().unwrap();
+	assert_eq!(rows.len(), 2, "{answer}");
+	assert!(
+		rows.contains(&json!({"name":super::captp::FRIEND,"memberKind":"bot","about":"Looks up citations"})),
+		"{answer}"
+	);
+	assert!(
+		rows.contains(&json!({"name":super::captp::BOT,"memberKind":"","about":""})),
+		"{answer}"
+	);
+	assert!(
+		answer
+			.as_object()
+			.unwrap()
+			.keys()
+			.all(|key| matches!(key.as_str(), "members" | "ok"))
+	);
+	super::captp_direct::clear_outputs(&world);
+	world.dm(&format!("act:{}", json!([members])));
+	super::captp_crashes::answered(&world, "exit=1");
+	let denied = output(&world, 0);
+	assert!(
+		denied["error"]["message"].as_str().unwrap().contains("turn in a room"),
+		"{denied}"
+	);
+	assert!(denied.get("members").is_none());
+	world.stopped(bot);
+	session_rig::run_within(Duration::from_secs(20), async {
+		let host = session_rig::host().await;
+		let reader = session_rig::attach(&host, &link).await;
+		let (issuer, grants, _) = world.issuer().await;
+		grants.pause(&grant).await.unwrap();
+		assert!(reader.room_members(&room).await.is_err());
+		host.close(glowcap::PendingWork::Cancel).await.unwrap();
+		issuer.close(glowcap::PendingWork::Cancel).await.unwrap();
+	});
+	elsewhere.finish();
+	world.finish();
+}
+
+#[test]
 fn a_collaborator_joins_one_listed_room_in_one_turn_and_reuses_its_seat() {
 	let world = World::new("bot-listed-room");
 	let room = "second-listed-room";

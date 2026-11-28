@@ -44,7 +44,7 @@ pub(super) fn output(world: &World, at: usize) -> Value {
 }
 
 /// Remove the outputs earlier turns left, so the next turn's are the only ones.
-fn clear_outputs(world: &World) {
+pub(super) fn clear_outputs(world: &World) {
 	let work = match std::fs::read_dir(world.rig.dir.join("work")) {
 		Ok(work) => work,
 		// No turn has run yet, so nothing is left over.
