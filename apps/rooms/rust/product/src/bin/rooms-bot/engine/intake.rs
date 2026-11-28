@@ -8,16 +8,15 @@ use super::{
 	lanes::{Lanes, Queued},
 };
 use crate::bot::{
-	classify::{self, Class, ContextLine, Trigger},
+	classify::{self, Class, ContextLine},
 	context,
 	error::Error,
-	ledger::{Asked, Ledger},
+	gate::{Decision, Gate},
+	ledger::{Asked, Ledger, TurnId},
 	rooms::{Batch, ConversationId, Rooms},
 	store::Store,
-	words,
 };
 use std::collections::{BTreeMap, BTreeSet};
-use tokio::time::Instant;
 
 pub fn take<R: Rooms>(state: &mut Loop<'_, R>, batch: Batch) {
 	let env = state.env;
@@ -42,22 +41,14 @@ pub fn take<R: Rooms>(state: &mut Loop<'_, R>, batch: Batch) {
 				}
 				Class::Trigger(trigger) => {
 					heard.insert(event.conversation.clone());
-					if state.gate.starts_work(&event.conversation, Instant::now()) {
-						state.lanes.queue(
-							&event.conversation,
-							Queued {
-								trigger,
-								kind: event.kind,
-								before: before.clone(),
-							},
-						);
-					} else {
-						env.store.log(&words::context_only(&event.conversation.to_string()));
-						context
-							.entry(event.conversation.clone())
-							.or_default()
-							.push(kept(trigger));
-					}
+					state.lanes.queue(
+						&event.conversation,
+						Queued {
+							trigger,
+							kind: event.kind,
+							before: before.clone(),
+						},
+					);
 				}
 			}
 		}
@@ -124,50 +115,66 @@ fn keep_context<R: Rooms>(
 	}
 }
 
-/// A trigger the gate turned away, as the context it becomes.
-fn kept(trigger: Trigger) -> ContextLine {
-	ContextLine {
-		seq: trigger.seq,
-		event: trigger.event,
-		from: trigger.from,
-		text: trigger.text,
-	}
-}
-
-/// Hold every queued trigger in a turn, oldest first: in the conversation's
-/// newest turn that has not started while it has room, or in a new turn.
-/// Admission stops at the first trigger the ledger has no room for, so no
-/// trigger is held ahead of an older one, and the one that waits is the one
-/// the cursor stays before. Each batch is older than every other unheld
-/// trigger ([`Lanes::oldest_unheld`](super::lanes::Lanes::oldest_unheld)), so
-/// every held trigger is older than every unheld one.
+/// Apply each decision in event order. A paid request joins the newest
+/// unstarted turn with room. A refusal either opens a separate delivery or
+/// moves past an event already covered by this window's notice.
 pub fn admit<R: Rooms>(state: &mut Loop<'_, R>) -> Result<(), Error> {
-	hold(&mut state.lanes, &mut state.env.ledger.borrow_mut(), state.env.store)
+	hold(
+		&mut state.lanes,
+		&mut state.env.ledger.borrow_mut(),
+		state.env.store,
+		&mut state.gate,
+		&mut state.unsent,
+	)
 }
 
-fn hold(lanes: &mut Lanes, ledger: &mut Ledger, store: &Store) -> Result<(), Error> {
+fn hold(
+	lanes: &mut Lanes,
+	ledger: &mut Ledger,
+	store: &Store,
+	gate: &mut Gate,
+	sends: &mut Vec<(TurnId, ConversationId, super::Stage)>,
+) -> Result<(), Error> {
 	while let Some(unheld) = lanes.oldest_unheld() {
-		let room = unheld.newest.map_or(0, |id| ledger.room_in(id));
-		let (id, count) = match unheld.newest {
-			Some(id) if room > 0 => {
-				let count = room.min(unheld.triggers.len());
-				let mut triggers = unheld.triggers;
-				triggers.truncate(count);
-				ledger.extend(store, id, triggers)?;
-				(id, count)
-			}
-			_ if ledger.has_room() => {
-				let count = unheld.triggers.len();
-				let asked = Asked {
-					conversation: unheld.conversation.clone(),
-					kind: unheld.kind,
-					triggers: unheld.triggers,
+		let trigger = unheld.trigger;
+		ledger.durable(store)?;
+		let conversation = unheld.conversation;
+		match gate.decide(store, &conversation, &trigger, ledger.cursor_seq())? {
+			Decision::Start => {
+				let id = match unheld.newest {
+					Some(id) if ledger.room_in(id) > 0 => {
+						ledger.extend(store, id, vec![trigger])?;
+						id
+					}
+					_ if ledger.has_room() => ledger.begin(
+						store,
+						Asked {
+							conversation: conversation.clone(),
+							kind: unheld.kind,
+							triggers: vec![trigger],
+						},
+					)?,
+					_ => break,
 				};
-				(ledger.begin(store, asked)?, count)
+				lanes.held(&conversation, 1, id);
 			}
-			_ => break,
-		};
-		lanes.held(&unheld.conversation, count, id);
+			Decision::Notify(until) => {
+				if !ledger.has_room() {
+					break;
+				}
+				let id = ledger.notice(store, conversation.clone(), &trigger, until)?;
+				store.log(&format!(
+					"hourly limit in {conversation}: skipped an addressed request; retry at {}",
+					crate::bot::stamp::rfc3339(until)
+				));
+				lanes.refused(&conversation);
+				sends.push((id, conversation, super::Stage::Notice));
+			}
+			Decision::Skip => {
+				ledger.advance(store, &trigger.event, trigger.seq.next())?;
+				lanes.refused(&conversation);
+			}
+		}
 	}
 	Ok(())
 }

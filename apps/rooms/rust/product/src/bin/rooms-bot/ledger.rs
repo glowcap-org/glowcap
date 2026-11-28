@@ -17,7 +17,7 @@
 //! cursor's number passes its last event, because until then a restart reads
 //! its events again.
 use super::{
-	classify::{Seq, Trigger},
+	classify::Seq,
 	error::Error,
 	rooms::{ConversationId, Cursor},
 	store::{self, Store},
@@ -25,6 +25,7 @@ use super::{
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
+mod admission;
 mod phase;
 mod replaced;
 pub use phase::{Asked, Attempt, Content, Covered, Part, Phase, Progress, Runs, TurnId};
@@ -63,6 +64,8 @@ struct Document {
 	/// The number the first event after the cursor gets.
 	cursor_seq: Seq,
 	next_turn: TurnId,
+	#[serde(default)]
+	notices: u64,
 	turns: Vec<Row>,
 	/// The lines this access finished by their echo, which another access
 	/// holds the receipt of.
@@ -86,6 +89,7 @@ pub struct Ledger {
 	cursor: Cursor,
 	cursor_seq: Seq,
 	next_turn: TurnId,
+	notices: u64,
 	rows: BTreeMap<TurnId, Phase>,
 	replaced: Vec<Replaced>,
 	left: Vec<String>,
@@ -161,6 +165,7 @@ impl Ledger {
 			cursor: document.cursor,
 			cursor_seq: document.cursor_seq,
 			next_turn: document.next_turn,
+			notices: document.notices,
 			rows,
 			replaced: document.replaced,
 			left: document.left,
@@ -191,6 +196,7 @@ impl Ledger {
 			cursor,
 			cursor_seq: Seq(0),
 			next_turn: TurnId(0),
+			notices: 0,
 			rows: BTreeMap::new(),
 			replaced: Vec::new(),
 			left: Vec::new(),
@@ -207,6 +213,7 @@ impl Ledger {
 			cursor: self.cursor.clone(),
 			cursor_seq: self.cursor_seq,
 			next_turn: self.next_turn,
+			notices: self.notices,
 			turns: self
 				.rows
 				.iter()
@@ -318,6 +325,7 @@ impl Ledger {
 		let running = self.rows.values().filter(|phase| phase.is_running()).count();
 		self.next_turn
 			.0
+			.saturating_sub(self.notices)
 			.saturating_sub(u64::try_from(running).unwrap_or(u64::MAX))
 	}
 
@@ -344,8 +352,15 @@ impl Ledger {
 	/// Turn numbers are never reused and the ledger keeps the next one, so
 	/// every number below it that is not open has finished, across restarts.
 	pub fn finished(&self) -> u64 {
-		let open = self.rows.values().filter(|phase| phase.is_open()).count();
-		self.next_turn.0.saturating_sub(u64::try_from(open).unwrap_or(u64::MAX))
+		let open = self
+			.rows
+			.values()
+			.filter(|phase| phase.is_open() && !phase.is_notice())
+			.count();
+		self.next_turn
+			.0
+			.saturating_sub(self.notices)
+			.saturating_sub(u64::try_from(open).unwrap_or(u64::MAX))
 	}
 
 	/// How many open turns are sending their reply.
@@ -354,68 +369,6 @@ impl Ledger {
 			.values()
 			.filter(|phase| matches!(phase, Phase::Sending { .. }))
 			.count()
-	}
-
-	/// Whether another turn fits. One that does not waits until an earlier
-	/// turn finishes, which never waits on a later trigger.
-	pub fn has_room(&self) -> bool {
-		self.open().len() < MAX_OPEN && self.rows.len() < MAX_ROWS
-	}
-
-	/// How many more triggers turn `id` can take: room up to [`MAX_TRIGGERS`]
-	/// while its harness has never started, and none after.
-	pub fn room_in(&self, id: TurnId) -> usize {
-		match self.rows.get(&id) {
-			Some(Phase::Running {
-				asked,
-				runs: Runs {
-					spent: 0,
-					progress: Progress::Ready,
-				},
-				note: None,
-			}) => MAX_TRIGGERS.saturating_sub(asked.triggers.len()),
-			_ => 0,
-		}
-	}
-
-	/// Start a turn. The row is durable before the harness starts.
-	pub fn begin(&mut self, store: &Store, asked: Asked) -> Result<TurnId, Error> {
-		if asked.triggers.is_empty() || asked.triggers.len() > MAX_TRIGGERS {
-			return Err(Error::state(FILE, "a turn's triggers are missing or past its bound"));
-		}
-		if !self.has_room() {
-			return Err(Error::state(FILE, "a turn was begun past the ledger's bounds"));
-		}
-		self.commit(store, |next| {
-			let id = next.next_turn;
-			next.next_turn = TurnId(id.0.saturating_add(1));
-			next.rows.insert(
-				id,
-				Phase::Running {
-					asked,
-					runs: Runs {
-						spent: 0,
-						progress: Progress::Ready,
-					},
-					note: None,
-				},
-			);
-			Ok(id)
-		})
-	}
-
-	/// Add triggers read later to a turn whose harness has not started.
-	pub fn extend(&mut self, store: &Store, id: TurnId, triggers: Vec<Trigger>) -> Result<(), Error> {
-		if triggers.is_empty() || triggers.len() > self.room_in(id) {
-			return Err(Error::state(FILE, "triggers were added past a turn's room"));
-		}
-		self.commit(store, |next| match next.rows.get_mut(&id).ok_or_else(missing)? {
-			Phase::Running { asked, .. } => {
-				asked.triggers.extend(triggers);
-				Ok(())
-			}
-			_ => Err(Error::state(FILE, "triggers were added to a turn that is not running")),
-		})
 	}
 
 	/// Record that a harness run starts, after `spent` runs have ended, and

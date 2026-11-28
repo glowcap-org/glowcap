@@ -134,7 +134,7 @@ Stopping the base deployment and stopping named members are separate operations.
 
 For work someone else depends on, ask the recipient to acknowledge the assignment in the room or DM before starting. A posted request confirms delivery to the conversation. Silence leaves it unclear whether the recipient started. Before repeating work with side effects, check its outcome with the recipient or their operator.
 
-A bot at its hourly limit records an addressed line as context and starts no turn for it when capacity returns. Its operator can check the bot log. `status.unanswered` only describes a turn that started.
+A bot that skips a request at its hourly limit posts the UTC time to ask again in the same conversation. It keeps no queue of skipped work. The operator can check `availability` for the skipped count, retry time, and notice delivery status. `status.unanswered` describes a turn that started.
 
 `bots status` shows container health. To see what happened to one running agent, read its bot status:
 

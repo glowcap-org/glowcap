@@ -11,6 +11,7 @@
 //! | `peer.json` | the bot's CapTP identity and agent-action authentication key, owner-only |
 //! | `legacy-action-ids.json` | pre-upgrade operation IDs witnessed by local claims, direct-open notes, and reply records |
 //! | `turns.json` | the turn ledger and the durable cursor |
+//! | `availability/<conversation>.json` | rolling admission, replay decision, and outcome of the current refusal notice |
 //! | `sessions.json` | each harness's session per conversation |
 //! | `conversations.json` | the conversations the bot keeps state for |
 //! | `status.json` | what `bot status` reports |

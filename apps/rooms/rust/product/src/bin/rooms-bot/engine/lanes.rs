@@ -4,16 +4,14 @@
 //! A trigger waits in memory only while the ledger has no room for another
 //! turn, and the oldest such trigger is where the durable cursor stays.
 //!
-//! Every held trigger is older than every unheld one, because a batch takes a
-//! conversation's triggers only while each is older than every other
-//! conversation's oldest unheld trigger. So once the cursor moves to the
-//! oldest unheld trigger, every finished turn lies before it and leaves the
+//! Admission visits the oldest waiting trigger first. Once the cursor moves
+//! to the oldest unheld trigger, every finished turn lies before it and leaves the
 //! ledger, and the oldest unheld trigger gets a turn as soon as the turns
 //! older than it end. A restart reads again only the triggers after the
 //! cursor that no turn covers, which are all newer than every held one.
 use crate::bot::{
 	classify::{Seq, Trigger},
-	ledger::{MAX_TRIGGERS, TurnId},
+	ledger::TurnId,
 	rooms::{ConversationId, Cursor, Kind},
 };
 use std::collections::{BTreeMap, VecDeque};
@@ -40,7 +38,7 @@ struct Lane {
 pub struct Unheld {
 	pub conversation: ConversationId,
 	pub kind: Kind,
-	pub triggers: Vec<Trigger>,
+	pub trigger: Trigger,
 	/// The conversation's newest turn that has not started, which may still
 	/// take triggers.
 	pub newest: Option<TurnId>,
@@ -67,10 +65,7 @@ impl Lanes {
 			.push_back(queued);
 	}
 
-	/// The conversation whose oldest unheld trigger is oldest, with up to
-	/// [`MAX_TRIGGERS`] of its unheld triggers that are older than every other
-	/// conversation's oldest unheld trigger. Nothing changes until
-	/// [`Lanes::held`].
+	/// The oldest trigger that still needs a durable admission decision.
 	pub fn oldest_unheld(&self) -> Option<Unheld> {
 		let (conversation, lane) = self
 			.0
@@ -78,22 +73,10 @@ impl Lanes {
 			.filter(|(_, lane)| !lane.waiting.is_empty())
 			.min_by_key(|(_, lane)| lane.waiting.front().map(|first| first.trigger.seq))?;
 		let first = lane.waiting.front()?;
-		let next_elsewhere = self
-			.0
-			.iter()
-			.filter(|(other, _)| *other != conversation)
-			.filter_map(|(_, other)| other.waiting.front().map(|queued| queued.trigger.seq))
-			.min();
 		Some(Unheld {
 			conversation: conversation.clone(),
 			kind: first.kind,
-			triggers: lane
-				.waiting
-				.iter()
-				.take(MAX_TRIGGERS)
-				.take_while(|queued| next_elsewhere.is_none_or(|next| queued.trigger.seq < next))
-				.map(|queued| queued.trigger.clone())
-				.collect(),
+			trigger: first.trigger.clone(),
 			newest: lane.turns.back().copied(),
 		})
 	}
@@ -105,6 +88,16 @@ impl Lanes {
 			lane.waiting.drain(..count);
 			if lane.turns.back() != Some(&id) {
 				lane.turns.push_back(id);
+			}
+		}
+	}
+
+	/// This event was refused and its outcome is durable outside the work lane.
+	pub fn refused(&mut self, conversation: &ConversationId) {
+		if let Some(lane) = self.0.get_mut(conversation) {
+			lane.waiting.pop_front();
+			if !lane.busy && lane.turns.is_empty() && lane.waiting.is_empty() {
+				self.0.remove(conversation);
 			}
 		}
 	}
@@ -181,6 +174,7 @@ impl Lanes {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use crate::bot::ledger::MAX_TRIGGERS;
 
 	fn queued(seq: u64) -> Queued {
 		Queued {
@@ -237,11 +231,11 @@ mod tests {
 		}
 		let unheld = lanes.oldest_unheld().unwrap();
 		assert_eq!(unheld.conversation, id("early"));
-		assert_eq!(unheld.triggers.len(), MAX_TRIGGERS);
+		assert_eq!(unheld.trigger.seq, Seq(4));
 		assert_eq!(unheld.newest, None);
 		lanes.held(&id("early"), 3, TurnId(5));
 		let unheld = lanes.oldest_unheld().unwrap();
-		assert_eq!((unheld.triggers[0].seq, unheld.newest), (Seq(7), Some(TurnId(5))));
+		assert_eq!((unheld.trigger.seq, unheld.newest), (Seq(7), Some(TurnId(5))));
 		lanes.held(&id("early"), MAX_TRIGGERS - 1, TurnId(5));
 		assert_eq!(lanes.oldest_unheld().unwrap().conversation, id("late"));
 	}

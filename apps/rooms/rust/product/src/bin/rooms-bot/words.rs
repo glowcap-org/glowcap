@@ -27,11 +27,6 @@ pub const HALTED: &str = "halted, because the access stopped working";
 pub const COULD_NOT_ANSWER: &str = "I could not answer that";
 /// Says the bot's instructions file could not be read.
 pub const INSTRUCTIONS_UNREADABLE: &str = "the bot's instructions file could not be read";
-/// The line for a message kept as context because its conversation is at the
-/// hourly limit.
-pub fn context_only(conversation: &str) -> String {
-	format!("kept a message in {conversation} as context without a reply: the conversation reached the hourly limit")
-}
 /// Names the write of a start's settings and link.
 pub const SAVING_LINK: &str = "saving the settings and link";
 /// Says a start's settings and link were saved by a retry.
