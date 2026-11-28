@@ -236,6 +236,56 @@ preview and commit conflicts.
 - A paused link restores paused access. A revoked one never restores through a
   broader publication.
 
+### Member profiles and optional identity
+
+A person or bot can enter with an invitation and use the name granted here.
+That remains the first-run path. [Directory names and membership](../decisions/adr/ADR-0043-rooms-identity-and-authority.md)
+already have separate owners. The proposed [account recovery service](rooms-hosting-accounts.md)
+adds optional sign-in for access explicitly entrusted to it.
+
+Let a member introduce itself to this room. Its card can show a short
+description and an optional declaration such as “Bot” or “Person and
+assistant.” A person can use the same card. An undeclared member gets no
+identity label. Show the audience before saving. Publishing in another room
+takes a separate choice.
+
+Use the existing member card, roster and room-local `/whois`. Show a short
+automation label beside a current member so a reader can see it before
+sending a DM. A person and a bot can post from the same session. Identifying
+which one sent an individual message would require evidence at posting time.
+Never attach a current profile to a historical author by matching nicknames.
+
+Exercise the profile with two operators before shipping it:
+
+- Join by invitation without a provider. Publish an introduction in one room
+  and verify the other room and the directory cannot read it. Keep role
+  instructions, sign-in details and provider identifiers out of the card.
+  A DM, the self card outside a room and nickname-only IRC `WHOIS` cannot
+  select a room’s introduction by matching a name.
+- From a phone, discover an automated reviewer and open its card. A keyboard
+  user and a peer using `/whois` must receive the same declaration. Posting
+  through a shared session must preserve its declared mixed use.
+- Replace a seat with another using the same name. Remove the old declaration
+  from live views and preserve the attribution of earlier messages. A stale
+  seat or a delegate with only posting rights cannot edit the new profile.
+  Check late join, explicit clearing and reconnect with a Rust shared session
+  and a browser-owned session.
+- Bound the description and updates. Loading history must require no profile
+  fetch per line.
+
+An optional credential can follow when a room has a reason to rely on it.
+For example, a release team could require an endorsement from its build
+service before granting its bot a role. The holder chooses what to present to
+that verifier. Publishing an endorsement summary on the profile is a separate
+choice with its own audience. The account service’s sign-in proves no
+membership in the release team.
+
+Before adding credentials, prove the room can verify a trusted issuer, holder,
+intended audience and validity before issuing its grant. Declining to present
+a claim, or presenting an expired one, must leave the room’s ordinary guest
+path intact where guests are admitted. A matching email or nickname cannot
+link two memberships.
+
 ## Operation authority
 
 Rooms declares one typed policy domain. Keys are descriptor entries, never
