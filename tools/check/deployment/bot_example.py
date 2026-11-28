@@ -110,6 +110,10 @@ def bot_example(path, dockerfile_path):
     assert "glowcap-rooms-net" in session["networks"], "the bot session must reach the directory"
     probe = ["CMD", "/runtime/libexec/rooms-session", "--check-ready=/run/rooms-session/use.sturdyref"]
     managed = parse(Path(path).with_name("docker-compose.yml").read_text())["services"]
+    member = parse(Path(path).with_name("member.compose.yml").read_text())["services"]
+    for service in (managed["session"], session, member["member-session"]):
+        assert service["env_file"] == "${GLOWCAP_ROOMS_SESSION_ENV_FILE:-/dev/null}"
+    assert "env_file" not in managed["directory"] and "env_file" not in bot and member["bot"]["env_file"] == "./bot.env"
     assert managed["session"]["healthcheck"]["test"] == probe and session["healthcheck"]["test"] == probe
     for service in (managed["directory"], managed["session"], session, bot):
         assert service["cap_drop"] == ["ALL"] and service["security_opt"] == ["no-new-privileges:true"], service

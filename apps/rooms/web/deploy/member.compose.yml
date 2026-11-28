@@ -10,6 +10,7 @@ services:
     cap_drop: ["ALL"]
     security_opt: ["no-new-privileges:true"]
     read_only: true
+    env_file: ${GLOWCAP_ROOMS_SESSION_ENV_FILE:-/dev/null}
     environment:
       GLOWCAP_LIB_DIR: /runtime/lib
       GLOWCAP_ROOMS_SESSION_STATE: /session-state

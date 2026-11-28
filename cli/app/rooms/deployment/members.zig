@@ -67,7 +67,7 @@ pub fn inventory(state: Config, require_id: bool) ![]const []const u8 {
         }
         if (entry.kind != .directory or !validName(entry.name)) continue;
         const id = try std.Io.Dir.path.join(state.gpa, &.{ "bots", entry.name, "project-id" });
-        if (!try exists(state, id)) {
+        if (!try state.exists(id)) {
             if (!require_id) continue;
             log.err(state.io, "restore {s} before backing up this member", .{id});
             return error.BotProjectMissing;
@@ -159,7 +159,7 @@ pub fn composeFor(state: Config, member: Config, docker: Docker, project: []cons
     var args: std.ArrayList([]const u8) = .empty;
     try args.appendSlice(state.gpa, &.{ "compose", "--project-name", project, "--project-directory", member.path, "-f", try std.Io.Dir.path.join(state.gpa, &.{ state.templates, "member.compose.yml" }) });
     for ([_]Config{ state, member }, [_][]const u8{ "bots.override.yml", "compose.override.yml" }) |owner, name| {
-        if (try exists(owner, name)) try args.appendSlice(state.gpa, &.{ "-f", try std.Io.Dir.path.join(state.gpa, &.{ owner.path, name }) });
+        if (try owner.exists(name)) try args.appendSlice(state.gpa, &.{ "-f", try std.Io.Dir.path.join(state.gpa, &.{ owner.path, name }) });
     }
     return .{ .docker = docker, .base = args.items };
 }
@@ -201,17 +201,9 @@ fn isHex(bytes: []const u8) bool {
     return true;
 }
 
-pub fn exists(member: Config, name: []const u8) !bool {
-    _ = member.dir.statFile(member.io, name, .{}) catch |err| switch (err) {
-        error.FileNotFound => return false,
-        else => return err,
-    };
-    return true;
-}
-
 fn prepare(member: Config) !void {
-    const has_project = try exists(member, "project-id");
-    if (!has_project and try exists(member, "bot-link")) {
+    const has_project = try member.exists("project-id");
+    if (!has_project and try member.exists("bot-link")) {
         log.err(member.io, "restore the member's saved project-id before starting its session. The bot link belongs to the original project", .{});
         return error.BotProjectMissing;
     }
@@ -219,8 +211,8 @@ fn prepare(member: Config) !void {
     home.close(member.io);
     const instructions = try member.dir.createDirPathOpen(member.io, "instructions", .{ .permissions = .fromMode(0o700) });
     instructions.close(member.io);
-    if (!try exists(member, "instructions/role.md")) try member.write("instructions/role.md", "", false);
-    if (!try exists(member, "bot.env")) try member.write("bot.env", "GLOWCAP_ROOMS_BOT_HARNESS=claude\nGLOWCAP_ROOMS_BOT_PERMISSION=safe\n", false);
+    if (!try member.exists("instructions/role.md")) try member.write("instructions/role.md", "", false);
+    if (!try member.exists("bot.env")) try member.write("bot.env", "GLOWCAP_ROOMS_BOT_HARNESS=claude\nGLOWCAP_ROOMS_BOT_PERMISSION=safe\n", false);
     if (!has_project) {
         var bytes: [16]u8 = undefined;
         try member.io.randomSecure(&bytes);
@@ -251,7 +243,7 @@ const Compose = struct {
 };
 
 fn provision(member: Config, compose: Compose, nick: []const u8, rooms: []const []const u8, locator: ?[]const u8) !void {
-    const has_link = try exists(member, "bot-link");
+    const has_link = try member.exists("bot-link");
     try compose.run(&.{ "up", "-d", "--wait", "--wait-timeout", "120", "member-session" }, 150);
     var join: std.ArrayList([]const u8) = .empty;
     try join.appendSlice(member.gpa, &.{ "join", "--dir=/session-state", try member.gpa.print("--nick={s}", .{nick}), "--exact-nick" });

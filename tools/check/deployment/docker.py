@@ -14,6 +14,8 @@ import hashlib, json, os, pathlib, signal, sys, time
 a = sys.argv[1:]
 with open(os.environ['DOCKER_LOG'], 'a') as f:
     f.write(json.dumps(a) + '\\n')
+if a[:1] == ['compose'] and a[1:2] != ['version'] and 'EXPECT_SESSION_ENV_FILE' in os.environ:
+    assert os.environ.get('GLOWCAP_ROOMS_SESSION_ENV_FILE') == os.environ['EXPECT_SESSION_ENV_FILE']
 if os.environ.get('MEMBER_WAIT') and a[-2:] == ['120', 'member-session']:
     marker = pathlib.Path(os.environ['MEMBER_WAIT'])
     marker.touch()

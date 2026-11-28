@@ -199,6 +199,13 @@ fn perform(ctx: *Ctx, parsed: *types.Parsed, comptime verb: Verb) !void {
         return error.DeploymentNotConfigured;
     };
     try environ.put("GLOWCAP_ROOMS_IMAGE", selected);
+    // Compose 2.17 reads scalar env_file paths. Resolve the operator file from
+    // the deployment even when a named member has a different project root.
+    const session_env = if (try state.exists("session.env"))
+        try Io.Dir.path.join(gpa, &.{ absolute_dir, "session.env" })
+    else
+        "/dev/null";
+    try environ.put("GLOWCAP_ROOMS_SESSION_ENV_FILE", session_env);
     if (comptime verb == .bots) return members.perform(state, docker, parsed, verb.bots);
     if (comptime verb == .backup_plan) return @import("deployment/backup.zig").plan(state, docker, parsed);
     // Preflight includes the operator override before any stop or deletion.

@@ -1,9 +1,8 @@
 # The Rooms deployment: the web server with its directory, and one shared
 # session. `glowcap apps rooms deployment up` writes this file as compose.yml
-# from the installed product on every run, so an edit here does not last. Every
-# setting a host chooses lives in docker-compose.override.yml, which `up`
-# copies once from docker-compose.override.yml.example and never rewrites. The
-# override's `environment` entries add to and replace the ones here.
+# on every run. Use session.env for shared session settings, and use
+# docker-compose.override.yml for service settings. The first `up` copies
+# the override from docker-compose.override.yml.example.
 #
 # The deployment binds no host port itself, so the override publishes a
 # loopback port or joins the network of a proxy or tunnel container.
@@ -81,6 +80,7 @@ services:
     command:
       - --dir=/session-state
       - --readiness-file=/run/rooms-session/use.sturdyref
+    env_file: ${GLOWCAP_ROOMS_SESSION_ENV_FILE:-/dev/null}
     environment:
       GLOWCAP_LIB_DIR: /runtime/lib
       GLOWCAP_ROOMS_SESSION_STATE: /session-state
@@ -89,7 +89,7 @@ services:
       # Browser introductions carry a relay locator, including the fallback for
       # WebRTC. The session dials those relay locators through the directory's
       # relay.
-      # When public ingress needs a browser login, the override sets
+      # When public ingress needs a browser login, session.env sets
       # GLOWCAP_ROOMS_SESSION_RELAY_ALIAS_URL to the public relay address, and
       # the session reaches it here instead.
       GLOWCAP_ROOMS_SESSION_RELAY_URL: ws://directory:8080/relay

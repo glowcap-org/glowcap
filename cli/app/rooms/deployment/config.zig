@@ -12,6 +12,14 @@ pub const Config = struct {
     path: []const u8,
     templates: []const u8,
 
+    pub fn exists(self: Config, name: []const u8) !bool {
+        _ = self.dir.statFile(self.io, name, .{}) catch |err| switch (err) {
+            error.FileNotFound => return false,
+            else => return err,
+        };
+        return true;
+    }
+
     pub fn read(self: Config, name: []const u8) !?[]const u8 {
         const bytes = self.dir.readFileAlloc(self.io, name, self.gpa, .limited(1024 * 1024)) catch |err| switch (err) {
             error.FileNotFound => return null,

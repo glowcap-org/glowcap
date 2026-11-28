@@ -7,7 +7,14 @@ from concurrent.futures import ThreadPoolExecutor
 
 def named_members(deploy):
     call, root = deploy.call, deploy.workspace / "bots"
+    deploy.env["EXPECT_SESSION_ENV_FILE"] = "/dev/null"
+    # A shell setting cannot redirect a deployment to another project's file.
+    deploy.env["GLOWCAP_ROOMS_SESSION_ENV_FILE"] = "/some/other/deployment/session.env"
     call("up", "--image", "fixture:rooms")
+    shared = deploy.workspace / "session.env"
+    shared.write_text("GLOWCAP_ROOMS_SESSION_RELAY_ALIAS_URL=wss://rooms.example/relay\n")
+    deploy.env["EXPECT_SESSION_ENV_FILE"] = str(shared)
+    call("up")
     call("bots", "init", "scout", "../escape", ok=False)
     assert not root.exists()
     call("bots", "init", "scout", "scout", ok=False)

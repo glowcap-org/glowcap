@@ -69,7 +69,7 @@ pub fn plan(state: Config, docker: Docker, parsed: *Parsed) !void {
         defer dir.close(state.io);
         const member: Config = .{ .io = state.io, .gpa = state.gpa, .dir = dir, .path = path, .templates = state.templates };
         const compose = try members.composeFor(state, member, docker, try members.projectName(state, nick));
-        const missing_link = if (try members.exists(member, "bot-link")) null else try std.Io.Dir.path.join(state.gpa, &.{ path, "bot-link" });
+        const missing_link = if (try member.exists("bot-link")) null else try std.Io.Dir.path.join(state.gpa, &.{ path, "bot-link" });
         try inventory.collect(docker, compose.base, nick, stages.get(nick) orelse .served, missing_link);
     }
     const existing = try inventory.existing(docker);
