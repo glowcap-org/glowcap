@@ -96,32 +96,53 @@ impl InboxSelection {
 			key: FieldKey::new(slot, generation),
 		}
 	}
+	/// Whether this opening still owns the row's installed inbox. A new
+	/// introduction can retain its predecessor's inbox until its own is installed.
+	pub fn owns_direct_inbox(&self, row: &Direct) -> bool {
+		let Self::Direct {
+			id,
+			directory,
+			peer,
+			access,
+			introduction,
+			source,
+			inbox,
+		} = self
+		else {
+			return false;
+		};
+		row.id == *id
+			&& row.directory == *directory
+			&& row.peer == *peer
+			&& (introduction.is_some() || row.access == *access)
+			&& row.introduction == *introduction
+			&& row.source == Some(*source)
+			&& row.inbox == Some(*inbox)
+	}
 	pub fn matches(&self, intent: &Intent) -> bool {
 		match self {
 			Self::Direct {
-				id,
 				directory,
-				peer,
 				access,
 				introduction,
 				source,
-				inbox,
+				..
 			} => {
-				intent.conversations.as_slice().iter().any(|row| {
-					matches!(row, Conversation::Direct(row) if row.id == *id && !row.closed
-					&& row.directory == *directory && row.peer == *peer && (introduction.is_some() || row.access == *access)
-					&& row.introduction == *introduction
-					&& row.source == Some(*source) && row.inbox == Some(*inbox))
-				}) && (access.is_some()
-					|| introduction.as_ref().is_some_and(|witness| {
-						intent.directories.as_slice().iter().any(|row| {
-							row.id == *directory
-								&& row.access == witness.access
-								&& row.name == Some(witness.name)
-								&& row.inbox == Some(witness.callback)
-								&& row.source == Some(*source)
-						})
-					}))
+				intent
+					.conversations
+					.as_slice()
+					.iter()
+					.any(|row| matches!(row, Conversation::Direct(row) if !row.closed && self.owns_direct_inbox(row)))
+					&& (access.is_some()
+						|| introduction.as_ref().is_some_and(|witness| {
+							intent.directories.as_slice().iter().any(|row| {
+								row.id == *directory
+									&& row.access == witness.access
+									&& row.name == Some(witness.name)
+									&& row.inbox == Some(witness.callback)
+									&& row.source == Some(*source)
+							})
+						}))
 			}
 			Self::Directory {
 				id,

@@ -130,7 +130,7 @@ enum Target {
 enum Lease {
 	Directory(custody::FieldKey<custody::DirectoryName>),
 	Room(custody::FieldKey<custody::RoomSeat>),
-	Direct(custody::FieldKey<custody::DirectInbox>),
+	Direct,
 }
 impl Target {
 	fn lease(&self) -> Option<Lease> {
@@ -355,7 +355,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Session<P> {
 				let finished = signals.finished;
 				let mut worker = Worker {
 					lease: match &selected {
-						workspace::InboxSelection::Direct { inbox, .. } => Some(Lease::Direct(*inbox)),
+						workspace::InboxSelection::Direct { .. } => Some(Lease::Direct),
 						_ => target.lease(),
 					},
 					writer,

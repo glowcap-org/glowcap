@@ -53,10 +53,10 @@ impl<P: Tasks + Deadline + Clone + 'static> Worker<P> {
 				.map_err(Error::from)?;
 			let mut changed = false;
 			match lease {
-				Lease::Direct(inbox) => {
+				Lease::Direct => {
 					for row in snapshot.intent.conversations.as_mut_slice() {
 						if let workspace::Conversation::Direct(row) = row
-							&& row.inbox == Some(inbox)
+							&& self.selected.owns_direct_inbox(row)
 						{
 							row.retire_connection();
 							changed = true;

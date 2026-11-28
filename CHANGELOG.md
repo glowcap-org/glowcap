@@ -30,6 +30,7 @@ Releases before 0.1.7 are in the
 
 ### Fixed
 
+- Reopening a direct conversation keeps the new connection when the previous one finishes closing.
 - A Rooms bot at its hourly limit tells the requester when to ask again. Restarting preserves the limit and the notice. Operators can inspect skips and delivery in `bot status`.
 - The Rooms loading indicator stays centered through Attach and returns keyboard focus to the button if the link is refused. Settings asks before a reload would discard a picked file or a pending draft.
 - To reset one workspace, open it and choose **Settings** → **Session** → **Export or reset…**. The setup screen’s **Delete browser data…** applies to all Rooms workspaces in that browser profile.

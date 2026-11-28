@@ -25,7 +25,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Worker<P> {
 				self.submission.take();
 			}
 			if let Some(retirement) = &self.retirement {
-				if matches!(self.lease, Some(Lease::Direct(_))) && self.direct_retired().await? {
+				if matches!(self.lease, Some(Lease::Direct)) && self.direct_retired().await? {
 					let budget = self
 						.budget
 						.upgrade()

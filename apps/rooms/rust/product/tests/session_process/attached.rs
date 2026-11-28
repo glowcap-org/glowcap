@@ -1,6 +1,6 @@
 //! The attached view drives real session processes through a Rooms server
 //! over loopback CapTP, as a bot host would. Every wait has a deadline.
-use super::session_rig::{Fixture, attach, call, host, run_within, text_arrived};
+use super::session_rig::{Fixture, attach, call, host, run_within, text_arrived, wait_for_return_route};
 use super::*;
 use glowcap::{CaptpVersion, ConnectOptions, PendingWork};
 use rooms_application::content::{
@@ -503,12 +503,12 @@ async fn open_twice(view: &View<HostPlatform>, directory: &str, operation: &str,
 		view.introduce(operation, Some(base), &introduction),
 		view.introduce(operation, Some(base), &introduction)
 	);
-	assert_met();
 	let conversation = |opened: Result<Opened, Error>| match opened {
 		Ok(Opened::Opened { conversation, .. }) => conversation,
 		other => panic!("a caller did not report the open as its own: {other:?}"),
 	};
 	let (first, second) = (conversation(first), conversation(second));
+	assert_met();
 	assert_eq!(first, second);
 	let reached = view.reach_direct(directory, "attached-two").await.unwrap();
 	assert_eq!(
@@ -516,6 +516,7 @@ async fn open_twice(view: &View<HostPlatform>, directory: &str, operation: &str,
 		Reach::Open(first.clone()),
 		"the open conversation lost its route"
 	);
+	wait_for_return_route(peer, operation);
 	let text = format!("through the route of {operation}");
 	let said = view.say(&format!("{operation}-say"), &first, &text).await.unwrap();
 	assert_eq!(said.status, EffectStatus::Committed);
@@ -563,6 +564,7 @@ fn two_callers_of_one_reopen_both_report_it_and_the_route_stays_held() {
 			Ok(Opened::Opened { conversation, .. }) => conversation,
 			other => panic!("the first open did not open: {other:?}"),
 		};
+		wait_for_return_route(&two.state, "two-callers-before");
 		let base = view.revision().await.unwrap();
 		let closed = view
 			.command("two-callers-close", base, "closeDirect", std::slice::from_ref(&first))
