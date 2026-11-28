@@ -54,6 +54,7 @@ use crate::bot::words::{self, CANNOT_SAY_WHETHER, MOVED_ON, NO_RECEIPT, NOT_KEPT
 use crate::bot::{
 	error::Error,
 	fault::{self, Fail, Kill},
+	gate::{self, Notice},
 	inbox,
 	ledger::{Attempt, Content, Ledger, Phase, Replaced, TurnId},
 	rooms::{
@@ -245,6 +246,16 @@ struct Delivery<'e, 'l, R: Rooms> {
 }
 
 impl<R: Rooms> Delivery<'_, '_, R> {
+	fn notice(&self, state: Notice) -> Result<(), Error> {
+		if self.content == Content::Availability
+			&& let Some(Phase::Sending { covered, .. }) = self.env.ledger.borrow().phase(self.id)
+			&& let Some(event) = covered.events.first()
+		{
+			gate::observed(self.env.store, self.line.conversation, event, state)?;
+		}
+		Ok(())
+	}
+
 	fn log(&self, what: &str) {
 		self.env.store.log(&format!("turn {}: {what}", self.id.0));
 	}
@@ -357,6 +368,7 @@ impl<R: Rooms> Delivery<'_, '_, R> {
 
 	/// Record the commit, so a crash before the line is kept keeps it later.
 	fn committed(&self, base: Base, tries: &mut Tries) -> Result<Next, Error> {
+		self.notice(Notice::Posted)?;
 		self.env
 			.ledger
 			.borrow_mut()
@@ -450,6 +462,7 @@ impl<R: Rooms> Delivery<'_, '_, R> {
 	/// Settle a line nobody can confirm, without sending it again, because a
 	/// second send could post it twice. Its receipt is released next.
 	fn give_up(&self, base: Base) -> Result<Next, Error> {
+		self.notice(Notice::Unconfirmed)?;
 		self.releasing(base)?;
 		self.unconfirmed(&format!(
 			"the session {CANNOT_SAY_WHETHER} {} to {} posted. {MOVED_ON}",
@@ -476,6 +489,7 @@ impl<R: Rooms> Delivery<'_, '_, R> {
 			Ok(echo) => echo == Echo::Found,
 			Err(error) => return self.failed(&error, tries),
 		};
+		self.notice(if found { Notice::Posted } else { Notice::Unconfirmed })?;
 		let next = self.replaced(base, tries)?;
 		if found {
 			self.log_left("posted");
@@ -593,8 +607,9 @@ impl<R: Rooms> Delivery<'_, '_, R> {
 				self.env.ledger.borrow_mut().fail_rest(self.env.store, self.id, part)?;
 				Ok(Next::Now)
 			}
-			Content::Failure => {
-				self.log(&format!("the failure line could not be sent either: {reason}"));
+			Content::Failure | Content::Availability => {
+				self.notice(Notice::Refused)?;
+				self.log(&format!("the notice could not be sent: {reason}"));
 				finish(self.env, self.id, self.line.conversation)?;
 				Ok(Next::Finished)
 			}

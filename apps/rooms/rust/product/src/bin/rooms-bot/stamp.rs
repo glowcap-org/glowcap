@@ -1,7 +1,5 @@
-//! The time a log line carries: UTC, RFC 3339, whole seconds. No Rooms crate
-//! formats a date, and the log is the only place the bot needs one, so this
-//! is the whole conversion.
-use std::time::{SystemTime, UNIX_EPOCH};
+//! Whole-second UTC timestamps for log lines and conversation retry times.
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 /// The date and time of `seconds` after the Unix epoch, such as
 /// `2026-11-21T09:30:05Z`.
@@ -29,10 +27,15 @@ pub fn rfc3339(seconds: u64) -> String {
 /// The time now. A clock before the epoch reads as the epoch, since a log
 /// line is worth writing at any time.
 pub fn now() -> String {
-	let seconds = SystemTime::now()
-		.duration_since(UNIX_EPOCH)
-		.map_or(0, |since| since.as_secs());
-	rfc3339(seconds)
+	rfc3339(seconds())
+}
+
+pub fn seconds() -> u64 {
+	since_epoch().as_secs()
+}
+
+pub fn since_epoch() -> Duration {
+	SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default()
 }
 
 #[cfg(test)]

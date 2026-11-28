@@ -116,6 +116,7 @@ pub fn failure_part(store: &crate::bot::store::Store, reason: &str) -> Result<Pa
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Stage {
 	Think,
+	Notice,
 	Deliver,
 }
 
@@ -161,7 +162,7 @@ struct Loop<'a, R: Rooms> {
 	/// Replies a previous bot left sending. They go out once the session
 	/// has answered a read, because a send under access it has not accepted
 	/// would give up the reply.
-	unsent: Vec<(TurnId, ConversationId)>,
+	unsent: Vec<(TurnId, ConversationId, Stage)>,
 	/// How many turns each conversation has started this hour.
 	gate: Gate,
 	/// Ends the turns that are thinking. Each halt sends on it and puts a new
@@ -198,13 +199,13 @@ impl<'a, R: Rooms> Loop<'a, R> {
 		let env = self.env;
 		let mut stop = match stage {
 			Stage::Think => self.halt.subscribe(),
-			Stage::Deliver => self.stop.clone(),
+			Stage::Deliver | Stage::Notice => self.stop.clone(),
 		};
 		self.turns.push(Box::pin(async move {
 			let step = if waited(delay, &mut stop).await {
 				match stage {
 					Stage::Think => think::run(env, id, &mut stop).await,
-					Stage::Deliver => deliver::run(env, id, &mut stop).await,
+					Stage::Deliver | Stage::Notice => deliver::run(env, id, &mut stop).await,
 				}
 			} else {
 				Ok(Step::Stopped)
@@ -253,8 +254,8 @@ impl<'a, R: Rooms> Loop<'a, R> {
 		if !self.env.is_linked() {
 			return;
 		}
-		for (id, conversation) in std::mem::take(&mut self.unsent) {
-			self.spawn(id, conversation, Stage::Deliver, Duration::ZERO);
+		for (id, conversation, stage) in std::mem::take(&mut self.unsent) {
+			self.spawn(id, conversation, stage, Duration::ZERO);
 		}
 	}
 
@@ -312,7 +313,9 @@ impl<'a, R: Rooms> Loop<'a, R> {
 			Ok(Step::Finished) => {
 				self.retries.remove(&id);
 				self.env.facts.borrow_mut().recovered(Activity::Saving);
-				self.lanes.release(&conversation);
+				if stage != Stage::Notice {
+					self.lanes.release(&conversation);
+				}
 			}
 			Ok(Step::Stopped) if stage == Stage::Think && !self.stopped() => self.halted(id, &conversation),
 			Ok(Step::Stopped) => self.thought(id, &conversation, "stopped"),
@@ -328,7 +331,7 @@ impl<'a, R: Rooms> Loop<'a, R> {
 	fn turn_failed(&mut self, id: TurnId, conversation: ConversationId, stage: Stage, error: Error) {
 		let during = match stage {
 			Stage::Think => Activity::Thinking,
-			Stage::Deliver => Activity::Saving,
+			Stage::Deliver | Stage::Notice => Activity::Saving,
 		};
 		report_failure(self.env, id, during, &error);
 		if self.env.ledger.borrow().phase(id).is_none() {
@@ -336,7 +339,9 @@ impl<'a, R: Rooms> Loop<'a, R> {
 			self.retries.remove(&id);
 			self.env.replies.borrow_mut().remove(&id);
 			self.env.unsaved.borrow_mut().remove(&id);
-			self.lanes.release(&conversation);
+			if stage != Stage::Notice {
+				self.lanes.release(&conversation);
+			}
 			return;
 		}
 		if stage == Stage::Think && !self.may_think() {
@@ -374,6 +379,7 @@ impl<'a, R: Rooms> Loop<'a, R> {
 		}
 		let settled = intake::admit(self)
 			.and_then(|()| {
+				self.start_sends();
 				self.start_turns();
 				self.advance()
 			})
@@ -385,6 +391,7 @@ impl<'a, R: Rooms> Loop<'a, R> {
 					return Ok(());
 				}
 				intake::admit(self)?;
+				self.start_sends();
 				self.start_turns();
 				self.advance()
 			});
@@ -418,12 +425,19 @@ fn resume<R: Rooms>(state: &mut Loop<'_, R>) -> Result<(), Error> {
 				state.lanes.resume(&asked.conversation, id, Left::Waiting);
 				seen.insert(asked.conversation);
 			}
+			Some(Phase::Sending {
+				conversation,
+				content: Content::Availability,
+				..
+			}) => {
+				state.unsent.push((id, conversation, Stage::Notice));
+			}
 			Some(Phase::Sending { conversation, .. }) => {
 				if !seen.insert(conversation.clone()) {
 					return Err(Ledger::invariant("a reply is sending behind an earlier turn"));
 				}
 				state.lanes.resume(&conversation, id, Left::Delivering);
-				state.unsent.push((id, conversation));
+				state.unsent.push((id, conversation, Stage::Deliver));
 			}
 			Some(Phase::Done { .. }) | None => {}
 		}

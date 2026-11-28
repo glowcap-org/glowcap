@@ -211,22 +211,96 @@ fn reset_starts_a_new_agent_conversation_and_says_so() {
 	assert_eq!(runs(&rig.workdir("c1")), 2, "the reset ran the agent");
 }
 
-/// A conversation past `--conversation-limit` gets no reply and no turn for
-/// the lines past it, which are kept as context. Another conversation is
-/// unaffected.
+/// Kill the bot after the first refusal posted but before it learned the
+/// outcome. Recovery observes that operation and coalesces the later requests.
 #[test]
-fn a_conversation_past_its_hourly_limit_gets_no_reply_and_another_is_unaffected() {
+fn an_hourly_refusal_survives_its_uncertain_post_and_names_when_to_ask_again() {
 	let rig = Rig::new("bot-conversation-limit");
-	let bot = rig.serve(json!({"conversation-limit": ["1"]}), None);
+	let mut bot = rig.serve(json!({"conversation-limit": ["1"]}), Some("after-send@2"));
 	rig.direct(1, "c1", "reply:within the limit");
-	rig.direct(2, "c1", "reply:past the limit");
-	rig.direct(3, "c2", "reply:another conversation");
+	rig.wait_for_cursor(1);
+	rig.direct(2, "c1", "reply:first refusal");
+	assert!(!bot.process.wait().success());
+	let lines = rig.sent();
+	assert_eq!(lines.len(), 2);
+	let notice = lines[1]["text"].as_str().unwrap();
+	let operation = lines[1]["operation"].as_str().unwrap();
+	let available = &rig.status()["availability"]["c1"];
+	let retry = available["retry_at"].as_str().unwrap();
+	assert!(
+		notice.contains(retry) && notice.contains("Please ask me again"),
+		"{notice}"
+	);
+	assert_eq!(available["skipped"], 1);
+	assert_eq!(available["notice"], "pending");
+	let bot = rig.serve(json!({}), None);
+	rig.direct(3, "c1", "reply:another refusal");
+	rig.direct(4, "c1", "reply:third refusal");
+	rig.direct(5, "c2", notice);
+	rig.room(6, "r1", "reply:an independent room", true);
+	rig.wait_for_cursor(6);
+	let availability = &rig.status()["availability"];
+	assert_eq!(availability["c1"]["retry_at"], retry);
+	assert_eq!(availability["c1"]["skipped"], 3);
+	assert_eq!(availability["c1"]["notice"], "posted");
+	assert_eq!(rig.status()["status"]["turns_finished"], 2);
+	assert_eq!(availability.as_object().unwrap().len(), 1);
+	assert!(bot.stop().success());
+	assert_eq!(rig.sent().len(), 3);
+	assert_eq!(runs(&rig.workdir("c1")), 1);
+	assert_eq!(runs(&rig.workdir("c2")), 0);
+	assert_eq!(rig.operations("observe"), [operation]);
+	assert!(rig.operations("keep").contains(&operation.to_owned()));
+	let bot = rig.serve(json!({"conversation-limit": ["2"]}), None);
+	rig.direct(7, "c1", "reply:requested again");
+	rig.wait_for_cursor(7);
+	assert_eq!(rig.texts().last().unwrap(), "requested again");
+	assert_eq!(rig.status()["availability"], json!({}));
+	assert!(bot.stop().success());
+}
+
+#[test]
+fn a_room_refusal_is_delivered_while_an_earlier_turn_is_still_thinking() {
+	let rig = Rig::new("bot-room-limit");
+	let bot = rig.serve(json!({"conversation-limit": ["1"]}), None);
+	rig.room(1, "r", "wait-file:work finished", true);
+	let workdir = rig.workdir("r");
+	eventually("the paid turn to start", || {
+		workdir.join("harness.pid").exists().then_some(())
+	});
+	rig.room(2, "r", "reply:skipped", true);
+	rig.room(3, "r", "reply:also skipped", true);
+	let posted = rig.wait_for_replies(1);
+	assert_eq!(posted[0]["conversation"], "r");
+	assert!(posted[0]["text"].as_str().unwrap().contains("Please ask me again"));
+	std::fs::write(workdir.join("release"), "").unwrap();
 	rig.wait_for_cursor(3);
-	assert!(bot.stop().success(), "the bot exited with a failure");
-	let mut sent = rig.texts();
-	sent.sort();
-	assert_eq!(sent, ["another conversation", "within the limit"]);
-	assert!(rig.log().contains(&words::context_only("c1")), "{}", rig.log());
+	assert_eq!(runs(&workdir), 1);
+	assert_eq!(rig.status()["availability"]["r"]["skipped"], 2);
+	assert_eq!(rig.texts().last().unwrap(), "work finished");
+	assert!(bot.stop().success());
+}
+
+#[test]
+fn a_refused_or_unconfirmable_notice_never_claims_a_post_or_starts_another_turn() {
+	for (outcome, faults) in [("refused", vec!["refused"]), ("unconfirmed", vec!["lost", "ok"])] {
+		let rig = Rig::new("bot-undelivered-limit-notice");
+		let bot = rig.serve(json!({"conversation-limit": ["1"]}), None);
+		rig.direct(1, "c", "reply:first");
+		rig.wait_for_cursor(1);
+		if outcome == "unconfirmed" {
+			rig.restart_echoes();
+		}
+		rig.send_faults(&faults);
+		rig.direct(2, "c", "reply:skipped");
+		rig.direct(3, "c", "reply:also skipped");
+		rig.wait_for_cursor(3);
+		assert!(bot.stop().success());
+		assert_eq!(rig.status()["availability"]["c"]["notice"], outcome);
+		assert_eq!(rig.operations("send").len(), 2);
+		assert_eq!(rig.texts(), ["first"]);
+		assert_eq!(runs(&rig.workdir("c")), 1);
+	}
 }
 
 #[test]

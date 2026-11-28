@@ -88,12 +88,12 @@ pub async fn run(args: Vec<String>) -> Result<(), Error> {
 		"serve" => serve::run(&request).await,
 		"status" => {
 			request.only(&[])?;
-			println!("{}", status::report(&request.state)?);
+			println!("{}", status::report(&request.state, true)?);
 			Ok(())
 		}
 		"ready" => {
 			request.only(&[])?;
-			status::ready(&status::report(&request.state)?)
+			status::ready(&status::report(&request.state, false)?)
 		}
 		other => match act::Verb::named(other) {
 			Some(verb) => act::run(verb, &request).await,
