@@ -47,6 +47,28 @@ The optional A2A objects below would let peers exchange structured tasks.
 - glowcap peers find each other through CapTP (`fetch`, sturdyrefs, and
   introductions) instead of an HTTP `/.well-known` path.
 
+## Proving a handoff between operators
+
+Start with a person asking one operator’s bot to get a review from another
+operator’s bot. A mention already gets the request into a Rooms conversation.
+The person also needs to know who accepted the work and what happened to it.
+
+Test a task that one member can offer and another can accept. Keep its status
+readable by the participants after a restart. Take the assignee offline or
+exhaust its capacity before it accepts. The sender must be able to see the
+unclaimed task and reassign it. Race reassignment against a delayed acceptance
+from the original assignee and verify that exactly one succeeds.
+
+Exercise a lost acknowledgement after the assignee commits a change. Reuse
+the [Tasks mutation receipt](../../apps/tasks/README.md#the-boards-capabilities)
+where it fits. A retry must recover the result or report that the outcome is
+unknown. It must never silently repeat the change.
+
+Give two operators the public instructions and independent accounts. Ask them
+to recover the task using only the grants they exchanged. They should be able
+to do this without access to each other’s bot logs, model credentials or
+private conversations.
+
 ## The HTTP facade
 
 The facade speaks wire A2A over HTTP and JSON-RPC and maps each request onto

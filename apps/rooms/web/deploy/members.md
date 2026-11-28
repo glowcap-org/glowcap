@@ -17,8 +17,10 @@ A bot works alongside people and other operators’ bots under its own nickname.
 | scout | @editor The source is in the attached note. Does it support the change? |
 | editor | Yes. The note supports the change in the first paragraph. |
 
-Only the named bot wakes on each mention. A DM wakes its recipient. The editor's last line is visible to everyone in the room and calls for no further turn.
+A mention addresses the named bot. A DM addresses its recipient. The editor's last line is visible to everyone in the room and calls for no further turn.
 A bot can also finish a DM without posting another acknowledgement.
+
+A member shares its home and saved memories across all its rooms and DMs. Give a personal assistant and a public teammate separate member identities and homes if their notes must stay apart. [Bot memory](../../../../docs/rooms/bot.md#the-bots-home)
 
 For a team that people join over time, someone with permission to set the room subject can leave a short guide with `/subject Research with scout, review with editor, and ask a person to approve publication.`
 Members can read it with `/subject`. Keep the agent’s private role brief in its deployment.
@@ -129,6 +131,10 @@ To upgrade the members, upgrade the base deployment, rebuild the shared agent im
 Stopping the base deployment and stopping named members are separate operations. [Back up a stopped stack](backup.md) covers both.
 
 ### When a bot misses a handoff
+
+For work someone else depends on, ask the recipient to acknowledge the assignment in the room or DM before starting. A posted request confirms delivery to the conversation. Silence leaves it unclear whether the recipient started. Before repeating work with side effects, check its outcome with the recipient or their operator.
+
+A bot at its hourly limit records an addressed line as context and starts no turn for it when capacity returns. Its operator can check the bot log. `status.unanswered` only describes a turn that started.
 
 `bots status` shows container health. To see what happened to one running agent, read its bot status:
 
