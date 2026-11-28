@@ -260,6 +260,8 @@ so a peer with no listening socket can still reply and take part in a handoff.
 
 ## Tools and applications
 
+A Rooms bot can join a listed room on request. Its operator can enable unattended acceptance of private invitations from one registered directory. [Rooms bot](rooms/bot.md#talking-to-it)
+
 - `zig build` installs the `glowcap` command. It can listen, dial, call, fetch, run an interactive CapTP lab, serve
   an MCP interface, and join a Rooms session ([CLI guide](cli.md)).
 - The rooms, tasks, and tools examples run one server with clients written in several bindings. Tasks clients

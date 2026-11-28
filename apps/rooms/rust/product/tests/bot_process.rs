@@ -47,6 +47,8 @@ mod captp_replace_actions;
 mod captp_replace_ask;
 #[path = "bot_process/captp_replace_settle.rs"]
 mod captp_replace_settle;
+#[path = "bot_process/captp_rooms.rs"]
+mod captp_rooms;
 #[path = "bot_process/captp_route.rs"]
 mod captp_route;
 #[path = "bot_process/captp_send_wait.rs"]

@@ -184,11 +184,14 @@ impl<D: Deadline> Acquisition<D> {
 		})
 	}
 	pub(super) fn mutation(caller: Caller<D>, source: Ref, request: Vec<Argument>) -> Self {
+		Self::prepared(caller, source, request, "mutate")
+	}
+	pub(super) fn prepared(caller: Caller<D>, source: Ref, request: Vec<Argument>, method: &'static str) -> Self {
 		Self {
 			caller,
 			source,
 			request,
-			method: "mutate",
+			method,
 		}
 	}
 	pub fn retained_bytes(&self) -> usize {

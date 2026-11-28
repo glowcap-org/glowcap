@@ -75,6 +75,41 @@ impl<P: Tasks> DirectoryRegistrations<P> {
 	}
 }
 
+impl<P: Tasks> Budget<P> {
+	pub(in crate::session::managed) fn room_ended(&self, inbox: custody::FieldKey<custody::RoomInbox>) {
+		let tasks = self.tasks.borrow();
+		if let Some(owner) = tasks
+			.values()
+			.filter_map(|worker| worker.retirement.as_ref())
+			.find(|owner| owner.room.is_some_and(|(callback, _)| callback == inbox))
+		{
+			owner.room_ended.set(true);
+		}
+	}
+
+	pub(in crate::session::managed) fn room_ready(
+		&self,
+		inbox: custody::FieldKey<custody::RoomInbox>,
+		seat: custody::FieldKey<custody::RoomSeat>,
+	) -> Result<bool> {
+		let tasks = self.tasks.borrow();
+		let Some(worker) = tasks.values().find(|worker| {
+			worker
+				.retirement
+				.as_ref()
+				.is_some_and(|owner| owner.room == Some((inbox, seat)) && !owner.closing() && !owner.connection_lost())
+		}) else {
+			return Ok(false);
+		};
+		if worker.retirement.as_ref().is_some_and(|owner| owner.room_ended.get()) {
+			return Err(Error::closed("the room ended this membership"));
+		}
+		if *worker.stop.borrow() || worker.ended.borrow().is_some() {
+			return Ok(false);
+		}
+		worker.ready.borrow().clone().transpose().map(|ready| ready.is_some())
+	}
+}
 impl<P: Tasks> Default for Budget<P> {
 	fn default() -> Self {
 		Self {
