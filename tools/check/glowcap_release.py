@@ -253,8 +253,14 @@ def check_bot_turn_commands(root, prompt):
         result = subprocess.run(
             [str(root / "bin/glowcap"), "apps", "rooms", "bot", *command], capture_output=True, text=True, timeout=5
         )
-        assert result.returncode == 1 and "only during a bot's turn" in result.stderr, (command, result)
-        assert json.loads(result.stdout)["error"]["class"] == "invalid", (command, result.stdout)
+        reason = (
+            "outside a bot turn, pass --dir and --conversation"
+            if command[0] in {"reminders", "cancel-reminder"}
+            else "only during a bot's turn"
+        )
+        assert result.returncode == 1 and reason in result.stderr, (command, result)
+        error = json.loads(result.stdout)["error"]
+        assert error["class"] == "invalid" and reason in error["message"], (command, error)
 
 
 def check_source_installation(root, launcher):
