@@ -122,12 +122,15 @@ class StateTest(unittest.TestCase):
                     self.assertEqual(refused.exception.code, 2)
             with mock.patch("builtins.print"):
                 self.assertEqual(state.main(["pack", f"{temporary}/empty.tar.zst"]), 1, "nothing to pack")
+            state.CARGO_BUILD.mkdir(parents=True)
+            with mock.patch("builtins.print"):
+                self.assertEqual(state.main(["pack", f"{temporary}/empty.tar.zst"]), 1, "missing checkout time")
             self.assertFalse(Path(temporary, "empty.tar.zst").exists())
 
     def test_compiled_state_round_trips_with_its_times(self):
         # A build job packs its stores and zig-out, and a test job unpacks them
         # at the same absolute paths with the times Cargo recorded. Both stamp
-        # the checkout to the commit time first.
+        # the checkout to the time chosen by the build.
         with tempfile.TemporaryDirectory() as temporary:
             base = Path(temporary)
             root, home, binary = base / "checkout", base / "home", base / "bin"
@@ -165,8 +168,11 @@ class StateTest(unittest.TestCase):
                 self.assertRegex(listing.getvalue(), r"\n\d\.\dG\tab/cdef0123456789/debug\n")
                 self.assertRegex(listing.getvalue(), r"\n0\.0G\tab/cdef0123456789/release\n")
                 shutil.rmtree(home)
+                shutil.rmtree(state.checkout_stamps())
                 shutil.rmtree(root / "zig-out")
                 self.assertEqual(state.main(["restore", str(archive.parent), "[1]", "success"]), 0)
+                self.assertEqual(state.main(["stamp", "--handoff"]), 0)
+                self.assertEqual((root / "tracked.zig").stat().st_mtime, 1700000000)
                 for index, output in enumerate(outputs):
                     self.assertEqual(output.read_text(), f"output {index}\n")
                     self.assertEqual(output.stat().st_mtime, 1700000100 + index)
@@ -175,6 +181,41 @@ class StateTest(unittest.TestCase):
                 archive.write_bytes(b"\xff" * 1024)
                 with self.assertRaises(subprocess.CalledProcessError):
                     state.main(["restore", str(archive.parent), "[1]", "success"])
+
+    def test_cross_revision_cache_and_concurrent_shard_handoff(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            root, home, binary = base / "checkout", base / "home", base / "bin"
+            root.mkdir()
+            source = root / "lib.rs"
+            source.write_text("pub const ANSWER:u8=1;")
+            binary.mkdir()
+            stub(binary, "zstd", "#!/bin/sh\nexec cat\n")
+            environment = on_path(binary, HOME=str(home), **GIT_ENV)
+            commit(root, environment)
+            source.write_text("pub const ANSWER:u8=2;")
+            commit(root, environment)  # Same commit time and source length.
+            state = module(home, root)
+            with mock.patch.dict(os.environ, environment), contextlib.redirect_stdout(io.StringIO()):
+                # A stamp from a later concurrent build, in either shard, must
+                # survive the handoff even if the shard never rebuilt that crate.
+                for shard, previous in ((1, 1700000100), (2, 1700000200)):
+                    state.CARGO_BUILD.mkdir(parents=True)
+                    cached = state.CARGO_BUILD / f"unbuilt-target-{shard}"
+                    cached.touch()
+                    nano = previous * 1_000_000_000 + 999_999_999
+                    os.utime(cached, ns=(nano, nano))
+                    state.main(["stamp"])
+                    self.assertEqual(source.stat().st_mtime, previous + 1)
+                    self.assertEqual(state.main(["pack", str(base / f"state-{shard}.tar.zst")]), 0)
+                    shutil.rmtree(state.checkout_stamps())
+                    shutil.rmtree(state.CARGO_BUILD)
+                state.main(["restore", str(base), "[1,2]", "success"])
+                state.main(["stamp", "--handoff"])
+                # Shard one extracted last. Shard two held the newest stale output.
+                self.assertEqual(source.stat().st_mtime, 1700000201)
+                for cached in state.CARGO_BUILD.iterdir():
+                    self.assertLess(cached.stat().st_mtime, source.stat().st_mtime)
 
     def test_a_test_job_finds_every_shard_state_or_fails(self):
         # (build result, archives present, exit, archives unpacked in order)
