@@ -46,10 +46,8 @@ review needs that review before its first step.
    cannot silently strand recovery. Support Unix-socket Tor endpoints
    through Zig's public runtime. Project explicit promise-to-reference
    retention into TypeScript, Python, and Racket. Done when public API tests
-   cover those provider contracts, successful and refused shutdown, retained
-   promise lifetimes, and a refused adopt or re-arm that leaves a completion
-   listener and loop serving ([#216](https://github.com/glowcap-org/glowcap/issues/216),
-   [plan to plan](planning/plan-to-plan.md)).
+   cover successful and refused shutdown, retained promise lifetimes, and a
+   connection through a Unix-socket Tor endpoint ([plan to plan](planning/plan-to-plan.md)).
 3. **Interop coverage.** Extend live binding checks to automatic capability
    finalization, and live Goblins relay checks to Python, Rust and Racket.
    Keep the exact role and transport coverage in community review. Work that
@@ -252,6 +250,11 @@ target machines and recorded runs.
   Windows support needs an IOCP backend that meets the existing
   completion-loop contract in full (`validateBackend` checks it), then live
   tests and release artifacts. It waits on Windows hardware for the checks
+  ([plan to plan](planning/plan-to-plan.md)).
+- **Rooms on the iPhone Home Screen.** On a physical iPhone, enter a draft
+  in a room, close the installed app, then reopen it from the Home Screen.
+  Verify the same workspace, selected room and unsent text after a normal
+  close and after a force quit. Record the iOS version with the result
   ([plan to plan](planning/plan-to-plan.md)).
 - **Public-certificate relay URLs.** Local WSS with a fixture authority is
   checked. A public certificate at a real relay hostname is unproven across

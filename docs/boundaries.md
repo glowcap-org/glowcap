@@ -64,19 +64,16 @@ binding ([invocation contract](../bindings/README.md#invocation-shape)).
 - **Admission and waits are explicit.** Opening sessions have bounded capacity,
   and callers may choose unbounded handshake or settlement waits.
   [Resource options](architecture.md#resource-knobs) own the defaults.
-- **A provider that runs out of memory while accepting can end its listener or loop.**
-  The runtime retires one arrival when its own admission fails. A completion
-  provider that cannot adopt an accepted descriptor closes it and fails the
-  listener. One that cannot re-arm its accept latches a provider failure,
-  which can end the whole loop. Both are tracked in
-  [#216](https://github.com/glowcap-org/glowcap/issues/216).
-- **A memory shortage retries queued work in the runtime's own drains, not everywhere.**
-  A stepped or blocking runtime keeps work it could not drain and retries it
-  on a deadline. A failed pending-open report, an allocation that fails before
-  a dial owns its row, provider admission, entropy, kernel pressure, wait
-  capacity, and the final contract for unreturned failures still fail the open or
-  the step. They are tracked in
-  [#216](https://github.com/glowcap-org/glowcap/issues/216).
+- **An accept failure has a scope.** If the completion provider cannot adopt
+  an accepted descriptor, it closes that arrival. If it runs out of memory
+  re-arming an established listener, the driver retries on its memory deadline.
+  A persistent accept failure such as a descriptor quota error can still end
+  that listener. Other failures to re-arm can end the loop.
+- **Memory pressure can delay independent work on one Host.** Queued work that
+  can succeed later shares a retry deadline. A dial or session failure is
+  reported to its operation. Failures without a caller are recorded in the
+  Context. Once an admitted driver step returns a terminal error, later steps
+  retain its cause. See the [driver failure contract](consuming-from-c.md).
 - **A driver permits one listener per transport.** The relay can host keyed or
   Noise traffic, but not both at once, because rendezvous queues by designator.
 - **Driver readiness descriptors require Linux or Darwin.** Other platforms
