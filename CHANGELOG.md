@@ -11,6 +11,8 @@ Releases before 0.1.7 are in the
 
 ## [Unreleased]
 
+## [0.1.10] - 2026-11-28
+
 ### Security
 
 - The Rooms directory and session run with read-only root filesystems, drop all Linux capabilities, and prevent privilege gains on exec. Upgrade the host CLI and run `deployment up` to apply the managed Compose settings. If your override defines a bot session, copy the same settings from the bot-session example.
@@ -29,11 +31,15 @@ Releases before 0.1.7 are in the
 
 ### Changed
 
+- Inbound CapTP dispatch skips bookkeeping when there are no references or promise updates to track, reducing work per call.
+
 - Each Rooms bot turn receives the running agent’s harness, requested model, and permission. `bot status` shows those settings alongside the saved configuration. Restart the bot after upgrading so it can publish its live status and pass `bot ready`.
 - Rooms reopens the last workspace in the same browser profile after the browser closes. Setup lists saved workspaces, and Settings lets you choose another. Browser embeddings must pass a boolean after the workspace ID in `new RoomsManagedApplication(id, existing, trouble, admission, server)`. Pass `true` to require an existing committed workspace. To create a separate workspace, supply a fresh ID and `false`.
 - TypeScript WebSocket and WebRTC channels admit at most 256 queued messages per direction. Callers can await writes to stay within the limit. The WebSocket adapter closes a refused text message with application code 4003 and a full inbound queue with 4009.
 
 ### Fixed
+
+- Python and Racket release unclaimed capability references when a reply is abandoned. Observing or abandoning an answer frees its retained-result slot in Python, Rust, and TypeScript.
 
 - Reopening a direct conversation keeps the new connection when the previous one finishes closing.
 - A Rooms bot at its hourly limit tells the requester when to ask again. Restarting preserves the limit and the notice. Operators can inspect skips and delivery in `bot status`.
@@ -171,7 +177,8 @@ the [features and fixes](docs/history/0.1.7/changes/CHANGELOG.md), including
 the WebRTC reopen fix, and the [earlier changes](docs/history/0.1.7/CHANGELOG.md)
 in this release.
 
-[Unreleased]: https://github.com/glowcap-org/glowcap/compare/v0.1.9...HEAD
+[Unreleased]: https://github.com/glowcap-org/glowcap/compare/v0.1.10...HEAD
+[0.1.10]: https://github.com/glowcap-org/glowcap/compare/v0.1.9...v0.1.10
 [0.1.9]: https://github.com/glowcap-org/glowcap/compare/v0.1.8...v0.1.9
 [0.1.8]: https://github.com/glowcap-org/glowcap/compare/v0.1.7...v0.1.8
 [0.1.7]: https://github.com/glowcap-org/glowcap/compare/v0.1.6...v0.1.7

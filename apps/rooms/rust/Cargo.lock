@@ -313,7 +313,7 @@ dependencies = [
 
 [[package]]
 name = "glowcap"
-version = "0.1.9"
+version = "0.1.10"
 dependencies = [
  "getrandom 0.4.3",
  "gloo-timers",
@@ -827,7 +827,7 @@ dependencies = [
 
 [[package]]
 name = "rooms-application"
-version = "0.1.9"
+version = "0.1.10"
 dependencies = [
  "hmac",
  "markdown",
@@ -839,7 +839,7 @@ dependencies = [
 
 [[package]]
 name = "rooms-browser"
-version = "0.1.9"
+version = "0.1.10"
 dependencies = [
  "gloo-timers",
  "glowcap",
@@ -858,7 +858,7 @@ dependencies = [
 
 [[package]]
 name = "rooms-contract-proofs"
-version = "0.1.9"
+version = "0.1.10"
 dependencies = [
  "futures-util",
  "gloo-timers",
@@ -880,7 +880,7 @@ dependencies = [
 
 [[package]]
 name = "rooms-glowcap"
-version = "0.1.9"
+version = "0.1.10"
 dependencies = [
  "glowcap",
  "rooms-application",
@@ -890,7 +890,7 @@ dependencies = [
 
 [[package]]
 name = "rooms-platform"
-version = "0.1.9"
+version = "0.1.10"
 dependencies = [
  "bytes",
  "futures-util",
@@ -910,7 +910,7 @@ dependencies = [
 
 [[package]]
 name = "rooms-product"
-version = "0.1.9"
+version = "0.1.10"
 dependencies = [
  "bytes",
  "futures-util",
@@ -937,7 +937,7 @@ dependencies = [
 
 [[package]]
 name = "rooms-runtime"
-version = "0.1.9"
+version = "0.1.10"
 dependencies = [
  "glowcap",
  "rooms-application",
@@ -951,7 +951,7 @@ dependencies = [
 
 [[package]]
 name = "rooms-services"
-version = "0.1.9"
+version = "0.1.10"
 dependencies = [
  "base64",
  "bytes",
@@ -980,7 +980,7 @@ dependencies = [
 
 [[package]]
 name = "rooms-testing"
-version = "0.1.9"
+version = "0.1.10"
 dependencies = [
  "rooms-glowcap",
  "tokio",
