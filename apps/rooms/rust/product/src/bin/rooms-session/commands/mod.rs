@@ -102,6 +102,7 @@ async fn execute(options: &Options) -> Result<Value, Failure> {
 	match options.verb.as_str() {
 		"start" => supervise::start(options).await,
 		"join" => workspace::join(options).await,
+		"invitations" => request(&options.state, json!({"verb":"invitations","directory":options.get("directory").ok_or_else(|| Failure::invalid("--directory is required"))?,"mode":options.get("mode")})).await,
 		"recover" => acquisition::recover(options).await,
 		"tick" => {
 			request(

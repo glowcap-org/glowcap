@@ -69,6 +69,7 @@ pub const commands = [_]types.Command{
         .{ .long = "quiet", .help = "Report readiness through the exit status alone" },
     }, .run = @import("mod.zig").run("rooms-session", .session_ready) },
     .{ .name = "start", .short_help = "Start or restore a durable Rooms workspace", .flags = &start, .run = run("start") },
+    .{ .name = "invitations", .short_help = "Read or change how this session handles room invitations from one directory", .flags = &.{ dir, value("directory", "Exact workspace directory id"), value("mode", "Choose auto to join invitations from this directory or review to leave them for its operator") }, .run = run("invitations") },
     .{ .name = "join", .short_help = "Register a directory nickname or join rooms, keeping existing conversations", .flags = &join, .run = run("join") },
     .{ .name = "recover", .short_help = "Resume an acquisition from its saved original request", .flags = &.{ dir, value("acquisition", "Exact acquisition identifier from the interrupted command") }, .run = run("recover") },
     .{ .name = "status", .short_help = "Show workspace, memberships, effects, and inbox health", .flags = &.{dir}, .run = run("status") },

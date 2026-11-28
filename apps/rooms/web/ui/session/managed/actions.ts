@@ -376,7 +376,8 @@ export class ManagedActions {
 			if (invitation?.authority.role !== "roomAccess") {
 				throw new LocalRefusal("invitation-changed");
 			}
-			const room = crypto.randomUUID();
+			// A resumed session and its browser adopt the same retained arrival once.
+			const room = id.startsWith("arrival:") ? id : crypto.randomUUID();
 			snapshot.intent.conversations.push({
 				kind: "room",
 				id: room,

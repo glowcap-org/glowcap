@@ -113,6 +113,22 @@ pub struct Custody {
 	writer: Rc<Writer>,
 }
 impl Custody {
+	/// Accept an offered room on its original callback. The owner witness
+	/// stays in the host and the callback's participation grant is checked.
+	pub async fn prepare_room_invitation<D: Deadline + Clone>(
+		&self,
+		callback: &rooms_glowcap::client::workspace::Workspace<D>,
+		directory: &Ref,
+		token: &str,
+		offer: &rooms_application::content::session::workspace::RoomInvitation,
+		expected: u64,
+		intent: &rooms_application::content::session::workspace::Intent,
+	) -> std::result::Result<rooms_glowcap::client::workspace::Acquisition<D>, rooms_glowcap::client::Error> {
+		callback
+			.prepare_room_invitation(&self.writer.root()?, directory, token, offer, expected, intent)
+			.await
+	}
+
 	/// The same answer as [`Session::restore_publication_custody`].
 	pub async fn restore_publication(&self, selected: &[custody::Coordinate]) -> Result<Vec<(Ref, Option<String>)>> {
 		publication(restore_selected(&self.writer, selected, true).await?)

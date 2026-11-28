@@ -11,15 +11,17 @@ pub(super) type Application = Local;
 pub(super) struct Feed {
 	pub app: Application,
 	pub inbox: worker::Worker,
+	pub invitations: super::invitations::Invitations,
 	pub failure: RefCell<Option<Failure>>,
 	live: RefCell<BTreeMap<u64, Event>>,
 	pub cursor: Cell<u64>,
 }
 impl Feed {
-	pub fn new(app: Application, inbox: worker::Worker) -> Self {
+	pub fn new(app: Application, inbox: worker::Worker, invitations: super::invitations::Invitations) -> Self {
 		Self {
 			app,
 			inbox,
+			invitations,
 			failure: RefCell::new(None),
 			live: RefCell::new(BTreeMap::new()),
 			cursor: Cell::new(0),

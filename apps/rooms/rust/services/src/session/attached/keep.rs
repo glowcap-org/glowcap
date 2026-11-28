@@ -479,7 +479,7 @@ pub(super) fn text(id: &Id) -> Result<String, Error> {
 		.ok_or(Error::Malformed("a direct conversation id is not text"))
 }
 /// A key no held custody uses, from platform entropy.
-fn fresh<K>() -> Result<FieldKey<K>, Error> {
+pub(super) fn fresh<K>() -> Result<FieldKey<K>, Error> {
 	let mut entropy = [0; 16];
 	rooms_platform::entropy::fill(&mut entropy).map_err(|error| Error::Input(error.to_string()))?;
 	FieldKey::from_entropy(entropy).ok_or_else(|| Error::Input("platform entropy produced no key".into()))

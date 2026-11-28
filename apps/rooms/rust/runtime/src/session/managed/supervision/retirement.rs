@@ -37,6 +37,11 @@ type Observation = Pin<Box<dyn Future<Output = Result<Argument>>>>;
 pub(in crate::session::managed) struct Owner {
 	host: Host,
 	pub(super) profile: Option<(super::profile::Seat, crate::session::managed::InboxOrigin)>,
+	pub(super) room_ended: Cell<bool>,
+	pub(super) room: Option<(
+		custody::FieldKey<custody::RoomInbox>,
+		custody::FieldKey<custody::RoomSeat>,
+	)>,
 	pub(super) exact_registration: Option<custody::FieldKey<custody::DirectoryInbox>>,
 	outcome: RefCell<Outcome>,
 	closing: Cell<bool>,
@@ -50,6 +55,8 @@ impl Owner {
 			host,
 			exact_registration: None,
 			profile: None,
+			room: None,
+			room_ended: Cell::new(false),
 			outcome: RefCell::new(Outcome::Unstarted),
 			closing: Cell::new(false),
 			observation: Mutex::new(None),

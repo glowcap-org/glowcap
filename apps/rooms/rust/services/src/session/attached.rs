@@ -14,6 +14,7 @@ mod grant;
 mod holder;
 mod keep;
 mod link;
+mod listed_room;
 mod recovered;
 mod typing;
 

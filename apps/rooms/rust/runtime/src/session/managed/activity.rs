@@ -167,6 +167,15 @@ impl<P: Tasks> PreparedEvent<P> {
 		if let Some(line) = &self.event.line {
 			activity.lines.borrow_mut().insert(line.id().get(), line.clone());
 		}
+		if self
+			.event
+			.incoming
+			.as_ref()
+			.is_some_and(|item| item.role() == custody::Role::RoomAccess)
+			&& let Some(offers) = activity.room_offers.get()
+		{
+			let _ = offers.send((id, self.event.clone()));
+		}
 		let mut entries = activity.entries.borrow_mut();
 		if entries.len() == MAX_EVENTS {
 			entries.pop_front();
@@ -183,6 +192,7 @@ impl<P: Tasks> PreparedEvent<P> {
 /// Backlog and direct-line lifetime have separate budgets. Display eviction
 /// cannot retire an editable direct line. Withdrawal and session close do.
 pub struct Activity<P: Tasks> {
+	room_offers: std::cell::OnceCell<tokio::sync::broadcast::Sender<(u64, Rc<Event<P>>)>>,
 	host: glowcap::Host,
 	platform: P,
 	/// Wall time for an accepted event, read from this journal's platform.
@@ -212,6 +222,7 @@ impl<P: Tasks> Activity<P> {
 			bytes: Rc::new(Cell::new(0)),
 			next: Cell::new(1),
 			incarnation: Cell::new(None),
+			room_offers: Default::default(),
 			lines: Default::default(),
 			closed: Cell::new(false),
 			changed: Rc::new(Notify::new()),
@@ -292,6 +303,13 @@ impl<P: Tasks + Deadline + Clone + 'static> Activity<P> {
 			let _ = write!(&mut hex, "{byte:02x}");
 		}
 		Ok(hex)
+	}
+	/// A bounded local subscription to new room offers, independent of the
+	/// terminal journal. The original callback and source are checked at acceptance.
+	pub fn room_offers(&self) -> tokio::sync::broadcast::Receiver<(u64, Rc<Event<P>>)> {
+		self.room_offers
+			.get_or_init(|| tokio::sync::broadcast::channel(32).0)
+			.subscribe()
 	}
 	pub fn token(&self, cursor: u64) -> Result<String> {
 		let mut token = self.incarnation_hex()?;

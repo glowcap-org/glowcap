@@ -37,6 +37,7 @@ use tokio::time::{Instant, timeout_at};
 /// One verb a harness runs.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Verb {
+	Join,
 	Say,
 	Send,
 	Workspace,
@@ -47,7 +48,14 @@ pub enum Verb {
 impl Verb {
 	/// The verbs, in the order the prompt shows them. A safe Claude run may
 	/// run these and no other glowcap command.
-	pub const ALL: [Self; 5] = [Self::Say, Self::Send, Self::Workspace, Self::Command, Self::Actions];
+	pub const ALL: [Self; 6] = [
+		Self::Say,
+		Self::Send,
+		Self::Workspace,
+		Self::Command,
+		Self::Actions,
+		Self::Join,
+	];
 
 	/// The verb a request names, or none when it names no turn verb.
 	pub fn named(name: &str) -> Option<Self> {
@@ -56,6 +64,7 @@ impl Verb {
 
 	pub fn name(self) -> &'static str {
 		match self {
+			Self::Join => "join",
 			Self::Say => "say",
 			Self::Send => "send",
 			Self::Workspace => "workspace",
@@ -67,6 +76,7 @@ impl Verb {
 	/// The flags the verb reads.
 	pub fn flags(self) -> &'static [&'static str] {
 		match self {
+			Self::Join => &["room"],
 			Self::Say => verbs::SAY,
 			Self::Send => verbs::SEND,
 			Self::Workspace | Self::Actions => &[],
@@ -243,7 +253,7 @@ impl Turn {
 				),
 			}),
 			_ => Err(Error::Usage(format!(
-				"say, send, command, workspace, and actions run only during a bot's turn, which sets {TURN_BOT}, {TURN_CONVERSATION}, and {TURN_ID}"
+				"say, send, join, command, workspace, and actions run only during a bot's turn, which sets {TURN_BOT}, {TURN_CONVERSATION}, and {TURN_ID}"
 			))),
 		}
 	}
@@ -285,6 +295,7 @@ pub async fn run(verb: Verb, request: &Request) -> Result<(), Error> {
 	let turn = Turn::current()?;
 	request.only(verb.flags())?;
 	let line = match verb {
+		Verb::Join => verbs::join(request, &turn).await?,
 		Verb::Say => verbs::say(request, &turn).await?,
 		Verb::Send => verbs::send(request, &turn).await?,
 		Verb::Command => verbs::command(request, &turn).await?,

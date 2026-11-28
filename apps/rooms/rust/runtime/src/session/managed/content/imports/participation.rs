@@ -22,18 +22,21 @@ impl Request<'_> {
 		// carries it in its envelope and participates as the verb `upload`; a
 		// canonical command names it positionally, and only posting gestures
 		// participate here.
-		let (conversation, reopening) = if canonical.starts_with('{') {
+		let (conversation, reopening, membership) = if canonical.starts_with('{') {
 			let Ok(upload) = uploads::Intent::read(canonical) else {
 				return Ok(false);
 			};
-			(upload.conversation, None)
+			(upload.conversation, None, false)
 		} else {
 			let original = original_text(canonical)?;
 			let [_, _, verb, conversation, ..] = original.as_slice() else {
 				return Ok(false);
 			};
 			let verb = text(verb)?;
-			if !matches!(verb, "say" | "upload" | "sendFiles" | "refileLine" | "startDirect") {
+			if !matches!(
+				verb,
+				"say" | "upload" | "sendFiles" | "refileLine" | "startDirect" | "joinRoom"
+			) {
 				return Ok(false);
 			}
 			// A startDirect original is its introduction: directory, peer, and
@@ -50,7 +53,7 @@ impl Request<'_> {
 			} else {
 				None
 			};
-			(text(conversation)?.to_owned(), reopening)
+			(text(conversation)?.to_owned(), reopening, verb == "joinRoom")
 		};
 		let record = records::metadata(input)?;
 		let receipt = self.receipt(&record)?;
@@ -67,7 +70,9 @@ impl Request<'_> {
 		}
 		let mut candidate =
 			workspace::Intent::decode(replacement.intent).map_err(|_| refuse("invalid result workspace"))?;
-		if let Some(reopening) = reopening {
+		if membership {
+			self.membership_delta(&record, receipt, replacement, &conversation, &mut candidate)
+		} else if let Some(reopening) = reopening {
 			self.direct_delta(&record, receipt, replacement, &reopening, &mut candidate)
 		} else {
 			self.line_delta(&record, receipt, replacement, &conversation, &mut candidate)

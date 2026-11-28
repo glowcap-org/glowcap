@@ -468,7 +468,7 @@ fn local_control(app: &Application, reference: glowcap::Ref) -> Control<HostPlat
 	Control::local(app.host.clone(), HostPlatform, reference)
 }
 
-fn fresh_key() -> Result<FieldKey<SessionControl>, Failure> {
+pub(super) fn fresh_key<K>() -> Result<FieldKey<K>, Failure> {
 	let mut entropy = [0; 16];
 	rooms_platform::entropy::fill(&mut entropy)
 		.map_err(|error| Failure::new("entropy", Retry::AfterStateChange, error))?;

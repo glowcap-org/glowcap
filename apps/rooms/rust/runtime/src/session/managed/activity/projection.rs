@@ -141,7 +141,14 @@ pub(super) fn receiver<P: Tasks + Deadline + Clone + 'static>(
 							"metadata":metadata,
 							"previewUrls":line.previews.urls()})
 					}
-					inbox::Notice::Ended(reason) => json!({"kind":"ended", "reason":reason}),
+					inbox::Notice::Ended(reason) => {
+						if let Some(owner) = owner.upgrade()
+							&& let Some((InboxSelection::Room { inbox, .. }, _)) = origin.installed()
+						{
+							owner.memberships.room_ended(*inbox);
+						}
+						json!({"kind":"ended","reason":reason})
+					}
 					inbox::Notice::Typing { name, on } => json!({"kind":"typing", "name":name, "on":on}),
 					inbox::Notice::Policy(policy) => json!({"kind":"policy", "policy":policy}),
 					inbox::Notice::Occupancy { listed, claimable } => {

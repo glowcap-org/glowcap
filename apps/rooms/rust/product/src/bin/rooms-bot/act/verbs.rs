@@ -545,6 +545,26 @@ pub async fn command(request: &Request, turn: &Turn) -> Result<Value, Error> {
 	.await
 }
 
+/// Join the one listing this conversation's held directory returns.
+pub async fn join(request: &Request, turn: &Turn) -> Result<Value, Error> {
+	let room = request
+		.single("room")?
+		.filter(|name| !name.is_empty())
+		.ok_or_else(|| Error::Usage("join requires --room NAME".into()))?;
+	if !request.arguments.is_empty() {
+		return Err(Error::Usage("join takes only --room NAME".into()));
+	}
+	turn.begin()?;
+	turn.open()?;
+	turn.spend()?;
+	with_view(turn, |live| async move {
+		let id = turn.budget.within(Step::Call, live.view.join_listed(&turn.conversation, room)).await
+			.ok_or_else(||Error::Usage("the join did not confirm a seat before the turn deadline; repeating the same listing reuses its conversation".into()))?
+			.map_err(|cause| failure::call(&cause))?;
+		Ok(json!({"ok":true, "status":"joined", "conversation":id, "room":room}))
+	}).await
+}
+
 /// Print the workspace's revision and intent, as the session holds them now.
 pub async fn workspace(turn: &Turn) -> Result<Value, Error> {
 	turn.begin()?;
