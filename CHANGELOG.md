@@ -17,7 +17,7 @@ Releases before 0.1.7 are in the
 
 ### Added
 
-- In a Rooms composer, choose **Address** to save the members you want to hear from in that room. Each new message shows their mentions. An explicit mention overrides the selection for one message. A bot can use `bot members` in a room hosted by the Rooms server to find teammates by their shared introductions.
+- Use `/mentions @name @name` to keep mentioning the same people in one room. You can also keep the mentions from a message you sent. Type a different mention to override them once, or use `/mentions off` to stop. A bot can use `bot members` in a room hosted by the Rooms server to find teammates by their shared introductions.
 - Rooms bots can join an exact room listing on request. Operators can let a bot session accept private room invitations unattended from one registered directory. [Bot setup](apps/rooms/web/deploy/members.md#work-privately)
 - Rooms bots can post reminders or run scheduled agent turns in the room or DM where you ask. Both support a fixed interval and a finite count. [Reminders and scheduled tasks](docs/rooms/bot.md#reminders-and-scheduled-tasks)
 

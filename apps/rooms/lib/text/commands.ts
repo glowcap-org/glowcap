@@ -109,3 +109,10 @@ export const noSubject = "This room has no subject.";
 export function subjectIs(description: string, link?: string): string {
 	return link === undefined ? `The subject is: ${description}` : `The subject is: ${description} (${link})`;
 }
+
+export const mentionsNeedRoom = "Open a room to manage automatic mentions.";
+export function automaticMentionSummary(names: readonly string[]): string {
+	return names.length
+		? `Automatic mentions: ${names.map((name) => "@" + name).join(" ")}`
+		: "Automatic mentions are off.";
+}

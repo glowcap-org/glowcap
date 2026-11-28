@@ -387,7 +387,6 @@ export const memberProfileText = {
 	card: "Room introduction",
 	type: "Member type",
 	undeclared: "Unspecified",
-	assistedBadge: "Person + bot",
 	add: "Introduce yourself",
 	edit: "Edit room profile",
 	scope: "Visible to members of this room. Clear both fields to remove it.",
@@ -398,25 +397,10 @@ export const memberProfileText = {
 	title: (room: string) => `Your profile in #${room}`,
 } as const;
 
-/** The sender's standing audience above one room's composer. */
+/** The names this sender has chosen to keep mentioning in a room. */
 export const roomAudienceText = {
-	address: "Address",
-	room: "Room",
-	members: (count: number) => `${count} members`,
-	tooltip: (names: string) => `Address messages · ${names}`,
-	title: (room: string) => `Address messages in #${room}`,
-	explain: (maximum: number) =>
-		`Your messages are visible to the room. Select who you want to hear from. An @mention in a message overrides this choice. You can select up to ${maximum} members whose names work as @mentions.`,
-	legend: "Default recipients",
-	find: "Find a member",
-	all: "Select everyone online",
-	tooMany: (maximum: number) => `Select individual names to stay within ${maximum} recipients.`,
-	full: (maximum: number) => `You can address up to ${maximum} members.`,
-	offline: "Offline",
-	noMatches: "No matching members.",
-	noOthers: "No other members are online.",
-	changed: "Another window changed these recipients. Close and reopen to see the current selection.",
-	clear: "Clear selection",
-	save: "Save",
-	saving: "Saving…",
+	keep: (names: readonly string[]) =>
+		names.length === 1 ? `Keep mentioning @${names[0]}` : "Keep mentioning these members",
+	keeping: "Saved mentions",
+	stop: "Stop automatic mentions",
 };

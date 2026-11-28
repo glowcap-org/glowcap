@@ -142,6 +142,8 @@ export const COMMAND_EFFECT_OPS = [
 	"leave",
 	"directMessage",
 	"members",
+	"showMentions",
+	"setMentions",
 	"theme",
 	"clear",
 	"ignored",

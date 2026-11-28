@@ -488,22 +488,19 @@
    clearest thing a list can do to say there is more, and a list cut mid-row
    reads as broken. The keyboard scrolls with the pick, in Composer.tsx, because
    a row picked below the fold is otherwise picked invisibly. */
-/* Against the field it is completing, not the band around it. Anchored to the
-   composer's own top edge it stood forty-three pixels clear of the input and
-   read as a thing that had arrived rather than one the caret had raised. Only
-   the clear space above the field stands between the two now, so that is all
-   this measures past, and the list rests just above the box being typed in. */
+/* The form anchors its completion list as audience controls and editing
+   notices change the height of the band above it. */
 .complete-pop {
 	position: absolute;
-	bottom: calc(100% - var(--composer-clear) + 6px);
-	left: var(--composer-side);
+	bottom: calc(100% + 6px);
+	left: 0;
 	/* As wide as what it holds, up to the cap: one name is a small list and was
 	   being drawn as a bar the width of the longest command's summary. */
 	width: max-content;
 	/* Wide enough to say what a command does. At 360 the summaries were cut
 	   mid-word, and the note saying a command is not granted here, the one thing
 	   on the row a reader has to act on, was cut off the end entirely. */
-	max-width: min(520px, calc(100% - 40px));
+	max-width: min(520px, 100%);
 	display: flex;
 	flex-direction: column;
 	background: var(--paper-raised);

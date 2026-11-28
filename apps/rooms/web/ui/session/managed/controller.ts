@@ -586,11 +586,6 @@ export function createManagedController(
 			if (row?.type !== "room") throw new LocalRefusal("room-gone");
 			await run("setRoomProfile", row.persistId, kind, about);
 		},
-		setRoomAudience: async (key, names) => {
-			const row = store.getConv(projection, key);
-			if (row?.type !== "room") throw new LocalRefusal("conversation-gone");
-			await run("setRoomAudience", row.persistId, ...names);
-		},
 		setRoomStanding: (key, value) => {
 			const row = store.getConv(projection, key);
 			if (row?.type !== "room") return Promise.resolve();

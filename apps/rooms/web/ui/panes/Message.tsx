@@ -24,6 +24,7 @@ import {
 import { type BridgeFacts, canRetry, type ChatItem, isUnsent } from "../conversation.ts";
 import type { SendControlPolicy } from "../send_controls.ts";
 import type { Group } from "../log_blocks.ts";
+import { RoomLineActions } from "../message/RoomLineActions.tsx";
 import { Avatar } from "../Avatar.tsx";
 import { foreignName } from "../member_identity.ts";
 import { fmtTime } from "../text.ts";
@@ -49,7 +50,8 @@ import { Attached, mediaLayouts } from "../message/attach.tsx";
  * moves into it on open and returns to the mark that opened it, because a menu
  * a keyboard cannot leave is worse than no menu at all. */
 function LineMenu(
-	{ item, onEdit, onWithdraw, onMention }: {
+	{ item, convKey, onEdit, onWithdraw, onMention }: {
+		convKey: string;
 		item: ChatItem;
 		onEdit: (item: ChatItem) => void;
 		onWithdraw: (id: number) => void;
@@ -123,6 +125,7 @@ function LineMenu(
 								{messageMention(item.from)}
 							</MenuRow>
 						)}
+						<RoomLineActions item={item} convKey={convKey} trigger={trigger} close={() => setOpen(false)} />
 						{held && (
 							<MenuRow
 								icon="pencil"
@@ -261,7 +264,7 @@ function Bubble(
 			{item.withdrawal != null && <span className="withdrawn-said" role="status">{messageWithdrawing}</span>}
 			{item.withdrawalFailure && <span className="delivery-failure" role="alert">{item.withdrawalFailure}</span>}
 			{item.withdrawn && <span className="withdrawn-said">{messageWithdrawn}</span>}
-			<LineMenu item={item} onEdit={onEdit} onWithdraw={onWithdraw} onMention={onMention} />
+			<LineMenu item={item} convKey={convKey} onEdit={onEdit} onWithdraw={onWithdraw} onMention={onMention} />
 			{body}
 			{
 				/* Changed since it was said: after the words, because it qualifies
