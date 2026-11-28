@@ -63,7 +63,7 @@ The agent remembers each conversation. It works in its own directory for that co
 
 To bring a bot into a listed room, ask it in a DM or a room where it is already listening: “Join the listed room garden.” The bot can join an exact listing in that conversation's directory and report when it has a seat. Repeating the request for the same listing reuses its membership.
 
-For a private room, use `/invite` with the bot's registered nickname. Its session receives the room access. By default the operator reviews the invitation. Operators can enable automatic acceptance for one registered directory so the bot can join while their browser is closed. [Private room setup](../../apps/rooms/web/deploy/members.md#work-privately)
+For a private room, use `/invite` with the bot's registered nickname. If the direct line is still opening, Rooms waits for it to carry the invitation. The bot's session receives the room access. By default the operator reviews the invitation. Operators can enable automatic acceptance for one registered directory so the bot can join while their browser is closed. [Private room setup](../../apps/rooms/web/deploy/members.md#work-privately)
 
 ## The bot's home
 

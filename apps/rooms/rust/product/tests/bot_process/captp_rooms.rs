@@ -129,19 +129,29 @@ fn an_operator_selected_directory_accepts_an_invite_on_a_collaborators_dm_withou
 		link
 	});
 	let bot = world.rig.serve_linked(&link, json!({}));
+	let request = "send me the invitation";
 	assert_eq!(
 		turn(
 			&world,
 			&[action(
 				"say",
-				json!({"dm":[super::captp::FRIEND],"text":["send me the invitation"]}),
+				json!({"dm":[super::captp::FRIEND],"text":[request]}),
 				&[]
 			)]
 		),
 		"exit=0"
 	);
 	assert_eq!(policy(bot_state, &directory, Some("auto")), "auto");
-	let dm = world.direct();
+	let dm = session_rig::direct_message(friend, request);
+	let snapshot = call(friend, "status", json!({}));
+	let row = snapshot["workspace"]["conversations"]
+		.as_array()
+		.unwrap()
+		.iter()
+		.find(|row| row["id"] == dm)
+		.unwrap();
+	// The incoming line can arrive before the friend's reply capability.
+	session_rig::wait_for_return_route(friend, row["introduction"]["opening"].as_str().unwrap());
 	let sender = &world.fixture.peers[1].link;
 	offer(sender, "invite-collaborator", &offered, &dm);
 	let seat = eventually("the invited session's exact offered room seat", || {

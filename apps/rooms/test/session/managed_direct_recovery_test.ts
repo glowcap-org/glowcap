@@ -213,6 +213,125 @@ function open(opener: "member" | "session") {
 	return current;
 }
 
+for (
+	const change of [
+		"ready",
+		"other room",
+		"other opening",
+		"other inbox",
+		"closed",
+		"expired",
+		"rotated after sending",
+	] as const
+) {
+	Deno.test(`one invitation on an incoming direct line: ${change}`, async () => {
+		let current = open("member");
+		const room = {
+			kind: "room" as const,
+			id: "work",
+			directory: "directory",
+			name: "work",
+			source: "source",
+			access: "entrance",
+			control: null,
+			reconnect: "requested" as const,
+			standing: null,
+			draft: "",
+		};
+		direct(current).inbox = "inbox";
+		current.intent.conversations.push(room);
+		const clock = new FakeClock();
+		const sent: string[][] = [];
+		const receipt = Promise.withResolvers<void>();
+		const session = viewer(
+			{
+				snapshot: () => Promise.resolve(current),
+				directoryReader: () =>
+					Promise.resolve({
+						memberRegistration: () => Promise.resolve("peer-registration"),
+						free() {},
+					}),
+				prepareCommand: (id: string, revision: string, name: string, args: string[]) =>
+					Promise.resolve({
+						originalIntent: () => [id, Number(revision), name, args],
+						submit: () => {
+							sent.push([name, ...args]);
+							return Promise.resolve({ status: "committed" });
+						},
+						status: () => Promise.resolve("committed"),
+						result: async () => {
+							if (change === "rotated after sending") await receipt.promise;
+							return null;
+						},
+						adopted: () => Promise.resolve(true),
+						release: () => Promise.resolve("released"),
+						free() {},
+					}),
+			},
+			undefined,
+			undefined,
+			true,
+			clock,
+		);
+		try {
+			const invites = Promise.allSettled([
+				session.actions.invite(room, "Bob"),
+				session.actions.invite(room, "Bob"),
+			]);
+			await until(() => clock.waiting > 0, "the missing direct return route");
+			assertEquals(sent, []);
+			current = structuredClone(current);
+			current.revision = "2";
+			const line = direct(current);
+			line.access = "return-route";
+			const carried = current.intent.conversations[1];
+			assert(carried.kind === "room", "the invitation started from a room");
+			carried.seat = "refreshed-seat";
+			if (change === "other room") current.intent.conversations[1].access = "another-entrance";
+			if (change === "other opening") introduction(line).opening = "replacement";
+			if (change === "other inbox") line.inbox = "replacement-inbox";
+			if (change === "closed") line.closed = true;
+			if (change === "expired") clock.advance(30_000);
+			else await session.readNow();
+			if (change === "rotated after sending") {
+				await until(() => sent.length === 1, "the invitation on the original route");
+				current = structuredClone(current);
+				current.revision = "3";
+				direct(current).access = "replacement-route";
+				await session.readNow();
+				const later = Promise.allSettled([session.actions.invite(room, "Bob")]);
+				await settle();
+				receipt.resolve();
+				const [result] = await later;
+				assert(
+					result.status === "rejected" && LocalRefusal.is(result.reason, "invite-selection-changed"),
+					"the replacement cannot claim the original invitation",
+				);
+			}
+			const outcomes = await invites;
+			const offered = change === "ready" || change === "rotated after sending";
+			assertEquals(sent, offered ? [["offerRoom", room.id, line.id]] : []);
+			for (const result of outcomes) {
+				if (offered) {
+					if (result.status === "rejected") throw result.reason;
+				} else {
+					assert(result.status === "rejected", "the invitation ended without sending");
+					assert(
+						LocalRefusal.is(
+							result.reason,
+							change === "expired" ? "invite-route-pending" : "invite-selection-changed",
+						),
+						"the invitation explains why it ended",
+					);
+				}
+			}
+		} finally {
+			receipt.resolve();
+			await session.close();
+		}
+	});
+}
+
 for (const opener of ["member", "session"] as const) {
 	Deno.test(`a direct route given back to the row the ${opener} opened releases its receipt`, async () => {
 		const current = open(opener);
@@ -256,7 +375,7 @@ for (const opener of ["member", "session"] as const) {
 				throw new Error("unexpected introduction");
 			},
 		});
-		assertEquals(await acquireDirect(session, "directory", "bob"), "saved");
+		assertEquals((await acquireDirect(session, "directory", "bob"))?.id, "saved");
 		assertEquals(introduced, 0);
 	});
 }
@@ -515,6 +634,6 @@ Deno.test("an opening whose route was given back does not own the row it reaches
 			return Promise.resolve();
 		},
 	});
-	assertEquals(await acquireDirect(session, "directory", "bob", undefined, opening), "saved");
+	assertEquals((await acquireDirect(session, "directory", "bob", undefined, opening))?.id, "saved");
 	assertEquals(acquired, []);
 });

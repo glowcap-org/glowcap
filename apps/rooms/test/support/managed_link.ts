@@ -509,6 +509,7 @@ export function actionSession(
 	return {
 		current,
 		acquisitionChanged: unread("acquisitionChanged"),
+		whenReady: unread("whenReady"),
 		readBeforeSending: unread("readBeforeSending"),
 		...ownerEntry({ ...fields, current, requestNow: door.requestNow }),
 		candidateBeforeSending: unread("candidateBeforeSending"),

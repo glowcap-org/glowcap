@@ -85,13 +85,13 @@ export interface DirectIntent {
 }
 export type ConversationIntent = RoomIntent | DirectIntent;
 /** The exact live authority and naming selected for a conversation, independent of drafts. */
-export function conversationIdentity(row: ConversationIntent): string {
+export function conversationIdentity(row: ConversationIntent, access = row.access): string {
 	return JSON.stringify([
 		row.kind,
 		row.id,
 		row.directory,
 		row.source,
-		row.kind === "room" && row.seat != null ? null : row.access,
+		row.kind === "room" && row.seat != null ? null : access,
 		row.kind === "room"
 			? [row.name, row.seat != null ? row.seat : [row.accepted, row.publicEntry]]
 			: [row.peer, row.introduction],
