@@ -134,3 +134,45 @@ fn a_reminder_transaction_cannot_remove_a_live_serve_staging_file() {
 	assert!(staged.is_file(), "the reminder lease swept a staged turn ledger");
 	assert!(store.root().join(DIRECTORY).join(FILE).is_file());
 }
+
+#[test]
+fn a_deferred_occurrence_wakes_for_capacity_cadence_or_expiry_and_can_be_cancelled() {
+	let root = Scratch::create("reminder-deferral");
+	let here = scope("chat");
+	let at = now();
+	create(
+		&root,
+		here.clone(),
+		Request {
+			kind: Kind::CheckIn,
+			..request("review")
+		},
+		at,
+	)
+	.unwrap();
+	let mut row = Book::read(&root).unwrap().rows.remove(0);
+	let retry_at = row.due + 4000;
+	let waiting = State::Deferred {
+		retry_at,
+		reason: Delay::HourlyLimit { limit: 2 },
+	};
+	assert!(Book::set(&root, &row, waiting.clone()).unwrap());
+	row.state = waiting;
+	assert_eq!(row.wake_at(2), retry_at);
+	assert_eq!(row.wake_at(3), row.due);
+	assert!(pending_check_ins(&root).unwrap().live.contains(&row.operation));
+	let listed = list(&root, &here).unwrap();
+	assert_eq!(listed[0]["state"], "waiting-for-hourly-limit");
+	assert_eq!(listed[0]["retry_at"], stamp::rfc3339(retry_at));
+	assert_eq!(cancel(&root, &here, "review").unwrap()["state"], "cancelled");
+	assert!(!pending_check_ins(&root).unwrap().live.contains(&row.operation));
+	row.repeat = Repeat::parse(Some("1m"), Some("2")).unwrap();
+	assert_eq!(row.wake_at(2), row.due + 60);
+	row.repeat = None;
+	row.state = State::Deferred {
+		retry_at: row.due + OVERDUE + 10,
+		reason: Delay::WorkerBusy,
+	};
+	assert_eq!(row.wake_at(2), row.due + OVERDUE + 1);
+	assert_eq!(row.report()["state"], "waiting-for-worker");
+}

@@ -3,6 +3,12 @@
 use super::*;
 use std::collections::BTreeSet;
 
+#[derive(Debug, PartialEq, Eq)]
+pub enum ScheduledDecision {
+	Start,
+	RetryAt { until: u64, limit: u32 },
+}
+
 impl Gate {
 	/// The clock has persisted the occurrence as admitting. Remember its
 	/// charge until the clock acknowledges the ledger's admission, even if
@@ -14,10 +20,7 @@ impl Gate {
 		operation: &str,
 		live: &BTreeSet<String>,
 		cursor: Seq,
-	) -> Result<bool, Error> {
-		if !live.contains(operation) {
-			return Ok(false);
-		}
+	) -> Result<ScheduledDecision, Error> {
 		let time = stamp::since_epoch();
 		self.prune(store, cursor, time.as_secs())?;
 		let (name, mut record) = self.load(store, conversation)?;
@@ -25,17 +28,20 @@ impl Gate {
 			// The previous replace may have returned before syncing the
 			// directory. Make this same charge durable before confirming it.
 			store.write_in(DIRECTORY, &name, &record)?;
-			return Ok(true);
+			return Ok(ScheduledDecision::Start);
 		}
-		if record.retry_at(time.as_secs(), self.limit).is_some() {
-			return Ok(false);
+		if let Some(until) = record.retry_at(time.as_secs(), self.limit) {
+			return Ok(ScheduledDecision::RetryAt {
+				until,
+				limit: self.limit,
+			});
 		}
 		record.scheduled.retain(|id| live.contains(id));
 		record.scheduled.insert(operation.to_owned());
 		record.charge(time);
 		record.limit = self.limit;
 		store.write_in(DIRECTORY, &name, &record)?;
-		Ok(true)
+		Ok(ScheduledDecision::Start)
 	}
 }
 
@@ -52,22 +58,31 @@ mod tests {
 		let pending = BTreeSet::from(["one".to_string(), "two".to_string()]);
 		let cursor = Seq(0);
 		let mut gate = Gate::new(2);
-		assert!(gate.scheduled(&store, &conversation, "one", &pending, cursor).unwrap());
+		assert_eq!(
+			gate.scheduled(&store, &conversation, "one", &pending, cursor).unwrap(),
+			ScheduledDecision::Start
+		);
 		let mut gate = Gate::new(2);
-		assert!(gate.scheduled(&store, &conversation, "one", &pending, cursor).unwrap());
+		assert_eq!(
+			gate.scheduled(&store, &conversation, "one", &pending, cursor).unwrap(),
+			ScheduledDecision::Start
+		);
 		let request = super::super::tests::event(1);
 		assert_eq!(
 			gate.decide(&store, &conversation, &request, cursor).unwrap(),
 			Decision::Start
 		);
-		assert!(!gate.scheduled(&store, &conversation, "two", &pending, cursor).unwrap());
+		let limited = gate.scheduled(&store, &conversation, "two", &pending, cursor).unwrap();
 		assert!(report(store.root(), Some(2)).unwrap().is_empty());
 		let refused = super::super::tests::event(2);
-		assert!(matches!(
-			gate.decide(&store, &conversation, &refused, cursor).unwrap(),
-			Decision::Notify(_)
-		));
-		assert!(gate.scheduled(&store, &conversation, "one", &pending, cursor).unwrap());
+		let Decision::Notify(until) = gate.decide(&store, &conversation, &refused, cursor).unwrap() else {
+			panic!("an exhausted conversation had no retry time");
+		};
+		assert_eq!(limited, ScheduledDecision::RetryAt { until, limit: 2 });
+		assert_eq!(
+			gate.scheduled(&store, &conversation, "one", &pending, cursor).unwrap(),
+			ScheduledDecision::Start
+		);
 		assert_eq!(report(store.root(), Some(2)).unwrap()[&conversation].skipped, 1);
 	}
 }

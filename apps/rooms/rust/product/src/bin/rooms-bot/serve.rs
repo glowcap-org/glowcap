@@ -222,7 +222,7 @@ async fn reach(prepared: Prepared, mut shutdown: watch::Receiver<bool>) -> Resul
 		}
 		result = async {
 			if started.await.is_err() { return std::future::pending().await; }
-			super::reminders::run(store.root(), &rooms, &grant, send).await
+			super::reminders::run(store.root(), &rooms, &grant, config.conversation_limit, send).await
 		} => {
 			stop.send_replace(true);
 			let drained = main.await;

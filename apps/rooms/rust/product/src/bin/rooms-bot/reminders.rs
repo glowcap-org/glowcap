@@ -117,6 +117,7 @@ pub struct CheckIn {
 
 pub enum Admission {
 	Admitted,
+	HourlyLimit { until: u64, limit: u32 },
 	Busy,
 	Refused,
 }
@@ -141,9 +142,19 @@ enum Outcome {
 	Refused,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+enum Delay {
+	HourlyLimit { limit: u32 },
+	WorkerBusy,
+}
+
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 enum State {
 	Scheduled,
+	Deferred {
+		retry_at: u64,
+		reason: Delay,
+	},
 	Admitting,
 	// Persisted before dispatch. Recovery may observe this operation, never
 	// issue another post on the assumption that a receipt does not exist.
@@ -202,8 +213,30 @@ impl Reminder {
 							State::Sending { .. } | State::Between { .. } | State::Finished { release: Some(_), .. }
 						)
 				}
-				Kind::Reminder => self.admitted == 0 && self.state != State::Admitting,
+				Kind::Reminder => {
+					self.admitted == 0 && !matches!(self.state, State::Admitting | State::Deferred { .. })
+				}
 			}
+	}
+	/// The occurrence keeps its original due time for cadence and expiry.
+	fn wake_at(&self, limit: u32) -> u64 {
+		match self.state {
+			// A raised operator limit can make this occurrence eligible on restart.
+			State::Deferred {
+				reason: Delay::HourlyLimit { limit: previous },
+				..
+			} if limit > previous => self.due,
+			State::Deferred { retry_at, .. } => {
+				let until = self
+					.repeat
+					.map_or(OVERDUE + 1, |repeat| repeat.every_seconds.min(OVERDUE + 1));
+				retry_at.min(self.due.saturating_add(until))
+			}
+			_ => self.due,
+		}
+	}
+	fn unclaimed(&self) -> bool {
+		matches!(self.state, State::Scheduled | State::Deferred { .. })
 	}
 	fn forget_at(&self) -> Option<u64> {
 		match self.state {
@@ -221,6 +254,14 @@ impl Reminder {
 	fn phase(&self) -> Value {
 		match self.state {
 			State::Scheduled => json!("scheduled"),
+			State::Deferred {
+				reason: Delay::HourlyLimit { .. },
+				..
+			} => json!("waiting-for-hourly-limit"),
+			State::Deferred {
+				reason: Delay::WorkerBusy,
+				..
+			} => json!("waiting-for-worker"),
 			State::Sending { .. } => json!("sending"),
 			State::Between { .. } => json!("continuing"),
 			State::Admitting => json!("admitting"),
@@ -228,12 +269,15 @@ impl Reminder {
 		}
 	}
 	fn report(&self) -> Value {
-		let state = self.phase();
-		json!({
+		let mut report = json!({
 			"id": self.id, "kind": self.kind, "due": stamp::rfc3339(self.due), "text": self.text,
-			"state": state, "repeat": self.repeat, "occurrence": self.occurrence,
+			"state": self.phase(), "repeat": self.repeat, "occurrence": self.occurrence,
 			"delivered": self.delivered, "admitted": self.admitted, "skipped": self.skipped,
-		})
+		});
+		if let State::Deferred { retry_at, .. } = self.state {
+			report["retry_at"] = json!(stamp::rfc3339(retry_at));
+		}
+		report
 	}
 }
 
@@ -409,7 +453,7 @@ pub fn cancel(root: &Path, scope: &Scope, id: &str, spend: impl FnOnce() -> Resu
 			.find(|r| &r.scope == scope && r.id == id)
 			.ok_or_else(|| Error::Usage("no such reminder in this conversation".into()))?;
 		match row.state {
-			State::Scheduled => {
+			State::Scheduled | State::Deferred { .. } => {
 				row.state = State::Finished {
 					outcome: Outcome::Cancelled,
 					at: now(),
@@ -446,7 +490,7 @@ pub fn pending_check_ins(root: &Path) -> Result<PendingCheckIns, Error> {
 		live: Default::default(),
 	};
 	for row in Book::read(root)?.rows {
-		if row.kind == Kind::CheckIn && matches!(row.state, State::Scheduled | State::Admitting) {
+		if row.kind == Kind::CheckIn && (row.unclaimed() || row.state == State::Admitting) {
 			if row.state == State::Admitting {
 				pending.admitting.insert(row.operation.clone());
 			}

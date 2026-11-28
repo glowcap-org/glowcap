@@ -69,6 +69,15 @@ fn a_scheduled_turn_returns_once_without_interactive_actions() {
 	world.stopped(bot);
 	let bot = world.serve();
 	world.await_line("direct", "[Check-in] exit=1 exit=1 exit=1");
+	for i in 0..3 {
+		let refused = output(&world, i);
+		assert!(
+			refused["error"]["message"]
+				.as_str()
+				.is_some_and(|message| message.contains("Interactive Rooms actions require a message turn")),
+			"scheduled action {i}: {refused}"
+		);
+	}
 	world.stopped(bot);
 	assert_eq!(world.count("direct", "[Check-in] exit=1 exit=1 exit=1"), 1);
 	assert_eq!(world.count("room", "outside scheduled scope"), 0);
@@ -268,5 +277,61 @@ fn scheduled_room_and_direct_prompts_receive_their_own_recent_addressed_messages
 		assert!(prompt.contains(expected) && !prompt.contains(excluded), "{prompt}");
 	}
 	world.stopped(bot);
+	world.finish();
+}
+
+#[test]
+fn quota_deferral_survives_restart_without_rewriting_the_clock_or_blocking_text_reminders() {
+	use std::{os::unix::fs::MetadataExt, time::Duration};
+	let world = World::new("bot-deferred-hour");
+	let bot = world
+		.rig
+		.serve_linked(&world.fixture.peers[0].link, json!({"conversation-limit":["1"]}));
+	let task = action(
+		"schedule",
+		json!({"id":["review"], "in":["2s"], "task":["reply:limited review"]}),
+		&[],
+	);
+	let text = action(
+		"remind",
+		json!({"id":["note"], "in":["5s"], "text":["a text reminder still arrives"]}),
+		&[],
+	);
+	assert_eq!(turn(&world, &[task, text]), "exit=0 exit=0");
+	eventually("the hourly deferral to reach the clock", || {
+		(world.rig.status()["reminders"]["waiting-for-hourly-limit"] == 1).then_some(())
+	});
+	world.await_line("room", "[Reminder] a text reminder still arrives");
+	let table = world.rig.dir.join("reminders/schedules.json");
+	eventually("the text reminder receipt to settle", || {
+		let book: serde_json::Value = serde_json::from_slice(&std::fs::read(&table).ok()?).ok()?;
+		book["rows"]
+			.as_array()?
+			.iter()
+			.any(|r| {
+				r["id"] == "note"
+					&& r["state"]["Finished"]["outcome"] == "delivered"
+					&& r["state"]["Finished"]["release"].is_null()
+			})
+			.then_some(())
+	});
+	world.stopped(bot);
+	let signature = || {
+		let m = table.metadata().unwrap();
+		(m.ino(), m.ctime(), m.ctime_nsec())
+	};
+	let deferred = signature();
+	let bot = world.serve();
+	std::thread::sleep(Duration::from_secs(3));
+	assert_eq!(world.rig.status()["reminders"]["waiting-for-hourly-limit"], 1);
+	assert_eq!(signature(), deferred, "idle ticks rewrote a quota-deferred occurrence");
+	assert_eq!(world.count("room", "[Check-in] limited review"), 0);
+	world.stopped(bot);
+	let bot = world
+		.rig
+		.serve_linked(&world.fixture.peers[0].link, json!({"conversation-limit":["2"]}));
+	world.await_line("room", "[Check-in] limited review");
+	world.stopped(bot);
+	assert_eq!(world.count("room", "[Check-in] limited review"), 1);
 	world.finish();
 }

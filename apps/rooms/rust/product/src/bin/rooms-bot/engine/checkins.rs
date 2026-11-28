@@ -3,6 +3,7 @@
 //! receives an acknowledgement. A scheduled turn never covers an inbox event.
 use super::*;
 use crate::bot::{
+	gate::ScheduledDecision,
 	ledger::Scheduled,
 	reminders::{self, Admission, CheckIn, Scope},
 	rooms::{Base, RoomsErrorKind},
@@ -27,26 +28,27 @@ pub(super) async fn accept<R: Rooms>(state: &mut Loop<'_, R>, check: CheckIn) ->
 			let pending = reminders::pending_check_ins(env.store.root())?;
 			let conversation = ConversationId::new(scope.conversation());
 			if !pending.admitting.contains(&operation) {
-				Admission::Refused
-			} else if !state
+				return Ok(Admission::Refused);
+			}
+			match state
 				.gate
 				.scheduled(env.store, &conversation, &operation, &pending.live, ledger.cursor_seq())?
 			{
-				Admission::Busy
-			} else {
-				let mut open = ledger.open_conversations();
-				open.extend(state.lanes.waiting_conversations().cloned());
-				env.conversations.borrow_mut().heard(
-					env.store,
-					&mut env.harness_sessions.borrow_mut(),
-					&open,
-					&BTreeSet::from([conversation.clone()]),
-				)?;
-				let id = ledger.begin_scheduled(env.store, Scheduled { scope, operation, task }, &pending.admitting)?;
-				state.lanes.resume(&conversation, id, Left::Waiting);
-				ledger.durable(env.store)?;
-				Admission::Admitted
+				ScheduledDecision::RetryAt { until, limit } => return Ok(Admission::HourlyLimit { until, limit }),
+				ScheduledDecision::Start => {}
 			}
+			let mut open = ledger.open_conversations();
+			open.extend(state.lanes.waiting_conversations().cloned());
+			env.conversations.borrow_mut().heard(
+				env.store,
+				&mut env.harness_sessions.borrow_mut(),
+				&open,
+				&BTreeSet::from([conversation.clone()]),
+			)?;
+			let id = ledger.begin_scheduled(env.store, Scheduled { scope, operation, task }, &pending.admitting)?;
+			state.lanes.resume(&conversation, id, Left::Waiting);
+			ledger.durable(env.store)?;
+			Admission::Admitted
 		})
 	};
 	let result = match admit() {

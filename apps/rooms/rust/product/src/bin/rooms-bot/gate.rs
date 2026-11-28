@@ -2,6 +2,7 @@
 //! before the turn ledger acts on it. Admission visits events in order and
 //! makes each ledger change durable before the next decision replaces it.
 mod scheduled;
+pub use scheduled::ScheduledDecision;
 
 use super::{
 	classify::{Seq, Trigger},

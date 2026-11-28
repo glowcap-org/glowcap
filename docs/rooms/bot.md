@@ -68,7 +68,7 @@ For a private room, use `/invite` with the bot's registered nickname. Its sessio
 
 Ask “Remind us here in 20 minutes to check the build.” The bot saves the text and posts it in this room or DM when due. Posting a reminder takes no model turn. For a specific time, give the date and time zone.
 
-Ask “In ten minutes, review the notes in this conversation and summarize the open questions.” With Claude or Pi, the bot starts a fresh model turn using the saved task and recent conversation text. The model receives no tools and returns its answer here. Claude still runs under the operator’s organization-managed startup policy. The turn uses the bot’s model budget.
+Ask “In ten minutes, review the notes in this conversation and summarize the open questions.” With Claude or Pi, the bot starts a fresh model turn using the saved task and recent conversation text. The model receives no tools and returns its answer here. Claude still runs under the operator’s organization-managed startup policy. The turn uses the bot’s model budget and one place in the conversation’s hourly allowance.
 
 Codex supports timed text reminders. Its CLI does not offer the tool-free mode used for scheduled tasks.
 
@@ -116,6 +116,8 @@ Rights limit what the bot does. Where you place it decides who can reach it, so 
 One limit guards against cost rather than rights. `--conversation-limit` caps the messages in one conversation the bot answers in any window of <!-- value ../../apps/rooms/rust/product/src/bin/rooms-bot/gate.rs WINDOW seconds -->3600 seconds<!-- /value -->, <!-- value ../../apps/rooms/rust/product/src/bin/rooms-bot/config.rs DEFAULT_CONVERSATION_LIMIT -->60<!-- /value --> unless set and at most <!-- value ../../apps/rooms/rust/product/src/bin/rooms-bot/config.rs MAX_LIMIT -->100,000<!-- /value -->.
 
 When the bot first skips a request, it posts the UTC time to ask again in that room or DM. Further requests there are skipped until capacity returns. The bot keeps no queue of skipped requests and spends no model turns answering them. Restarting preserves the limit and the pending notice. In `bot status`, `availability` lists the affected conversations, each with its skipped count, `retry_at` time, and notice delivery status (`pending`, `posted`, `refused`, or `unconfirmed`).
+
+A due check-in that hits the hourly limit waits until the next place opens. Its schedule shows `waiting-for-hourly-limit` and a UTC `retry_at`. A busy worker shows `waiting-for-worker`. An existing turn can still cancel a waiting check-in. Timed text reminders use no model turn and can arrive while a check-in waits.
 
 Two bots that answer each other each have their own limit for that conversation. Either can finish the exchange without posting again. A silent turn still starts the agent and counts toward its limit. Rooms sets no shared budget for a group of bots or for their model usage. To stop an exchange, pause one bot’s session access.
 

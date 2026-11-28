@@ -13,11 +13,17 @@ use rooms_services::session::attached::{self, EffectStatus, Holder, Release};
 
 use tokio::sync::{mpsc, oneshot};
 
-pub async fn run(root: &Path, rooms: &Attached, grant: &str, checkins: mpsc::Sender<CheckIn>) -> Result<(), Error> {
+pub async fn run(
+	root: &Path,
+	rooms: &Attached,
+	grant: &str,
+	limit: u32,
+	checkins: mpsc::Sender<CheckIn>,
+) -> Result<(), Error> {
 	// A damaged timer table or transient filesystem error must not tear down
 	// an unrelated harness turn. Report the failure and resume from disk.
 	loop {
-		if let Err(error) = watch(root, rooms, grant, &checkins).await {
+		if let Err(error) = watch(root, rooms, grant, limit, &checkins).await {
 			store::Log::in_directory(root).line(
 				"the reminder timer could not read or update its state; check reminders/schedules.json and the bot directory",
 			);
@@ -27,7 +33,13 @@ pub async fn run(root: &Path, rooms: &Attached, grant: &str, checkins: mpsc::Sen
 	}
 }
 
-async fn watch(root: &Path, rooms: &Attached, grant: &str, checkins: &mpsc::Sender<CheckIn>) -> Result<(), Error> {
+async fn watch(
+	root: &Path,
+	rooms: &Attached,
+	grant: &str,
+	limit: u32,
+	checkins: &mpsc::Sender<CheckIn>,
+) -> Result<(), Error> {
 	// Turn verbs run in other processes. An atomic replacement changes the
 	// inode. Idle ticks stat only the small table's name and touch no session.
 	use std::os::unix::fs::MetadataExt;
@@ -72,11 +84,12 @@ async fn watch(root: &Path, rooms: &Attached, grant: &str, checkins: &mpsc::Send
 				lost(root, row)?;
 				continue;
 			}
-			next = next.min(row.due);
-			if row.due > at {
+			let wake_at = row.wake_at(limit);
+			next = next.min(wake_at);
+			if wake_at > at {
 				continue;
 			}
-			if matches!(row.state, State::Scheduled)
+			if row.unclaimed()
 				&& let Some(repeat) = row.repeat
 			{
 				// An entire elapsed slot is missed. Move directly to the current
@@ -112,7 +125,7 @@ async fn watch(root: &Path, rooms: &Attached, grant: &str, checkins: &mpsc::Send
 				finish(root, row, Outcome::Unconfirmed, None)?;
 				continue;
 			}
-			if matches!(row.state, State::Scheduled) && at.saturating_sub(row.due) > OVERDUE {
+			if row.unclaimed() && at.saturating_sub(row.due) > OVERDUE {
 				if row.repeat.is_some() {
 					skip(root, row, 1)?;
 				} else {
@@ -203,7 +216,7 @@ pub fn access_lost(root: &Path, grant: &str) -> Result<(), Error> {
 
 fn lost(root: &Path, row: &Reminder) -> Result<(), Error> {
 	let outcome = match row.state {
-		State::Scheduled => Outcome::AccessLost,
+		State::Scheduled | State::Deferred { .. } => Outcome::AccessLost,
 		State::Sending { .. } | State::Admitting => Outcome::Unconfirmed,
 		State::Between { .. } => Outcome::AccessLost,
 		State::Finished { outcome, .. } => outcome,
@@ -281,7 +294,7 @@ impl From<attached::Error> for Failure {
 }
 
 async fn deliver(root: &Path, row: &Reminder, live: &Live, checkins: &mpsc::Sender<CheckIn>) -> Result<(), Failure> {
-	if !matches!(row.state, State::Scheduled | State::Admitting) {
+	if !row.unclaimed() && row.state != State::Admitting {
 		return settle(root, row, live).await;
 	}
 	let snapshot = live.view.posting_snapshot().await?;
@@ -426,7 +439,24 @@ async fn check(root: &Path, row: &Reminder, inbox: &mpsc::Sender<CheckIn>) -> Re
 			}
 		}
 		Ok(Ok(Admission::Busy)) => {
-			Book::set(root, &claim, State::Scheduled)?;
+			Book::set(
+				root,
+				&claim,
+				State::Deferred {
+					retry_at: now().saturating_add(10),
+					reason: Delay::WorkerBusy,
+				},
+			)?;
+		}
+		Ok(Ok(Admission::HourlyLimit { until, limit })) => {
+			Book::set(
+				root,
+				&claim,
+				State::Deferred {
+					retry_at: until,
+					reason: Delay::HourlyLimit { limit },
+				},
+			)?;
 		}
 		Ok(Ok(Admission::Refused)) => finish(root, &claim, Outcome::Refused, None)?,
 		_ => {}
