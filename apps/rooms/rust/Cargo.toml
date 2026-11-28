@@ -9,7 +9,7 @@ resolver = "3"
 [workspace.package]
 repository = "https://github.com/glowcap-org/glowcap"
 homepage = "https://glowcap.org"
-version = "0.1.9"
+version = "0.1.10"
 edition = "2024"
 license = "Apache-2.0"
 publish = false

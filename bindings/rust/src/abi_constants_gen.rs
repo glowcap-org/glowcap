@@ -8,7 +8,7 @@ use core::ffi::{c_int, c_uint};
 
 pub const VERSION_MAJOR: c_uint = 0;
 pub const VERSION_MINOR: c_uint = 1;
-pub const VERSION_PATCH: c_uint = 9;
+pub const VERSION_PATCH: c_uint = 10;
 pub const OK: c_int = 0;
 pub const WOULD_BLOCK: c_int = -6;
 pub const ERR_NULL_POINTER: c_int = -1;
@@ -159,7 +159,7 @@ pub const HINT_BOOLEAN: c_uint = 3;
 pub const HINT_INTEGER: c_uint = 4;
 pub const HINTS_MAP: c_uint = 0;
 pub const HINTS_BOOLEAN_FALSE: c_uint = 1;
-pub const OCAPN_ARCHIVE_FINGERPRINT: u64 = 16412343002802576495;
+pub const OCAPN_ARCHIVE_FINGERPRINT: u64 = 14772782998875676485;
 pub const HOST_ARCHIVE_FINGERPRINT: u64 = 3432662901050275913;
 pub const DRIVER_ARCHIVE_FINGERPRINT: u64 = 15627938340304158807;
 pub const TCP_ARCHIVE_FINGERPRINT: u64 = 12235054440520285484;
