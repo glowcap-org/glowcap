@@ -42,7 +42,6 @@ import { managedComposer } from "./composer.ts";
 import { managedRoomActions } from "./rooms.ts";
 import { managedWorkspaceActions } from "./workspace.ts";
 import { managedOperations } from "./operations.ts";
-import { setRoomMentions } from "./mentions.ts";
 import { managedCommandPowers } from "./commands.ts";
 import { coordinate } from "./model.ts";
 import type { ManagedHistory } from "./history.ts";
@@ -240,13 +239,6 @@ export function createManagedController(
 	const run = (name: string, ...args: string[]) => session.actions.run(name, args);
 	const directory = () => current()?.dir ?? dirId(homeRow()?.id ?? "");
 	const roomActions = managedRoomActions(page, session);
-	const setRoomAudience = (key: string, names: readonly string[]) =>
-		setRoomMentions(
-			projection,
-			key,
-			names,
-			(id, selected, validate) => session.actions.run("setRoomAudience", [id, ...selected], validate),
-		);
 	const powers = managedCommandPowers(
 		page,
 		browser,
@@ -255,7 +247,6 @@ export function createManagedController(
 		(id, name) => pick(id, name),
 		select,
 		(peer) => openDm(peer),
-		setRoomAudience,
 	);
 	const composer = managedComposer(page, session, powers);
 	async function select(id: string): Promise<void> {
@@ -595,7 +586,6 @@ export function createManagedController(
 			if (row?.type !== "room") throw new LocalRefusal("room-gone");
 			await run("setRoomProfile", row.persistId, kind, about);
 		},
-		setRoomAudience: (key, names) => setRoomAudience(key, names).then(() => undefined),
 		setRoomStanding: (key, value) => {
 			const row = store.getConv(projection, key);
 			if (row?.type !== "room") return Promise.resolve();

@@ -90,11 +90,12 @@ export interface RoomsConversationController {
 	setStanding(standing: string): Promise<void>;
 	setDirStanding(dir: DirId, standing: string | null): Promise<void>;
 	setRoomProfile(key: string, kind: ProfileKind, about: string): Promise<void>;
-	setRoomAudience(key: string, names: readonly string[]): Promise<void>;
 	setRoomStanding(key: string, standing: string | null): Promise<void>;
 }
 
 export interface RoomsRoomController {
+	/** The canonical member names accepted for future messages in this room. */
+	setRoomAudience(key: string, names: readonly string[]): Promise<readonly string[]>;
 	/** The declared bridge form for a room, or null when its bridge declares
 	 * none. Asked when a reader opens the surface, because a form is declared
 	 * for the state its bridge is in now. */

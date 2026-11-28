@@ -61,7 +61,6 @@ export function managedCommandPowers(
 	pick: (id: DirId, name: string) => Promise<void>,
 	select: (id: string) => Promise<void>,
 	openDm: (peer: string) => Promise<string>,
-	setRoomAudience: CommandPowers["setRoomAudience"],
 ): CommandPowers {
 	const projection = page.projection;
 	const active = () => store.activeConv(projection);
@@ -100,7 +99,7 @@ export function managedCommandPowers(
 			null;
 	};
 	const powers: CommandPowers = {
-		setRoomAudience,
+		setRoomAudience: rooms.setRoomAudience,
 		say: (text, key = projection.get().activeKey ?? undefined) => {
 			if (key != null) store.deliver(projection, key, store.sysItem(projection, text));
 		},
