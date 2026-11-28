@@ -137,7 +137,7 @@ export abstract class HostState {
 	// caller. The next verb head or terminal close barrier consumes the exact cause.
 	protected _backgroundFailure: { readonly error: unknown } | null = null;
 	// FIFO of settled-but-unobserved vow ids, for the eviction cap.
-	protected readonly _unobserved = new Set<bigint>();
+	protected readonly _unobserved: Set<bigint> = new Set();
 	protected _oldestUnobserved?: { iterator: SetIterator<bigint>; remaining: number };
 	// DIAL actions are asynchronous after the C queue has consumed them. Retain
 	// their executors until they report a terminal result; otherwise a detached
