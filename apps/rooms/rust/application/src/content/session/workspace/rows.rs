@@ -69,6 +69,8 @@ pub struct Room {
 	pub reconnect: Reconnect,
 	#[serde(default, skip_serializing_if = "crate::room::profile::MemberProfile::is_empty")]
 	pub profile: crate::room::profile::MemberProfile,
+	#[serde(default, skip_serializing_if = "crate::room::audience::Audience::is_empty")]
+	pub audience: crate::room::audience::Audience,
 	pub standing: Option<Standing>,
 	pub draft: Field,
 }
@@ -107,6 +109,39 @@ impl Intent {
 	}
 }
 impl Room {
+	/// A handed or offered entrance gives this room no management authority.
+	pub fn invited(
+		id: Id,
+		directory: Id,
+		name: Text<32, true>,
+		access: FieldKey<custody::RoomAccess>,
+		source: Option<FieldKey<custody::SessionAccess>>,
+	) -> Self {
+		Self {
+			kind: RoomKind::Room,
+			id,
+			directory,
+			name,
+			source,
+			inbox: None,
+			access: Some(access),
+			accepted: None,
+			public_entry: None,
+			publication: None,
+			seat: None,
+			subject: None,
+			files: None,
+			lines: Default::default(),
+			moderator: None,
+			control: None,
+			reconnect: Reconnect::Requested,
+			profile: Default::default(),
+			audience: Default::default(),
+			standing: None,
+			draft: Default::default(),
+		}
+	}
+
 	/// Clear what a lost connection held: the seat, the subject and files it
 	/// carried, the inbox, and the lines posted through it. The entrance,
 	/// control, and reconnect choice stay.

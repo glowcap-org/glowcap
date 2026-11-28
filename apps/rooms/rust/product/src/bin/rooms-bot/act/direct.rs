@@ -271,7 +271,7 @@ impl DirectReach<'_> {
 				Ok(Route::Use(conversation))
 			}
 			Ok(Reach::Introduce(introduction)) => {
-				turn.open()?;
+				turn.require_running()?;
 				let operation = identity::new_action(&self.root)?;
 				let base = live.view.revision().await.map_err(|cause| failure::call(&cause))?;
 				// The log line comes first, so a refusal to write it leaves no

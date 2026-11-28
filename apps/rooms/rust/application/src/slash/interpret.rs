@@ -44,6 +44,8 @@ effect_ops! {
 	Leave,
 	DirectMessage,
 	Members,
+	ShowMentions,
+	SetMentions,
 	Theme,
 	Clear,
 	Ignored,
@@ -140,6 +142,34 @@ fn one_person(text: &DocumentText, name: Name) -> Result<Option<DocumentText>, P
 		"/{} takes one name. Write it as {}.",
 		definition.name, definition.usage
 	)))
+}
+fn mentions(context: &Context<'_>, text: &DocumentText) -> Result<Plan, Plan> {
+	use crate::room::{
+		audience::{Audience, MAX_ROOM_AUDIENCE},
+		inbox::same_nick,
+	};
+	room(context, "Open a room to manage automatic mentions.")?;
+	if empty(text) {
+		return Ok(effect(EffectOp::ShowMentions, "".into()));
+	}
+	let usage = || refused("Use /mentions @alice @bob to choose members, or /mentions off to clear them.");
+	let raw = text.as_str().ok_or_else(usage)?;
+	if raw.eq_ignore_ascii_case("off") {
+		return Ok(effect(EffectOp::SetMentions, "".into()));
+	}
+	let names = raw
+		.split_whitespace()
+		.take(MAX_ROOM_AUDIENCE + 1)
+		.map(|word| word.strip_prefix('@').ok_or_else(usage))
+		.collect::<Result<alloc::vec::Vec<_>, _>>()?;
+	let audience = Audience::from_names(&names).ok_or_else(usage)?;
+	if audience
+		.names()
+		.any(|name| context.you.as_str().is_some_and(|you| same_nick(you, name)))
+	{
+		return Err(refused("Choose another room member to mention."));
+	}
+	Ok(effect(EffectOp::SetMentions, names.join(" ").into()))
 }
 fn everyone(text: &DocumentText) -> bool {
 	text.as_str().is_some_and(crate::room::inbox::addresses_everyone)
@@ -246,6 +276,7 @@ pub fn interpret(name: Name, rest: &DocumentText, context: &Context<'_>) -> Plan
 			Leave => open_conversation_act(context, name, &text, EffectOp::Leave, "There is nothing open to leave.")?,
 			Clear => open_conversation_act(context, name, &text, EffectOp::Clear, "There is nothing open to clear.")?,
 			Details => open_conversation_act(context, name, &text, EffectOp::Details, "Open a conversation first.")?,
+			Mentions => mentions(context, &text)?,
 			Members => {
 				nothing_after(&text, name)?;
 				room(context, "Only a room has a member list.")?;
@@ -392,6 +423,39 @@ mod tests {
 				why.starts_with(&format!("/{command} takes one name")),
 				"/{command}: {why}"
 			);
+		}
+	}
+
+	#[test]
+	fn mentions_distinguishes_an_off_member_from_clearing_the_selection() {
+		let you = "Alice".into();
+		let mut context = Context {
+			place: Place::Room,
+			you: &you,
+			away: false,
+		};
+		for (input, op, names) in [
+			("", EffectOp::ShowMentions, ""),
+			("off", EffectOp::SetMentions, ""),
+			("@off @Bo", EffectOp::SetMentions, "off Bo"),
+		] {
+			let Plan::Effect { op: selected, text, .. } = interpret(Name::Mentions, &input.into(), &context) else {
+				panic!("{input} refused")
+			};
+			assert_eq!((selected, text.as_str()), (op, Some(names)));
+		}
+		for input in ["@all", "@here", "@aLiCe", "@Bo @bo", "Bob", "@Bo @!", "@Bo off"] {
+			assert!(
+				matches!(interpret(Name::Mentions, &input.into(), &context), Plan::Refused { .. }),
+				"{input}"
+			);
+		}
+		for place in [Place::Direct, Place::Directory, Place::None] {
+			context.place = place;
+			assert!(matches!(
+				interpret(Name::Mentions, &"".into(), &context),
+				Plan::Refused { .. }
+			));
 		}
 	}
 

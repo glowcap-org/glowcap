@@ -91,15 +91,23 @@ export async function run(tab: Page, second: Page): Promise<void> {
 		// than against the band the field sits in, with the reserved hint line
 		// between them it stood forty-three pixels off and read as a thing that had
 		// arrived rather than one the caret had raised.
-		const against = await tab.evaluate(() => {
-			const pop = document.getElementById("completePop")?.getBoundingClientRect();
-			const field = document.querySelector(".composer form")?.getBoundingClientRect();
-			return pop === undefined || field === undefined ? null : Math.round(field.top - pop.bottom);
-		});
-		if (against === null) fail("the completion list or the field it completes was not there to measure");
-		else if (against < 0 || against > 12) {
-			fail(`the completion list sits ${against}px from the field that raised it`);
+		const wide = tab.viewportSize();
+		if (wide === null) fail("the completion proof needs a measured viewport");
+		for (const viewport of [wide, { width: 390, height: 720 }]) {
+			await tab.setViewportSize(viewport);
+			const bounds = await tab.evaluate(() => {
+				const pop = document.getElementById("completePop")?.getBoundingClientRect();
+				const field = document.getElementById("composer")?.getBoundingClientRect();
+				if (!pop || !field) return null;
+				return { gap: Math.round(field.top - pop.bottom), left: pop.left, right: pop.right };
+			});
+			if (!bounds) fail("the completion list or the field it completes was not there to measure");
+			if (bounds.gap < 0 || bounds.gap > 12) {
+				fail(`the completion list sits ${bounds.gap}px from the field at ${viewport.width}px`);
+			}
+			if (bounds.left < 0 || bounds.right > viewport.width) fail("the completion list overflowed the viewport");
 		}
+		await tab.setViewportSize(wide);
 
 		// Typing / is how a reader finds out what they can do here, so it answers
 		// with everything and not with a first handful. Held against the catalog

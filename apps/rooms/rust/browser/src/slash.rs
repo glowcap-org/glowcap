@@ -63,6 +63,12 @@ fn input(text: js_sys::JsString) -> Result<rooms_application::text::DocumentText
 	crate::js_text::document(&text, 65_536).map_err(|error| js_sys::Error::new(&error.to_string()).into())
 }
 
+#[wasm_bindgen(js_name = roomAudienceName)]
+pub fn room_audience_name(name: js_sys::JsString) -> bool {
+	crate::js_text::scalar(&name, rooms_application::room::inbox::MAX_NICK)
+		.is_ok_and(|name| rooms_application::room::audience::addressable(&name))
+}
+
 #[wasm_bindgen(js_name = prepareComposer)]
 pub fn prepare_composer(raw: js_sys::JsString) -> Result<String, JsValue> {
 	let raw = crate::js_text::scalar(&raw, rooms_application::session::checkpoint::MAX_CHECKPOINT_UNITS)

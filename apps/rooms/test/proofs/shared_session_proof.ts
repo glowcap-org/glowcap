@@ -17,8 +17,8 @@ import { reapOwned, stopOwned } from "../support/children.ts";
 import { startSessionPeer } from "../support/session_peer.ts";
 import { readAnnounced } from "../support/announce.ts";
 import { namedRoomRow } from "../support/conversation_row.ts";
-import { provePrivateBotInvitation } from "../page/shared_bot_invitation.ts";
 import { proveSharedMixedDirect } from "../page/shared_mixed_dm.ts";
+import { proveRoomAudience } from "../page/room_audience.ts";
 import { proveRoomPresence } from "../page/room_presence.ts";
 import { proveSharedRoomAuthorityRotation } from "../page/shared_room_authority.ts";
 import { proveManagedAccessEditor } from "../page/shared_session_access.ts";
@@ -193,6 +193,7 @@ try {
 	await say(second, "One managed member, two views");
 	for (const page of [first, second]) await bubble(page, "One managed member, two views");
 	await proveRoomPresence(browser, httpPort, [first, second]);
+	await proveRoomAudience(browser, httpPort, first, second);
 	await proveSharedImage(first, second, png).catch(async (error) => {
 		console.error("SHARED-FILE-FAILURE", error);
 		try {
@@ -426,9 +427,6 @@ try {
 	const memberLink = (await Deno.readTextFile(`${state}/use.sturdyref`)).trim();
 	if (memberLink !== replacement) fail("member readiness did not publish its original session access");
 	await proveSessionReplacement(first, memberLink);
-	await control("join", { locator: [`127.0.0.1:${roomPort}`], nick: ["scout"], "exact-nick": ["true"] });
-	const bot = await control("access-issue", { label: ["bot"], rights: ["collaborator"] });
-	await provePrivateBotInvitation(browser, first, httpPort, state, bot.link);
 	if (errors.length !== 0) fail(`production page errors: ${JSON.stringify(errors)}`);
 	console.log(
 		"Managed process startup, two production pages, shared drafts, files, cold restart and reset recovery passed.",

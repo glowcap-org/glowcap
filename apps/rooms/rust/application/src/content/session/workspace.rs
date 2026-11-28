@@ -23,6 +23,8 @@ mod invalid;
 pub use invalid::InvalidIntent;
 mod nickname;
 mod references;
+mod room_invitation;
+pub use room_invitation::RoomInvitation;
 mod rows;
 pub use adoption::{Adoption, LineAdoption, LineReceipt, Refusal as AdoptionRefusal, adopt_line};
 pub use direct::{

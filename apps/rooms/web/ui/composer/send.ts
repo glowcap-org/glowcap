@@ -13,6 +13,7 @@ export interface ComposerDraft {
 	readonly text: string;
 	readonly files: readonly File[];
 	readonly keeping?: readonly unknown[];
+	readonly changing?: number;
 	readonly previews: readonly DraftPreview[];
 }
 
@@ -59,9 +60,20 @@ export function prepareComposerSend(
 export function planComposerSend(conv: Conv | null, draft: ComposerDraft, powers: CommandPowers): ComposerPlan {
 	const original = draft.text;
 	const files = [...draft.files];
+	const audience = conv?.type === "room" ? conv.audience : undefined;
+	const wanted = audience?.length ? new Set(audience.map((name) => name.toLowerCase())) : undefined;
+	const recipients = wanted && conv
+		? {
+			audience,
+			availableAudience: powers.roster(conv.key).filter((member) =>
+				member.online && wanted.has(member.name.toLowerCase())
+			).map((member) => member.name),
+		}
+		: {};
 	const raw: unknown = JSON.parse(
 		applicationModule().prepareComposer(JSON.stringify({
 			text: original,
+			...recipients,
 			place: conv?.type === "dm" ? "direct" : conv?.type ?? "none",
 			you: powers.you(),
 			away: powers.standingHere() !== "",
@@ -73,6 +85,7 @@ export function planComposerSend(conv: Conv | null, draft: ComposerDraft, powers
 				size: file.size,
 			})),
 			keeping: draft.keeping != null,
+			editing: draft.changing != null,
 		})),
 	);
 	const proven = z.safeParse(PreparedSchema, raw);

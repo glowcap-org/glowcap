@@ -3,6 +3,127 @@
 use super::*;
 use glowcap::loam::{ReadInterface, ReadMethod};
 
+/// Only the owner witness unlocks acceptance on behalf of a participating
+/// callback. Recheck its original direct inbox and source at invocation.
+pub(super) fn room_invitation_requirement<P: Tasks + Deadline + Clone + 'static>(
+	owner: &std::rc::Rc<State<P>>,
+	input: Invocation<'_>,
+) -> Result<Requirement> {
+	let token = input
+		.args
+		.first()
+		.and_then(Argument::as_str)
+		.ok_or_else(|| refuse("room invitation token required"))?;
+	let event = owner.activity.event(owner.activity.parse_token(token)?)?;
+	let Some((workspace::InboxSelection::Direct { .. }, _)) = event.origin.installed() else {
+		return Err(refuse("a direct room invitation is required"));
+	};
+	if !event.origin.is_open() || event.incoming.as_ref().map(|item| item.role()) != Some(custody::Role::RoomAccess) {
+		return Err(refuse("this callback no longer offers a room"));
+	}
+	Requirement::new(&[Permission::InteractWorkspace.key()], &[])
+}
+
+/// The candidate check needs the prepared graph, after permission admission.
+/// Check before any save is prepared and again in the committing invocation.
+pub(super) fn room_invitation_candidate<P: Tasks + Deadline + Clone + 'static>(
+	owner: &std::rc::Rc<State<P>>,
+	input: Invocation<'_>,
+) -> Result<records::Location> {
+	let [
+		token,
+		destination,
+		source,
+		Argument::Integer(expected),
+		Argument::List(releases),
+		candidate,
+	] = input.args
+	else {
+		return Err(refuse("invalid invitation acquisition"));
+	};
+	let token = text(token)?;
+	let event = owner.activity.event(owner.activity.parse_token(token)?)?;
+	let Some((
+		workspace::InboxSelection::Direct {
+			id: direct, directory, ..
+		},
+		_,
+	)) = event.origin.installed()
+	else {
+		return Err(refuse("a direct room invitation is required"));
+	};
+	let key = |value: &Argument, role| {
+		custody::Coordinate::decode(text(value)?)
+			.ok()
+			.filter(|c| c.role == role)
+			.ok_or_else(|| refuse("invalid invitation destination"))
+	};
+	let room_access = key(destination, custody::Role::RoomAccess)?;
+	let origin = key(source, custody::Role::SessionAccess)?;
+	let record = records::metadata(input)?;
+	let row = record
+		.intent
+		.directories
+		.as_slice()
+		.iter()
+		.find(|row| row.id == *directory && row.name.is_some() && row.inbox.is_some())
+		.ok_or_else(|| refuse("the invitation directory is no longer registered"))?;
+	let held = record
+		.custody
+		.get(custody::Coordinate::new(custody::Role::DirectoryAccess, row.access))
+		.ok_or_else(|| refuse("directory custody is absent"))?;
+	let location = records::location(&held);
+	if !releases.is_empty() {
+		return Err(refuse("an invitation releases no authority"));
+	}
+	if record.fence.admits(
+		u64::try_from(*expected).map_err(|_| refuse("invalid revision"))?,
+		input.content_revision,
+	) {
+		let id = workspace::Id::new(format!("arrival:{token}").as_str().into())
+			.ok_or_else(|| refuse("invalid invitation identity"))?;
+		let data: serde_json::Value =
+			serde_json::from_str(&event.data).map_err(|_| refuse("invalid invitation event"))?;
+		let name = data["notice"]["label"]
+			.as_str()
+			.and_then(|label| Text::new(label.into()))
+			.ok_or_else(|| refuse("invalid room label"))?;
+		let mut intended = record.intent;
+		if !intended.invitations.as_slice().iter().any(|inv| inv.id == id)
+			&& (record.custody.get(room_access).is_some() || record.custody.get(origin).is_some())
+		{
+			return Err(refuse("invitation destinations are already occupied"));
+		}
+		let selection = workspace::RoomInvitation {
+			id,
+			name,
+			access: room_access.key.retag(),
+			source: origin.key.retag(),
+		};
+		selection.stage(&mut intended, direct, directory).map_err(refuse)?;
+		let next = workspace::Intent::decode(text(candidate)?).map_err(|_| refuse("invalid invitation workspace"))?;
+		if next != intended {
+			return Err(refuse("the invitation must install only its original entrance"));
+		}
+	}
+	Ok(location)
+}
+
+pub(super) fn check_invitation_directory<P: Tasks + Deadline + Clone + 'static>(
+	owner: &std::rc::Rc<State<P>>,
+	call: &mut Call<'_>,
+	input: Invocation<'_>,
+	private_args: &[Argument],
+) -> Result<()> {
+	let location = room_invitation_candidate(owner, input)?;
+	let Some(Argument::Reference(expected)) = private_args.get(2) else {
+		return Err(refuse("directory witness required"));
+	};
+	if Field::Retained(location).resolve(call, input)? != *expected {
+		return Err(refuse("the operator-selected directory capability changed"));
+	}
+	Ok(())
+}
 pub(super) fn requirement(input: Invocation<'_>) -> Result<Requirement> {
 	let permissions = match input.verb {
 		"acquire-activity" | "activity-recipe" | "retain-incoming" => {
@@ -182,7 +303,11 @@ pub(super) fn acquire<P: Tasks + Deadline + Clone + 'static>(
 	owner: &std::rc::Rc<State<P>>,
 	call: &mut Call<'_>,
 	input: Invocation<'_>,
+	private: Option<&[Argument]>,
 ) -> Result<Argument> {
+	if let Some(args) = private {
+		check_invitation_directory(owner, call, input, args)?;
+	}
 	let request = Ingress::read(owner, input)?;
 	if call.source()? != *request.event.origin.source() {
 		return Err(refuse("original incoming source capability required"));

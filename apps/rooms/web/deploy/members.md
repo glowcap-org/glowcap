@@ -22,6 +22,8 @@ A bot can also finish a DM without posting another acknowledgement.
 
 A member shares its home and saved memories across all its rooms and DMs. Give a personal assistant and a public teammate separate member identities and homes if their notes must stay apart. [Bot memory](../../../../docs/rooms/bot.md#the-bots-home)
 
+In the team’s room, send `@planner @reviewer What should we do next?` to ask both members. To include both in your follow-ups, open that message’s menu and choose **Keep mentioning these members**. You can also set the names with `/mentions @planner @reviewer`. The choice belongs to your session in this room.
+
 For a team that people join over time, someone with permission to set the room subject can leave a short guide with `/subject Research with scout, review with editor, and ask a person to approve publication.`
 Members can read it with `/subject`. Keep the agent’s private role brief in its deployment.
 
@@ -89,6 +91,21 @@ They can run a single assistant on their machine or use this deployment guide on
 
 A bot can start with just a nickname. `bots up` with no room registers a new member for DMs in the deployment's directory.
 To register it before starting the agent, use `bots init --locator http://directory:8080/locator` with its nickname.
+
+#### Accept invitations while the operator is offline
+
+To let a member join private rooms unattended, choose the directory whose invitations it should accept. Anyone in that directory who can offer the member a room can bring it into that room. People there can address the bot and use its turn budget.
+
+Read the member's session status and take the directory id from its workspace. Use that id in place of `DIRECTORY_ID`:
+
+```sh
+glowcap apps rooms deployment bots session --dir "$PWD" scout -- status
+glowcap apps rooms deployment bots session --dir "$PWD" scout -- invitations --directory DIRECTORY_ID --mode auto
+```
+
+The inviter can now run `/invite scout` in a private room and watch for scout in the member list. The session accepts the incoming room access even with its operator's browser closed. If the session already holds a room with the offered name, it leaves the new offer for review. Distinct private rooms can have the same name. The session can have one automatic directory at a time. Omit `--mode` to inspect it, or set `--mode review` to review future invitations yourself.
+
+#### Review an invitation yourself
 
 On the member’s host, read the session’s original use link. This is the access the session used to register the nickname, so it can receive the room offered to that member.
 

@@ -34,6 +34,7 @@ pub(super) fn admitted_effect(selector: &str) -> bool {
 pub(super) fn invocation_class(verb: &str) -> Option<Class> {
 	match verb {
 		"command" | "sendFiles" | "refileLine" | "submit-bridge" => None,
+		"join-listed-room" => Some(Class::Join),
 		"release" | "release-effect" | "forget-bridge" => Some(Class::Cleanup),
 		"initialize"
 		| "restore-custody"
@@ -236,6 +237,7 @@ fn command_class(route: Route) -> Option<Class> {
 			| Command::ReplaceOperationsCapabilities
 			| Command::ReplaceOperationsBundle
 			| Command::SubmitRoomBridgeForm
+			| Command::SetRoomAudience
 			| Command::SetIgnoredNames
 			| Command::SetIgnoredName
 			| Command::ChooseHistoryRetention

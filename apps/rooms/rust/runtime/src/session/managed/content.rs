@@ -19,10 +19,12 @@ pub(super) mod receipts;
 mod registration;
 pub(super) use registration::registration;
 mod discovery;
+mod forwarding;
 mod imports;
 mod inbox;
 mod inert;
 mod introduction;
+mod listed_room;
 mod outgoing_line;
 mod presence;
 pub(super) mod reads;
@@ -143,6 +145,9 @@ impl<P: Tasks + Deadline + Clone + 'static> SessionContent<P> {
 				let keys = [if device { History.key() } else { ReadArchive.key() }, ReadFile.key()];
 				Requirement::new(&keys[..if files { 2 } else { 1 }], &[])
 			}
+			"activity-recipe" | "retain-incoming" | "acquire-activity" if private => {
+				activity::room_invitation_requirement(&owner, input)
+			}
 			"activity-reader" | "activity-file" | "activity-recipe" | "retain-incoming" | "acquire-activity" => {
 				activity::requirement(input)
 			}
@@ -160,6 +165,7 @@ impl<P: Tasks + Deadline + Clone + 'static> SessionContent<P> {
 			"archive-reader"
 			| "history-reader"
 			| "bridge-form-reader"
+			| "room-members-reader"
 			| "file-reader"
 			| "custody-recipe"
 			| "direct-route"
@@ -222,6 +228,9 @@ impl<P: Tasks + Deadline + Clone + 'static> SessionContent<P> {
 			"restore-custody" | "settle-history-erasure" | "retention-intent" => {
 				Requirement::new(&[ManageCustody.key()], &[])
 			}
+			"room-membership-reader" | "room-membership-ready" | "join-listed-room" => {
+				Requirement::new(&[ObserveWorkspace.key(), InteractWorkspace.key()], &[])
+			}
 			"replaceWorkspace" => Requirement::new(&[ReplaceWorkspace.key()], &[]),
 			"release" => Requirement::new(&[ManageCustody.key(), ReplaceWorkspace.key()], &[]),
 			"acquire-workspace" if private => continuing::acquisition_requirement(),
@@ -231,63 +240,6 @@ impl<P: Tasks + Deadline + Clone + 'static> SessionContent<P> {
 			}
 			_ => Err(refuse("unknown session method")),
 		}
-	}
-}
-impl<P: Tasks + Deadline + Clone + 'static> loam::ForwardAdmission for SessionContent<P> {
-	fn admit_forward(&self, call: &mut Call<'_>, input: loam::ForwardWork<'_>) -> Result<()> {
-		let owner = self.owner(input.selector)?;
-		if super::admission::admitted_effect(input.selector) {
-			return Ok(());
-		}
-		use rooms_application::{admission::Class, protocol_data as wire};
-		let class = match input.method {
-			"leave"
-			| "withdraw"
-			| "discard"
-			| "revoke"
-			| rooms_application::signaling::DONE
-			| rooms_application::signaling::DECLINE
-			| "close"
-			| "removeLease"
-			| "closeConnection" => Class::Cleanup,
-			wire::POST
-			| wire::POST_FILES
-			| wire::EDIT
-			| wire::DM
-			| wire::REFILE
-			| wire::SET_SUBJECT
-			| rooms_application::room::receipt::POST
-			| rooms_application::room::receipt::POST_FILES
-			| rooms_application::room::correlation::POST
-			| rooms_application::room::correlation::POST_FILES
-			| rooms_application::open_graph::ROOM_POST_VERB
-			| rooms_application::open_graph::ROOM_POST_FILES_VERB => Class::Message,
-			wire::TYPING | wire::AWAY | wire::SET_PROFILE => Class::Transient,
-			"subscribe" => Class::Join,
-			"ready" => Class::Recipient,
-			wire::WRITE => Class::Transfer,
-			wire::ATTACH | rooms_application::room::receipt::ATTACH => Class::Upload,
-			"offerRoom"
-			| "handRoom"
-			| "offerArchive"
-			| "handArchive"
-			| "addLease"
-			| rooms_application::room::invitation::MINT
-			| rooms_application::bridge::SUBMIT => Class::Create,
-			"read" if matches!(input.selector, "activity-file" | "file-reader") => Class::Transfer,
-			_ if input.selector == "signaling-route" => Class::Signal,
-			_ => Class::Read,
-		};
-		owner
-			.admission
-			.borrow_mut()
-			.work(
-				call,
-				class,
-				(class == Class::Message).then_some(input.material_bytes),
-				owner.platform.monotonic_millis(),
-			)
-			.map_err(super::admission::callback_error)
 	}
 }
 impl<P: Tasks + Deadline + Clone + 'static> Content for SessionContent<P> {
@@ -353,7 +305,11 @@ impl<P: Tasks + Deadline + Clone + 'static> Content for SessionContent<P> {
 				&[Permission::ManageCustody.key(), Permission::ReplaceWorkspace.key()],
 				&[],
 			),
-			protocol::NOTIFY | rooms_application::bridge::ASK => {
+			"room-membership-ready" => Requirement::new(
+				&[Permission::ObserveWorkspace.key(), Permission::InteractWorkspace.key()],
+				&[],
+			),
+			protocol::NOTIFY | protocol::ROOM_MEMBERS | rooms_application::bridge::ASK => {
 				Requirement::new(&[Permission::ObserveWorkspace.key()], &[])
 			}
 			_ => Err(refuse("unknown dependent session method")),
@@ -379,6 +335,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Content for SessionContent<P> {
 				.map_err(super::admission::callback_error)?;
 		}
 		let private = continuing::private(input);
+		let private_args = input.args;
 		let input = continuing::input(self, input)?;
 		if input.verb == "retire-host-registrations" {
 			return host_registrations::invoke(call, input, &owner.writer.root()?);
@@ -412,7 +369,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Content for SessionContent<P> {
 			return activity::invoke(&owner, call, input);
 		}
 		if input.verb == "acquire-activity" {
-			return activity::acquire(&owner, call, input);
+			return activity::acquire(&owner, call, input, private.then_some(private_args));
 		}
 		if input.verb == "typing-sender" {
 			return presence::invoke(call, input);
@@ -519,6 +476,12 @@ impl<P: Tasks + Deadline + Clone + 'static> Content for SessionContent<P> {
 		if input.verb == "forget-bridge" {
 			return bridge::forget(&owner, call, input);
 		}
+		if matches!(input.verb, "room-membership-reader" | "room-membership-ready") {
+			return listed_room::ready(&owner, call, input);
+		}
+		if input.verb == "join-listed-room" {
+			return listed_room::invoke(call, input);
+		}
 		if matches!(input.verb, "import" | "import-bundle" | "acquire-workspace") {
 			return acquisition::invoke(call, input, private);
 		}
@@ -527,6 +490,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Content for SessionContent<P> {
 			"archive-reader"
 				| "history-reader"
 				| "bridge-form-reader"
+				| "room-members-reader"
 				| "file-reader"
 				| "custody-recipe"
 				| "direct-route"

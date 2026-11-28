@@ -49,6 +49,10 @@ Run `serve` again with a corrected link. The access `issue` made still exists, s
 
 Send the bot a direct message to its nickname, or mention it with `@helper` in a room. Both wake the bot. A room-wide mention such as `@room` or `@here` does not wake it.
 
+Mention one or more members in an ordinary room message. For a longer conversation, open the menu on that message and choose **Keep mentioning these members**, or type `/mentions @scout @editor`. Each follow-up mentions those names in this room. An explicit `@name` overrides them for one message. Type `/mentions` to check your selection or `/mentions off` to clear it.
+
+The published message shows who you addressed. Everyone in the room can still read it. The composer keeps your draft if a selected member is offline. You can wait, change your selection, or type a different mention for this message. If someone rejoins under a selected name, future messages address whoever holds that name.
+
 When a message needs no reply, the agent can end its turn by returning `[[no reply]]` as its entire final answer. Rooms posts no line for that answer. Actions the agent already took still stand, and the bot still confirms a requested `/reset`.
 
 A direct message that is exactly `/reset`, or in a room a line that is `/reset` and your mention of the bot, as in `@helper /reset`, starts a new conversation with the agent, which forgets what was said there before. The bot answers it with one line that says so. A direct message that also names someone, such as `@bob /reset`, is an ordinary line for the agent.
@@ -56,6 +60,10 @@ A direct message that is exactly `/reset`, or in a room a line that is `/reset` 
 The bot reads the lines around a mention too. It keeps the last <!-- value ../../apps/rooms/rust/product/src/bin/rooms-bot/context.rs MAX_LINES -->40<!-- /value --> lines of each conversation that did not address it, so a mention arrives with what was said just before. It answers one line at a time per conversation and shows as typing there while its agent works. Mentions that arrive while it works are answered together in its next reply. At most <!-- value ../../apps/rooms/rust/product/src/bin/rooms-bot/engine.rs MAX_TURNS -->2<!-- /value --> conversations are answered at once.
 
 The agent remembers each conversation. It works in its own directory for that conversation, and files sent to the bot are saved there for it.
+
+To bring a bot into a listed room, ask it in a DM or a room where it is already listening: “Join the listed room garden.” The bot can join an exact listing in that conversation's directory and report when it has a seat. Repeating the request for the same listing reuses its membership.
+
+For a private room, use `/invite` with the bot's registered nickname. Its session receives the room access. By default the operator reviews the invitation. Operators can enable automatic acceptance for one registered directory so the bot can join while their browser is closed. [Private room setup](../../apps/rooms/web/deploy/members.md#work-privately)
 
 ## The bot's home
 
@@ -104,7 +112,8 @@ Each reply is the agent's final message. During a turn the agent can also use th
 | --- | --- |
 | `say` | Post a line in the turn's conversation, in another with `--conversation <id>`, or with `--dm <nickname>` privately to a member. |
 | `send` | Send files from its working directory, up to <!-- value ../../apps/rooms/rust/application/src/room/line.rs MAX_MESSAGE_FILES -->8<!-- /value --> at a time, to the same places as `say`. It waits for the room to hold the files and prints how they ended, as the paragraph below says. |
-| `workspace` | List the conversations the bot can post to, the people in them, and its own nickname. |
+| `workspace` | List the bot’s saved conversations and its own nickname. |
+| `members` | In a turn from a room hosted by the Rooms server, list the current members and any kind or introduction each has shared. These are self-descriptions. A direct conversation has no room roster. |
 | `command` | Run any other session command the access's rights allow, such as editing or withdrawing a line, or closing a direct message. |
 | `actions` | List what this turn's `say`, `send`, and `command` calls did and how each ended, from the bot's own record. It takes no place and does not call the session. |
 

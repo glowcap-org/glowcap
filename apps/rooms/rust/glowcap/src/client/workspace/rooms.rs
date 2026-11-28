@@ -13,6 +13,32 @@ pub struct PublicRoomImport {
 	pub source: custody::FieldKey<custody::SessionAccess>,
 }
 impl PublicRoomImport {
+	pub fn into_room(self, access: custody::FieldKey<custody::DirectoryAccess>) -> workspace::Room {
+		workspace::Room {
+			kind: workspace::RoomKind::Room,
+			id: self.id,
+			directory: self.directory,
+			name: self.name,
+			source: Some(self.source),
+			inbox: None,
+			access: None,
+			accepted: None,
+			public_entry: Some(workspace::PublicEntry { access }),
+			publication: Some(self.publication),
+			seat: None,
+			subject: None,
+			files: None,
+			lines: List::default(),
+			moderator: None,
+			control: None,
+			reconnect: workspace::Reconnect::Requested,
+			profile: Default::default(),
+			audience: Default::default(),
+			standing: None,
+			draft: Text::default(),
+		}
+	}
+
 	pub fn retained_bytes(&self) -> usize {
 		size_of::<Self>()
 			+ self.id.text().heap_bytes()
@@ -22,6 +48,112 @@ impl PublicRoomImport {
 	}
 }
 impl<D: Deadline + Clone> Workspace<D> {
+	/// Read one live membership through a single-method facade. Validate the
+	/// room's reply before any peer-supplied names or descriptions reach the caller.
+	pub async fn room_members(
+		&self,
+		conversation: &str,
+	) -> Result<Option<Vec<rooms_application::room::profile::Entry<String>>>, Error> {
+		use rooms_application::{
+			room::{
+				inbox::{nick_key, valid_nick},
+				profile::{Entry, MemberKind, valid_about},
+			},
+			server::rooms::MAX_ROOM_MEMBERS,
+		};
+		let offered = self.call("room-members-reader", &[conversation.into()]).await?;
+		if matches!(offered, Argument::Void) {
+			return Ok(None);
+		}
+		let reader = Self::capability(&offered)?;
+		let answer = self
+			.caller
+			.call(
+				&reader,
+				rooms_application::protocol_data::ROOM_MEMBERS,
+				&[],
+				"the room did not provide its live membership",
+			)
+			.await?;
+		let malformed = || loam::refusal("invalid room members reply");
+		let Argument::List(rows) = answer else {
+			return Err(malformed().into());
+		};
+		if rows.is_empty() || rows.len() > MAX_ROOM_MEMBERS {
+			return Err(malformed().into());
+		}
+		let mut seen = std::collections::BTreeSet::new();
+		rows.into_iter()
+			.map(|row| {
+				let Argument::List(fields) = row else {
+					return Err(malformed().into());
+				};
+				let [Argument::String(name), Argument::String(kind), Argument::String(about)] =
+					<[Argument; 3]>::try_from(fields).map_err(|_| malformed())?
+				else {
+					return Err(malformed().into());
+				};
+				let member_kind = MemberKind::parse(&kind).ok_or_else(malformed)?;
+				if !valid_nick(&name) || !valid_about(&about) || !seen.insert(nick_key(&name)) {
+					return Err(malformed().into());
+				}
+				Ok(Entry {
+					name,
+					member_kind,
+					about,
+				})
+			})
+			.collect::<Result<_, _>>()
+			.map(Some)
+	}
+
+	/// A retained seat is ready only while its exact worker is active and its
+	/// original participation grant still admits the readiness check.
+	pub async fn room_membership_ready(
+		&self,
+		inbox: custody::FieldKey<custody::RoomInbox>,
+		seat: custody::FieldKey<custody::RoomSeat>,
+	) -> Result<bool, Error> {
+		let keys =
+			serde_json::to_string(&(inbox, seat)).map_err(|_| loam::refusal("invalid room readiness selection"))?;
+		let args = [keys.into()];
+		let offered = self.call("room-membership-reader", &args).await?;
+		if matches!(offered, Argument::Void) {
+			return Ok(false);
+		}
+		let reader = Self::capability(&offered)?;
+		let reply = self
+			.caller
+			.call(
+				&reader,
+				"room-membership-ready",
+				&args,
+				"the room membership worker did not answer",
+			)
+			.await?;
+		match reply {
+			Argument::Boolean(ready) => Ok(ready),
+			_ => Err(loam::refusal("invalid room readiness reply").into()),
+		}
+	}
+	/// Join one exact publication through the held directory. The session constructs
+	/// the new room and saves this invoking grant as its membership source.
+	pub async fn join_listed_room(
+		&self,
+		selection: PublicRoomImport,
+		access: custody::FieldKey<custody::DirectoryAccess>,
+	) -> Result<String, Error> {
+		let selection =
+			serde_json::to_string(&(selection, access)).map_err(|_| loam::refusal("invalid room selection"))?;
+		let reply = self
+			.call("join-listed-room", &[selection.into(), self.reference.clone().into()])
+			.await?;
+		reply
+			.as_str()
+			.map(str::to_owned)
+			.ok_or_else(|| loam::refusal("invalid joined conversation").into())
+	}
+
 	/// Retain one complete candidate and its actual invoking source. Acquisition
 	/// installs them atomically. Membership belongs to the managed supervisor.
 	/// The public directory row supplies held authority, while the exact listing
@@ -52,28 +184,8 @@ impl<D: Deadline + Clone> Workspace<D> {
 			.find(|row| row.id == selected.directory)
 			.ok_or_else(|| loam::refusal("public room directory is no longer held"))?
 			.access;
-		let room = workspace::Room {
-			kind: workspace::RoomKind::Room,
-			id: selected.id,
-			directory: selected.directory,
-			name: selected.name,
-			source: Some(selected.source),
-			inbox: None,
-			access: None,
-			accepted: None,
-			public_entry: Some(workspace::PublicEntry { access }),
-			publication: Some(selected.publication),
-			seat: None,
-			subject: None,
-			files: None,
-			lines: List::default(),
-			moderator: None,
-			control: None,
-			reconnect: workspace::Reconnect::Requested,
-			profile: Default::default(),
-			standing: None,
-			draft: Text::default(),
-		};
+		let source = selected.source;
+		let room = selected.into_room(access);
 		snapshot
 			.intent
 			.conversations
@@ -84,7 +196,7 @@ impl<D: Deadline + Clone> Workspace<D> {
 			vec![Import {
 				coordinate: custody::Coordinate {
 					role: custody::Role::SessionAccess,
-					key: selected.source.retag(),
+					key: source.retag(),
 				},
 				reference: self.reference.clone(),
 				uri: None,

@@ -45,6 +45,7 @@ interface PostedLine {
 	handle: FieldKey;
 }
 export interface RoomIntent {
+	audience?: string[];
 	kind: "room";
 	id: string;
 	directory: string;

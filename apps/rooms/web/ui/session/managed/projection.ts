@@ -274,6 +274,7 @@ export class ManagedProjection {
 						grants,
 						standing,
 						standingPending,
+						audience: row.audience,
 						reconnect: row.reconnect,
 						linkToken: row.access ?? undefined,
 						managerToken: row.control ?? undefined,
@@ -591,6 +592,8 @@ function hasRoomStateDiverged(
 	return (
 		conversation.id !== row.name ||
 		conversation.standing !== standing ||
+		(conversation.audience?.length ?? 0) !== (row.audience?.length ?? 0) ||
+		(row.audience?.some((name, at) => name !== conversation.audience?.[at]) ?? false) ||
 		conversation.reconnect !== row.reconnect ||
 		conversation.linkToken !== (row.access ?? undefined) ||
 		conversation.managerToken !== (row.control ?? undefined) ||

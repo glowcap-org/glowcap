@@ -3,7 +3,21 @@ use super::*;
 
 impl<P: Tasks + Deadline + Clone + 'static> SessionContent<P> {
 	pub(super) fn reference_requests(&self, input: Invocation<'_>) -> Result<Vec<ReferenceRequest>> {
+		let private = continuing::private(input);
 		let input = continuing::input(self, input)?;
+		if private && input.verb == "acquire-activity" {
+			let owner = self.owner(input.verb)?;
+			let location = activity::room_invitation_candidate(&owner, input)?;
+			let mut requests = activity::references(&owner, input, &records::metadata(input)?)?;
+			requests.push(ReferenceRequest::RestorePage {
+				page: location
+					.page
+					.checked_sub(1)
+					.ok_or_else(|| refuse("invalid directory custody page"))?,
+				field: location.field,
+			});
+			return Ok(requests);
+		}
 		if input.verb == "restore-custody" {
 			return super::super::retained::references(input, &self.owner(input.verb)?.writer.root()?);
 		}
@@ -60,6 +74,8 @@ impl<P: Tasks + Deadline + Clone + 'static> SessionContent<P> {
 			"snapshot" | "addressed-snapshot" => snapshot::references(input, &metadata)?,
 			"typing-sender" => presence::references(input, &metadata)?,
 			"signaling-route" => signaling::references(input, &metadata)?,
+			"room-membership-ready" | "room-membership-reader" => listed_room::ready_references(input, &metadata)?,
+			"join-listed-room" => listed_room::references(input, &metadata)?,
 			"directory-reader" => discovery::references(input, &metadata)?,
 			"check-discovery" => discovery::admission_references(input, &metadata)?,
 			"sendFiles" | "refileLine" => uploads::references(input, &metadata)?,
@@ -67,6 +83,7 @@ impl<P: Tasks + Deadline + Clone + 'static> SessionContent<P> {
 			"archive-reader"
 			| "history-reader"
 			| "bridge-form-reader"
+			| "room-members-reader"
 			| "workspace-history-reader"
 			| "custody-recipe"
 			| "direct-route"

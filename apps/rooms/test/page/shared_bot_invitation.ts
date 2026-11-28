@@ -1,5 +1,6 @@
 // The operator accepts the room under the same session access that registered
-// the nickname. A separate collaborator runs the bot after that browser closes.
+// the nickname. The same session then accepts a second offer under its saved
+// directory policy while the operator browser is closed.
 import type { Browser, Page } from "playwright";
 import { joinAs } from "../support/join.ts";
 import { makeRoom } from "../support/private_room_page.ts";
@@ -14,6 +15,7 @@ export async function provePrivateBotInvitation(
 	httpPort: number,
 	state: string,
 	botLink: string,
+	enableAutomatic: () => Promise<void>,
 ) {
 	const inviter = await joinAs(browser, httpPort, "inviter");
 	try {
@@ -21,7 +23,11 @@ export async function provePrivateBotInvitation(
 		await say(inviter, "/invite scout");
 		await operator.locator(".inviterow .room-open").click({ timeout: 30_000 });
 		await inviter.locator('#members li:has-text("scout")').waitFor({ timeout: 30_000 });
+		await enableAutomatic();
 		await operator.context().close();
+		await makeRoom(inviter, "unattended-review", true);
+		await say(inviter, "/invite scout");
+		await inviter.locator('#members li:has-text("scout")').waitFor({ timeout: 30_000 });
 
 		const link = state + "/bot-link";
 		await Deno.writeTextFile(link, botLink, { mode: 0o600 });

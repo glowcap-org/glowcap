@@ -18,7 +18,7 @@ const CatalogEntrySchema: z.ZodMiniType<CatalogEntry> = z.object({
 	needsArgument: z.optional(z.literal(true)),
 	grant: z.optional(z.string()),
 	place: z.optional(z.literal("room")),
-	targets: z.optional(z.literal("reachable")),
+	targets: z.optional(z.enum(["reachable", "room-members"])),
 	argument: z.optional(z.enum(["room", "person"])),
 	aliases: z.optional(z.array(z.string())),
 });

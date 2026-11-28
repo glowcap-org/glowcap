@@ -57,6 +57,7 @@ fn main() -> Result<(), String> {
 	let file_limits = files::FileLimits::default();
 	for (name, value) in [
 		("MAX_NICK", room::inbox::MAX_NICK),
+		("MAX_ROOM_AUDIENCE", room::audience::MAX_ROOM_AUDIENCE),
 		("MAX_ROOM", server::rooms::MAX_ROOM),
 		("ROOM_ID_BYTES", server::links::ENTROPY_BYTES),
 		("MAX_DURABLE_ROOM", server::document::MAX_DURABLE_ROOM),

@@ -46,17 +46,30 @@ impl Mentions {
 	pub fn of_document(document: &Document, nick: &str) -> Self {
 		let nick = nick_key(nick);
 		let mut found = Self::default();
-		let mut pending: Vec<&Node> = document.blocks.iter().collect();
-		while let Some(node) = pending.pop() {
-			if let Node::Mention { name, room } = node {
-				found.room |= *room;
-				found.member |= !nick.is_empty() && nick_key(name) == nick;
-			}
-			if let Some(children) = node.children() {
-				pending.extend(children);
-			}
-		}
+		visit_document(document, &mut |name, room| {
+			found.room |= room;
+			found.member |= !nick.is_empty() && nick_key(name) == nick;
+		});
 		found
+	}
+}
+
+/// Visit the mentions in display order, using the same reading as the inbox.
+pub(crate) fn visit_line(text: &str, mut visit: impl FnMut(&str, bool)) {
+	for part in rich::read(text) {
+		visit_document(&part.document, &mut visit);
+	}
+}
+
+fn visit_document(document: &Document, visit: &mut impl FnMut(&str, bool)) {
+	let mut pending: Vec<&Node> = document.blocks.iter().rev().collect();
+	while let Some(node) = pending.pop() {
+		if let Node::Mention { name, room } = node {
+			visit(name, *room);
+		}
+		if let Some(children) = node.children() {
+			pending.extend(children.iter().rev());
+		}
 	}
 }
 

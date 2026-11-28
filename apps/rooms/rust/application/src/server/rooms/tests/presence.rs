@@ -334,6 +334,8 @@ fn a_profile_belongs_to_one_participant_seat_even_when_the_name_continues() {
 			.tells
 			.is_empty()
 	);
+	assert!(world.rooms.room_members(&room.room, first).is_err());
+	assert!(world.rooms.room_members(&other.room, replacement.membership).is_err());
 	let late = world.join(5, &room, "Late");
 	assert!(
 		!notices(&late.effects, 5)
@@ -360,6 +362,18 @@ fn a_full_room_introduces_all_incumbents_in_two_bounded_batches() {
 	}
 	let joining = MAX_ROOM_MEMBERS as u32;
 	let arrival = world.join(joining, &room, "Reader");
+	let members: Vec<_> = world
+		.rooms
+		.room_members(&room.room, arrival.membership)
+		.unwrap()
+		.collect();
+	assert_eq!(members.len(), MAX_ROOM_MEMBERS);
+	assert!(
+		members[..MAX_ROOM_MEMBERS - 1]
+			.iter()
+			.all(|m| m.member_kind == introduction.kind && m.about == introduction.about())
+	);
+	assert_eq!(members.last().unwrap().name, "Reader");
 	let chunks = notices(&arrival.effects, joining)
 		.into_iter()
 		.filter_map(|notice| match notice {

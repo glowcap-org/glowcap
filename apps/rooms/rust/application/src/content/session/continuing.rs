@@ -8,6 +8,9 @@ pub enum Method {
 	CheckInbox = 2,
 	CheckDiscovery = 3,
 	AcquireWorkspace = 4,
+	RoomInvitationRecipe = 5,
+	RetainRoomInvitation = 6,
+	AcceptRoomInvitation = 7,
 }
 impl Method {
 	pub const fn wire(self) -> i64 {
@@ -19,6 +22,9 @@ impl Method {
 			2 => Some(Self::CheckInbox),
 			3 => Some(Self::CheckDiscovery),
 			4 => Some(Self::AcquireWorkspace),
+			5 => Some(Self::RoomInvitationRecipe),
+			6 => Some(Self::RetainRoomInvitation),
+			7 => Some(Self::AcceptRoomInvitation),
 			_ => None,
 		}
 	}
@@ -28,6 +34,9 @@ impl Method {
 			Self::CheckInbox => "check-inbox",
 			Self::CheckDiscovery => "check-discovery",
 			Self::AcquireWorkspace => "acquire-workspace",
+			Self::RoomInvitationRecipe => "activity-recipe",
+			Self::RetainRoomInvitation => "retain-incoming",
+			Self::AcceptRoomInvitation => "acquire-activity",
 		}
 	}
 }
