@@ -44,6 +44,7 @@ impl fmt::Display for Failure {
 pub struct Live {
 	runtime: Runtime,
 	pub view: View<HostPlatform>,
+	pub grant: String,
 }
 
 impl Live {
@@ -114,7 +115,11 @@ impl Dial {
 			}
 		};
 		match View::attach(&runtime, HostPlatform, self.link.as_str()).await {
-			Ok(view) => Ok(Live { runtime, view }),
+			Ok(view) => Ok(Live {
+				runtime,
+				view,
+				grant: self.link.fingerprint(),
+			}),
 			Err(error) => {
 				// best-effort: the attach error is the report, and the Host is
 				// discarded whether or not it closes cleanly.

@@ -34,6 +34,21 @@ use rooms_services::session::{
 };
 use serde_json::{Value, json};
 
+fn opening(snapshot: &rooms_services::session::attached::Snapshot, id: &str) -> Result<String, Error> {
+	snapshot
+		.intent
+		.conversations
+		.as_slice()
+		.iter()
+		.find_map(|row| match row {
+			Conversation::Direct(dm) if dm.id.text().as_str() == Some(id) => {
+				dm.introduction.as_ref()?.opening.text().as_str().map(str::to_owned)
+			}
+			_ => None,
+		})
+		.ok_or_else(|| Error::Usage("the selected direct opening is no longer held".into()))
+}
+
 /// The flags `--dm` reads beside a verb's own.
 pub const DM: &str = "dm";
 /// What `--dm` asks for, read before the turn spends a place.
@@ -90,7 +105,7 @@ fn is_own_peer(row: &Conversation, asked: &str) -> bool {
 /// The direct conversation `ask` reaches, and the open that made it, or null
 /// when an open conversation was reused. Every failure is the open's, and
 /// says so, because nothing was posted yet.
-pub async fn reach(live: &Live, turn: &Turn, ask: &Ask) -> Result<(String, Value), Error> {
+pub async fn reach(live: &Live, turn: &Turn, ask: &Ask) -> Result<(String, Value, crate::bot::rooms::Scope), Error> {
 	open_or_reuse(live, turn, ask).await.map_err(failure::opening)
 }
 
@@ -114,7 +129,7 @@ struct OpenAt {
 
 /// Where a reach ends: a conversation to post to, or an open to send.
 enum Route {
-	Use(String),
+	Use(String, crate::bot::rooms::Scope),
 	/// A new open, whose first call sending nothing proves it never committed.
 	First(OpenAt),
 	/// A look again at an uncertain open, which an earlier call under its
@@ -122,7 +137,11 @@ enum Route {
 	Again(OpenAt),
 }
 
-async fn open_or_reuse(live: &Live, turn: &Turn, ask: &Ask) -> Result<(String, Value), Error> {
+async fn open_or_reuse(
+	live: &Live,
+	turn: &Turn,
+	ask: &Ask,
+) -> Result<(String, Value, crate::bot::rooms::Scope), Error> {
 	let root = store::directory(&turn.bot)?;
 	let direct = DirectReach {
 		live,
@@ -137,8 +156,8 @@ async fn open_or_reuse(live: &Live, turn: &Turn, ask: &Ask) -> Result<(String, V
 		.within(Step::Open, direct.route())
 		.await
 		.ok_or_else(failure::nothing_sent)??;
-	match route {
-		Route::Use(conversation) => Ok((conversation, Value::Null)),
+	let (conversation, opened, selected) = match route {
+		Route::Use(conversation, scope) => return Ok((conversation, Value::Null, scope)),
 		Route::First(open) => turn
 			.budget
 			.within(Step::Open, direct.send_first(&open))
@@ -149,7 +168,24 @@ async fn open_or_reuse(live: &Live, turn: &Turn, ask: &Ask) -> Result<(String, V
 			.within(Step::Open, direct.send_again(&open))
 			.await
 			.ok_or_else(failure::open_spent)?,
+	}?;
+	let snapshot = live.view.snapshot().await.map_err(|e| failure::call(&e))?;
+	if opening(&snapshot, &conversation)? != selected {
+		return Err(Error::Usage(
+			"the selected private opening changed before posting".into(),
+		));
 	}
+	let scope = held(live, &snapshot, &conversation)?;
+	Ok((conversation, opened, scope))
+}
+
+fn held(
+	live: &Live,
+	snapshot: &rooms_services::session::attached::Snapshot,
+	id: &str,
+) -> Result<crate::bot::rooms::Scope, Error> {
+	crate::bot::rooms::Scope::held(&live.grant, id, snapshot)
+		.ok_or_else(|| Error::Usage("the selected private posting route is no longer held".into()))
 }
 
 impl DirectReach<'_> {
@@ -179,8 +215,11 @@ impl DirectReach<'_> {
 			Some((operation, base)) => self.again(operation, *base)?,
 			// The turn's own conversation is the address, so a nickname another
 			// member took since cannot redirect the post.
-			None if is_own_peer(row, &ask.peer) => Route::Use(turn.conversation.clone()),
-			None => self.introduce(directory).await?,
+			None if is_own_peer(row, &ask.peer) => Route::Use(
+				turn.conversation.clone(),
+				held(self.live, &snapshot, &turn.conversation)?,
+			),
+			None => self.introduce(&snapshot, directory).await?,
 		})
 	}
 
@@ -188,7 +227,7 @@ impl DirectReach<'_> {
 		Sending { direct: self, open }
 	}
 
-	async fn send_first(&self, open: &OpenAt) -> Result<(String, Value), Error> {
+	async fn send_first(&self, open: &OpenAt) -> Result<(String, Value, String), Error> {
 		let sending = self.sending(open);
 		let OpenAt {
 			operation,
@@ -214,7 +253,7 @@ impl DirectReach<'_> {
 		sending.finish(sent)
 	}
 
-	async fn send_again(&self, open: &OpenAt) -> Result<(String, Value), Error> {
+	async fn send_again(&self, open: &OpenAt) -> Result<(String, Value, String), Error> {
 		let OpenAt {
 			operation,
 			base,
@@ -260,18 +299,23 @@ impl DirectReach<'_> {
 
 	/// Reach the peer in `directory`: reuse an open conversation, or note a
 	/// new open before it is sent.
-	async fn introduce(&self, directory: &str) -> Result<Route, Error> {
+	async fn introduce(
+		&self,
+		snapshot: &rooms_services::session::attached::Snapshot,
+		directory: &str,
+	) -> Result<Route, Error> {
 		let (live, turn, ask) = (self.live, self.turn, self.ask);
-		match live.view.reach_direct(directory, &ask.peer).await {
+		match live.view.reach_direct_from(snapshot, directory, &ask.peer).await {
 			Ok(Reach::Open(conversation)) => {
 				turn.log(
 					&self.log,
 					&format!("{} {conversation} with {}", words::REUSED_DIRECT, ask.peer),
 				);
-				Ok(Route::Use(conversation))
+				let held = held(self.live, snapshot, &conversation)?;
+				Ok(Route::Use(conversation, held))
 			}
 			Ok(Reach::Introduce(introduction)) => {
-				turn.open()?;
+				turn.require_running()?;
 				let operation = identity::new_action(&self.root)?;
 				let base = live.view.revision().await.map_err(|cause| failure::call(&cause))?;
 				// The log line comes first, so a refusal to write it leaves no
@@ -410,7 +454,7 @@ impl Sending<'_> {
 	/// Log an open that committed nothing, drop its note, and fail with `cause`.
 	/// A note that stays may still be sent by the serving loop, so the failure
 	/// says the bot settles it.
-	fn dropped(&self, what: &str, why: &str, cause: Error) -> Result<(String, Value), Error> {
+	fn dropped(&self, what: &str, why: &str, cause: Error) -> Result<(String, Value, String), Error> {
 		self.line(what, why);
 		Err(if self.settled() {
 			cause
@@ -421,24 +465,30 @@ impl Sending<'_> {
 
 	/// Log what the open did before anything posts through it, and drop its
 	/// note once it settles.
-	fn finish(&self, sent: Result<Opened, ViewError>) -> Result<(String, Value), Error> {
+	fn finish(&self, sent: Result<Opened, ViewError>) -> Result<(String, Value, String), Error> {
 		match sent {
-			Ok(Opened::Opened { conversation, sent }) => {
+			Ok(Opened::Opened {
+				conversation,
+				sent,
+				opening,
+			}) => {
 				self.line("opened", &format!(", as conversation {conversation}"));
 				let mut opened = json!({"operation": sent.operation, "base": sent.base});
 				if !self.settled() {
 					opened["settling"] = json!("bot");
 				}
-				Ok((conversation, opened))
+				Ok((conversation, opened, opening))
 			}
-			Ok(Opened::Reused { conversation, .. }) => {
+			Ok(Opened::Reused {
+				conversation, opening, ..
+			}) => {
 				self.line(
 					"reused",
 					&format!(", and another open had made it, as conversation {conversation}"),
 				);
 				// A note that stays is looked at again and finds the same open.
 				self.settled();
-				Ok((conversation, Value::Null))
+				Ok((conversation, Value::Null, opening))
 			}
 			Ok(Opened::Unapplied(sent)) => self.dropped(
 				"did not open",

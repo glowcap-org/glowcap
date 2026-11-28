@@ -20,6 +20,8 @@ async fn a_replaced_line_the_old_access_holds_is_left_in_the_ledger_by_its_look(
 	let mut ledger = Ledger::start(&store, Cursor::start()).unwrap();
 	let conversation = ConversationId::new("c1");
 	let trigger = Trigger {
+		opening_until: None,
+		scope: None,
 		seq: Seq(1),
 		event: Cursor::new("e1".to_owned()).unwrap(),
 		line: "l1".into(),

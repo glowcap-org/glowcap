@@ -56,11 +56,19 @@ impl Introduction {
 pub enum Opened {
 	/// This call's `startDirect` committed, and the conversation holds its
 	/// route.
-	Opened { conversation: String, sent: Sent },
+	Opened {
+		conversation: String,
+		opening: String,
+		sent: Sent,
+	},
 	/// This call's `startDirect` committed while another open conversation
 	/// already reached the peer. Its receipt was given back, and the peer is
 	/// reached through that conversation.
-	Reused { conversation: String, sent: Sent },
+	Reused {
+		conversation: String,
+		opening: String,
+		sent: Sent,
+	},
 	/// This call's `startDirect` committed nothing: it was `Conflict` or
 	/// `Unsent`.
 	Unapplied(Sent),
@@ -90,6 +98,17 @@ impl<D: Deadline + Tasks + Clone + 'static> View<D> {
 	/// or this session's own nickname, is refused. Nothing is sent.
 	pub async fn reach_direct(&self, directory: &str, peer: &str) -> Result<Reach, Error> {
 		let before = self.snapshot().await?;
+		self.reach_direct_from(&before, directory, peer).await
+	}
+
+	/// Resolve the registration against the exact workspace used to select
+	/// and retain the destination of the following post.
+	pub async fn reach_direct_from(
+		&self,
+		before: &super::Snapshot,
+		directory: &str,
+		peer: &str,
+	) -> Result<Reach, Error> {
 		let own = before
 			.intent
 			.directories
@@ -227,9 +246,17 @@ impl<D: Deadline + Tasks + Clone + 'static> View<D> {
 			.await?;
 		let conversation = route.conversation;
 		Ok(First::Sent(if route.reused {
-			Opened::Reused { conversation, sent }
+			Opened::Reused {
+				conversation,
+				sent,
+				opening: route.opening,
+			}
 		} else {
-			Opened::Opened { conversation, sent }
+			Opened::Opened {
+				conversation,
+				sent,
+				opening: route.opening,
+			}
 		}))
 	}
 }

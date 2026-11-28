@@ -95,6 +95,7 @@ Deno.test("the client verbs and tags are the application's generated vocabulary"
 		["LEAVE", gen.LEAVE, data.LEAVE, spec.LEAVE],
 		["TYPING", gen.TYPING, data.TYPING, spec.TYPING],
 		["AWAY", gen.AWAY, data.AWAY, spec.AWAY],
+		["ROOM_MEMBERS", gen.ROOM_MEMBERS, data.ROOM_MEMBERS, spec.ROOM_MEMBERS],
 		["SET_PROFILE", gen.SET_PROFILE, data.SET_PROFILE, spec.SET_PROFILE],
 		["NOTIFY", gen.NOTIFY, data.NOTIFY, spec.NOTIFY],
 		["DM", gen.DM, data.DM, spec.DM],
@@ -110,6 +111,7 @@ Deno.test("the client verbs and tags are the application's generated vocabulary"
 		spec.TYPING,
 		spec.AWAY,
 		spec.SET_PROFILE,
+		spec.ROOM_MEMBERS,
 	]);
 });
 

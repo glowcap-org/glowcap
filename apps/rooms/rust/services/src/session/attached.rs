@@ -16,6 +16,7 @@ mod keep;
 mod link;
 mod listed_room;
 mod recovered;
+mod snapshot;
 mod typing;
 
 use glowcap::{Ref, Runtime, loam::UseDescription};
@@ -91,6 +92,7 @@ pub struct View<D: Deadline + Tasks + Clone + 'static> {
 	client: Client<D>,
 	sources: Sources<D>,
 	budget: Budget,
+	snapshot_checks: RefCell<Vec<snapshot::Check>>,
 	/// The typing sender last used, kept for the next signal in the same
 	/// conversation. It is out of this cell while a signal uses it.
 	typing: RefCell<Option<typing::KeptTyping<D>>>,
@@ -119,6 +121,7 @@ impl<D: Deadline + Tasks + Clone + 'static> View<D> {
 			client,
 			sources: Sources::new(platform),
 			budget: Budget::default(),
+			snapshot_checks: RefCell::new(Vec::new()),
 			typing: RefCell::new(None),
 		})
 	}
@@ -172,7 +175,19 @@ impl<D: Deadline + Tasks + Clone + 'static> View<D> {
 	/// authority, which must not be said again, and whether its receipt was
 	/// released or is held to keep it later.
 	pub async fn say(&self, operation: &str, conversation: &str, text: &str) -> Result<Sent, Error> {
-		let before = self.snapshot().await?;
+		self.say_from(self.snapshot().await?, operation, conversation, text)
+			.await
+	}
+
+	/// Say against the exact workspace the caller inspected and keep the line.
+	/// If the destination changed since that snapshot, submission conflicts.
+	pub async fn say_from(
+		&self,
+		before: Snapshot,
+		operation: &str,
+		conversation: &str,
+		text: &str,
+	) -> Result<Sent, Error> {
 		if let Some(sent) = conflicted(ViewFault::SayConflict, operation, before.revision) {
 			return Ok(sent);
 		}
@@ -378,17 +393,6 @@ impl<D: Deadline + Tasks + Clone + 'static> View<D> {
 		})
 		.await?;
 		Ok(attachment.size as u64)
-	}
-	/// The session's current revision, the base a command is sent at.
-	pub async fn revision(&self) -> Result<u64, Error> {
-		Ok(self.snapshot().await?.revision)
-	}
-	/// The session's workspace as it is now, with the revision it was read at.
-	pub async fn snapshot(&self) -> Result<Snapshot, Error> {
-		match self.workspace.snapshot().await {
-			Ok(snapshot) => Ok(snapshot),
-			Err(error) => Err(self.failure(error).await),
-		}
 	}
 	/// Deliver a posting command, then keep the line it committed.
 	async fn post(

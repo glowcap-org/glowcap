@@ -16,6 +16,8 @@ pub struct Facts<'a> {
 	pub home: &'a Path,
 	pub conversation: &'a ConversationId,
 	pub kind: Kind,
+	/// Whether this harness can start a fresh turn without tools.
+	pub scheduled_check_ins: bool,
 	/// The operator's own instructions, added after the bot's.
 	pub instructions: Option<&'a str>,
 }
@@ -28,6 +30,14 @@ pub fn system(facts: &Facts<'_>) -> String {
 	// The conversation id comes from the session, so it is written as a JSON
 	// string: a newline or quote in it stays inside the value.
 	let conversation = serde_json::Value::from(facts.conversation.as_str()).to_string();
+	let glowcap = shell_path(&facts.config.glowcap);
+	let check_in = if facts.scheduled_check_ins {
+		include_str!("scheduled_check_in.txt")
+			.trim_end()
+			.replace("{glowcap}", &glowcap)
+	} else {
+		"      This harness can post timed text reminders. It cannot run an agent task later.".to_owned()
+	};
 	let mut text = fill(
 		SYSTEM,
 		&[
@@ -38,7 +48,8 @@ pub fn system(facts: &Facts<'_>) -> String {
 			("actions", MAX_ACTIONS_PER_TURN.to_string()),
 			("files", MAX_MESSAGE_FILES.to_string()),
 			("conversation", conversation),
-			("glowcap", shell_path(&facts.config.glowcap)),
+			("glowcap", glowcap),
+			("scheduled_check_in", check_in),
 			(
 				"harness",
 				serde_json::Value::from(facts.config.harness.as_str()).to_string(),

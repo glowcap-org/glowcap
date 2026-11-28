@@ -258,6 +258,8 @@ mod tests {
 			conversation: ConversationId::new("c1"),
 			kind: Kind::Direct,
 			triggers: vec![Trigger {
+				opening_until: None,
+				scope: None,
 				seq: Seq(seq),
 				event: Cursor::new(format!("e{seq}")).unwrap(),
 				line: format!("l{seq}"),

@@ -442,6 +442,9 @@ impl Files {
 }
 
 impl Rooms for Files {
+	fn requires_direct_scope(&self) -> bool {
+		false
+	}
 	async fn events(&self, after: &Cursor, wait: Wait) -> Result<Batch, RoomsError> {
 		let ends = Instant::now() + WAIT;
 		loop {

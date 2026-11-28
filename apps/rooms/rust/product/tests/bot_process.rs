@@ -31,6 +31,8 @@ mod captp_full;
 mod captp_late_actions;
 #[path = "bot_process/captp_notes.rs"]
 mod captp_notes;
+#[path = "bot_process/captp_opening.rs"]
+mod captp_opening;
 #[path = "bot_process/captp_owners.rs"]
 mod captp_owners;
 #[path = "bot_process/captp_paused.rs"]
@@ -41,6 +43,8 @@ mod captp_pending;
 mod captp_recovery;
 #[path = "bot_process/captp_refusal.rs"]
 mod captp_refusal;
+#[path = "bot_process/captp_reminders.rs"]
+mod captp_reminders;
 #[path = "bot_process/captp_replace_actions.rs"]
 mod captp_replace_actions;
 #[path = "bot_process/captp_replace_ask.rs"]

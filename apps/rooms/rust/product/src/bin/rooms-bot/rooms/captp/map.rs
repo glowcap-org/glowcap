@@ -243,7 +243,12 @@ fn cursor_of(raw: String) -> Result<Cursor, RoomsError> {
 	})
 }
 
-fn incoming(event: attached::Event, names: &Names) -> Result<Incoming, RoomsError> {
+fn incoming(
+	event: attached::Event,
+	names: &Names,
+	scopes: &std::collections::BTreeMap<String, Sender>,
+	origin: Option<(&str, &attached::Snapshot)>,
+) -> Result<Incoming, RoomsError> {
 	let cursor = cursor_of(event.cursor)?;
 	let attached::Event {
 		conversation,
@@ -257,7 +262,18 @@ fn incoming(event: attached::Event, names: &Names) -> Result<Incoming, RoomsErro
 		attached::Notice::Line(line) => match line.id {
 			Some(id) => Body::Line(Line {
 				id: id.to_string(),
-				sender: sender(conversation.kind, &conversation.id, line.from, names),
+				sender: if conversation.kind == attached::Kind::Direct && line.from.is_none() {
+					scopes.get(cursor.as_str()).cloned().unwrap_or(Sender::System)
+				} else if conversation.kind == attached::Kind::Direct
+					&& line.from.is_some()
+					&& let Some(operation) = line.operation
+					&& let Some((grant, snapshot)) = origin
+					&& let Some(scope) = crate::bot::rooms::Scope::held(grant, &conversation.id, snapshot)
+				{
+					Sender::OwnDirect { operation, scope }
+				} else {
+					sender(conversation.kind, &conversation.id, line.from, names)
+				},
 				change: match line.change {
 					attached::Change::Said => Change::Said,
 					attached::Change::Edited | attached::Change::Refiled | attached::Change::Withdrawn => {
@@ -282,12 +298,17 @@ fn incoming(event: attached::Event, names: &Names) -> Result<Incoming, RoomsErro
 
 /// Map one read. `names` holds this member's nicknames, and is read only
 /// when the batch holds a room event.
-pub fn batch(raw: attached::Batch, names: &Names) -> Result<Batch, RoomsError> {
+pub fn batch(
+	raw: attached::Batch,
+	names: &Names,
+	scopes: &std::collections::BTreeMap<String, Sender>,
+	origin: Option<(&str, &attached::Snapshot)>,
+) -> Result<Batch, RoomsError> {
 	let cursor = cursor_of(raw.cursor)?;
 	let events = raw
 		.events
 		.into_iter()
-		.map(|event| incoming(event, names))
+		.map(|event| incoming(event, names, scopes, origin))
 		.collect::<Result<Vec<_>, _>>()?;
 	Ok(Batch {
 		events,

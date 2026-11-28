@@ -1,0 +1,2 @@
+  {glowcap} apps rooms bot schedule --id review --in 20m --task "Summarize the open issues."
+      Run the task here without tools when due. The turn uses model budget and posts its final reply here.

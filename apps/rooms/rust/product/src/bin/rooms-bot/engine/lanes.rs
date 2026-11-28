@@ -171,6 +171,28 @@ impl Lanes {
 	}
 }
 
+impl<R: crate::bot::rooms::Rooms> super::Loop<'_, R> {
+	/// Start the oldest waiting turn of an idle conversation while a harness
+	/// slot is free and the access is active.
+	pub(super) fn start_turns(&mut self) {
+		if !self.may_think() {
+			return;
+		}
+		while self.thinking < super::MAX_TURNS && !self.stopped() {
+			let Some((conversation, id)) = self.lanes.next() else {
+				break;
+			};
+			self.lanes.started(&conversation);
+			let stage = if super::private::pending(&self.env.ledger.borrow(), id) {
+				super::Stage::Opening
+			} else {
+				super::Stage::Think
+			};
+			self.spawn(id, conversation, stage, std::time::Duration::ZERO);
+		}
+	}
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;
@@ -180,6 +202,8 @@ mod tests {
 		Queued {
 			kind: Kind::Room,
 			trigger: Trigger {
+				opening_until: None,
+				scope: None,
 				seq: Seq(seq),
 				event: Cursor::new(format!("e{seq}")).unwrap(),
 				line: format!("l{seq}"),

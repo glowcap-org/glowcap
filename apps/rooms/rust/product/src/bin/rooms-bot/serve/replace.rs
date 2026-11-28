@@ -59,9 +59,17 @@ pub async fn replace_link(
 	let Some(ledger) = Ledger::load(store)? else {
 		return Ok(None);
 	};
+	let grant = old.fingerprint();
 	let rooms = captp::Attached::open(store, old)?;
 	let ends = Instant::now() + REPLACE_LIMIT;
 	let settled = settle_old_access(&rooms, store, ledger, shutdown, ends).await;
+	if settled.is_ok() && !*shutdown.borrow() {
+		let cleanup = crate::bot::reminders::settle_receipts(store.root(), &rooms, &grant);
+		if let Ok(Err(error)) = timeout_at(ends, cleanup).await {
+			rooms.close().await;
+			return Err(error);
+		}
+	}
 	rooms.close().await;
 	settled.map(Some)
 }

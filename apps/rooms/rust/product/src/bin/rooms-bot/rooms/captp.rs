@@ -8,6 +8,7 @@
 //! drops it, and the next call dials again, so reattaching is driven by the
 //! engine's own backoff.
 mod dial;
+mod direct_events;
 mod map;
 mod names;
 
@@ -34,6 +35,7 @@ use tokio::{sync::Mutex, time::timeout};
 const MAX_ECHO_READS: usize = attached::MAX_ACTIVITY_EVENTS / attached::MAX_BATCH + 1;
 
 pub struct Attached {
+	root: std::path::PathBuf,
 	dial: Dial,
 	log: Log,
 	connection: RefCell<Option<Rc<Live>>>,
@@ -46,6 +48,7 @@ impl Attached {
 	pub fn open(store: &Store, link: Link) -> Result<Self, Error> {
 		let seed = identity::seed(store)?;
 		Ok(Self {
+			root: store.root().to_owned(),
 			dial: Dial::new(link, Some(seed))?,
 			log: store.logger(),
 			connection: RefCell::new(None),
@@ -63,7 +66,7 @@ impl Attached {
 		}
 	}
 
-	async fn live(&self) -> Result<Rc<Live>, RoomsError> {
+	pub(in crate::bot) async fn live(&self) -> Result<Rc<Live>, RoomsError> {
 		if let Some(live) = self.connection.borrow().clone() {
 			return Ok(live);
 		}
@@ -100,7 +103,7 @@ impl Attached {
 	}
 
 	/// Drop the connection when `cause` says it is gone.
-	async fn lost(&self, live: &Rc<Live>, cause: &attached::Error) {
+	pub(in crate::bot) async fn lost(&self, live: &Rc<Live>, cause: &attached::Error) {
 		if map::connection_lost(cause) {
 			let current = {
 				let mut held = self.connection.borrow_mut();
@@ -121,9 +124,27 @@ impl Attached {
 }
 
 impl Rooms for Attached {
+	async fn opening(&self, scope: &crate::bot::rooms::Scope, events: &[Cursor]) -> Result<super::Opening, RoomsError> {
+		let live = self.live().await?;
+		self.answered(
+			&live,
+			Ask::Read,
+			direct_events::opening(&live, scope, events).await,
+			|opening| opening,
+		)
+		.await
+	}
+	async fn scoped_base(&self, scope: &crate::bot::rooms::Scope) -> Result<Option<Base>, RoomsError> {
+		let live = self.live().await?;
+		let snapshot = match live.view.posting_snapshot().await {
+			Ok(snapshot) => snapshot,
+			Err(cause) => return Err(self.failed(&live, cause, Ask::Read).await),
+		};
+		Ok(scope.matches(&live.grant, &snapshot).then_some(Base(snapshot.revision)))
+	}
 	async fn events(&self, after: &Cursor, wait: Wait) -> Result<Batch, RoomsError> {
 		let live = self.live().await?;
-		let raw = match live.view.events(after.as_str(), wait == Wait::Hold).await {
+		let mut raw = match live.view.events(after.as_str(), wait == Wait::Hold).await {
 			Ok(raw) => raw,
 			// A cursor does not outlive its session's run. Follow what the
 			// restarted session reports now. Whatever it held between the last
@@ -145,15 +166,40 @@ impl Rooms for Attached {
 			.events
 			.iter()
 			.any(|event| event.conversation.kind == attached::Kind::Room);
-		let names = if in_rooms {
+		let own_direct = crate::bot::direct_context::present(&self.root)
+			&& raw.events.iter().any(|event| {
+				event.conversation.kind == attached::Kind::Direct
+					&& matches!(&event.notice, attached::Notice::Line(line) if line.operation.is_some() && line.from.is_some())
+			});
+		let peers = direct_events::peers(&raw);
+		let snapshot = if in_rooms || own_direct || !peers.is_empty() {
 			match live.view.snapshot().await {
-				Ok(snapshot) => Names::of(&snapshot),
+				Ok(snapshot) => Some(snapshot),
 				Err(cause) => return Err(self.failed(&live, cause, Ask::Read).await),
 			}
 		} else {
-			Names::default()
+			None
 		};
-		map::batch(raw, &names)
+		let mut scopes = std::collections::BTreeMap::new();
+		if !peers.is_empty()
+			&& let Some(before) = &snapshot
+		{
+			scopes = match direct_events::admitted(&live, before, &peers).await {
+				Ok(scopes) => scopes,
+				Err(cause) => return Err(self.failed(&live, cause, Ask::Read).await),
+			};
+		}
+		raw.unavailable |= peers.len() != scopes.len();
+		let names = snapshot.as_ref().map(Names::of).unwrap_or_default();
+		map::batch(
+			raw,
+			&names,
+			&scopes,
+			snapshot
+				.as_ref()
+				.filter(|_| own_direct)
+				.map(|snapshot| (live.grant.as_str(), snapshot)),
+		)
 	}
 
 	async fn base(&self) -> Result<Base, RoomsError> {

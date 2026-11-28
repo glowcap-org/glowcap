@@ -31,6 +31,7 @@ const RUNNING_PAUSE_MS: u64 = 250;
 pub(super) struct Route {
 	/// The open direct conversation that reaches the peer.
 	pub conversation: String,
+	pub opening: String,
 	/// Another open conversation already reached the peer, so this command's
 	/// receipt was given back and its route forfeited.
 	pub reused: bool,
@@ -290,7 +291,7 @@ impl<D: Deadline + Tasks + Clone + 'static> View<D> {
 			serde_json::from_str(&result).map_err(|_| Error::Malformed("the direct receipt did not decode"))?;
 		super::fault::lose(ViewFault::AdoptDirect)?;
 		super::fault::meet(command.operation(), || command.adopted()).await?;
-		let (conversation, reused) = self
+		let (conversation, opening, reused) = self
 			.acquire(command, |current| {
 				let plan = match adopt_direct(
 					before,
@@ -302,10 +303,24 @@ impl<D: Deadline + Tasks + Clone + 'static> View<D> {
 					fresh()?,
 				) {
 					Ok(plan) => plan,
-					Err(DirectRefusal::Open(open)) => return Ok(Step::Held((open, true))),
+					Err(DirectRefusal::Open(open)) => {
+						let opening = open_direct(current, start.directory, start.registration)
+							.and_then(|row| row.introduction.as_ref())
+							.ok_or(Error::Malformed("an open direct route has no introduction"))?;
+						return Ok(Step::Held((
+							open,
+							opening
+								.opening
+								.text()
+								.as_str()
+								.ok_or(Error::Malformed("invalid private opening"))?
+								.to_owned(),
+							true,
+						)));
+					}
 					Err(refusal) => return Err(Error::Input(refusal.to_string())),
 				};
-				let landed = (plan.conversation, false);
+				let landed = (plan.conversation, start.opening.to_owned(), false);
 				let plan = Plan {
 					imports: imports(plan.mappings),
 					releases: Vec::new(),
@@ -321,6 +336,7 @@ impl<D: Deadline + Tasks + Clone + 'static> View<D> {
 		let reused = reused && !self.settled(command.adopted().await).await?;
 		Ok(Route {
 			conversation: text(&conversation)?,
+			opening,
 			reused,
 		})
 	}
@@ -360,10 +376,16 @@ impl<D: Deadline + Tasks + Clone + 'static> View<D> {
 	async fn adopted_route(&self, start: &StartDirect<'_>) -> Result<Route, Error> {
 		let now = self.snapshot().await?;
 		let conversation = open_direct(&now.intent, start.directory, start.registration)
+			.filter(|row| {
+				row.introduction
+					.as_ref()
+					.is_some_and(|intro| intro.opening.text().as_str() == Some(start.opening))
+			})
 			.map(|row| row.id.clone())
 			.ok_or_else(|| Error::Input(format!("the conversation with {} closed as it opened", start.peer)))?;
 		Ok(Route {
 			conversation: text(&conversation)?,
+			opening: start.opening.into(),
 			reused: false,
 		})
 	}
@@ -561,6 +583,7 @@ mod tests {
 	fn a_reused_route_whose_receipt_is_still_held_is_reported_unopened() {
 		let route = || Route {
 			conversation: "c1".into(),
+			opening: "op".into(),
 			reused: true,
 		};
 		let outcome = reused_outcome(route(), "op", 3, Ok(Release::Released));

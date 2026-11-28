@@ -34,6 +34,7 @@ fn a_verb_with_no_room_for_a_step_before_its_tail_refuses_at_the_start() {
 	use super::super::{Budget, SEND_RESERVE_MS, SETTLE_TAIL_MS, Turn};
 	use std::time::{Duration, SystemTime};
 	let turn_ending = |left_ms: u64| Turn {
+		private_scope: None,
 		bot: "unused".into(),
 		conversation: "c".into(),
 		id: crate::bot::ledger::TurnId(1),
@@ -57,6 +58,7 @@ fn a_verb_with_no_room_for_a_step_before_its_tail_refuses_at_the_start() {
 	assert!(turn_ending(SEND_RESERVE_MS + SETTLE_TAIL_MS + 5_000).begin().is_ok());
 	assert!(
 		Turn {
+			private_scope: None,
 			budget: Budget::starting(None),
 			..turn_ending(0)
 		}

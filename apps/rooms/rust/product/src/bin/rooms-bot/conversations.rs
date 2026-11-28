@@ -93,9 +93,9 @@ mod tests {
 			let name = format!("c{n}");
 			let conversation = ConversationId::new(&name);
 			kept.heard(&store, &mut sessions, &open, &ids(&[name])).unwrap();
-			context::append(&store, &conversation, Vec::new()).unwrap();
-			store.workdir(&conversation).unwrap();
-			std::fs::create_dir_all(store.harness_state("pi", &conversation)).unwrap();
+			context::append(&store, conversation.as_str(), Vec::new()).unwrap();
+			store.workdir(conversation.as_str()).unwrap();
+			std::fs::create_dir_all(store.harness_state("pi", conversation.as_str())).unwrap();
 			sessions.remember(&store, "pi", &conversation, "s").unwrap();
 		}
 		assert_eq!(kept.0.len(), MAX_CONVERSATIONS);
@@ -111,7 +111,7 @@ mod tests {
 			assert!(!kept.kept(gone));
 			assert_eq!(sessions.get("pi", gone), None);
 			assert!(!store.root().join("work").join(file_stem(gone)).exists());
-			assert!(!store.harness_state("pi", gone).exists());
+			assert!(!store.harness_state("pi", gone.as_str()).exists());
 		}
 		assert_eq!(sessions.get("pi", &open_one), Some("s"));
 		assert!(store.root().join("work/c0").exists());

@@ -59,11 +59,37 @@ A direct message that is exactly `/reset`, or in a room a line that is `/reset` 
 
 The bot reads the lines around a mention too. It keeps the last <!-- value ../../apps/rooms/rust/product/src/bin/rooms-bot/context.rs MAX_LINES -->40<!-- /value --> lines of each conversation that did not address it, so a mention arrives with what was said just before. It answers one line at a time per conversation and shows as typing there while its agent works. Mentions that arrive while it works are answered together in its next reply. At most <!-- value ../../apps/rooms/rust/product/src/bin/rooms-bot/engine.rs MAX_TURNS -->2<!-- /value --> conversations are answered at once.
 
-The agent remembers each conversation. It works in its own directory for that conversation, and files sent to the bot are saved there for it.
+The agent remembers each conversation and works in a directory for its files. If a bot asks you a question by DM after an exchange in a room, answer in that DM. Its next turn can read the most recent private line it posted from the room before your reply.
+
+Each DM keeps its agent session, working directory, and recent messages under the bot access and private opening that received it. Replacing either starts fresh. After an upgrade, files from earlier unscoped DMs stay in their original working directories.
 
 To bring a bot into a listed room, ask it in a DM or a room where it is already listening: “Join the listed room garden.” The bot can join an exact listing in that conversation's directory and report when it has a seat. Repeating the request for the same listing reuses its membership.
 
 For a private room, use `/invite` with the bot's registered nickname. If the direct line is still opening, Rooms waits for it to carry the invitation. The bot's session receives the room access. By default the operator reviews the invitation. Operators can enable automatic acceptance for one registered directory so the bot can join while their browser is closed. [Private room setup](../../apps/rooms/web/deploy/members.md#work-privately)
+### Reminders and scheduled tasks
+
+Ask “Remind us here in 20 minutes to check the build.” The bot saves the text and posts it in this room or DM when due. Posting a reminder takes no model turn. For a specific time, give the date and time zone.
+
+Ask “In ten minutes, review the notes in this conversation and summarize the open questions.” With Claude or Pi, the bot starts a fresh model turn using the saved task and recent conversation text. The model receives no tools and returns its answer here. Claude still runs under the operator’s organization-managed startup policy. The turn uses the bot’s model budget and one place in the conversation’s hourly allowance.
+
+Codex supports timed text reminders. Its CLI does not offer the tool-free mode used for scheduled tasks.
+
+For a recurring check-in, give it an end, such as “Every hour, three times.” A repeating schedule uses a fixed interval of at least one minute. All occurrences must fit within 30 days.
+
+Ask “What’s scheduled here?” to see this conversation’s reminders and tasks, or “Cancel the build reminder” to cancel one. Schedules survive a bot restart. The bot needs to be running with access to the original conversation to deliver. After downtime it skips missed intervals.
+
+A delivered reminder starts with `[Reminder]`. A scheduled turn’s answer starts with `[Check-in]`. Other Rooms bots can read these lines without starting another turn.
+
+A one-time schedule expires if the bot returns more than 24 hours late. The list keeps finished IDs for seven days. For a scheduled task, `admitted` means the bot accepted the turn. Its answer or failure appears in the conversation. Operators can use `bot status` to see counts across conversations.
+
+Operators can inspect or cancel a schedule even when the conversation has reached its hourly model limit. Use the ID from the bot session’s workspace or the affected entry in `bot status` under `availability`. Use the bot directory that holds the access link.
+
+```sh
+glowcap apps rooms bot reminders --dir "$BOT_DIR" --conversation "$CONVERSATION_ID"
+glowcap apps rooms bot cancel-reminder --dir "$BOT_DIR" --conversation "$CONVERSATION_ID" --id review
+```
+
+Both commands check the bot’s live posting access to that room or DM and start no agent turn. Cancelling a recurring schedule stops all remaining occurrences. If delivery has begun, the command says so. Repeating a cancellation returns its recorded outcome.
 
 ## The bot's home
 
@@ -102,21 +128,30 @@ One limit guards against cost rather than rights. `--conversation-limit` caps th
 
 When the bot first skips a request, it posts the UTC time to ask again in that room or DM. Further requests there are skipped until capacity returns. The bot keeps no queue of skipped requests and spends no model turns answering them. Restarting preserves the limit and the pending notice. In `bot status`, `availability` lists the affected conversations, each with its skipped count, `retry_at` time, and notice delivery status (`pending`, `posted`, `refused`, or `unconfirmed`).
 
+A due check-in that hits the hourly limit waits until the next place opens. Its schedule shows `waiting-for-hourly-limit` and a UTC `retry_at`. A busy worker shows `waiting-for-worker`. An existing turn can still cancel a waiting check-in. Timed text reminders use no model turn and can arrive while a check-in waits.
+
 Two bots that answer each other each have their own limit for that conversation. Either can finish the exchange without posting again. A silent turn still starts the agent and counts toward its limit. Rooms sets no shared budget for a group of bots or for their model usage. To stop an exchange, pause one bot’s session access.
 
 ## What it can do in Rooms
 
-Each reply is the agent's final message. During a turn the agent can also use these commands, all as the bot's member:
+Rooms posts the agent’s final message in the conversation. During a turn triggered by a message, the agent can also use these commands as the bot’s member.
 
 | Command | What the agent can do with it |
 | --- | --- |
 | `say` | Post a line in the turn's conversation, in another with `--conversation <id>`, or with `--dm <nickname>` privately to a member. |
 | `send` | Send files from its working directory, up to <!-- value ../../apps/rooms/rust/application/src/room/line.rs MAX_MESSAGE_FILES -->8<!-- /value --> at a time, to the same places as `say`. It waits for the room to hold the files and prints how they ended, as the paragraph below says. |
-| `workspace` | List the conversations the bot can post to, the people in them, and its own nickname. |
+| `workspace` | List the bot’s saved conversations and its own nickname. |
+| `members` | In a turn from a room hosted by the Rooms server, list the current members and any kind or introduction each has shared. These are self-descriptions. A direct conversation has no room roster. |
 | `command` | Run any other session command the access's rights allow, such as editing or withdrawing a line, or closing a direct message. |
+| `remind` | Save a text reminder with `--id`, `--text`, and either `--in` or `--at`. |
+| `schedule` | Save a future agent turn with `--task` in place of `--text`. Both forms accept `--every` and `--count` together. |
+| `reminders` | List this conversation’s reminders and scheduled tasks, their due times and outcomes. |
+| `cancel-reminder` | Cancel a pending schedule by its `--id`. |
 | `actions` | List what this turn's `say`, `send`, and `command` calls did and how each ended, from the bot's own record. It takes no place and does not call the session. |
 
-These commands act for the turn that runs them: the bot tells them its directory and the turn's conversation, so they take no `--dir`, and they work only while the turn runs. One turn may run `say`, `send`, and `command` at most <!-- value ../../apps/rooms/rust/product/src/bin/rooms-bot/actions.rs MAX_ACTIONS_PER_TURN -->12<!-- /value --> times in all, and past that they are refused with a message naming the bound, while a look at an earlier `command` with `--operation` and `--base` does not count. The bot keeps that count in its own directory, outside the agent's working directory and home, so a `safe` Claude agent's file tools cannot reach it. A `full` agent can change it, as [Choosing the agent and its permission](#choosing-the-agent-and-its-permission) says. The bot's log records each line posted to another conversation and each new `command` before it is sent and again with its outcome. When the line before cannot be written, the verb refuses and sends nothing.
+During a turn, the bot supplies its directory and the turn’s conversation. An agent cannot select a different bot directory for these commands. Posting with `say` or `send`, joining a listed room, issuing a new `command`, and creating or cancelling a schedule share a limit of <!-- value ../../apps/rooms/rust/product/src/bin/rooms-bot/actions.rs MAX_ACTIONS_PER_TURN -->12<!-- /value --> actions per turn. Listing schedules, retrying the same schedule request, and checking an earlier `command` with `--operation` and `--base` use no action.
+
+The bot keeps that count in its own directory, outside the agent's working directory and home, so a `safe` Claude agent's file tools cannot reach it. A `full` agent can change it, as [Choosing the agent and its permission](#choosing-the-agent-and-its-permission) says. The bot's log records each line posted to another conversation and each new `command` before it is sent and again with its outcome. When the line before cannot be written, the verb refuses and sends nothing.
 
 Every verb runs on one budget, counted from its own start: reading `--text -`, dialing the session, a `--dm` open, sending, waiting for the room, and keeping the line all draw from it. The budget is the smaller of <!-- value ../../apps/rooms/rust/product/src/bin/rooms-bot/act.rs VERB_BUDGET_MS milliseconds -->100 seconds<!-- /value --> and what is left of the turn's deadline less <!-- value ../../apps/rooms/rust/product/src/bin/rooms-bot/act.rs SEND_RESERVE_MS milliseconds -->30 seconds<!-- /value -->, so the agent reads the answer and still finishes its reply. Every step but the last look stops <!-- value ../../apps/rooms/rust/product/src/bin/rooms-bot/act.rs SETTLE_TAIL_MS milliseconds -->10 seconds<!-- /value --> before the budget ends. A verb that finds no room for that tail refuses before it takes a place or sends anything. Once a verb has taken its place, a refusal or an attach that runs out of budget still spends that place, as every refusal after it does.
 

@@ -11,6 +11,32 @@ use crate::{
 use alloc::{string::String, sync::Arc, vec::Vec};
 
 impl<C: Copy + Ord, R: Clone> Rooms<C, R> {
+	/// Current seats only. Leaving or disconnecting immediately retires the introduction.
+	pub fn room_members(
+		&self,
+		key: &RoomKey,
+		seat: MembershipKey,
+	) -> Result<impl Iterator<Item = crate::room::profile::Entry<&str>> + '_, super::Refusal> {
+		let room = self
+			.rooms
+			.get(key)
+			.filter(|room| room.member(seat).is_some())
+			.ok_or_else(|| {
+				super::Refusal::coded(
+					crate::failure::FailureCode::NotRoomMember,
+					"this room membership has ended",
+				)
+			})?;
+		Ok(room.members.iter().map(|member| {
+			let profile = member.profile.as_deref();
+			crate::room::profile::Entry {
+				name: member.nick.as_str(),
+				member_kind: profile.map_or(crate::room::profile::MemberKind::Undeclared, |profile| profile.kind),
+				about: profile.map_or("", |profile| profile.about()),
+			}
+		}))
+	}
+
 	/// A return clears the display-only name, including a changed spelling.
 	pub(super) fn returning_name(&mut self, key: &RoomKey, nick: &str, effects: &mut Effects<C, R>) {
 		let Some(room) = self.rooms.get_mut(key) else {

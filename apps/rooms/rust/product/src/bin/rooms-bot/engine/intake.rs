@@ -23,11 +23,19 @@ pub fn take<R: Rooms>(state: &mut Loop<'_, R>, batch: Batch) {
 	report_losses(env, &batch);
 	let mut before = state.read.cursor.clone();
 	let mut seq = state.read.seq;
-	let mut context: BTreeMap<ConversationId, Vec<ContextLine>> = BTreeMap::new();
+	let mut context: BTreeMap<String, Vec<ContextLine>> = BTreeMap::new();
 	let mut heard = BTreeSet::new();
 	for event in &batch.events {
 		let this = seq;
 		seq = seq.next();
+		if let crate::bot::rooms::Body::Line(line) = &event.body
+			&& line.change == crate::bot::rooms::Change::Said
+			&& let crate::bot::rooms::Sender::OwnDirect { operation, scope } = &line.sender
+			&& let Err(error) =
+				crate::bot::direct_context::confirmed(env.store.root(), scope, operation, &line.text, this)
+		{
+			env.store.log(&format!("remembering a settled private post: {error}"));
+		}
 		let covered = env.ledger.borrow().covers(&event.cursor);
 		if !covered {
 			match classify::classify(event, this) {
@@ -37,7 +45,17 @@ pub fn take<R: Rooms>(state: &mut Loop<'_, R>, batch: Batch) {
 					.log(&format!("skipped an event in {}: {reason}", event.conversation)),
 				Class::Context(line) => {
 					heard.insert(event.conversation.clone());
-					context.entry(event.conversation.clone()).or_default().push(line);
+					let scope = match &event.body {
+						crate::bot::rooms::Body::Line(crate::bot::rooms::Line {
+							sender:
+								crate::bot::rooms::Sender::DirectPeer(scope)
+								| crate::bot::rooms::Sender::OpeningPeer(scope, _),
+							..
+						}) => Some(scope),
+						_ => None,
+					};
+					let stem = crate::bot::store::data_stem(&event.conversation, scope);
+					context.entry(stem).or_default().push(line);
 				}
 				Class::Trigger(trigger) => {
 					heard.insert(event.conversation.clone());
@@ -87,7 +105,7 @@ fn report_losses<R: Rooms>(env: &Env<'_, R>, batch: &Batch) {
 fn keep_context<R: Rooms>(
 	state: &Loop<'_, R>,
 	heard: &BTreeSet<ConversationId>,
-	mut context: BTreeMap<ConversationId, Vec<ContextLine>>,
+	mut context: BTreeMap<String, Vec<ContextLine>>,
 ) {
 	let env = state.env;
 	// A conversation whose triggers wait for room in the ledger is as open
@@ -142,7 +160,7 @@ fn hold(
 		match gate.decide(store, &conversation, &trigger, ledger.cursor_seq())? {
 			Decision::Start => {
 				let id = match unheld.newest {
-					Some(id) if ledger.room_in(id) > 0 => {
+					Some(id) if ledger.can_extend(id, &trigger) => {
 						ledger.extend(store, id, vec![trigger])?;
 						id
 					}

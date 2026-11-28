@@ -52,6 +52,8 @@ async fn rig(label: &str, fault: Option<&str>) -> (Rig, Ledger) {
 	rooms.send(&sent, Base(0)).await.unwrap();
 	let mut ledger = Ledger::start(&store, Cursor::start()).unwrap();
 	let trigger = Trigger {
+		opening_until: None,
+		scope: None,
 		seq: Seq(1),
 		event: Cursor::new("e1".to_owned()).unwrap(),
 		line: "l1".into(),

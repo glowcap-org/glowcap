@@ -43,6 +43,7 @@ pub(in crate::session::managed) fn registration<P: Tasks + Deadline + Clone + 's
 			("workspace-history-reader", Retry::ReadOnly),
 			("history-reader", Retry::ReadOnly),
 			("bridge-form-reader", Retry::ReadOnly),
+			("room-members-reader", Retry::ReadOnly),
 			("file-reader", Retry::ReadOnly),
 			("directory-reader", Retry::ReadOnly),
 			("resynchronize-discovery", Retry::ReadOnly),

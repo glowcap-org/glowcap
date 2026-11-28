@@ -146,6 +146,32 @@ fn done(action: &Action) -> String {
 	format!("- {what}: {}\n", says(&action.what, action.outcome.as_ref()))
 }
 
+fn conversation_context(prompt: &mut String, context: &[ContextLine], heading: &str) {
+	if !context.is_empty() {
+		prompt.push_str(heading);
+		prompt.push('\n');
+		for line in context {
+			prompt.push_str(&encode(&Said {
+				line: None,
+				from: line.from.as_deref(),
+				text: &line.text,
+				files: Vec::new(),
+			}));
+		}
+		prompt.push('\n');
+	}
+}
+
+pub fn check_in(context: &[ContextLine], task: &str) -> String {
+	let mut prompt = String::from(
+		"Scheduled check-in. The saved task is due in this conversation. Use the conversation context to do the task and give your answer here. Rooms delivers your final reply. Interactive Rooms commands are unavailable during this turn.\n\n",
+	);
+	conversation_context(&mut prompt, context, "Recent messages in this conversation:");
+	prompt.push_str("Saved task:\n");
+	prompt.push_str(&encode(&serde_json::json!({"task":task})));
+	prompt
+}
+
 /// The prompt for one turn. `fetched` holds what became of each trigger's
 /// attachments, in trigger order, as [`inbox::fetch`](super::inbox::fetch)
 /// returns it, and `listing` is the home's memories as
@@ -174,19 +200,7 @@ pub fn turn(
 	prompt.push_str(FORMAT);
 	prompt.push_str("\n\n");
 	memories(&mut prompt, listing);
-	if !context.is_empty() {
-		prompt.push_str(CONTEXT_HEADER);
-		prompt.push('\n');
-		for line in context {
-			prompt.push_str(&encode(&Said {
-				line: None,
-				from: line.from.as_deref(),
-				text: &line.text,
-				files: Vec::new(),
-			}));
-		}
-		prompt.push('\n');
-	}
+	conversation_context(&mut prompt, context, CONTEXT_HEADER);
 	prompt.push_str(TRIGGER_HEADER);
 	prompt.push('\n');
 	for (at, trigger) in triggers.iter().enumerate() {
@@ -246,6 +260,8 @@ mod tests {
 
 	fn trigger(seq: u64, from: Option<&str>, text: &str) -> Trigger {
 		Trigger {
+			opening_until: None,
+			scope: None,
 			seq: Seq(seq),
 			event: Cursor::new(format!("e{seq}")).unwrap(),
 			line: format!("l{seq}"),
@@ -275,6 +291,7 @@ mod tests {
 			home: Path::new("/srv/bot/home"),
 			conversation: &conversation,
 			kind: Kind::Room,
+			scheduled_check_ins: true,
 			instructions: None,
 		});
 		assert!(text.contains("a room, conversation id \"c-9\"."));
@@ -297,6 +314,7 @@ mod tests {
 			home: Path::new("/b\nhome"),
 			conversation: &conversation,
 			kind: Kind::Room,
+			scheduled_check_ins: true,
 			instructions: None,
 		});
 		assert!(
@@ -313,6 +331,7 @@ mod tests {
 				config: &config("/g"),
 				home: Path::new("/b/home"),
 				kind: Kind::Room,
+				scheduled_check_ins: true,
 				instructions: None,
 			})
 			.lines()
@@ -330,6 +349,7 @@ mod tests {
 			home: Path::new("/b/home"),
 			conversation: &conversation,
 			kind: Kind::Direct,
+			scheduled_check_ins: true,
 			instructions: None,
 		});
 		let mut shown = Vec::new();
@@ -354,6 +374,21 @@ mod tests {
 	}
 
 	#[test]
+	fn a_harness_without_check_ins_can_still_offer_text_reminders() {
+		let text = system(&Facts {
+			config: &config("/g"),
+			home: Path::new("/b/home"),
+			conversation: &ConversationId::new("c"),
+			kind: Kind::Room,
+			scheduled_check_ins: false,
+			instructions: None,
+		});
+		assert!(text.contains("/g apps rooms bot remind --id"));
+		assert!(text.contains("cannot run an agent task later"));
+		assert!(!text.contains("/g apps rooms bot schedule --id"));
+	}
+
+	#[test]
 	fn the_operators_instructions_come_after_the_bots() {
 		let conversation = ConversationId::new("c");
 		let config = config("/g");
@@ -362,6 +397,7 @@ mod tests {
 			home: Path::new("/b/home"),
 			conversation: &conversation,
 			kind: Kind::Room,
+			scheduled_check_ins: true,
 			instructions,
 		};
 		let plain = system(&facts(None));
@@ -377,6 +413,7 @@ mod tests {
 	#[test]
 	fn the_turn_prompt_orders_context_then_triggers_with_attachments() {
 		let context = [ContextLine {
+			ambient: true,
 			seq: Seq(1),
 			event: Cursor::new("e1").unwrap(),
 			from: Some("ann".into()),

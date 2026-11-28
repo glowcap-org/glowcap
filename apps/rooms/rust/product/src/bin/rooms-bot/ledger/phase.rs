@@ -96,6 +96,9 @@ impl Attempt {
 /// The trigger events a turn answered, kept so their replay is recognized.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Covered {
+	/// The original receiver of a fixed limit notice still awaited its posting route.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub opening_until: Option<u64>,
 	pub events: Vec<Cursor>,
 	/// The number of the last of them.
 	pub last: Seq,
@@ -104,6 +107,7 @@ pub struct Covered {
 impl Covered {
 	pub(super) fn of(triggers: &[Trigger]) -> Self {
 		Self {
+			opening_until: None,
 			events: triggers.iter().map(|trigger| trigger.event.clone()).collect(),
 			last: triggers.iter().map(|trigger| trigger.seq).max().unwrap_or_default(),
 		}

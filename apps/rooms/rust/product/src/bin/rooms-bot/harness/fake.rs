@@ -17,7 +17,16 @@ fn companion() -> std::ffi::OsString {
 		.map_or_else(|| "rooms-bot-fake-harness".into(), Into::into)
 }
 
+impl super::ScheduledHarness for Fake {
+	fn scheduled_invocation(&self, turn: &Turn<'_>) -> Invocation {
+		self.invocation(&Turn { session: None, ..*turn })
+	}
+}
+
 impl Harness for Fake {
+	fn scheduled(&self) -> Option<&dyn super::ScheduledHarness> {
+		Some(self)
+	}
 	fn name(&self) -> &'static str {
 		"fake"
 	}

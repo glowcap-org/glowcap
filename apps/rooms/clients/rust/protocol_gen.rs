@@ -107,6 +107,7 @@ pub const LEAVE: &str = "leave";
 pub const TYPING: &str = "typing";
 pub const AWAY: &str = "away";
 pub const SET_PROFILE: &str = "setProfile";
+pub const ROOM_MEMBERS: &str = "roomMembers";
 pub const NOTIFY: &str = "notify";
 pub const DM: &str = "dm";
 pub const MEMBERSHIP_ENDED: &str = "membershipEnded";
@@ -131,6 +132,10 @@ pub const MEMBERSHIP_VERBS: &[Verb] = &[
 	},
 	Verb {
 		name: "setProfile",
+		replies: true,
+	},
+	Verb {
+		name: "roomMembers",
 		replies: true,
 	},
 ];

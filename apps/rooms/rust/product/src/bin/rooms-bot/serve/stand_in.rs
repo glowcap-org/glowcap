@@ -51,7 +51,12 @@ pub async fn run(directory: Directory, prepared: Prepared, shutdown: watch::Rece
 	} else {
 		Start::Stored
 	};
-	let serving = Serving { facts, start };
+	let serving = Serving {
+		facts,
+		start,
+		checkins: tokio::sync::mpsc::channel(1).1,
+		ready: None,
+	};
 	serve(&rooms, &store, stored, &config, &*harness, shutdown, serving).await
 }
 

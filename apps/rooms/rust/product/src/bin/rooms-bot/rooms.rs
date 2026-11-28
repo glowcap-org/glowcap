@@ -52,6 +52,8 @@ use rooms_services::session::attached::Introduction;
 use serde::{Deserialize, Serialize};
 use std::{fmt, future::Future, path::Path, time::Duration};
 
+mod scope;
+pub use scope::Scope;
 pub mod captp;
 #[cfg(feature = "test-support")]
 pub mod files;
@@ -132,8 +134,17 @@ pub enum Kind {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Sender {
+	/// An incoming DM whose original inbox was checked on this posting route.
+	DirectPeer(Scope),
+	OpeningPeer(Scope, u64),
 	/// This session's own member.
 	Own,
+	/// A settled direct sender event whose originating operation and current
+	/// route can be compared to this bot's private post record.
+	OwnDirect {
+		operation: String,
+		scope: Scope,
+	},
 	/// The room itself, for notices it posts.
 	System,
 	/// A member a room line names by nickname.
@@ -383,9 +394,31 @@ pub enum Typing {
 	Stop,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Opening {
+	Pending,
+	Held,
+	Gone,
+}
+
 /// A session as the bot uses it. Methods take `&self` so a long read and a
 /// send can be in flight together on one task.
 pub trait Rooms {
+	/// Check a first return route against the original grant and event origins.
+	fn opening(&self, _scope: &Scope, _events: &[Cursor]) -> impl Future<Output = Result<Opening, RoomsError>> {
+		std::future::ready(Ok(Opening::Gone))
+	}
+	/// Production attachments require an original inbox for every direct request.
+	fn requires_direct_scope(&self) -> bool {
+		true
+	}
+
+	/// The revision at which the original grant can post to this exact room seat
+	/// or direct route. A backend without scheduled work has no such route.
+	fn scoped_base(&self, _scope: &Scope) -> impl Future<Output = Result<Option<Base>, RoomsError>> {
+		std::future::ready(Ok(None))
+	}
+
 	/// The events after `after`, held for news or answered at once as `wait`
 	/// says.
 	fn events(&self, after: &Cursor, wait: Wait) -> impl Future<Output = Result<Batch, RoomsError>>;

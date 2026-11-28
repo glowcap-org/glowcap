@@ -72,11 +72,10 @@ fn a_replacement_the_session_refuses_leaves_the_old_access_to_finish_its_line() 
 	world.finish();
 }
 
-/// The old access is revoked and the replacement refused, so nothing may
-/// send the reply and nothing may give it up. A later good replacement posts
-/// it once.
+/// A committed first segment stands; a revoked grant cannot send the rest
+/// of its private answer through a different grant on the same session.
 #[test]
-fn a_reply_waits_through_a_revoked_old_access_and_a_refused_replacement() {
+fn a_private_reply_stops_after_its_original_grant_is_revoked() {
 	let world = World::new("bot-live-pending");
 	run_within(Duration::from_secs(90), async {
 		let (issuer, grants, terms) = world.issuer().await;
@@ -103,9 +102,14 @@ fn a_reply_waits_through_a_revoked_old_access_and_a_refused_replacement() {
 
 		let good = grants.issue("the good replacement", &terms).await.unwrap();
 		let bot = world.rig.serve_replacing(&good.link);
-		eventually("the rest of the reply", || (last(&world) == 1).then_some(()));
-		std::thread::sleep(DWELL);
-		assert_eq!((first(&world), last(&world)), (1, 1));
+		eventually("the original private reply to close on the changed grant", || {
+			world
+				.rig
+				.log()
+				.contains("closed before posting to a changed destination")
+				.then_some(())
+		});
+		assert_eq!((first(&world), last(&world)), (1, 0));
 		no_failure_line(&world);
 		assert!(bot.stop().success(), "the bot exited with a failure");
 		issuer.close(glowcap::PendingWork::Cancel).await.unwrap();

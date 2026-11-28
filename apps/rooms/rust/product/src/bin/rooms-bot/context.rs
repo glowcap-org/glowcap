@@ -2,8 +2,11 @@
 //! conversation, so a mention arrives with what was said just before it. The
 //! ring is advice for the harness: an unreadable ring is renamed to `.unreadable` and the
 //! conversation starts a new one, so one damaged file never stops a turn.
+use super::classify::Seq;
+use super::ledger::Asked;
 use super::store::Store;
-use super::{classify::ContextLine, error::Error, rooms::ConversationId, store};
+use super::{classify::ContextLine, error::Error, store};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
 const DIRECTORY: &str = "context";
 /// Lines kept per conversation.
@@ -11,20 +14,20 @@ pub const MAX_LINES: usize = 40;
 /// Bytes kept of one line's text. A longer line keeps its beginning.
 pub const MAX_TEXT_BYTES: usize = 1000;
 
-fn name(conversation: &ConversationId) -> String {
-	format!("{}.json", store::file_stem(conversation))
+fn name(stem: &str) -> String {
+	format!("{stem}.json")
 }
 
 /// The ring of one conversation. A ring that cannot be used, because it is
 /// malformed, too large, or not a regular file, is renamed to
 /// `<name>.unreadable`, so its bytes stay for inspection, and an empty ring
 /// takes its place. A failure that can clear, such as a full disk, is returned.
-pub fn lines(store: &Store, conversation: &ConversationId) -> Result<Vec<ContextLine>, Error> {
-	let name = name(conversation);
-	match store.read_in(DIRECTORY, &name) {
+fn read<T: DeserializeOwned + Default>(store: &Store, stem: &str, directory: &str) -> Result<T, Error> {
+	let name = name(stem);
+	match store.read_in(directory, &name) {
 		Ok(ring) => Ok(ring.unwrap_or_default()),
 		Err(error @ (Error::Unreadable { .. } | Error::Storage(_))) if !error.is_transient() => {
-			let directory = store.root().join(DIRECTORY);
+			let directory = store.root().join(directory);
 			std::fs::rename(directory.join(&name), directory.join(format!("{name}.unreadable")))
 				.map_err(Error::io("moving an unreadable context ring aside"))?;
 			// The ring is renamed to `.unreadable` here, so the fresh-start advice the error
@@ -34,12 +37,73 @@ pub fn lines(store: &Store, conversation: &ConversationId) -> Result<Vec<Context
 				other => other.to_string(),
 			};
 			store.log(&format!(
-				"moved the unreadable context ring of {conversation} aside ({cause}). It starts empty"
+				"moved the unreadable context ring of {stem} aside ({cause}). It starts empty"
 			));
-			Ok(Vec::new())
+			Ok(T::default())
 		}
 		Err(error) => Err(error),
 	}
+}
+
+pub fn lines(store: &Store, stem: &str) -> Result<Vec<ContextLine>, Error> {
+	read(store, stem, DIRECTORY)
+}
+
+pub const ADDRESSED: &str = "addressed-context";
+
+#[derive(Default, Serialize, Deserialize)]
+struct Addressed {
+	since_reset: Option<Seq>,
+	lines: Vec<ContextLine>,
+}
+
+/// Booting a fresh harness for a check-in cannot recover a preceding human
+/// request from its agent session. Record only messages a turn really holds.
+pub fn remember(store: &Store, asked: &Asked, reset: Option<Seq>) -> Result<(), Error> {
+	if asked.triggers.is_empty() {
+		return Ok(());
+	}
+	let stem = store::data_stem(
+		&asked.conversation,
+		asked.triggers.first().and_then(|t| t.scope.as_ref()),
+	);
+	let mut history: Addressed = read(store, &stem, ADDRESSED)?;
+	let since = history.since_reset.max(reset);
+	let reset_changed = history.since_reset != since;
+	if reset_changed {
+		history.lines.retain(|line| Some(line.seq) > since);
+		history.since_reset = since;
+	}
+	let incoming = asked
+		.triggers
+		.iter()
+		.filter(|t| Some(t.seq) > since && !history.lines.iter().any(|line| line.event == t.event))
+		.map(|t| ContextLine {
+			ambient: false,
+			seq: t.seq,
+			event: t.event.clone(),
+			from: t.from.clone(),
+			text: t.text.clone(),
+		})
+		.collect::<Vec<_>>();
+	if incoming.is_empty() && !reset_changed {
+		return Ok(());
+	}
+	history.lines = merge(history.lines, incoming);
+	store.write_in(ADDRESSED, &name(&stem), &history)
+}
+
+pub fn check_in(store: &Store, stem: &str) -> Result<Vec<ContextLine>, Error> {
+	let addressed: Addressed = read(store, stem, ADDRESSED)?;
+	let mut recent = addressed.lines;
+	recent.extend(
+		lines(store, stem)?
+			.into_iter()
+			.filter(|line| line.ambient && Some(line.seq) > addressed.since_reset),
+	);
+	recent.sort_by_key(|line| line.seq);
+	recent.drain(..recent.len().saturating_sub(MAX_LINES));
+	Ok(recent)
 }
 
 fn bounded(mut line: ContextLine) -> ContextLine {
@@ -66,28 +130,75 @@ pub fn merge(mut ring: Vec<ContextLine>, incoming: Vec<ContextLine>) -> Vec<Cont
 	ring
 }
 
-pub fn append(store: &Store, conversation: &ConversationId, incoming: Vec<ContextLine>) -> Result<(), Error> {
-	let ring = lines(store, conversation)?;
+pub fn append(store: &Store, stem: &str, incoming: Vec<ContextLine>) -> Result<(), Error> {
+	let ring = lines(store, stem)?;
 	let merged = merge(ring.clone(), incoming);
 	if merged == ring {
 		return Ok(());
 	}
-	store.write_in(DIRECTORY, &name(conversation), &merged)
+	store.write_in(DIRECTORY, &name(stem), &merged)
 }
 
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use crate::bot::rooms::ConversationId;
 	use crate::bot::{classify::Seq, rooms::Cursor};
 	use rooms_testing::scratch::Scratch;
 
 	fn line(seq: u64, text: &str) -> ContextLine {
 		ContextLine {
+			ambient: true,
 			seq: Seq(seq),
 			event: Cursor::new(format!("e{seq:x}")).unwrap(),
 			from: Some("ann".into()),
 			text: text.into(),
 		}
+	}
+
+	#[test]
+	fn check_ins_read_only_admitted_requests_and_visible_context_since_reset() {
+		use crate::bot::{classify::Trigger, rooms::Kind};
+		let dir = Scratch::create("check-in-context");
+		let store = Store::open(&dir).unwrap();
+		let here = ConversationId::new("here");
+		let other = ConversationId::new("other");
+		let asked = |room: &ConversationId, i: u64, text: &str| Asked {
+			conversation: room.clone(),
+			kind: Kind::Direct,
+			triggers: vec![Trigger {
+				opening_until: None,
+				scope: None,
+				seq: Seq(i),
+				event: Cursor::new(format!("req{i}")).unwrap(),
+				line: format!("l{i}"),
+				from: None,
+				text: text.into(),
+				files: vec![],
+			}],
+		};
+		let accepted = asked(&here, 2, "the due date is Friday");
+		let mut declined = line(3, "skipped request");
+		declined.ambient = false;
+		append(&store, here.as_str(), vec![line(1, "ambient"), declined]).unwrap();
+		remember(&store, &accepted, None).unwrap();
+		remember(&store, &accepted, None).unwrap();
+		remember(&store, &asked(&other, 4, "another room"), None).unwrap();
+		let texts = |rows: Vec<ContextLine>| rows.into_iter().map(|row| row.text).collect::<Vec<_>>();
+		assert_eq!(
+			texts(check_in(&store, here.as_str()).unwrap()),
+			["ambient", "the due date is Friday"]
+		);
+		assert_eq!(
+			texts(lines(&store, here.as_str()).unwrap()),
+			["ambient", "skipped request"]
+		);
+		remember(&store, &asked(&here, 5, "/reset"), Some(Seq(5))).unwrap();
+		remember(&store, &asked(&here, 6, "new brief"), None).unwrap();
+		assert_eq!(texts(check_in(&store, here.as_str()).unwrap()), ["new brief"]);
+		assert_eq!(texts(check_in(&store, other.as_str()).unwrap()), ["another room"]);
+		store.forget_conversation(&here).unwrap();
+		assert!(check_in(&store, here.as_str()).unwrap().is_empty());
 	}
 
 	#[test]
@@ -126,7 +237,7 @@ mod tests {
 		let directory = store.root().join(DIRECTORY);
 		std::fs::create_dir_all(&directory).unwrap();
 		std::fs::write(directory.join("c1.json"), vec![b' '; 4 * 1024 * 1024 + 1]).unwrap();
-		assert_eq!(lines(&store, &conversation).unwrap(), Vec::new());
+		assert_eq!(lines(&store, conversation.as_str()).unwrap(), Vec::new());
 		assert!(directory.join("c1.json.unreadable").exists());
 	}
 
@@ -138,12 +249,12 @@ mod tests {
 		let directory = store.root().join(DIRECTORY);
 		std::fs::create_dir_all(&directory).unwrap();
 		std::fs::write(directory.join("c1.json"), "{").unwrap();
-		assert_eq!(lines(&store, &conversation).unwrap(), Vec::new());
+		assert_eq!(lines(&store, conversation.as_str()).unwrap(), Vec::new());
 		assert_eq!(
 			std::fs::read_to_string(directory.join("c1.json.unreadable")).unwrap(),
 			"{"
 		);
-		append(&store, &conversation, vec![line(1, "a")]).unwrap();
-		assert_eq!(lines(&store, &conversation).unwrap().len(), 1);
+		append(&store, conversation.as_str(), vec![line(1, "a")]).unwrap();
+		assert_eq!(lines(&store, conversation.as_str()).unwrap().len(), 1);
 	}
 }

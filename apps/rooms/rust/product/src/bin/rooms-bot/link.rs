@@ -53,6 +53,10 @@ fn bounded_line(reader: impl BufRead) -> Result<String, Error> {
 }
 
 impl Link {
+	pub fn fingerprint(&self) -> String {
+		use sha2::{Digest, Sha256};
+		rooms_application::fields::lower_hex(&Sha256::digest(self.as_str().as_bytes()))
+	}
 	/// A link as an operator pastes it. Anything that is not a session link is
 	/// refused without echoing it.
 	pub fn parse(text: &str) -> Result<Self, Error> {

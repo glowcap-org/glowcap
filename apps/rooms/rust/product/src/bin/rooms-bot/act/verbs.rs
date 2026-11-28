@@ -199,7 +199,11 @@ async fn until_applied<T, Fut: Future<Output = Result<T, Error>>>(
 /// because the workspace moved forgot its note, so another try opens under a
 /// new operation. A look again at an earlier open names its own operation and
 /// base, so it is made once.
-async fn reaching(live: &Live, turn: &Turn, dm: &direct::Ask) -> Result<(String, Value), Error> {
+async fn reaching(
+	live: &Live,
+	turn: &Turn,
+	dm: &direct::Ask,
+) -> Result<(String, Value, crate::bot::rooms::Scope), Error> {
 	if dm.looks_again() {
 		return direct::reach(live, turn, dm).await;
 	}
@@ -225,13 +229,13 @@ async fn target(
 	turn: &Turn,
 	dm: Option<&direct::Ask>,
 	conversation: &str,
-) -> Result<(String, Option<Value>), Error> {
+) -> Result<(String, Option<Value>, Option<crate::bot::rooms::Scope>), Error> {
 	match dm {
 		Some(dm) => {
-			let (conversation, opened) = reaching(live, turn, dm).await?;
-			Ok((conversation, Some(opened)))
+			let (conversation, opened, opening) = reaching(live, turn, dm).await?;
+			Ok((conversation, Some(opened), Some(opening)))
 		}
-		None => Ok((conversation.to_owned(), None)),
+		None => Ok((conversation.to_owned(), None, None)),
 	}
 }
 
@@ -255,7 +259,18 @@ async fn post<D>(
 ) -> Result<Value, Error> {
 	turn.spend()?;
 	with_view(turn, |live| async move {
-		let (conversation, opened) = target(&live, turn, dm.as_ref(), conversation).await?;
+		let (conversation, opened, mut scope) = target(&live, turn, dm.as_ref(), conversation).await?;
+		if scope.is_none() && conversation != turn.conversation {
+			let snapshot=live.view.snapshot().await.map_err(|cause|failure::call(&cause))?;
+			if snapshot.intent.conversations.as_slice().iter().any(|row|matches!(row,rooms_application::content::session::workspace::Conversation::Direct(dm) if dm.id.text().as_str()==Some(conversation.as_str()))) {
+				scope=Some(crate::bot::rooms::Scope::held(&live.grant,&conversation,&snapshot)
+					.ok_or_else(||Error::Usage("the selected private posting route is no longer held".into()))?);
+			}
+		}
+		if let Some(scope)=scope {
+			let grant=live.grant.clone();
+			live.view.require_snapshot(move|current|scope.matches(&grant,current));
+		}
 		let (live, conversation) = (&live, &conversation);
 		let result = until_applied(turn, || async move {
 			let operation = crate::bot::identity::new_action(&turn.bot)?;
@@ -304,8 +319,16 @@ pub async fn say(request: &Request, turn: &Turn) -> Result<Value, Error> {
 		dm,
 		conversation,
 		(&what, &Cell::new(None)),
-		&text,
-		&|live, conversation, operation, text| Box::pin(live.view.say(operation, conversation, text)),
+		&(turn, text),
+		&|live, conversation, operation, (turn, text)| {
+			Box::pin(crate::bot::direct_context::say(
+				turn,
+				live,
+				conversation,
+				operation,
+				text,
+			))
+		},
 		posted,
 	)
 	.await
@@ -322,7 +345,10 @@ pub async fn send(request: &Request, turn: &Turn) -> Result<Value, Error> {
 	let caption = text::read(request, turn).await?.unwrap_or_default();
 	let work = store::work_dir(
 		&store::directory(&turn.bot)?,
-		&ConversationId::new(turn.conversation.as_str()),
+		&store::data_stem(
+			&ConversationId::new(turn.conversation.as_str()),
+			turn.private_scope.as_ref(),
+		),
 	);
 	let files = request
 		.named
@@ -555,7 +581,7 @@ pub async fn join(request: &Request, turn: &Turn) -> Result<Value, Error> {
 		return Err(Error::Usage("join takes only --room NAME".into()));
 	}
 	turn.begin()?;
-	turn.open()?;
+	turn.require_running()?;
 	turn.spend()?;
 	with_view(turn, |live| async move {
 		let id = turn.budget.within(Step::Call, live.view.join_listed(&turn.conversation, room)).await
@@ -578,6 +604,22 @@ pub async fn workspace(turn: &Turn) -> Result<Value, Error> {
 		let workspace =
 			serde_json::to_value(&snapshot.intent).map_err(|cause| Error::state("the workspace snapshot", cause))?;
 		Ok(json!({"ok": true, "revision": snapshot.revision.to_string(), "workspace": workspace}))
+	})
+	.await
+}
+
+/// A read scoped to the actual running turn, irrespective of its agent's prompt.
+pub async fn members(turn: &Turn) -> Result<Value, Error> {
+	turn.begin()?;
+	turn.require_running()?;
+	with_view(turn, |live| async move {
+		let members = turn
+			.budget
+			.within(Step::Call, live.view.room_members(&turn.conversation))
+			.await
+			.ok_or_else(failure::nothing_sent)?
+			.map_err(|cause| failure::call(&cause))?;
+		Ok(json!({"ok": true, "members": members}))
 	})
 	.await
 }

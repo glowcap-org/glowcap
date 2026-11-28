@@ -14,6 +14,7 @@
 //! | `availability/<conversation>.json` | rolling admission, replay decision, and outcome of the current refusal notice |
 //! | `sessions.json` | each harness's session per conversation |
 //! | `conversations.json` | the conversations the bot keeps state for |
+//! | `reminders/schedules.json` | bounded schedules and their receipt states, atomically replaced under the separate `reminders/lock` lease |
 //! | `status.json` | what `bot status` reports |
 //! | `context/<conversation>.json` | the ring of recent lines that did not address the bot |
 //! | `work/<conversation>/` | the harness's working directory, with `inbox/<turn>/` holding the files a turn was sent |
@@ -88,6 +89,16 @@ pub fn encode<T: Serialize>(name: &str, value: &T, limit: usize) -> Result<Vec<u
 	Ok(bytes)
 }
 
+/// Ordinary conversation keys use escaped filenames. A private route uses a
+/// disjoint namespace: `.` is always escaped in an ordinary conversation id.
+/// Existing work files stay at their original path across upgrades and changes.
+pub fn data_stem(conversation: &ConversationId, scope: Option<&super::rooms::Scope>) -> String {
+	match scope.filter(|scope| scope.kind() == super::rooms::Kind::Direct) {
+		Some(scope) => format!("{}.dm.{}", file_stem(conversation), scope.storage_fingerprint()),
+		None => file_stem(conversation),
+	}
+}
+
 /// The directory that holds every conversation's harness working directory.
 pub fn work_root(root: &Path) -> PathBuf {
 	root.join("work")
@@ -95,8 +106,8 @@ pub fn work_root(root: &Path) -> PathBuf {
 
 /// The harness working directory of one conversation in the bot directory
 /// `root`. The paths `send` may post are confined beneath it.
-pub fn work_dir(root: &Path, conversation: &ConversationId) -> PathBuf {
-	work_root(root).join(file_stem(conversation))
+pub fn work_dir(root: &Path, stem: &str) -> PathBuf {
+	work_root(root).join(stem)
 }
 
 impl Store {
@@ -179,33 +190,56 @@ impl Store {
 	}
 
 	/// The harness working directory of one conversation, created on demand.
-	pub fn workdir(&self, conversation: &ConversationId) -> Result<PathBuf, Error> {
-		let path = work_dir(self.root(), conversation);
+	pub fn workdir(&self, stem: &str) -> Result<PathBuf, Error> {
+		let path = work_dir(self.root(), stem);
 		std::fs::create_dir_all(&path).map_err(Error::io("creating a harness working directory"))?;
 		Ok(path)
 	}
 
 	/// The directory an adapter keeps one conversation's state in. The
 	/// adapter's own preparation creates it.
-	pub fn harness_state(&self, adapter: &str, conversation: &ConversationId) -> PathBuf {
-		self.root().join("harness").join(adapter).join(file_stem(conversation))
+	pub fn harness_state(&self, adapter: &str, stem: &str) -> PathBuf {
+		self.root().join("harness").join(adapter).join(stem)
 	}
 
 	/// Remove one conversation's context ring, working directory, and every
 	/// adapter's state for it. A conversation with a running harness is never
 	/// forgotten, so its group record is not touched.
 	pub fn forget_conversation(&self, conversation: &ConversationId) -> Result<(), Error> {
+		super::direct_context::forget(self.root(), conversation.as_str())?;
 		let stem = file_stem(conversation);
-		let gone = |result: std::io::Result<()>| match result {
-			Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-			other => other,
+		let private_prefix = format!("{stem}.dm.");
+		// All ordinary stems escape dots. Only this conversation's private
+		// openings can match the prefix, including those left by replacements.
+		let remove = |directory: &Path, matches: &dyn Fn(&str) -> bool| -> Result<(), Error> {
+			let entries = match std::fs::read_dir(directory) {
+				Ok(entries) => entries,
+				Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+				Err(error) => return Err(Error::io("listing conversation files")(error)),
+			};
+			for entry in entries {
+				let entry = entry.map_err(Error::io("listing conversation files"))?;
+				if entry.file_name().to_str().is_some_and(matches) {
+					let kind = entry.file_type().map_err(Error::io("reading a conversation file"))?;
+					if kind.is_dir() {
+						std::fs::remove_dir_all(entry.path())
+					} else {
+						std::fs::remove_file(entry.path())
+					}
+					.map_err(Error::io("removing forgotten conversation files"))?;
+				}
+			}
+			Ok(())
 		};
-		let context = self.root().join("context");
-		for name in [format!("{stem}.json"), format!("{stem}.json.unreadable")] {
-			gone(std::fs::remove_file(context.join(name))).map_err(Error::io("removing a context ring"))?;
+		let ours = |name: &str| name == stem || name.starts_with(&private_prefix);
+		for directory in ["context", super::context::ADDRESSED] {
+			remove(&self.root().join(directory), &|name| {
+				name.strip_suffix(".json")
+					.or_else(|| name.strip_suffix(".json.unreadable"))
+					.is_some_and(ours)
+			})?;
 		}
-		gone(std::fs::remove_dir_all(work_dir(self.root(), conversation)))
-			.map_err(Error::io("removing a harness working directory"))?;
+		remove(&work_root(self.root()), &ours)?;
 		let adapters = match std::fs::read_dir(self.root().join("harness")) {
 			Ok(adapters) => adapters,
 			Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
@@ -213,7 +247,13 @@ impl Store {
 		};
 		for adapter in adapters {
 			let adapter = adapter.map_err(Error::io("listing harness state"))?;
-			gone(std::fs::remove_dir_all(adapter.path().join(&stem))).map_err(Error::io("removing harness state"))?;
+			if adapter
+				.file_type()
+				.map_err(Error::io("reading harness state"))?
+				.is_dir()
+			{
+				remove(&adapter.path(), &ours)?;
+			}
 		}
 		Ok(())
 	}

@@ -83,6 +83,7 @@ impl<P: Tasks + Deadline + Clone + 'static> SessionContent<P> {
 			"archive-reader"
 			| "history-reader"
 			| "bridge-form-reader"
+			| "room-members-reader"
 			| "workspace-history-reader"
 			| "custody-recipe"
 			| "direct-route"

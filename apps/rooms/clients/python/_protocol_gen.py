@@ -30,6 +30,7 @@ LEAVE = "leave"
 TYPING = "typing"
 AWAY = "away"
 SET_PROFILE = "setProfile"
+ROOM_MEMBERS = "roomMembers"
 NOTIFY = "notify"
 DM = "dm"
 MEMBERSHIP_ENDED = "membershipEnded"
@@ -41,6 +42,7 @@ MEMBERSHIP_VERBS = (
     ("typing", False),
     ("away", True),
     ("setProfile", True),
+    ("roomMembers", True),
 )
 
 MEMBERSHIP_KINDS = ("observer", "participant")

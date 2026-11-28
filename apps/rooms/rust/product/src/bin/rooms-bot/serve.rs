@@ -163,7 +163,7 @@ fn prepare(request: &Request, session: Session) -> Result<Prepared, Error> {
 
 /// Reach the session with the link and serve. A replacement link is saved
 /// only after the old access settled what it sent (`serve/replace.rs`).
-async fn reach(prepared: Prepared, shutdown: watch::Receiver<bool>) -> Result<(), Error> {
+async fn reach(prepared: Prepared, mut shutdown: watch::Receiver<bool>) -> Result<(), Error> {
 	let Prepared {
 		store,
 		stored,
@@ -193,21 +193,53 @@ async fn reach(prepared: Prepared, shutdown: watch::Receiver<bool>) -> Result<()
 			let (ledger, unlisted) = match settled {
 				Some(settled) => {
 					facts.unconfirmed = settled.unconfirmed;
-					(Some(settled.ledger), settled.unlisted)
+					(Some(Box::new(settled.ledger)), settled.unlisted)
 				}
 				None => (None, None),
 			};
 			Start::Replacing { link, ledger, unlisted }
 		}
 	};
-	let serving = Serving { facts, start };
-	let served = serve(&rooms, &store, stored, &config, &*harness, shutdown, serving).await;
+	let (send, receive) = tokio::sync::mpsc::channel(1);
+	let (ready, started) = tokio::sync::oneshot::channel();
+	let serving = Serving {
+		facts,
+		start,
+		checkins: receive,
+		ready: Some(ready),
+	};
+	let grant = linking.link().fingerprint();
+	// Both workers share the serving lifetime. Drain live harness processes
+	// even when the clock's durable store fails while a turn is running.
+	let (stop, stopping) = watch::channel(*shutdown.borrow());
+	let main = serve(&rooms, &store, stored, &config, &*harness, stopping, serving);
+	tokio::pin!(main);
+	let served = tokio::select! {
+		served = &mut main => served,
+		() = engine::stopping(&mut shutdown) => {
+			stop.send_replace(true);
+			main.await
+		}
+		result = async {
+			if started.await.is_err() { return std::future::pending().await; }
+			super::reminders::run(store.root(), &rooms, &grant, config.conversation_limit, send).await
+		} => {
+			stop.send_replace(true);
+			let drained = main.await;
+			result.and(drained)
+		}
+	};
 	rooms.close().await;
+	if matches!(served, Err(Error::Access { .. })) {
+		super::reminders::access_lost(store.root(), &grant)?;
+	}
 	served
 }
 
 /// What a start serves with once the session answers its link.
 struct Serving {
+	ready: Option<tokio::sync::oneshot::Sender<()>>,
+	checkins: tokio::sync::mpsc::Receiver<super::reminders::CheckIn>,
 	/// The facts `status` reports, which the serving loop publishes from here.
 	facts: Facts,
 	start: Start,
@@ -224,7 +256,7 @@ enum Start {
 	/// recorded once the link is stored.
 	Replacing {
 		link: Link,
-		ledger: Option<Ledger>,
+		ledger: Option<Box<Ledger>>,
 		unlisted: Option<Unlisted>,
 	},
 	/// The stored link, which is already saved.
@@ -261,7 +293,7 @@ impl Start {
 	/// The ledger the old access settled, which a start loads once.
 	fn take_ledger(&mut self) -> Option<Ledger> {
 		match self {
-			Self::Replacing { ledger, .. } => ledger.take(),
+			Self::Replacing { ledger, .. } => ledger.take().map(|ledger| *ledger),
 			Self::First(_) | Self::Stored => None,
 		}
 	}
@@ -371,7 +403,7 @@ async fn serve<R: Rooms>(
 	);
 	inbox::sweep(store, &env.ledger.borrow().open());
 	let name = harness.name();
-	let served = engine::serve(&env, shutdown, serving.start.stage(), || {
+	let served = engine::serve(&env, shutdown, serving.checkins, serving.start.stage(), || {
 		// Every step is safe to repeat, because a write that fails is tried
 		// again with the next read. The link is the one commit of a
 		// replacement, so only why the old access went unlisted and the notes
@@ -395,6 +427,9 @@ async fn serve<R: Rooms>(
 		}
 		leftovers.place(store, &mut env.ledger.borrow_mut())?;
 		crate::announce::announce(&format!("ROOMS-BOT-SERVING {name}"));
+		if let Some(ready) = serving.ready.take() {
+			let _ = ready.send(());
+		}
 		Ok(())
 	});
 	// The opens' owner and the replaced lines' keeper run beside the loop and

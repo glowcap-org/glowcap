@@ -270,6 +270,32 @@ fn event(value: serde_json::Value) -> Result<Step, Error> {
 	}))
 }
 
+impl<D: super::Deadline + super::Tasks + Clone + 'static> super::View<D> {
+	/// Re-read one occurrence under its original admission. A reused
+	/// conversation id, an expired event or a restarted journal cannot match.
+	pub async fn still_presents(&self, cursor: &str, conversation: &Conversation) -> Result<bool, Error> {
+		let Some((run, position)) = cursor.split_once(':') else {
+			return Ok(false);
+		};
+		let Some(previous) = position.parse::<u64>().ok().and_then(|n| n.checked_sub(1)) else {
+			return Ok(false);
+		};
+		let before = format!("{run}:{previous}");
+		let raw = match self.reader.read(&before, false).await {
+			Ok(raw) => raw,
+			Err(error) => {
+				return match self.read_failure(error, &before).await {
+					Error::Stale => Ok(false),
+					other => Err(other),
+				};
+			}
+		};
+		Ok(
+			matches!(decode(&raw)?,Step::Event(current) if current.cursor == cursor && &current.conversation == conversation),
+		)
+	}
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;

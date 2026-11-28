@@ -16,6 +16,12 @@ conversation you have open: a topbar, the message log, and the composer at the b
   copying. `/link` does the same from the composer.
 - **Joining.** `/join` takes a room name or an address, never the conversation it was typed in.
 
+Put an action where its subject is visible. A message menu acts on that message. A member card describes the person
+or bot in this room. A composer command can reach the same action from the keyboard.
+
+If a bot asks a question privately, answering in that direct conversation is enough. Its harness supplies the earlier
+question when it reads the answer.
+
 Visual rules:
 
 - The topbar stripe and the welcome card take their color from the sidebar row that opened the conversation. The

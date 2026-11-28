@@ -6,7 +6,8 @@
 //! A verb takes its bot directory, its conversation, and its ledger id from
 //! the turn that runs it, through [`TURN_BOT`], [`TURN_CONVERSATION`], and
 //! [`TURN_ID`], which the bot sets for the harness, and never from a flag the
-//! agent chooses.
+//! agent chooses. Outside a turn the operator can list or cancel schedules by
+//! naming a bot directory and conversation.
 //!
 //! `say`, `send`, and a new `command` each take one place in the turn's
 //! action budget first, whatever conversation they post to and whether a
@@ -15,6 +16,7 @@
 //! however its agent is prompted.
 mod direct;
 mod failure;
+mod reminders;
 mod verbs;
 
 use super::{
@@ -41,20 +43,30 @@ pub enum Verb {
 	Say,
 	Send,
 	Workspace,
+	Members,
 	Command,
 	Actions,
+	Remind,
+	Reminders,
+	CancelReminder,
+	Schedule,
 }
 
 impl Verb {
 	/// The verbs, in the order the prompt shows them. A safe Claude run may
 	/// run these and no other glowcap command.
-	pub const ALL: [Self; 6] = [
+	pub const ALL: [Self; 11] = [
 		Self::Say,
 		Self::Send,
 		Self::Workspace,
+		Self::Members,
 		Self::Command,
 		Self::Actions,
 		Self::Join,
+		Self::Remind,
+		Self::Reminders,
+		Self::CancelReminder,
+		Self::Schedule,
 	];
 
 	/// The verb a request names, or none when it names no turn verb.
@@ -68,9 +80,18 @@ impl Verb {
 			Self::Say => "say",
 			Self::Send => "send",
 			Self::Workspace => "workspace",
+			Self::Members => "members",
 			Self::Command => "command",
 			Self::Actions => "actions",
+			Self::Remind => "remind",
+			Self::Schedule => "schedule",
+			Self::Reminders => "reminders",
+			Self::CancelReminder => "cancel-reminder",
 		}
+	}
+
+	pub fn operator_schedule_control(self) -> bool {
+		matches!(self, Self::Reminders | Self::CancelReminder)
 	}
 
 	/// The flags the verb reads.
@@ -79,7 +100,10 @@ impl Verb {
 			Self::Join => &["room"],
 			Self::Say => verbs::SAY,
 			Self::Send => verbs::SEND,
-			Self::Workspace | Self::Actions => &[],
+			Self::Workspace | Self::Members | Self::Actions | Self::Reminders => &[],
+			Self::Remind => &["id", "at", "in", "text", "every", "count"],
+			Self::Schedule => &["id", "at", "in", "task", "every", "count"],
+			Self::CancelReminder => &["id"],
 			Self::Command => verbs::COMMAND,
 		}
 	}
@@ -200,6 +224,7 @@ pub struct Turn {
 	pub bot: PathBuf,
 	pub conversation: String,
 	pub id: TurnId,
+	private_scope: Option<super::rooms::Scope>,
 	/// What this verb may spend, from its own start.
 	pub budget: Budget,
 }
@@ -229,7 +254,7 @@ impl Turn {
 	/// trusted: the agent runs with the bot's own rights, so a forged turn id
 	/// can only mis-own a claim or note the agent itself writes. An action
 	/// takes a place only in the budget its turn opened (`actions::spend`),
-	/// and [`Turn::open`] checks the turn against the ledger before an open's
+	/// and [`Turn::require_running`] checks the turn against the ledger before an open's
 	/// note is written.
 	fn current() -> Result<Self, Error> {
 		let read = |name: &str| std::env::var_os(name).filter(|value| !value.is_empty());
@@ -245,6 +270,7 @@ impl Turn {
 				bot: bot.into(),
 				conversation,
 				id: TurnId(id),
+				private_scope: None,
 				budget: Budget::starting(
 					read(TURN_ENDS)
 						.and_then(|value| value.into_string().ok())
@@ -253,7 +279,7 @@ impl Turn {
 				),
 			}),
 			_ => Err(Error::Usage(format!(
-				"say, send, join, command, workspace, and actions run only during a bot's turn, which sets {TURN_BOT}, {TURN_CONVERSATION}, and {TURN_ID}"
+				"bot action commands run only during a bot's turn, which sets {TURN_BOT}, {TURN_CONVERSATION}, and {TURN_ID}"
 			))),
 		}
 	}
@@ -270,14 +296,13 @@ impl Turn {
 		))
 	}
 
-	/// Refuse unless this turn is a running turn of its conversation in the
-	/// ledger, so a note is only ever written for a turn that exists.
-	fn open(&self) -> Result<(), Error> {
+	/// Refuse unless this turn is a running turn of its conversation in the ledger.
+	fn require_running(&self) -> Result<(), Error> {
 		let root = store::directory(&self.bot)?;
 		match Ledger::running_turn_in(&root, self.id)? {
 			Some(conversation) if conversation.as_str() == self.conversation => Ok(()),
 			_ => Err(Error::Usage(format!(
-				"turn {} is not a running turn of conversation {}, so it writes no direct-message open",
+				"turn {} is not a running turn of conversation {}",
 				self.id.0, self.conversation
 			))),
 		}
@@ -292,23 +317,53 @@ impl Turn {
 }
 
 pub async fn run(verb: Verb, request: &Request) -> Result<(), Error> {
-	let turn = Turn::current()?;
+	if verb.operator_schedule_control() {
+		let in_turn = [TURN_BOT, TURN_CONVERSATION, TURN_ID, TURN_ENDS, super::home::TURN_HOME]
+			.iter()
+			.any(|name| std::env::var_os(name).is_some());
+		if !request.state.as_os_str().is_empty() {
+			if in_turn {
+				return Err(Error::Usage(
+					"a bot turn takes its directory and conversation from the turn".into(),
+				));
+			}
+			println!("{}", reminders::operator(request, verb).await?);
+			return Ok(());
+		}
+		if !in_turn {
+			return Err(Error::Usage("outside a bot turn, pass --dir and --conversation".into()));
+		}
+	}
+	let mut turn = Turn::current()?;
 	request.only(verb.flags())?;
+	// A scheduled turn publishes one receipt-backed final answer. Interactive
+	// actions could escape its original route or repeat after an interruption.
+	let (scheduled, private) = Ledger::turn_scopes_in(&store::directory(&turn.bot)?, turn.id, &turn.conversation)?;
+	turn.private_scope = private;
+	if scheduled.is_some() {
+		return Err(Error::Usage(
+			"A scheduled turn can return an answer to its original conversation. Interactive Rooms actions require a message turn.".into(),
+		));
+	}
 	let line = match verb {
 		Verb::Join => verbs::join(request, &turn).await?,
 		Verb::Say => verbs::say(request, &turn).await?,
 		Verb::Send => verbs::send(request, &turn).await?,
 		Verb::Command => verbs::command(request, &turn).await?,
 		Verb::Workspace => verbs::workspace(&turn).await?,
+		Verb::Members => verbs::members(&turn).await?,
 		Verb::Actions => verbs::actions(&turn)?,
+		Verb::Remind | Verb::Schedule | Verb::Reminders | Verb::CancelReminder => {
+			reminders::run(request, verb, &turn).await?
+		}
 	};
 	println!("{line}");
 	Ok(())
 }
 
 /// Attach for one action. The bot directory's link is the only authority.
-async fn attach(turn: &Turn) -> Result<Live, Error> {
-	let link = Link::load(&store::directory(&turn.bot)?)?.ok_or_else(|| {
+async fn attach(dir: &std::path::Path) -> Result<Live, Error> {
+	let link = Link::load(&store::directory(dir)?)?.ok_or_else(|| {
 		Error::Config(format!(
 			"this bot directory {} Start serve with --link first",
 			words::NO_SESSION_LINK
@@ -327,16 +382,39 @@ where
 	F: FnOnce(std::rc::Rc<Live>) -> Fut,
 	Fut: std::future::Future<Output = Result<Value, Error>>,
 {
-	let attached = turn
-		.budget
-		.within(Step::Attach, attach(turn))
+	with_bot_view(&turn.bot, turn.budget, turn.private_scope.clone(), action).await
+}
+
+async fn with_bot_view<F, Fut>(
+	dir: &std::path::Path,
+	budget: Budget,
+	scope: Option<super::rooms::Scope>,
+	action: F,
+) -> Result<Value, Error>
+where
+	F: FnOnce(std::rc::Rc<Live>) -> Fut,
+	Fut: Future<Output = Result<Value, Error>>,
+{
+	let attached = budget
+		.within(Step::Attach, attach(dir))
 		.await
 		.ok_or_else(failure::nothing_sent)??;
+	if let Some(scope) = scope {
+		let grant = attached.grant.clone();
+		attached
+			.view
+			.require_snapshot(move |snapshot| scope.matches(&grant, snapshot));
+		budget
+			.within(Step::Call, attached.view.posting_snapshot())
+			.await
+			.ok_or_else(failure::nothing_sent)?
+			.map_err(|cause| failure::call(&cause))?;
+	}
 	let live = std::rc::Rc::new(attached);
 	let result = action(live.clone()).await;
 	// best-effort: the verb's own result is the report, and the process
 	// exits next, which drops the Host whether or not it closed cleanly or
 	// within the budget.
-	let _ = turn.budget.until_spent(live.close()).await;
+	let _ = budget.until_spent(live.close()).await;
 	result
 }

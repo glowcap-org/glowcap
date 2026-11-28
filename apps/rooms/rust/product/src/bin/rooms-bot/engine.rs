@@ -14,11 +14,13 @@
 //! to run again once the access works. A revoked access is final for its link:
 //! the loop stops as it does for a signal and returns [`Error::Access`].
 mod backoff;
+mod checkins;
 mod deliver;
 mod env;
 mod head;
 mod intake;
 mod lanes;
+mod private;
 mod reaching;
 mod read;
 mod reset;
@@ -106,15 +108,20 @@ pub fn report_failure<R: Rooms>(env: &Env<'_, R>, id: TurnId, during: Activity, 
 }
 
 /// A one-line failure reply with its own operation.
-pub fn failure_part(store: &crate::bot::store::Store, reason: &str) -> Result<Part, Error> {
+pub fn failure_part<R: Rooms>(env: &Core<'_, R>, id: TurnId, reason: &str) -> Result<Part, Error> {
+	let mut text = failure_line(reason);
+	if env.ledger.borrow().scheduled(id).is_some() {
+		text.insert_str(0, super::reminders::CHECK_IN_PREFIX);
+	}
 	Ok(Part {
-		operation: crate::bot::identity::new_action(store.root())?,
-		text: failure_line(reason),
+		operation: crate::bot::identity::new_action(env.store.root())?,
+		text,
 	})
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Stage {
+	Opening,
 	Think,
 	Notice,
 	Deliver,
@@ -123,6 +130,8 @@ enum Stage {
 /// Where a stage left its turn.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Step {
+	/// The original private route is now held; enter the ordinary harness queue.
+	Ready,
 	/// The reply is fixed and its lines can go out.
 	Deliver,
 	Finished,
@@ -198,12 +207,13 @@ impl<'a, R: Rooms> Loop<'a, R> {
 		}
 		let env = self.env;
 		let mut stop = match stage {
-			Stage::Think => self.halt.subscribe(),
+			Stage::Opening | Stage::Think => self.halt.subscribe(),
 			Stage::Deliver | Stage::Notice => self.stop.clone(),
 		};
 		self.turns.push(Box::pin(async move {
 			let step = if waited(delay, &mut stop).await {
 				match stage {
+					Stage::Opening => private::opening(env, id, &mut stop).await,
 					Stage::Think => think::run(env, id, &mut stop).await,
 					Stage::Deliver | Stage::Notice => deliver::run(env, id, &mut stop).await,
 				}
@@ -230,21 +240,6 @@ impl<'a, R: Rooms> Loop<'a, R> {
 	/// active.
 	fn may_think(&self) -> bool {
 		self.env.is_linked() && self.env.facts.borrow().access == Access::Active
-	}
-
-	/// Start the oldest waiting turn of an idle conversation while a harness
-	/// slot is free and the access is active.
-	fn start_turns(&mut self) {
-		if !self.may_think() {
-			return;
-		}
-		while self.thinking < MAX_TURNS && !self.stopped() {
-			let Some((conversation, id)) = self.lanes.next() else {
-				break;
-			};
-			self.lanes.started(&conversation);
-			self.spawn(id, conversation, Stage::Think, Duration::ZERO);
-		}
 	}
 
 	/// Start the resumed replies once the link is reached. A read has just
@@ -297,6 +292,10 @@ impl<'a, R: Rooms> Loop<'a, R> {
 			self.thinking -= 1;
 		}
 		match step {
+			Ok(Step::Ready) => {
+				self.retries.remove(&id);
+				self.lanes.halted(&conversation, id);
+			}
 			Ok(Step::Deliver) => {
 				let outcome = match self.env.ledger.borrow().phase(id) {
 					Some(Phase::Sending {
@@ -317,7 +316,9 @@ impl<'a, R: Rooms> Loop<'a, R> {
 					self.lanes.release(&conversation);
 				}
 			}
-			Ok(Step::Stopped) if stage == Stage::Think && !self.stopped() => self.halted(id, &conversation),
+			Ok(Step::Stopped) if matches!(stage, Stage::Opening | Stage::Think) && !self.stopped() => {
+				self.halted(id, &conversation)
+			}
 			Ok(Step::Stopped) => self.thought(id, &conversation, "stopped"),
 			Err(error) => self.turn_failed(id, conversation, stage, error),
 		}
@@ -330,7 +331,7 @@ impl<'a, R: Rooms> Loop<'a, R> {
 	/// others once the access is active.
 	fn turn_failed(&mut self, id: TurnId, conversation: ConversationId, stage: Stage, error: Error) {
 		let during = match stage {
-			Stage::Think => Activity::Thinking,
+			Stage::Opening | Stage::Think => Activity::Thinking,
 			Stage::Deliver | Stage::Notice => Activity::Saving,
 		};
 		report_failure(self.env, id, during, &error);
@@ -344,7 +345,7 @@ impl<'a, R: Rooms> Loop<'a, R> {
 			}
 			return;
 		}
-		if stage == Stage::Think && !self.may_think() {
+		if matches!(stage, Stage::Opening | Stage::Think) && !self.may_think() {
 			self.halted(id, &conversation);
 			return;
 		}
@@ -446,6 +447,7 @@ fn resume<R: Rooms>(state: &mut Loop<'_, R>) -> Result<(), Error> {
 }
 
 enum Woke {
+	CheckIn(super::reminders::CheckIn),
 	Stop,
 	Turn(Ended),
 	/// The access stopped serving, so what is thinking ends.
@@ -470,6 +472,7 @@ struct Reads<F> {
 pub async fn serve<'a, R: Rooms>(
 	env: &'a Env<'a, R>,
 	mut shutdown: watch::Receiver<bool>,
+	mut checkins: tokio::sync::mpsc::Receiver<super::reminders::CheckIn>,
 	stage: LinkStage,
 	reached: impl FnMut() -> Result<(), Error>,
 ) -> Result<(), Error> {
@@ -489,7 +492,7 @@ pub async fn serve<'a, R: Rooms>(
 		if let Err(error) = state.revoked(&reads.reaching) {
 			break Err(error);
 		}
-		let (woke, began) = state.wake(&mut shutdown, &reads.pace).await;
+		let (woke, began) = state.wake(&mut shutdown, &mut checkins, &reads.pace).await;
 		let step = match woke {
 			Woke::Stop => break Ok(()),
 			Woke::Halted => {
@@ -501,6 +504,7 @@ pub async fn serve<'a, R: Rooms>(
 				Ok(())
 			}
 			Woke::Held => Ok(()),
+			Woke::CheckIn(check) => checkins::accept(&mut state, check).await,
 			Woke::Read(read) => state.read_done(&mut reads, began, read),
 		};
 		if let Err(error) = step {
@@ -547,7 +551,12 @@ impl<'a, R: Rooms> Loop<'a, R> {
 	/// Wait for the next thing the loop acts on, and say how many access
 	/// changes had happened when a read in it began, so a read that began
 	/// before a send found the access stopped does not open it again.
-	async fn wake(&mut self, shutdown: &mut watch::Receiver<bool>, pace: &ReadPace) -> (Woke, u64) {
+	async fn wake(
+		&mut self,
+		shutdown: &mut watch::Receiver<bool>,
+		checkins: &mut tokio::sync::mpsc::Receiver<super::reminders::CheckIn>,
+		pace: &ReadPace,
+	) -> (Woke, u64) {
 		let env = self.env;
 		let reading = read::wanted(self.lanes.waiting(), env.facts.borrow().access, self.held.is_some());
 		let after = self.read.cursor.clone();
@@ -557,6 +566,7 @@ impl<'a, R: Rooms> Loop<'a, R> {
 			biased;
 			() = stopping(shutdown) => Woke::Stop,
 			() = env.halted.notified() => Woke::Halted,
+			Some(check) = checkins.recv() => Woke::CheckIn(check),
 			Some(ended) = self.turns.next(), if !self.turns.is_empty() => Woke::Turn(ended),
 			() = sleep_until(held_until.unwrap_or_else(Instant::now)), if held_until.is_some() => Woke::Held,
 			read = async {

@@ -33,13 +33,17 @@ pub fn asks(kind: Kind, text: &str) -> bool {
 }
 
 /// Whether any line that started the turn asks for a new conversation.
-pub fn asked(turn: &Asked) -> bool {
-	turn.triggers.iter().any(|trigger| asks(turn.kind, &trigger.text))
+pub fn last(turn: &Asked) -> Option<crate::bot::classify::Seq> {
+	turn.triggers
+		.iter()
+		.rev()
+		.find(|trigger| asks(turn.kind, &trigger.text))
+		.map(|trigger| trigger.seq)
 }
 
 /// Whether a reset is the whole of what the turn was asked.
 pub fn is_whole(turn: &Asked) -> bool {
-	turn.triggers.iter().all(|trigger| asks(turn.kind, &trigger.text))
+	!turn.triggers.is_empty() && turn.triggers.iter().all(|trigger| asks(turn.kind, &trigger.text))
 }
 
 /// Drop the agent's saved conversation for the turn's Rooms conversation.

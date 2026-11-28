@@ -64,7 +64,7 @@ fn route(input: Invocation<'_>) -> Result<(workspace::InboxSelection, custody::C
 		.ok_or_else(|| refuse("positive direct route ordinal required"))?;
 	let coordinate = custody::Coordinate {
 		role: custody::Role::DirectAccess,
-		key: custody::FieldKey::new(inbox.slot(), ordinal),
+		key: workspace::reciprocal_key(*inbox, ordinal).retag(),
 	};
 	Ok((selected, coordinate, reference))
 }
