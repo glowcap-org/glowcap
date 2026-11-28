@@ -10,6 +10,17 @@ impl Request<'_> {
 		record: &'r MetadataRecord,
 		receipt: &'r custody::EffectReceipt<records::Metadata>,
 	) -> Result<Option<[OriginTargets<'r>; 3]>> {
+		// Installing a worker source is a management recovery. It restores
+		// the receipt's initiating grant alongside its results, even if the
+		// original callback or entrance has since left the workspace.
+		// membership_delta excludes this form from participant authority.
+		if self
+			.replacement
+			.as_ref()
+			.is_some_and(|replacement| replacement.source.is_some())
+		{
+			return Ok(None);
+		}
 		if !self
 			.selections
 			.iter()
