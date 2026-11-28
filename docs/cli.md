@@ -56,8 +56,12 @@ To iterate without installing, `zig build glowcap -- <command> …` runs the sam
 binary through the build graph. The [deployment
 guide](../apps/rooms/web/deploy/README.md) covers `./glowcap apps rooms
 deployment`, and [build steps](build-steps.md#everyday-steps-and-checks) lists
-the Rooms build steps. Run `glowcap-release` on its own, not alongside steps that
-stage a product with other settings.
+the Rooms build steps.
+
+Run `zig build glowcap-release` by itself. The preset starts a ReleaseSafe build
+that writes Zig libraries and Rooms executables into the checkout’s build directories. The
+development build front rejects a second step on the same command line. When
+running Zig directly, finish the preset before starting other builds in this checkout.
 
 ## Join a room over iroh
 

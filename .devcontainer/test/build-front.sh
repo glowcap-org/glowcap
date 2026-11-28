@@ -166,6 +166,18 @@ grep -F "kill -TERM" "${terminal_log}" >/dev/null
 build_exec="$(cd / && PATH="${scratch}/bin:${PATH}" GLOWCAP_DEV_CONTAINER=test-container "${front}" zig build test)"
 [[ "${build_exec}" == *"/workspaces/glowcap/.devcontainer/bin/build-lease zig build --test-timeout 30s test"* ]]
 [[ "${build_exec}" == *"exec -i "* && "${build_exec}" == *"--user vscode"* ]]
+# The release preset runs a second Zig graph against the same native outputs.
+# Options and forwarded application arguments do not name companion steps.
+if refused=$(PATH="${scratch}/bin:${PATH}" "${front}" --local zig build rooms-rust-test glowcap-release --summary failures 2>&1); then
+    echo "test/build-front: accepted competing release and test builds" >&2
+    exit 1
+else
+    [[ $? -eq 2 && ${refused} == *"run 'zig build glowcap-release' separately from 'rooms-rust-test'"* ]]
+fi
+release_exec=$(PATH="${scratch}/bin:${PATH}" GLOWCAP_DEV_CONTAINER=test-container "${front}" zig build --prefix rooms-dev glowcap-release --summary failures -- extra)
+[[ ${release_exec} == *"build-lease zig build --test-timeout 30s --prefix rooms-dev glowcap-release --summary failures -- extra"* ]]
+external_exec=$(PATH="${scratch}/bin:${PATH}" GLOWCAP_DEV_CONTAINER=test-container "${front}" zig build --build-file another/build.zig glowcap-release rooms-server)
+[[ ${external_exec} == *"build-lease zig build --test-timeout 30s --build-file another/build.zig glowcap-release rooms-server"* ]]
 waiting_exec="$(cd / && PATH="${scratch}/bin:${PATH}" GLOWCAP_DEV_CONTAINER=test-container GLOWCAP_BUILD_LEASE_TIMEOUT=600 "${front}" zig build test)"
 [[ "${waiting_exec}" == *"exec -i --env GLOWCAP_BUILD_LEASE_TIMEOUT=600 "* ]]
 explicit_timeout_exec="$(cd / && PATH="${scratch}/bin:${PATH}" GLOWCAP_DEV_CONTAINER=test-container "${front}" zig build test --test-timeout 7s)"

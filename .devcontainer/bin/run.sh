@@ -117,37 +117,63 @@ fi
 # boundary instead of wrapping an aggregate artifact in a wall-clock deadline.
 if [[ ${1:-} == zig && ${2:-} == build ]]; then
     has_test_timeout=false
-    for arg in "$@"; do
-        [[ ${arg} == -- ]] && break
-        if [[ $arg == --test-timeout ]]; then
-            has_test_timeout=true
+    value_for=""
+    project_build=true
+    release_preset=false
+    other_step=""
+    service_step=""
+    inspect_only=false
+    for arg in "${@:3}"; do
+        if [[ -n ${value_for} ]]; then
+            if [[ ${value_for} == --build-file ]]; then
+                build_file=${arg}
+                [[ ${build_file} == /* ]] || build_file="${repo_root}/${build_file}"
+                if [[ ! ${build_file} -ef ${repo_root}/build.zig && ${arg} != "${execution_root}/build.zig" ]]; then
+                    project_build=false
+                fi
+            fi
+            value_for=""
+            continue
         fi
+        case "${arg}" in
+            --) break ;;
+            --test-timeout) has_test_timeout=true; value_for=${arg} ;;
+            -p | --prefix | --prefix-lib-dir | --prefix-exe-dir | --prefix-include-dir | \
+                --search-prefix | --sysroot | --libc | --system | --libc-runtimes | \
+                --color | --error-style | --multiline-errors | --summary | --maxrss | --debounce | \
+                --fork | --error-limit | --build-file | --cache-dir | --seed | --debug-log)
+                value_for=${arg} ;;
+            -h | --help | -l | --list-steps | --print-configuration | --print-configuration-path | --fetch | --fetch=*)
+                inspect_only=true ;;
+            -*) ;;
+            glowcap-release) release_preset=true ;;
+            glowcap | site-serve | ocapnviz-dev | rooms-chat | rooms-irc-server | rooms-irc-bridge | rooms-archive | rooms-bot | rooms-session | rooms-server | rooms-trace-tail | rooms-web | rooms-dev)
+                service_step=${service_step:-${arg}}
+                other_step=${arg} ;;
+            *) other_step=${arg} ;;
+        esac
     done
-    if [[ $has_test_timeout == false ]]; then
+    if [[ ${project_build} == false || ${inspect_only} == true ]]; then
+        service_step=""
+    elif [[ ${release_preset} == true && -n ${other_step} ]]; then
+        echo "glowcap-dev: run 'zig build glowcap-release' separately from '${other_step}'. The release preset starts its own build that writes to the same Zig library directory." >&2
+        exit 2
+    fi
+    if [[ ${has_test_timeout} == false ]]; then
         set -- zig build --test-timeout 30s "${@:3}"
     fi
 
     # Service steps run until interrupted. Every other build gets
     # one visible lease over this worktree's shared container resources.
-    service_build=false
-    for arg in "${@:3}"; do
-        [[ ${arg} == -- ]] && break
-        case "${arg}" in
-            glowcap | site-serve | ocapnviz-dev | rooms-chat | rooms-irc-server | rooms-irc-bridge | rooms-archive | rooms-bot | rooms-session | rooms-server | rooms-trace-tail | rooms-web | rooms-dev)
-                service_build=true
-                break
-                ;;
-        esac
-    done
-    case "${arg:-}" in
+    case "${service_step}" in
         site-serve | rooms-dev | rooms-web | rooms-server)
-            echo "glowcap-dev: preparing ${arg}; the service has not started yet. Wait for its listening address." >&2
-            if [[ ${arg} != site-serve ]]; then
+            echo "glowcap-dev: preparing ${service_step}; the service has not started yet. Wait for its listening address." >&2
+            if [[ ${service_step} != site-serve ]]; then
                 echo "glowcap-dev: a cold Rooms build downloads dependencies and compiles Zig and Rust; browser commands also prepare WebAssembly and UI assets. This can take several minutes. Later runs reuse build caches." >&2
             fi
             ;;
     esac
-    if [[ ${service_build} == false ]]; then
+    if [[ -z ${service_step} ]]; then
         set -- "${execution_root}/.devcontainer/bin/build-lease" "$@"
     fi
 fi
@@ -164,7 +190,7 @@ fi
 # must request a PTY explicitly. Without one nobody can press Ctrl-C, and a
 # runner that kills this front outright leaves the service tree running in the
 # container.
-if [[ ${service_build:-false} == true && ! -t 0 ]]; then
+if [[ -n ${service_step:-} && ! -t 0 ]]; then
     echo "glowcap-dev: a host-side service build requires a terminal so Ctrl-C reaches its container process tree" >&2
     exit 2
 fi
