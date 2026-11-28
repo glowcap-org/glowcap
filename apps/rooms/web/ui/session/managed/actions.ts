@@ -6,9 +6,18 @@ import type { Committed } from "./committed.ts";
 import type { Door, ManagedRoomsSession } from "./session.ts";
 import type { ManagedOperation } from "./operation.ts";
 import type { ConversationOpening } from "./openings.ts";
+import { type OfferedDirect, roomOffer } from "./workspace_readiness.ts";
 import { acquireDirect } from "./direct.ts";
 import { createManagedRoom } from "./create_room.ts";
-import { type ActivityPage, type Coordinate, fieldKey, type WorkspaceIntent, type WorkspaceSnapshot } from "./model.ts";
+import {
+	type ActivityPage,
+	type Coordinate,
+	type DirectIntent,
+	fieldKey,
+	type RoomIntent,
+	type WorkspaceIntent,
+	type WorkspaceSnapshot,
+} from "./model.ts";
 import type { JoinNicknameIntent } from "../../controller/session.ts";
 import type { RoomPolicy } from "../../room_policy.ts";
 import { AcquisitionConflict, MAX_CONFLICT_REPREPARATIONS, OperationsAcquisitionRefused } from "./acquisition.ts";
@@ -24,8 +33,16 @@ import type { LinkPort, Stamp } from "./link_port.ts";
 
 /** What actions use of the session: what the held acquisitions and the
  * presses it opens use, and the navigation the actions change. */
-export type ActionSession = AcquisitionSession & Door & Pick<ManagedRoomsSession, "navigation">;
+export type ActionSession = AcquisitionSession & Door & Pick<ManagedRoomsSession, "navigation" | "whenReady">;
 
+/** Each kind can share only a task with its own result type. */
+interface GestureResults {
+	room: string;
+	link: string | null;
+	direct: DirectIntent | null;
+	invite: OfferedDirect;
+	action: unknown;
+}
 /** One press of a gesture whose later presses share its task while it runs. */
 interface Gesture<T> {
 	task: Promise<T>;
@@ -66,13 +83,7 @@ function roomEnteredAfter(after: Committed, uri: string, staged: string): Promis
 export class ManagedActions {
 	readonly #session: ActionSession;
 	readonly #held: HeldAcquisitions;
-	/** Gestures that answer the id of what they opened, and gestures whose
-	 * answer is only that they ended. One bound covers both. */
-	readonly #opening = new Map<string, Gesture<string>>();
-	readonly #acting = new Map<string, Gesture<unknown>>();
-	/** Room-link gestures, which answer null when the session could not be
-	 * read to say which room holds the link. */
-	readonly #linking = new Map<string, Gesture<string | null>>();
+	readonly #gestures = new Map<string, Gesture<unknown>>();
 	/** The room each room-link acquisition's completion found, or null when
 	 * the session could not be read. */
 	readonly #entered = new Map<string, string | null>();
@@ -92,7 +103,7 @@ export class ManagedActions {
 		return this.#held.diagnostics;
 	}
 	get resources() {
-		return { ...this.#held.resources, gestures: this.#opening.size + this.#acting.size + this.#linking.size };
+		return { ...this.#held.resources, gestures: this.#gestures.size };
 	}
 	get pending(): readonly string[] {
 		return this.#held.pending;
@@ -120,7 +131,7 @@ export class ManagedActions {
 		signal?: AbortSignal,
 	): Promise<void> {
 		await this.#share(
-			this.#acting,
+			"action",
 			JSON.stringify(["directory", id, route, nick, home]),
 			() =>
 				this.#held.acquire(
@@ -141,7 +152,7 @@ export class ManagedActions {
 	}
 	publicRoom(directory: string, name: string, publication: string, opening?: ConversationOpening): Promise<string> {
 		return this.#share(
-			this.#opening,
+			"room",
 			JSON.stringify(["publicRoom", directory, name, publication]),
 			() => this.#publicRoom(directory, name, publication, opening),
 			opening?.signal,
@@ -207,7 +218,7 @@ export class ManagedActions {
 	}
 	createRoom(directory: string, name: string, policy: RoomPolicy, opening?: ConversationOpening): Promise<string> {
 		return this.#share(
-			this.#opening,
+			"room",
 			JSON.stringify(["createRoom", directory, name, policy]),
 			() => createManagedRoom(this.#session, directory, name, policy, opening),
 			opening?.signal,
@@ -221,40 +232,56 @@ export class ManagedActions {
 		expectedRegistration?: string,
 		opening?: ConversationOpening,
 	): Promise<string | null> {
-		const id = await this.#share(
-			this.#opening,
-			JSON.stringify(["direct", directory, peer, expectedRegistration]),
-			() => acquireDirect(this.#session, directory, peer, expectedRegistration, opening),
+		const row = await this.#direct(directory, peer, expectedRegistration, opening);
+		if (select && row != null) await this.#session.navigation.selectAfterCommit(row.id);
+		return row?.id ?? null;
+	}
+	#direct(directory: string, peer: string, registration?: string, opening?: ConversationOpening) {
+		return this.#share(
+			"direct",
+			JSON.stringify([directory, peer, registration]),
+			() => acquireDirect(this.#session, directory, peer, registration, opening),
 			opening?.signal,
 		);
-		if (select && id != null) await this.#session.navigation.selectAfterCommit(id);
-		return id;
 	}
-	#share<T>(
-		gestures: Map<string, Gesture<T>>,
-		key: string,
-		work: () => Promise<T>,
+	async invite(room: RoomIntent, peer: string): Promise<void> {
+		const direct = await this.#direct(room.directory, peer);
+		if (direct == null) throw new LocalRefusal("invite-unsent");
+		const selection = roomOffer(room, direct);
+		const destination = await this.#share("invite", selection.key, async () => {
+			await this.#session.whenReady(selection.ready, "invite-route-pending");
+			await this.#command("offerRoom", [room.id, direct.id], selection.validate);
+			return selection.destination;
+		});
+		if (!selection.accepts(destination)) throw new LocalRefusal("invite-selection-changed");
+	}
+	#share<K extends keyof GestureResults>(
+		kind: K,
+		identity: string,
+		work: () => Promise<GestureResults[K]>,
 		signal?: AbortSignal,
-	): Promise<T> {
-		const previous = gestures.get(key);
+	): Promise<GestureResults[K]> {
+		const key = kind + ":" + identity;
+		// Only this method installs tasks, under the same kind that types their result.
+		const previous = this.#gestures.get(key) as Gesture<GestureResults[K]> | undefined;
 		if (previous != null) {
 			if (!previous.signal?.aborted) return previous.task;
 			// A new press waits for the cancelled attempt's cleanup. Only proved
 			// non-admission or completed cleanup permits a fresh acquisition.
-			return previous.task.then(() => this.#share(gestures, key, work, signal), (error: unknown) => {
+			return previous.task.then(() => this.#share(kind, identity, work, signal), (error: unknown) => {
 				if (error instanceof DOMException && error.name === "AbortError") {
-					return this.#share(gestures, key, work, signal);
+					return this.#share(kind, identity, work, signal);
 				}
 				throw error;
 			});
 		}
 		if (this.#held.stopped) return Promise.reject(new LocalRefusal("session-closed"));
-		if (this.#opening.size + this.#acting.size + this.#linking.size >= SESSION_CONTENT.limits.effects) {
+		if (this.#gestures.size >= SESSION_CONTENT.limits.effects) {
 			return Promise.reject(new LocalRefusal("busy"));
 		}
-		const started = Promise.withResolvers<T>();
-		const task = started.promise.finally(() => gestures.delete(key));
-		gestures.set(key, { task, signal });
+		const started = Promise.withResolvers<GestureResults[K]>();
+		const task = started.promise.finally(() => this.#gestures.delete(key));
+		this.#gestures.set(key, { task, signal });
 		// Install deduplication first, then capture the selected authority on the
 		// press. Deferring work to a microtask would capture a later selection.
 		try {
@@ -267,16 +294,16 @@ export class ManagedActions {
 	/** Send `name` and acquire its result, finishing over the next link when a
 	 * loss ends the press after its commit. */
 	run(name: string, args: string[] = [], validate?: (snapshot: WorkspaceSnapshot) => void): Promise<unknown> {
+		const work = () => this.#command(name, args, validate);
+		return gestureScope(name, args) == null ? work() : this.#share("action", JSON.stringify([name, args]), work);
+	}
+	#command(name: string, args: string[], validate?: (snapshot: WorkspaceSnapshot) => void): Promise<unknown> {
 		const operation = crypto.randomUUID();
-		const work = () =>
-			this.#session.press(
-				operation,
-				({ command }) => command(name, args, operation, validate),
-				(command, after) => after.complete(command),
-			);
-		return gestureScope(name, args) == null
-			? work()
-			: this.#share(this.#acting, JSON.stringify([name, args]), work);
+		return this.#session.press(
+			operation,
+			({ command }) => command(name, args, operation, validate),
+			(command, after) => after.complete(command),
+		);
 	}
 	async clear(): Promise<void> {
 		await this.run("clearWorkspace");
@@ -366,7 +393,7 @@ export class ManagedActions {
 		});
 	}
 	async acceptInvitation(id: string): Promise<void> {
-		await this.#share(this.#acting, JSON.stringify(["acceptInvitation", id]), () => this.#acceptInvitation(id));
+		await this.#share("action", JSON.stringify(["acceptInvitation", id]), () => this.#acceptInvitation(id));
 	}
 	async #acceptInvitation(id: string): Promise<void> {
 		const offered = this.#session.current?.intent.invitations.find((row) => row.id === id);
@@ -442,7 +469,7 @@ export class ManagedActions {
 		opening?: ConversationOpening,
 	): Promise<string | null> {
 		return this.#share(
-			this.#linking,
+			"link",
 			JSON.stringify(["roomLink", directory, uri, name, selection]),
 			() => this.#roomLink(directory, uri, name, selection, opening),
 			opening?.signal,
@@ -525,9 +552,7 @@ export class ManagedActions {
 	}
 	async close(): Promise<void> {
 		this.stop();
-		await Promise.allSettled(
-			[...this.#opening.values(), ...this.#acting.values(), ...this.#linking.values()].map((row) => row.task),
-		);
+		await Promise.allSettled(Array.from(this.#gestures.values(), (row) => row.task));
 		await this.#held.close();
 	}
 }

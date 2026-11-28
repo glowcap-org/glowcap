@@ -192,11 +192,7 @@ export function managedCommandPowers(
 			if (row.access == null) {
 				return Promise.resolve(inviteWithoutTheRoom(live.id, live.policy.visibility === "listed"));
 			}
-			return unlessUnregistered(who, async () => {
-				const direct = await session.actions.direct(row.directory, who, false);
-				if (direct == null) throw new LocalRefusal("invite-unsent");
-				await session.actions.run("offerRoom", [row.id, direct]);
-			});
+			return unlessUnregistered(who, () => session.actions.invite(row, who));
 		},
 		kick: async (who) => {
 			const row = active();

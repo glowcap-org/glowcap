@@ -3,7 +3,8 @@
 import { LocalRefusal } from "../../../../lib/text/failure.ts";
 import type { Door } from "./session.ts";
 import type { ConversationOpening } from "./openings.ts";
-import type { WorkspaceSnapshot } from "./model.ts";
+import type { DirectIntent, WorkspaceSnapshot } from "./model.ts";
+import { conversationById } from "./conversation_lookup.ts";
 import { directReach } from "../../application.ts";
 
 export async function acquireDirect(
@@ -12,7 +13,7 @@ export async function acquireDirect(
 	peer: string,
 	expectedRegistration?: string,
 	opening?: ConversationOpening,
-): Promise<string | null> {
+): Promise<DirectIntent | null> {
 	const signal = opening?.signal;
 	signal?.throwIfAborted();
 	const accepted = session.current;
@@ -48,10 +49,13 @@ export async function acquireDirect(
 	checkOrigin(current);
 	// The open row that reaches this registration is the conversation, under
 	// any contact the directory held and whoever opened it.
-	const existing = directReach(current.intent, directory, registration).open;
-	if (existing != null) {
-		return existing;
-	}
+	const selected = (snapshot: WorkspaceSnapshot) => {
+		const id = directReach(snapshot.intent, directory, registration).open;
+		const row = conversationById(snapshot, id ?? undefined);
+		return row?.kind === "direct" ? row : null;
+	};
+	const existing = selected(current);
+	if (existing != null) return existing;
 	const closed = new Set(
 		current.intent.conversations.filter((row) => row.kind === "direct" && row.closed).map((row) => row.id),
 	);
@@ -67,15 +71,14 @@ export async function acquireDirect(
 			// cannot be read names no row, and the press never guesses one.
 			const settled = await after.readOr<WorkspaceSnapshot | null>(null, (reads) => reads.readNow());
 			if (settled == null) return null;
-			const open = directReach(settled.intent, directory, registration).open;
-			const row = settled.intent.conversations.find((row) => row.kind === "direct" && row.id === open);
-			if (row?.kind !== "direct") throw new LocalRefusal("direct-not-opened");
+			const row = selected(settled);
+			if (row == null) throw new LocalRefusal("direct-not-opened");
 			// Only an opening that landed its own route made the row. A route given
 			// back left a row someone else opened, which the opening does not own.
 			if (row.introduction?.opening === introduction) {
 				await opening?.acquired(row.id, closed.has(row.id) ? "closeDirect" : "leaveConversation");
 			}
-			return row.id;
+			return row;
 		},
 		signal,
 	);
