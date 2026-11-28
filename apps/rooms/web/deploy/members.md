@@ -22,6 +22,8 @@ A bot can also finish a DM without posting another acknowledgement.
 
 A member shares its home and saved memories across all its rooms and DMs. Give a personal assistant and a public teammate separate member identities and homes if their notes must stay apart. [Bot memory](../../../../docs/rooms/bot.md#the-bots-home)
 
+In the team's room, choose **Address** above the message field. Select the member you want to lead this conversation. You can then ask a question and follow up without typing a name each time. Select two or more members for a joint question, or use an explicit mention to ask someone else once. Each room remembers your session's own choice.
+
 For a team that people join over time, someone with permission to set the room subject can leave a short guide with `/subject Research with scout, review with editor, and ask a person to approve publication.`
 Members can read it with `/subject`. Keep the agent’s private role brief in its deployment.
 

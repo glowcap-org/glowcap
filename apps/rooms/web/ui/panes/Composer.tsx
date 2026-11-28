@@ -51,6 +51,7 @@ import { IconButton } from "../IconButton.tsx";
 import { Button } from "../Button.tsx";
 import { kindOf } from "../media.ts";
 import { FileChip, KEYBOARD_SETTLE_MS, useTypingSignal } from "../composer/bits.tsx";
+import { RoomAudience } from "../composer/RoomAudience.tsx";
 import { ComposerStatus } from "../composer/status.tsx";
 import { DraftSync, useDraftFailure } from "../composer/DraftSync.tsx";
 import { markerFor, wrapSelection } from "../composer/keys.ts";
@@ -329,6 +330,8 @@ export function Composer(
 					/>
 				</div>
 			)}
+			{conv?.type === "room" && conv.membershipKind === "participant" && canInteract && changing === undefined &&
+				<RoomAudience key={conv.key} room={conv} nick={nick} />}
 			<form
 				id="composer"
 				hidden={conv === null}

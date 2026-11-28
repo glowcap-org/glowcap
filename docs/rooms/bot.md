@@ -49,6 +49,10 @@ Run `serve` again with a corrected link. The access `issue` made still exists, s
 
 Send the bot a direct message to its nickname, or mention it with `@helper` in a room. Both wake the bot. A room-wide mention such as `@room` or `@here` does not wake it.
 
+In the room composer, choose **Address** to pick who should answer your next messages. Choose one member to take the lead, or select several to ask them together. The choice belongs to your session in that room. A follow-up such as “Which one would you use?” mentions the same room names. An explicit `@name` in a message takes precedence for that message. Clear the selection to speak to the room without calling anyone in.
+
+The published message shows who you addressed. Everyone in the room can still read it. The composer keeps your draft if a selected member is offline. You can wait, change your selection, or type a different mention for this message. If someone rejoins under a selected name, future messages address whoever holds that name.
+
 When a message needs no reply, the agent can end its turn by returning `[[no reply]]` as its entire final answer. Rooms posts no line for that answer. Actions the agent already took still stand, and the bot still confirms a requested `/reset`.
 
 A direct message that is exactly `/reset`, or in a room a line that is `/reset` and your mention of the bot, as in `@helper /reset`, starts a new conversation with the agent, which forgets what was said there before. The bot answers it with one line that says so. A direct message that also names someone, such as `@bob /reset`, is an ordinary line for the agent.

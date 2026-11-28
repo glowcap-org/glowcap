@@ -397,3 +397,26 @@ export const memberProfileText = {
 	cancel: "Cancel",
 	title: (room: string) => `Your profile in #${room}`,
 } as const;
+
+/** The sender's standing audience above one room's composer. */
+export const roomAudienceText = {
+	address: "Address",
+	room: "Room",
+	members: (count: number) => `${count} members`,
+	tooltip: (names: string) => `Address messages · ${names}`,
+	title: (room: string) => `Address messages in #${room}`,
+	explain: (maximum: number) =>
+		`Your messages are visible to the room. Select who you want to hear from. An @mention in a message overrides this choice. You can select up to ${maximum} members whose names work as @mentions.`,
+	legend: "Default recipients",
+	find: "Find a member",
+	all: "Select everyone online",
+	tooMany: (maximum: number) => `Select individual names to stay within ${maximum} recipients.`,
+	full: (maximum: number) => `You can address up to ${maximum} members.`,
+	offline: "Offline",
+	noMatches: "No matching members.",
+	noOthers: "No other members are online.",
+	changed: "Another window changed these recipients. Close and reopen to see the current selection.",
+	clear: "Clear selection",
+	save: "Save",
+	saving: "Saving…",
+};

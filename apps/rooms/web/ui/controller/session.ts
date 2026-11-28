@@ -90,6 +90,7 @@ export interface RoomsConversationController {
 	setStanding(standing: string): Promise<void>;
 	setDirStanding(dir: DirId, standing: string | null): Promise<void>;
 	setRoomProfile(key: string, kind: ProfileKind, about: string): Promise<void>;
+	setRoomAudience(key: string, names: readonly string[]): Promise<void>;
 	setRoomStanding(key: string, standing: string | null): Promise<void>;
 }
 

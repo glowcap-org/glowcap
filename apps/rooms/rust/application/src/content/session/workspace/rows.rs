@@ -69,6 +69,8 @@ pub struct Room {
 	pub reconnect: Reconnect,
 	#[serde(default, skip_serializing_if = "crate::room::profile::MemberProfile::is_empty")]
 	pub profile: crate::room::profile::MemberProfile,
+	#[serde(default, skip_serializing_if = "crate::room::audience::Audience::is_empty")]
+	pub audience: crate::room::audience::Audience,
 	pub standing: Option<Standing>,
 	pub draft: Field,
 }

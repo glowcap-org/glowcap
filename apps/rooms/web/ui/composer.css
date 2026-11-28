@@ -302,3 +302,54 @@
 	min-width: 0;
 	overflow-wrap: anywhere;
 }
+
+.room-audience > button {
+	display: inline-flex;
+	align-items: baseline;
+	gap: .4em;
+	max-width: 100%;
+	min-height: 2.75rem;
+	padding: .2em .5em;
+	font: inherit;
+	color: inherit;
+	background: transparent;
+	border: 0;
+	border-radius: .4em;
+	cursor: pointer;
+}
+.room-audience > button > bdi {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-weight: 600;
+}
+.audience-choices {
+	border: 0;
+	padding: 0;
+	margin: 1em 0;
+}
+.audience-choices label {
+	display: flex;
+	align-items: center;
+	gap: .65em;
+	min-height: 2.75rem;
+	cursor: pointer;
+}
+.audience-members {
+	max-height: min(32dvh, 18rem);
+	overflow-y: auto;
+	overscroll-behavior: contain;
+}
+
+.audience-person {
+	display: grid;
+	min-width: 0;
+	overflow-wrap: anywhere;
+}
+.audience-person small {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0 .5em;
+	color: var(--ink-soft);
+	font-size: var(--type-caption);
+}
