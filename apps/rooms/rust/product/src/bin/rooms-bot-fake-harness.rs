@@ -49,6 +49,7 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::{
 	io::{Read, Write},
+	path::Path,
 	process::{Command, Stdio},
 	sync::atomic::{AtomicU32, Ordering},
 	time::Duration,
@@ -224,11 +225,13 @@ fn act(array: &str, prompt: Option<&str>) -> String {
 			}
 			match Command::new(&bot).arg("control").arg(request.to_string()).output() {
 				Ok(output) => {
-					// Both streams are saved for a test to scan, since a real agent
-					// reads them both.
+					// Tests read each stream as soon as its path appears.
 					for (stream, bytes) in [("out", &output.stdout), ("err", &output.stderr)] {
-						if let Err(error) = std::fs::write(format!("act-{at}.{stream}"), bytes) {
-							fail("cannot save an action's output", error);
+						let name = format!("act-{at}.{stream}");
+						if let Err(error) =
+							rooms_platform::storage::atomic::replace_at(Path::new("."), &name, [bytes.as_slice()])
+						{
+							fail("cannot save an action's output", format_args!("{error:?}"));
 						}
 					}
 					format!("exit={}", output.status.code().unwrap_or(-1))
