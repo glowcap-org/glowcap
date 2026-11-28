@@ -112,6 +112,7 @@ command. [Bend proofs](../test/README.md#bend-proofs)
 | [`require_main_check.py`](require_main_check.py) | Whether a commit is on `main` with a successful full `check` run, and with `--tip` whether it is still `main`'s tip | Host, pages and release jobs, and the release tag front |
 | [`github_release.py`](github_release.py) | The GitHub release: the tree's, a tag's, or the newest release's version, then assemble the archives, verify attestations, fill the draft, publish | Host, release, publish, and validate-release jobs |
 | [`release_build.py`](release_build.py) | One release host's archives built on the runner: the browser compiler, the C SDK and product archives, the browser bundle | Host, release `archives` job |
+| [`release_signature.py`](release_signature.py) | Verifies the signed tag's name and direct commit against an administrator's public GitHub SSH signing keys | Imported by the release front and workflows |
 | [`release_version.py`](release_version.py) | The release version format every release program accepts: 0.x.y, tagged v0.x.y | Imported |
 | [`release_notes.py`](release_notes.py) | The release page, from the assembled facts and the changelog | Host, release job |
 | [`release_image.py`](release_image.py) | The Rooms image: each platform's exact image built from the verified product and exercised, then published with the versioned index | Host, images and release jobs |

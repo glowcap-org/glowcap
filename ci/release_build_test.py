@@ -33,7 +33,10 @@ class ReleaseBuild(unittest.TestCase):
     def test_a_tag_push_releases_and_a_dispatch_only_rehearses(self):
         release = RELEASE["release"]
         self.assertEqual(release["needs"], ["contract", "archives", "images"])
+        signature = step(RELEASE["contract"], "Verify the pushed tag's signature and commit")
+        self.assertEqual(signature["run"], 'python3 ci/github_release.py verify-tag "$GITHUB_REF_NAME"')
         guarded = [
+            signature,
             release,
             step(RELEASE["archives"], "Attest the archives' build provenance"),
             step(RELEASE["contract"], "Require the tag of this version"),

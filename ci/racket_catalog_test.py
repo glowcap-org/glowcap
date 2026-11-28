@@ -82,6 +82,19 @@ class PublishTest(unittest.TestCase):
         self.assertIn(f"already names {SOURCE}", out)
         self.assertEqual(catalog.fetched, [f"{SOURCE}.CHECKSUM", program.CATALOG])
 
+    def test_a_newer_release_in_the_catalog_is_never_replaced(self):
+        for tag in ("v0.2.10", "v0.12.0"):
+            catalog = Catalog([{"source": program.package_source(SLUG, tag), "checksum": "b" * 40}])
+            with self.subTest(tag), self.assertRaisesRegex(program.Refused, "already serves newer release"):
+                publish(catalog)
+            self.assertEqual(catalog.posts, [])
+
+    def test_an_older_release_archive_is_updated(self):
+        catalog = Catalog([{"source": program.package_source(SLUG, "v0.1.10"), "checksum": "b" * 40}, CURRENT])
+        publish(catalog)
+        self.assertEqual(len(catalog.posts), 1)
+        self.assertEqual(catalog.posts[0][1]["source"], SOURCE)
+
     def test_a_missing_package_is_created_and_awaited(self):
         catalog = Catalog([None, None, CURRENT])
         out = publish(catalog)

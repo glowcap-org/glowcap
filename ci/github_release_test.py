@@ -169,7 +169,7 @@ class Assemble(unittest.TestCase):
             (binding / "info.rkt").write_text("uncommitted change")
             (root / "artifacts").mkdir()
             (root / "ci").mkdir()
-            for program in (SCRIPT, SCRIPT.with_name("release_version.py")):
+            for program in (SCRIPT, SCRIPT.with_name("release_version.py"), SCRIPT.with_name("release_signature.py")):
                 shutil.copyfile(program, root / "ci" / program.name)
             script = run(jobs(".github/workflows/release.yml")["release"], "Package the Racket binding")
             subprocess.run(
@@ -448,7 +448,11 @@ class Published(unittest.TestCase):
         assets = [{"name": name, "state": "uploaded"} for name in RELEASE.inventory(TAG)]
         return {
             f"git/ref/tags/{TAG}": {"object": {"type": "tag", "sha": "c" * 40}},
-            "git/tags/" + "c" * 40: {"verification": {"verified": True}, "object": {"type": "commit", "sha": COMMIT}},
+            "git/tags/" + "c" * 40: {
+                "tag": TAG,
+                "verification": {"verified": True, "payload": "tag payload", "signature": "ssh signature"},
+                "object": {"type": "commit", "sha": COMMIT},
+            },
             f"releases/tags/{TAG}": {"draft": False, "tag_name": TAG, "assets": assets},
             **changes,
         }
@@ -461,14 +465,46 @@ class Published(unittest.TestCase):
 
         with (
             mock.patch.object(RELEASE, "api", side_effect=lookup),
+            mock.patch.object(RELEASE.release_signature, "tagger_login", return_value="release-admin"),
+            mock.patch.object(RELEASE.release_signature, "verify") as verify,
             mock.patch.object(RELEASE.subprocess, "run", side_effect=main_check) as run,
         ):
-            return RELEASE.published(REPOSITORY, TAG), run
+            commit = RELEASE.published(REPOSITORY, TAG)
+            verify.assert_called_once_with(REPOSITORY, "release-admin", TAG, COMMIT, b"tag payload", b"ssh signature")
+            return commit, run
 
     def test_a_signed_tag_on_checked_main_with_the_exact_public_assets_is_accepted(self):
         commit, run = self.check(self.answers())
         self.assertEqual(commit, COMMIT)
         self.assertEqual(run.call_args[0][0][1:], ["ci/require_main_check.py", COMMIT])
+
+    def test_tag_preflight_binds_the_signature_to_this_tag_checkout_and_push(self):
+        answers = self.answers()
+        ref = answers[f"git/ref/tags/{TAG}"]["object"]
+        signed = answers[f"git/tags/{ref['sha']}"]
+        for label, ref_object, tag_object, checkout, push in [
+            ("valid", ref, signed, COMMIT, COMMIT),
+            ("lightweight", {"type": "commit", "sha": COMMIT}, {}, COMMIT, COMMIT),
+            ("unsigned", ref, {**signed, "verification": {"verified": False}}, COMMIT, COMMIT),
+            ("different signed name", ref, {**signed, "tag": "v0.1.1"}, COMMIT, COMMIT),
+            ("indirect target", ref, {**signed, "object": {"type": "tag", "sha": COMMIT}}, COMMIT, COMMIT),
+            ("wrong checkout", ref, signed, "b" * 40, COMMIT),
+            ("wrong push", ref, signed, COMMIT, "b" * 40),
+        ]:
+            with (
+                self.subTest(label),
+                mock.patch.object(RELEASE.release_signature, "tagger_login", return_value="release-admin"),
+                mock.patch.object(RELEASE.release_signature, "verify"),
+                mock.patch.object(RELEASE, "api", side_effect=[{"object": ref_object}, tag_object]),
+                mock.patch.object(RELEASE.subprocess, "check_output", return_value=checkout + "\n") as git,
+                mock.patch.object(RELEASE.subprocess, "run", side_effect=AssertionError("unexpected publication")),
+            ):
+                if label == "valid":
+                    self.assertIn(COMMIT, run_main("verify-tag", TAG, GITHUB_SHA=push))
+                    self.assertEqual(git.call_args.args[0], ["git", "rev-parse", "HEAD"])
+                else:
+                    with self.assertRaises(ValueError):
+                        run_main("verify-tag", TAG, GITHUB_SHA=push)
 
     def test_each_departure_from_a_signed_checked_public_release_is_refused(self):
         release = self.answers()[f"releases/tags/{TAG}"]

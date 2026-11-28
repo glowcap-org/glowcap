@@ -38,6 +38,8 @@ gh, GH_TOKEN, GITHUB_REPOSITORY, and GITHUB_RUN_ID in the environment:
   version --newest        reads the version of the repository's newest published release
                           instead, for validate-release.yml. Both forms write
                           version to GITHUB_OUTPUT.
+  verify-tag TAG          requires the signed tag to name the pushed version and
+                          target the exact checkout and workflow commit.
   published TAG           is publish.yml's contract: the signed annotated tag
                           names a commit that passed full validation on main,
                           and its public release holds every asset. Writes
@@ -62,6 +64,7 @@ import time
 import zipfile
 from pathlib import Path, PurePosixPath
 
+import release_signature
 import release_version
 
 TARGETS = ("aarch64-macos", "x86_64-macos", "aarch64-linux", "x86_64-linux")
@@ -438,7 +441,12 @@ def signed_commit(repository, tag):
         signed["verification"]["verified"] is True and signed["object"]["type"] == "commit",
         "tag signature is unverified or tag does not point directly to a commit",
     )
-    return signed["object"]["sha"]
+    require(signed["tag"] == tag, f"the signed tag names {signed['tag']} instead of {tag}")
+    commit = signed["object"]["sha"]
+    login = release_signature.tagger_login(repository, ref["sha"])
+    proof = signed["verification"]
+    release_signature.verify(repository, login, tag, commit, proof["payload"].encode(), proof["signature"].encode())
+    return commit
 
 
 def published(repository, tag):
@@ -477,11 +485,14 @@ def tree_version(tag=None):
 
 
 def newest_version(repository):
-    """The version of the newest release GitHub lists for the repository."""
-    command = ["gh", "release", "list", "--repo", repository, "--exclude-drafts", "--limit", "1", "--json", "tagName"]
-    listed = json.loads(subprocess.check_output(command, timeout=60))
-    require(isinstance(listed, list) and len(listed) == 1, "the repository lists no release")
-    return version_of(listed[0].get("tagName"))
+    """The highest supported version across all published releases, including prereleases."""
+
+    def gh(*args):
+        return subprocess.check_output(["gh", *args], text=True, timeout=60)
+
+    tag = release_version.highest_public_tag(repository, gh)
+    require(tag, "the repository lists no supported public release")
+    return tag[1:]
 
 
 def write_output(**values):
@@ -509,6 +520,7 @@ def main(argv=None):
                 "seal-prepared",
                 "verify-prepared",
                 "publish-draft",
+                "verify-tag",
                 "published",
             )
         ),
@@ -522,6 +534,14 @@ def main(argv=None):
         version = newest_version(repository) if args.newest else tree_version(tag)
         write_output(version=version)
         print(f"Version {version}" + (" of the newest release" if args.newest else " stated by the tree"))
+        return
+    if args.mode == "verify-tag":
+        commit = signed_commit(repository, tag)
+        checkout = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True, timeout=30).strip()
+        require(
+            commit == checkout == os.environ.get("GITHUB_SHA"), f"signed tag {tag} must target the workflow checkout"
+        )
+        print(f"Verified signed tag {tag} at {commit}")
         return
     if args.mode == "published":
         commit = published(repository, tag)

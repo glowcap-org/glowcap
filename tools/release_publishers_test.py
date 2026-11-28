@@ -96,7 +96,7 @@ class World:
                 return SLUG + "\n"
             case ("api", "user", *_):
                 return f"{USER}\n"
-            case ("release", "list", *_):
+            case ("api", path, "--paginate", "--jq", _) if path.endswith("/releases?per_page=100"):
                 return self.tag + "\n"
             case ("api", "-X", "PUT", path, "--input", "-"):
                 body = json.loads(input)

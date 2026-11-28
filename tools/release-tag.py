@@ -28,6 +28,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "ci"))
+import release_signature  # noqa: E402
 import release_version  # noqa: E402
 
 LOCAL_TIMEOUT = 30
@@ -143,17 +144,23 @@ def release(version):
             timeout=SIGN_TIMEOUT,
             stalled=f"signing {tag} did not finish within {SIGN_TIMEOUT} seconds; {unreachable}",
         )
-    git(
-        "verify-tag",
-        tag,
-        refusal=f"the signature on {tag} does not verify; name the key in gpg.ssh.allowedSignersFile and retry",
-        stderr=subprocess.DEVNULL,
-    )
+    oid = git("rev-parse", f"refs/tags/{tag}", refusal=f"cannot resolve {tag}").strip()
+    recovery = f"Inspect the local tag with `git show {tag}`. To re-sign, run `git tag -d {tag}` locally and retry."
+    try:
+        raw = subprocess.check_output(
+            ["git", "--no-replace-objects", "cat-file", "tag", oid], stderr=subprocess.DEVNULL, timeout=LOCAL_TIMEOUT
+        )
+    except subprocess.CalledProcessError:
+        raise Refusal(f"{tag} needs a signed annotation. {recovery}") from None
+    try:
+        release_signature.verify_local(repository, tag, commit, raw)
+    except ValueError as error:
+        raise Refusal(f"{error}. {recovery}") from None
     git(
         "push",
         "-q",
         "origin",
-        f"refs/tags/{tag}",
+        f"{oid}:refs/tags/{tag}",
         refusal=f"pushing {tag} failed; the signed tag is kept locally, retry",
         timeout=NETWORK_TIMEOUT,
         stalled=f"pushing {tag} did not finish within {NETWORK_TIMEOUT} seconds; "
@@ -172,7 +179,7 @@ def main(argv):
         if not release_version.accepted(argv[0]):
             raise Refusal(f"{argv[0]} is not a prerelease version such as 0.1.2")
         release(argv[0])
-    except Refusal as refusal:
+    except (Refusal, ValueError, OSError, subprocess.SubprocessError) as refusal:
         print(f"release-tag: {refusal}", file=sys.stderr)
         return 1
     return 0

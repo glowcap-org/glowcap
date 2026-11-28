@@ -246,15 +246,28 @@ release itself is two commands and two workflows.
    the `Unreleased` entries as the version's changelog section.
    `source-check` and the locked builds refuse a tree where one disagrees.
    Land the bump on `dev` and let promotion move `main`.
-2. Run `tools/release-tag.py <version>` on the host that
-   holds the signing key. It requires that `main` states the version, carries
-   its changelog section, has no such tag on origin, and passed full
-   validation. Then it signs `v<version>` at that commit and pushes the tag,
-   its one effect. Every refusal names what to land first.
-3. The [release workflow](../.github/workflows/release.yml) requires the
-   commit's successful validation on `main` and the version's changelog
-   section before it builds. Each host attests the build provenance of the
-   archives it builds, and each Linux host proves the Rooms image from its
+2. Run `tools/release-tag.py <version>` on the host with the signing key.
+   The helper requires a validated `main` commit that states the version and
+   carries its changelog section. It signs `v<version>` there if the tag is
+   absent on origin, reusing the local annotation after a failed push.
+
+   Before pushing, the helper verifies the signed name and commit against
+   the authenticated administrator’s GitHub signing keys. Use the account’s
+   ID-based address (`ID+USERNAME@users.noreply.github.com`) or grant `gh`
+   access to read its verified email addresses.
+
+   If verification fails, inspect the local annotation with
+   `git show v<version>`. After correcting the tagger email or signing key,
+   remove the local tag with `git tag -d v<version>` and rerun the helper.
+3. The [release workflow](../.github/workflows/release.yml) verifies the SSH
+   signature against the tagger’s registered signing keys and checks that the
+   account administers the repository. The signed name must match the pushed
+   tag and point directly to the checked-out commit. Before building, the
+   workflow verifies that commit passed validation on `main` and contains the
+   version’s changelog section.
+
+   Each host attests the build provenance of its archives, and each Linux
+   host proves the Rooms image from its
    exact product archive. One job then publishes the image by digest with its
    provenance and software bill of materials, and fills a draft release that
    becomes public only when it holds every asset and its provenance bundle
@@ -278,6 +291,12 @@ tag, because every registry step skips a version its registry already holds:
 ```sh
 gh workflow run publish.yml --ref v0.1.1 -f tag=v0.1.1
 ```
+
+The Racket catalog has one entry across releases. The publisher serializes
+catalog jobs and checks the highest published `0.x.y` version when each job starts. An
+older run skips the catalog update and catalog install. For a rerun from a
+tag that predates this guard, decline its Racket environment approval if a
+newer release is public.
 
 To rehearse the archive builds and Linux image proofs before choosing a version,
 run `gh workflow run release.yml --ref dev`. Changes can stay under
@@ -390,9 +409,8 @@ force-pushed or deleted. `main` also requires the `gates` and `macos-runtime`
 checks to have passed on the pushed commit. Only the repository's
 administrator can create a `v*` tag. A pushed tag names a signed commit and
 can neither move nor be deleted, and that ruleset has no bypass, so the
-maintainer's own push answers to it. GitHub verifies a signature only against
-a signing key on the maintainer's account, so upload the public key before
-applying the rulesets.
+maintainer's own push answers to it. Register the release key as an SSH
+signing key on the administrator's GitHub account before creating a release tag.
 
 Every commit on a pull-request branch needs a verified signature, including
 commits that will be squashed.

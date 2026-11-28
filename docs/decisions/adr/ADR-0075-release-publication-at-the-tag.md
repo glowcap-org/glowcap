@@ -22,6 +22,8 @@ The tag's commit is the only source of a version. `release.yml` publishes the Gi
 
 A binding decides whether to download from where it runs. Outside a checkout it downloads its version unless `GLOWCAP_SKIP_DOWNLOAD` is set. Inside a checkout, found by `build.zig` beside `include/glowcap_ocapn.h`, it uses `zig-out` and downloads only with `GLOWCAP_DOWNLOAD`. The contract carries no publication switch. `source-check` holds every package manifest to the one `abi_version` in `build.zig`, so a bump that misses a manifest fails before it is tagged.
 
+The tag's SSH signature must verify against a signing key on the tagger's GitHub account, and that account must hold repository administrator access. The release front verifies this before pushing. The release and registry workflows repeat the check against the hosted tag object. A retry after a key rotation requires a signing key that still appears on the administrator's account.
+
 ## Alternatives and consequences
 
 A consumer-availability switch in the contract was rejected because it cannot be true at the commit that produces the release, so it splits one version across two commits. Publishing packages from `release.yml` itself was rejected because a registry step that fails would block the GitHub release, and a package should be installable only after the archives it downloads exist. Publishing by hand from a maintainer's machine was rejected because it loses the trusted-publisher provenance and the commit identity.

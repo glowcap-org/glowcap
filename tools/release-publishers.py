@@ -64,6 +64,7 @@ FIRST_PUBLISH_VARIABLE = "CARGO_REGISTRY_TOKEN"
 # directory joins the import path.
 sys.path.insert(0, str(ROOT / "ci"))
 import racket_catalog as catalog  # noqa: E402
+import release_version  # noqa: E402
 
 RACKET_SECRETS = (catalog.EMAIL, catalog.PASSWORD)
 STAGES = ("github", "jsr", "pypi", "crates-io", "racket")
@@ -247,13 +248,7 @@ class Context:
 
     def tag(self):
         """The newest published release tag, or '' before the first release."""
-        tag = self.remember(
-            "tag",
-            lambda: gh(
-                "release", "list", "--exclude-drafts", "--limit", "1", "--json", "tagName", "--jq", ".[0].tagName"
-            ).strip(),
-        )
-        return "" if tag == "null" else tag
+        return self.remember("tag", lambda: release_version.highest_public_tag(self.slug(), gh))
 
 
 # Stage 1: the GitHub environments.
