@@ -3,8 +3,8 @@
 //!
 //! The alloc-budget test gates per-turn allocation count (`== 1`). This bench
 //! reports ns/op and MB/s as visible numbers, not gated thresholds. Under
-//! `zig build check` it runs in Debug, read the printed `mode=` field and compare
-//! relative regressions, or run with `-Doptimize=fast` for absolute figures.
+//! `zig build check` it runs a smaller Debug workload with `--smoke`. Read the
+//! printed `mode=` field, or run with `-Doptimize=fast` for absolute figures.
 //!
 //! Timing uses `std.Io`'s monotonic clock (`.awake`) in the harness only.
 //! Each reported duration is the median of repeated batches of the same work.
@@ -236,15 +236,20 @@ fn report(op: []const u8, codec_id: model.CodecId, call: []const u8, iters: usiz
     );
 }
 
-pub fn main() !void {
+pub fn main(init: std.process.Init) !void {
+    var smoke = false;
+    var args = std.process.Args.Iterator.init(init.minimal.args);
+    _ = args.next();
+    while (args.next()) |arg| {
+        if (!std.mem.eql(u8, arg, "--smoke")) return error.UnknownArgument;
+        smoke = true;
+    }
     const allocator = std.heap.smp_allocator;
-    var threaded = std.Io.Threaded.init(allocator, .{});
-    defer threaded.deinit();
-    const io = threaded.io();
+    const io = init.io;
 
     const message = benchMessage();
 
-    const codec_iters: usize = 200_000;
+    const codec_iters: usize = if (smoke) 200_000 / timing_samples else 200_000;
     for ([_]model.CodecId{ .syrup, .capnp }) |codec_id| {
         try benchEncode(io, allocator, codec_id, "greet", message, codec_iters);
         try benchDecode(io, allocator, codec_id, "greet", message, codec_iters);
