@@ -281,7 +281,8 @@ pub const Event = struct {
     /// Admission validated every view in this frame. Revisit the same
     /// immutable descriptors on disposal, using the admission stamp to skip
     /// projections minted since then at positions the frame never held.
-    pub fn holdProjectedActors(self: *Event, custody: ?*ActorCustody) void {
+    /// Inline the guard so a peer without projections makes no custody call.
+    pub inline fn holdProjectedActors(self: *Event, custody: ?*ActorCustody) void {
         const link = custody orelse return;
         const state = link.state.?;
         if (state.exports.projected_count == 0) return;

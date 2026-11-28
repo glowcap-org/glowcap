@@ -111,7 +111,7 @@ pub const transferInlinePassableStaging = budget.transferInline;
 /// Preflight storage once for a multi-carrier authority transaction. The first
 /// actual reservation performs admission, so an empty upper bound is inert.
 pub fn beginPendingBatch(self: *Peer, max_items: usize) !PendingBatch {
-    try ensurePendingCapacity(self, max_items);
+    if (max_items != 0) try ensurePendingCapacity(self, max_items);
     return .{ .peer = self };
 }
 

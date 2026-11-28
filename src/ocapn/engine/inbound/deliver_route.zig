@@ -112,11 +112,11 @@ pub fn classify(
     // A resolver the partner never received, or has released, is no callback
     // target: a purpose exists from the nomination, before the message that
     // shares it goes out, and a retired row keeps its tombstone only while
-    // the partner's mention stands. Reading the purpose only for a wire-held
-    // export leaves the rest to the ordinary validation below, which refuses
-    // an unheld near reference as it does for any export.
+    // the partner's mention stands. A callback purpose must also be wire-held
+    // before use. Other targets reach ordinary validation below, which checks
+    // their wire hold once and preserves the reserved bootstrap exception.
     if (deliver.target.exportPosition()) |position| {
-        if (peer.session_state.exports.wireHeld(position) != 0) if (peer.session_state.resolverPurpose(position)) |purpose| if (purpose.isCallback()) {
+        if (peer.session_state.resolverPurpose(position)) |purpose| if (purpose.isCallback() and peer.session_state.exports.wireHeld(position) != 0) {
             try validateResolverCallbackEnvelope(deliver);
             switch (purpose) {
                 .forwarding => {
